@@ -53189,3 +53189,86 @@ signature directly: **mint 100× more and the loss must not grow.** Measured 50k
 500k → 345.2e9, 5m → 305.6e9 — a 100× mint gives a **smaller** loss, which is integer rounding and
 cannot be dilution.
 
+## §SESS-31 — 🔴 **THE SHORTFALL IS NOT A LOSS. IT IS OUR OWN FORWARD-MINTED YIELD VESTING ON A CLOCK.** (2026-09-06)
+
+**Owner:** *"entry at the mark?? why should there be a shortfall at all?"* ⇒ **Correct to reject the
+premise. §SESS-30 answered a question that should not have been asked in that form.**
+
+### 📊 MEASURED — NOTHING WAS LOST
+`_openShortfall()` does not manufacture a loss. It mints **$100,000 at `when = 13`** (a 13-month forward
+tranche) and warps 500 days. Traced:
+| | |
+|---|---|
+| mint $100,000 at `when=13` issues | **208,333.33 QU!D** ⇒ a forward bonus of **108,333.33 on a $100,000 deposit** |
+| mark BEFORE the warp | **1.000000** — the bonus is IMMATURE, so `matureSupply` excludes it |
+| warp 500 days: **solvent grows by** | **ZERO** |
+| `matureSupply` grows | 0 → **1,360,333.33** (all of it, including the bonus) |
+| mark AFTER | **0.920362738446759367** |
+⇒ **No depeg, no bad debt, no IL, no illiquidity haircut. The entire 8% "shortfall" is promised yield
+that VESTED WHILE THE ASSETS EARNED NOTHING.**
+
+### 🔑 SO THE REAL DEFECT IS THE VESTING TRIGGER, NOT THE ENTRY PRICE
+§E2-dayone already found the protective half: *"B's 208,333 is IMMATURE, and `matureSupply` excludes it,
+so the mark is capped at par ⇒ the over-mint is real; it is simply **JUNIOR**, and does not touch a mature
+holder."* ✅ True — **and the measurement above shows that protection EXPIRES ON A CLOCK.** Unearned yield
+becomes SENIOR after 13 months whether or not a single dollar was earned.
+⇒ **The question is not "who eats the shortfall at entry."** It is: **why does unearned yield ever become
+senior?** A forward claim that matures on time rather than on earnings converts a *projection* into a
+*liability against other holders* — and the entry-policy debate (§SESS-30's A vs B) is entirely
+downstream of it. **Fix the trigger and there is no shortfall for an entrant to eat or fund.**
+
+### ▶️ THE RULING THIS REPLACES §SESS-30's WITH
+> **Should a forward-yield tranche vest on TIME, or on the yield having been EARNED?**
+- **On earnings** (claim matures as backing arrives): the mark cannot fall below par from issuance alone;
+  §SESS-30's A/B **dissolves**; the forward bonus stays junior exactly as long as it is unfunded.
+- **On time** (today): the protocol writes a cheque the basket may not have earned, and it becomes senior
+  on schedule. Every later depositor then meets a basket that is short **for a reason that has nothing to
+  do with performance.**
+⚠️ **DO NOT PATCH THE VESTING CLOCK WITHOUT THE RULING** — it is a money-path change to an issued claim,
+and holders have already been minted against the current rule. ⚠️ **And the 108% bonus figure is the
+FIXTURE's rate, not necessarily production's** — the STRUCTURE is the finding (solvent +0 while mature
+supply +everything), not the magnitude. **Re-measure the live rate before sizing anything.**
+📌 §SESS-30's escalation stands as written but is **subordinate to this one**: rule here first.
+
+## §SESS-32 — **THE 1inch SURFACE, ENUMERATED FROM THE DEPLOYED ROUTER. WE USE 2 OF 3 SAFE ENTRYPOINTS.** (2026-09-06)
+
+**Owner:** *"how do we know we are building any of this 1inch scope correctly … to the fullest flexibility
+of what is possible with 1inch, with no extractive arb or anything of this nature possible?"*
+⇒ **Answered by reading the deployed bytecode, not the docs** (`0x1111111254…`, 24,294 bytes, 131
+candidate selectors resolved).
+
+### 🔴 THE GAP: `unoswap3` EXISTS, IS AMOUNT-FREE, AND IS NOT IMPORTED
+| entrypoint | selector | amount at runtime? | we use it |
+|---|---|---|---|
+| `unoswap` | `0x83800a8e` | ✅ | ✅ |
+| `unoswap2` | `0x8770ba91` | ✅ | ✅ |
+| **`unoswap3(uint256 x6)`** | **`0x19367472`** | **✅** | 🔴 **NO** |
+| `swap(address,(…),bytes)` | `0x07ed2379` | ⛔ executor payload | 🔴 no builder |
+| `fillContractOrderArgs(…)` | `0x56a75868` | limit-order protocol | 🔴 no |
+⭐ **`unoswap3` IS THE CHEAPEST REACH WE ARE LEAVING ON THE TABLE: THREE HOPS WITH ZERO NEW SECURITY
+SURFACE.** It takes the amount as a runtime argument exactly as `unoswap`/`unoswap2` do, so every property
+that makes the pool-word arm safe carries over unchanged — contract owns `tokenIn`/`amountIn`/floor/callee,
+keeper names pools only, directions derived. **It is a constant, an encoder branch and a test.**
+📌 And `fillContractOrderArgs` is the interesting one for the owner's second clause: a **limit order makes
+US the maker**, naming the price rather than accepting a route's outcome — the structural answer to
+extraction rather than a bound on it. **Unscoped; noted because it is the only surface here that changes
+the game rather than the odds.**
+
+### ⇒ WHERE EXTRACTION ACTUALLY STANDS, HONESTLY
+| channel | status |
+|---|---|
+| pick callee / function | ⛔ **impossible** — pinned constant + pinned selector |
+| pick token / amount | ⛔ **impossible** — contract-derived, pro-rata draw |
+| take a leg, deliver nothing | ⛔ **unconstructible** (§SESS-22) |
+| deliver exactly the floor, keep the rest | 🟡 **OPEN on the volatile leg** |
+| refuse to route | 🟡 liveness only — degrades to the pool-word arm |
+🔴 **THE ONE LIVE EXTRACTION CHANNEL IS THE VOLATILE LEG'S FLOOR, AND IT IS OPEN FOR A STRUCTURAL REASON.**
+§SESS-23's competitive floor covers **6 of 14 stables** and **nothing on stable↔WETH**, because the
+self-servable venues were deliberately deleted (§C2.1 removed `_poolSwap`; V3 is gone) — **there is
+nothing on-chain to quote against.** So that leg still carries the full `_slipBps` slack, **25–100 bps
+against a 1.7–8 bps measured route cost.** ⇒ **a compromised keeper can still take up to that spread on
+stable↔WETH, and no amount of 1inch surface fixes it** — it needs a quotable reference, which is a
+different decision (re-add a quote-only venue, or accept the guessed constant there).
+⚠️ **This is the honest answer to "no extractive arb possible": custody is closed, price is not — on one
+leg, by ~25–100 bps, for a reason that predates the 1inch work.**
+
