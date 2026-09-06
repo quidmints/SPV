@@ -382,6 +382,27 @@ if I were wrong?" before reading any compiler error as a code defect in a tree y
 below: on a CLEAN log it exits non-zero, so the harness reports the whole command as failed while the
 build was green. **Read the captured count, never the pipeline's exit code.**
 
+### 🔴 SUBAGENTS MUST BE READ-ONLY HERE, AND THE REASON IS THE MACHINE, NOT TASTE
+
+**Fan-out is the right instinct for a 400-item census and the wrong one for anything that compiles.**
+Two limits, both hit in this tree on 2026-09-06:
+1. **A SECOND BUILD OOMs THE BOX.** `forge build` plus its `solc` children is already most of the
+   RAM here; a concurrent one gets **killed at exit 137**, which reads like a crash and is not.
+   This file already says *"run ONE build at a time"* — **N agents make that N times easier to
+   break, and none of them can see the others.**
+2. ⚠️ **CONTENTION CORRUPTS THE MEASUREMENT EVEN WHEN NOTHING DIES.** The same lane, compiling
+   **zero files**, took `No files changed` once and **2m22s** the next time purely because other
+   builds were running. **A number taken while agents are fanned out is a number about the load.**
+
+⇒ **GIVE SUBAGENTS: greps, file reads, `git log`/`show`, classification, census work.**
+⇒ **NEVER GIVE THEM: `forge build`/`test`, `cargo build/test`, or any git WRITE.** State it in the
+prompt as a hard constraint — an agent that does not know another is building has no way to infer it.
+📌 **And a fan-out is only safe because the work is read-only, not because it is small:** six agents
+each grepping `evm/src` cost nothing, while six agents each building would take the machine down.
+**Partition on what the work TOUCHES, exactly as §LANES partitions on collision domain.**
+⚠️ **The parent writes.** Agents return findings; one process folds them into a file. That keeps
+rule 14 satisfiable — nobody can stage over anybody, because only one process stages at all.
+
 ### ⭐ A COMMENT-ONLY EDIT NEEDS NO TEST RUN AT ALL — CONFIG-VERIFIED, NOT ASSUMED
 
 **`evm/foundry.toml` sets `bytecode_hash = "none"` and `cbor_metadata = false`** (`:51`, `:53`), so
