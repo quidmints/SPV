@@ -132,3 +132,58 @@ make the leg FAIL. That deletes `_routeOf`, `_hubSwap`, `_routableStable`, `NoSt
 ⚠️ **ONE BLOCKER TO SETTLE FIRST: `consolidate` (`LevMath:1558`) reads `_routableStable`/`_hubSwap` and
 takes NO keeper input**, so the table cannot be deleted until `consolidate` either receives hop words
 or derives them. **That is the next question, and it is a design question, not a coding one.**
+
+---
+
+## ✅ §SESS-51 — **THE TABLE IS DELETED. AND THE FIRST VERSION OF THIS WAS 4.7× TOO BIG.**
+
+Owner, mid-implementation: *"are you sure all this code is actually needed?"* — **no, and the
+measurement said so before the question did.** Recording both versions, because the delta is the lesson.
+
+| | `LevMath` | margin |
+|---|---|---|
+| §SESS-50 only | 23,839 | 737 |
+| §SESS-51, **first attempt** | 24,301 | **275** |
+| §SESS-51, **landed** | 23,936 | 640 |
+
+🔴 **THE FIRST ATTEMPT SPENT 462 BYTES ON THE SECOND-TIGHTEST CONTRACT TO RELOCATE A TWO-ROW
+`if`-CHAIN**, and seeded it with exactly the old two rows so nothing behaved differently. Standing
+rule 18: *"best means the smallest change that removes the CAUSE, not the largest change that touches
+the most code"* — and the cost was sitting in the size table the whole time, unread.
+
+▶️ **WHAT WAS UNNECESSARY, PRECISELY: a `PROTO_CURVE` dispatch**, added so a roster word could be
+either protocol. **A UniV3 hub hop already has a path — the keeper's `dex2`** — so the roster only ever
+needs to express what the deleted table expressed: Curve. Dropping the dispatch returned **365 bytes**,
+and the protocol tag then had no reader at all and went too (standing rule 1). **Final cost: 97 bytes.**
+⇒ the generality I was buying was already in the system, one parameter over. **That is the shape to
+look for: not "is this code good", but "is this capability already reachable another way".**
+
+### 📌 THE FIX THAT LANDED
+`Aux.hubHopOf` (owner-set, `j | i | pool`) replaces `LevMath._routeOf`. `_routeOf` was never a routing
+table — it was **metadata about the stable roster shadowed into the wrong contract**; `Aux` already
+owns `stables`, `stableFeed` and `vaultOf`. `_hubHop` also carries `minOut`, which `_hubSwap` did not
+(it called `exchange(i, j, amt, 0)`, a `min_dy` of zero this file's own docblock flags as a hazard).
+⚠️ **OWNER-SET, NOT CALLER-SUPPLIED, AND THAT IS THE SECURITY HALF.** `protectFromQuid` is
+permissionless and consolidation runs at a flat 100 bps `CONSOL_SLIP_BPS`. Caller-named pools would
+hand an arbitrary address the **SELECTION** of every venue — the floor bounds the loss, never the
+choice, and the choice is the takeable part.
+⚠️ **`_quoteOf` STAYS COMPILE-TIME:** a floor whose reference is settable by the same key that sets the
+route is not a floor. Governance may re-point where we TRADE and still cannot re-point what we ACCEPT.
+
+### 🔴 AND THE FIXTURE TRAP FIRED, EXACTLY AS RULE 21 DESCRIBES
+Seeding went into `DeployL1_s` first. **The fixture does not run it — and 107 tests passed while RLUSD
+and PYUSD silently lost their routes.** Only the five new tests written for this change caught it. The
+seeding now lives in `DeployLib`, shared VERBATIM by production and `AllesFixture`, so the fixture
+models the tree **by construction** instead of by remembering to.
+📌 Two more traps hit on the way, both already in CLAUDE.md and both re-earned: **naming a natspec
+parameter tag inside a comment MAKES it one** (the note explaining solc 6546 reproduced solc 6546), and
+**`vm.expectRevert` cannot bind to an inlined `internal` library call** — the test needed a real
+external frame.
+
+### ⛔ STILL OWED
+1. **`test_E2_IncumbentLossDoesNotScaleWithTheMint`** failed in the §SESS-50 full run (1091/1) and was
+   NOT in the prior baseline. **Unattributed** — two control attempts were wasted on build errors. It
+   must be run at HEAD before this is called clean.
+2. **A clean full-suite number.** The §SESS-51 targeted run compiled another thread's uncommitted
+   `Core`/`Quid`/`FeeLib` work, so 112/0 is not a measurement of this change alone.
+3. **§SESS-49** (planner never quotes the 2-hop when a direct pool exists, ~23 bps at $1M) — still unbuilt.
