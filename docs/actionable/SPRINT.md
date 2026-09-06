@@ -54143,3 +54143,53 @@ moved, and nothing failed until the world did. The 🔴 row in §SESS-43 describ
 **unchanged in substance and wrong in its numbers**; re-read it against a fresh measurement before
 quoting the 2-bps/31-bps shortfalls.
 
+
+## §SESS-COMMENTS — **THE PASS THAT TREATS PROSE AS CODE, AND THE THREE FINDINGS IT TURNED UP.** (2026-09-06)
+
+Owner ruling, twice: *"we dont need tombstones. genuinely useless comments have to go"*, then
+*"dont just look if they reference dead symbols. they might describe logic that no longer exists"*.
+The discriminator and the second detector are now **CLAUDE.md rule 19**; this row is the ledger.
+
+⚠️ **THE CHEAP DETECTOR FINDS THE EASY HALF AND MISSES THE DANGEROUS ONE.** A census of comments
+naming a symbol with zero code occurrences in BOTH trees (comments stripped, so a declaration would
+have counted) returned 623 sites over 132 files. Useful — but the three worst things found in the
+pass so far were invisible to it, because every identifier in them resolves:
+
+🔴 **1. `BasketLib._depegLoss` CARRIED THREE STACKED `@notice` BLOCKS, TWO OF THEM ORPHANS.** The
+FIRST one — the one a reader takes as authoritative — describes an ETH→stable redemption fallback
+that *"opens a V4 unlock that the host's `unlockCallback` recognizes"* against *"the canonical V4
+ETH/USDC pool"*. **Measured: `unlockCallback`, `.unlock(`, `IPoolManager` and `PoolKey` have ZERO
+occurrences in any `evm/src` code.** The second orphan claims a return of `ethPart+price`;
+`_depegLoss()` returns `uint loss`. ✅ Deleted, `04d8276c`.
+
+🔴 **2. `ChannelLib.lpEthOf(bytes)` WAS DOCUMENTED AS THE REKEY GATE.** A 14-line docblock headed
+*"(§E182) THE REKEY GATE — decides WHO may rotate a channel's hop key and TO WHAT"* sat on a
+one-line pure function that derives an address from a pubkey, and documented `keysHash`/`lpEth`
+parameters it does not take. ✅ Rewritten, `add2a8af`.
+
+🔴 **3. `OracleLib.oneInchRateWad` POINTED AT A CROSS-CHECKER THAT WAS NEVER WRITTEN.** Its ⚠️ note
+said to use it as *"the independent observation `requireAgrees` cross-checks (see that function)"*.
+`requireAgrees` does not exist anywhere in `evm/src`, and `oneInchRateWad` itself has **zero
+callers — only its declaration**. ✅ Rewritten `adf6a694`, then corrected again in `4d5755cf`:
+the first rewrite stated the zero-caller fact WITHOUT the protection, which is exactly the sentence
+**§V-DOLLARS** warns invites an "unwired code gets deleted" sweep. The note now carries the reason
+the gap is preserved.
+
+📌 **OPEN — TEST PROSE CARRIES THE SAME FALSEHOOD, AND ASSERTION MESSAGES ARE CODE.**
+`evm/test/VBtcLevFeeLane.t.sol:1002/1014/1017` assert with messages saying *"rangeBTC counts the
+leveraged book's net-equity"*. It does not: `Aux.rangeBTC` is a plain accumulator bumped only by
+donations and swap deltas, and `Vault.sol`'s own `ILevEquity` note says it is never credited
+net-equity (found and fixed on the Vault side in `20bef838`). ⚠️ **NOT done in the comment pass on
+purpose** — an assertion message is a string literal, i.e. a CODE change, and the comment pass is
+gated on "no changed line is code". Whoever takes it should also re-read the assertions themselves,
+not just their messages: a message that describes the wrong invariant is weak evidence that the
+assertion checks the right one.
+
+⛔ **DO NOT RUN A BUILD OR A TEST TO CLOSE A COMMENT-PASS ROW.** `foundry.toml` sets
+`bytecode_hash = "none"` and `cbor_metadata = false`, so a comments-only edit is byte-identical.
+The gate is: the changed-lines diff contains no code line, and the file's brace count equals HEAD's.
+
+⛔ **`evm/src/identity/` IS OUT OF SCOPE.** It is a vendored fork (Apache-2.0, own LICENSE and
+`HOLDER-FORK.md`), and its "dead symbols" (`register_identity`, `icao_root`, `sk_identity`) are
+CIRCUIT SIGNAL names, not deleted Solidity. Editing its comments buys nothing and costs merge
+friction with upstream.
