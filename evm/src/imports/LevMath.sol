@@ -526,6 +526,36 @@ library LevMath {
     uint256 internal constant SLIP_BASE_BPS      = 25;   // small-trade floor
     uint256 internal constant SLIP_PER_MM_BPS    = 25;   // added per $1M of notional
 
+    /// @notice §SESS-44 — **THE ONE FLOOR FORMULA.** Three sites computed the identical expression
+    ///         three different ways; this is that expression, once.
+    /// ⛔ **`slipBps` IS A PARAMETER ON PURPOSE — THE DEDUP IS OF THE FORMULA, NOT OF THE BUDGET.**
+    ///    The three sites carry three DIFFERENT budgets (`_slipBps` on the open leg, `_slipBps` on the
+    ///    close leg, a flat `CONSOL_SLIP_BPS` on consolidation). Collapsing those too would change
+    ///    behaviour on every path at once — §SIZE-AWARE-SLIP's own warning, and exactly the false
+    ///    negative to avoid. **Passing the budget in makes the three budgets VISIBLE in one place,
+    ///    which is the precondition for deciding them, and changes nothing today.**
+    /// 🔑 **AND THE PRICE LOOKUP IS FEED-INDEPENDENT, WHICH IS WHY THE THREE HAD DIVERGED.**
+    ///    `loanPxUsd18` returns par whenever `assetPriceFeed[t] == 0`, so a floor written with
+    ///    `_fromUsd` is correct only where the feed is pinned — production pins WETH/WBTC
+    ///    (`DeployL1_s:356-357`) but `AllesFixture` does not. That is why `_stableToWethSor` reads
+    ///    `getTWAPforAsset` DIRECTLY while `_wethStableFloor` uses `_fromUsd`: the same formula written
+    ///    twice to dodge the same hazard. **Asking the oracle and falling back to par on `BadAsset()`
+    ///    is correct in BOTH environments**, so the divergence has no reason to exist any more.
+    function _pxUsd18(address aux, address t) internal view returns (uint256) {
+        try IAux(aux).getTWAPforAsset(t, TWAP_WIN_M) returns (uint256 p) {
+            if (p != 0) return p;
+        } catch {}
+        return USD_PX;                       // not oracle-priced ⇒ a dollar stable ⇒ par
+    }
+
+    /// @notice `amtIn` of `give`, valued at the oracle in `want`'s units, haircut by `slipBps`.
+    function swapFloor(address aux, address give, uint256 amtIn, address want, uint256 slipBps)
+        internal view returns (uint256) {
+        uint256 usd18 = (amtIn * _pxUsd18(aux, give)) / (10 ** IERC20Min(give).decimals());
+        uint256 raw   = (usd18 * (10 ** IERC20Min(want).decimals())) / _pxUsd18(aux, want);
+        return (raw * (10_000 - slipBps)) / 10_000;
+    }
+
     function _slipBps(uint256 usd18) internal pure returns (uint256 bps) {
         bps = SLIP_BASE_BPS + (usd18 / 1e24) * SLIP_PER_MM_BPS;   // 1e24 = $1M in USD18
         if (bps > SELL_SLIP_BPS) bps = SELL_SLIP_BPS;             // never looser than today
@@ -1016,8 +1046,10 @@ library LevMath {
     function _stableToWethSor(SellCtx memory c, address stable, uint256 stableAmt) internal returns (uint256) {
         if (stable == c.weth) return stableAmt;          // already WETH: no venue needed
         uint256 usd18_ = _toUsd18(c.aux, stable, stableAmt);
-        uint256 floor_ = (usd18_ * 1e18 / IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M))
-                         * (10_000 - _slipBps(usd18_)) / 10_000;   // size-aware, capped at the old constant
+        // §SESS-44 — ONE formula (`swapFloor`), same budget. Was an inline TWAP division here and
+        // `_fromUsd` on the close leg: the same expression written two ways to dodge the same
+        // feed-wiring hazard. `swapFloor` prices feed-independently, so both can share it.
+        uint256 floor_ = swapFloor(c.aux, stable, stableAmt, c.weth, _slipBps(usd18_));
         // ⭐ NOTE THE `floor_`: THIS SIDE BOUNDS THE SWAP, AND ITS MIRROR DID NOT. `_wethToStableDex`
         //    (the CLOSE leg) passed `0` and discarded its own `minOut` — see §MINOUT-DROPPED. The
         //    open/close asymmetry is what identified it: one direction derives an oracle floor at
@@ -1251,7 +1283,7 @@ library LevMath {
         // §SIZE-AWARE-SLIP — the CLOSE-side sibling of `_stableToWethSor`'s floor. Tightening one and
         // not the other would have left the de-lever leg on the flat 100 bps while the open leg used
         // the curve: the same round trip bounded two different ways.
-        return (_fromUsd(c.aux, stable, usd18) * (10_000 - _slipBps(usd18))) / 10_000;
+        return swapFloor(c.aux, c.weth, wethAmt, stable, _slipBps(usd18));   // §SESS-44 — ONE formula
     }
 
     /// The WETH that must remain to repay `assets` (flashed stable) at worst-case slippage — above it is skimmable headroom.
@@ -1484,7 +1516,11 @@ library LevMath {
             // Anti-MEV floor: stables are ~1:1, so expect ~the same USD out of the swap; allow CONSOL_SLIP_BPS for
             // pool fee + impact. A stable depegged below the floor can't clear either route ⇒ it refunds to the LP
             // (below) rather than swapping at a loss — fail-safe, mirroring `rebalance`'s oracle-derived `_floor`.
-            uint256 floor = _fromUsd(aux,target, _toUsd18(aux,s, bal)) * (10_000 - CONSOL_SLIP_BPS) / 10_000;
+            // §SESS-44 — ONE formula. ⚠️ **BUDGET DELIBERATELY UNCHANGED** (flat `CONSOL_SLIP_BPS`,
+            // not `_slipBps`): swapping it here would tighten every consolidation swap at once, and
+            // §SESS-41 measured the size-aware curve as sometimes UNMEETABLE. The formula is deduped;
+            // the three budgets stay as they were and are now visible side by side.
+            uint256 floor = swapFloor(aux, s, bal, target, CONSOL_SLIP_BPS);
             // ROUTABILITY IS CHECKED, NOT CAUGHT. A library cannot `try this.…` — in a delegatecalled
             // library `this` is the CALLER — and the condition the old try/catch actually guarded was
             // "this stable has no route", which is now a pure predicate. An unroutable slice is skipped

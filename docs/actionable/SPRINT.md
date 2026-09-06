@@ -53707,7 +53707,7 @@ ENFORCE its floor"* (mechanism) and *"can any venue MEET the floor"* (market) ar
 routing tests both at once, so when the venue cannot meet the floor **the mechanism test fails for a
 reason that has nothing to do with the mechanism.** The controls now pay from inventory.
 
-### 🔴 A REAL TRAP HIT: `_fromUsd` RETURNED PAR FOR WETH, SILENTLY
+### 🟡 [HALF-CORRECTED BY §SESS-44 — the par bug is a FIXTURE artifact; production pins the feed at `DeployL1_s:356`. **The LIVENESS defect above is NOT** — see §SESS-44.] A REAL TRAP HIT: `_fromUsd` RETURNED PAR FOR WETH, SILENTLY
 My first derivation used `_wethStableFloor`'s form for a **WETH** output and got a floor of
 **49,875e18 WETH for 50,000 USDC** — wrong by ~2,500×. Cause: `loanPxUsd18` returns `USD_PX` whenever
 `assetPriceFeed(token) == 0`, and **the fixture does not register WETH** (`assetPriceFeed(WETH) == 0`)
@@ -53848,4 +53848,73 @@ tension is that they conflict:**
 4. **Then, and only then, the filler-callback** — it is the elegant end state, but it changes who sends the
    transaction, and it should not land while the floor beneath it is still a guess that sometimes cannot
    be met.
+
+## §SESS-44 — **ONE FLOOR FORMULA, ZERO FALSE NEGATIVES — AND THE LIVENESS DEFECT SPLITS IN TWO.** (2026-09-06)
+
+**Owner:** *"fix the liveness defect… dedup the formula. make sure it doesnt cause false negatives. what
+kinds of mev protection do we have with it. remove redundancies."* · *"does the keeper check which venue
+is best? remember we must minimise on chain code, but keep safety checks on chain."*
+
+### ⚖️ FIRST, §SESS-41's DEFECT SPLITS — ONE HALF WAS A FIXTURE ARTIFACT, ONE HALF IS REAL
+| claim | verdict |
+|---|---|
+| `_fromUsd` returns **par for WETH** | 🟡 **FIXTURE ARTIFACT.** Production pins the feed — `DeployL1_s:356 AUX.setAssetFeed(WETH, CL_ETH_USD)`. `AllesFixture` does not. **Rule 21, and I flagged it then reasoned past it.** |
+| the floor is **unmeetable** by the best venue | 🔴 **REAL, and wiring the feed does not fix it.** `twapResolve` returns Chainlink **only when divergence exceeds 5%** (`SwapLib:131`); otherwise it returns the internal **30-minute TWAP** unchanged. ⇒ the floor is anchored to a lagged TWAP **whether or not a feed is pinned.** |
+🔑 **SO THE DEFECT IS STRUCTURAL: the budget must cover TWAP LAG + FEE + IMPACT, and is sized as if it
+covered only execution.** A 30-min TWAP in a trending market legitimately differs from execution price;
+at this block that lag alone is **~25 bps** and the whole budget at $50k is **25 bps**. ⛔ **Not patched
+by picking a bigger number** — the measured requirement is **27 bps at $50k and 81 bps at $1M**, and
+fitting a curve to two points is the guesswork the owner rejected. **The principled term is realized
+volatility over the window, and `realizedVarianceWad()` already exists** — booked, not landed, because it
+is a money-path formula change needing its own measurement (rules 10/15).
+
+### ✅ THE DEDUP: THREE IMPLEMENTATIONS → ONE FORMULA, BUDGETS UNTOUCHED
+`LevMath.swapFloor(aux, give, amtIn, want, slipBps)` now serves all three sites:
+| site | was | budget (UNCHANGED) |
+|---|---|---|
+| `_stableToWethSor` (open) | inline `usd18 * 1e18 / getTWAPforAsset(weth)` | `_slipBps(usd18)` |
+| `_wethStableFloor` (close) | `_fromUsd(stable, usd18)` | `_slipBps(usd18)` |
+| `_consolidateTo` | `_fromUsd(target, _toUsd18(s, bal))` | **flat `CONSOL_SLIP_BPS`** |
+⛔ **THE BUDGET IS A PARAMETER ON PURPOSE — THE DEDUP IS OF THE FORMULA, NOT OF THE BUDGET.** Collapsing
+the budgets too would change behaviour on three paths at once, which is precisely the false negative to
+avoid. **Passing it in makes the three budgets visible side by side, which is the precondition for
+deciding them, and changes nothing today.**
+🔑 **AND IT EXPLAINS WHY THEY HAD DIVERGED:** `loanPxUsd18` returns par whenever `assetPriceFeed[t] == 0`,
+so a floor written with `_fromUsd` is correct **only where the feed is pinned**. `_stableToWethSor` read
+the TWAP directly to dodge exactly that. `swapFloor` prices **feed-independently** (ask the oracle; a
+`BadAsset()` revert means "dollar stable ⇒ par"), so the hazard that forced two spellings is gone.
+▶️ **FALSE NEGATIVES: NONE. Full suite 1091 / 1**, the same single pre-existing UNITB q0 control as
+before the change. `LevMath` 23,404 (1,172 margin).
+
+### 🛡️ WHAT MEV PROTECTION THE FLOOR ACTUALLY GIVES — AND WHAT IT DOES NOT
+| attack | protected? | by what |
+|---|---|---|
+| sandwich the swap to steal the whole output | ✅ | the floor is **oracle-anchored, not pool-anchored** — a sandwich cannot move a 30-min TWAP |
+| route through a pool the attacker controls | ✅ | same floor; a fake pool must still deliver oracle−slip |
+| take the input and deliver elsewhere | ✅ | §SESS-22 `spent > 0 ⇒ delivered > 0` |
+| call a different function on the router | ✅ | pinned callee **and** pinned selector on the pool-word arm |
+| **deliver exactly the floor and keep the rest** | 🔴 **NO** | this is the whole residual: **25–100 bps** |
+| **manipulate the TWAP itself** | 🟡 partial | 30-min window + the 5% Chainlink cross-check *when a feed is pinned* |
+| **reorder / choose block position** | 🔴 no | the floor bounds price, never position |
+⭐ **THE KEY PROPERTY, STATED PLAINLY: the floor is anchored to a price the trader cannot move in one
+block.** That is what makes it MEV protection at all rather than a slippage setting — and it is also
+exactly why it lags, which is the liveness defect above. **The lag IS the protection**; you cannot remove
+one without the other, which is why the fix is to *budget* for the lag rather than shorten the window.
+
+### 🎯 DOES THE KEEPER PICK THE BEST VENUE? **NO — AND THE ON-CHAIN GUARD FOR IT ALREADY EXISTS**
+🔴 **`borrowRateRay(uint256 extraBorrow)` and `supplyHeadroom()` are implemented on every venue, are
+SIZE-AWARE by construction — and have ZERO CALLERS.** Not in the contracts, not in `quid-ln`. The lever's
+stable is `venue.stable()`, i.e. **fixed by whichever venue the position was opened against**; nothing
+compares borrow cost or checks borrow liquidity against the size being borrowed.
+✅ **AND THE SAFETY CHECK IS ALREADY ON-CHAIN AND CORRECTLY PLACED:** `allowedVenue[venue]` is enforced by
+`requireOpenable` (`LevManager:238`), so **a hacked keeper cannot name an arbitrary venue** — the same
+shape as the pinned callee.
+⇒ **RATE-AWARE VENUE SELECTION IS A PURE OFF-CHAIN CHANGE.** It needs **no new on-chain code**, which is
+exactly the owner's principle: *minimise on-chain code, keep safety checks on-chain.* The contract already
+verifies the only thing that matters (the venue is allowlisted); **choosing the cheapest among allowlisted
+venues is free to be wrong and must therefore live in the keeper.**
+▶️ **Two selections, one keeper:** which venue to BORROW from (`borrowRateRay` at the size, plus
+`supplyHeadroom`) and which route to SWAP through (§SESS-25's planner). **They interact** — the cheapest
+stable to borrow may carry the dearest swap route — so the keeper should score `borrow rate + route cost`
+jointly, not sequentially. **Neither half exists today.**
 
