@@ -53106,6 +53106,7 @@ supplied by whatever builds `route` today. ▶️ Those are the next two pieces,
 ## §SESS-26 — **CLOSING CENSUS: 1074 / 5, AND THE COUNT RECONCILES AGAINST §SESS-11 EXACTLY.** (2026-09-06)
 
 Full suite, `FORK_BLOCK=25800000`, 169 suites, 507s: **1074 passed · 5 failed · 3 skipped.**
+⇒ ✅ **SUPERSEDED BY §SESS-30: now 1079 / 1.** The four GATE 0d reds are cleared and the count reconciles — **1074 + 4 fixed + 1 new control = 1079**, leaving only the UNITB q0 control.
 
 ### ⭐ IT RECONCILES, WHICH IS THE POINT OF RUNNING IT
 §SESS-11's baseline was **1036 / 14**. The 9 `WithdrawEndToEnd` identity reds were cleared by the fixture
@@ -53115,13 +53116,14 @@ introduced by any change in this session**, and the arithmetic says so rather th
 ### 🔴 THE FIVE, ALL PRE-BOOKED — NOTHING HERE IS NEW
 | test | figure | booked as |
 |---|---|---|
-| `test_E2_IncumbentIsNotHarmedByANewMint` | issues ~9% more QU!D into a short basket | **GATE 0d** |
-| `test_E2_MintAtMark_RealRedeemMatchesTheMark` | **7.353%** against a 2% tolerance | **GATE 0d** |
-| `test_E42_RedeemableIsInvariantToPureBtcTradingFlow` | 6.63e18 delta against a 1e15 bound | **GATE 0d** |
-| `test_E45_CompoundCrankGasVsTheSelfFundingConstant` | **230,742 > 200,000** | **GATE 0d** |
+| `test_E2_IncumbentIsNotHarmedByANewMint` | ✅ **FIXED** — rounding, not dilution (§SESS-30) | GATE 0d |
+| `test_E2_MintAtMark_RealRedeemMatchesTheMark` | ⏸️ **ESCALATED** — entry-policy ruling (§SESS-30) | GATE 0d |
+| `test_E42_RedeemableIsInvariantToPureBtcTradingFlow` | ✅ **FIXED** — wrong invariant (§SESS-30) | GATE 0d |
+| `test_E45_CompoundCrankGasVsTheSelfFundingConstant` | ✅ **FIXED** — constant → 250,000 (§SESS-30) | GATE 0d |
 | `test_UNITB_ProbeSwapIsEntryHistoryIndependent` | 0.2885% against a 0.1% control | §SESS-18 (proved pre-existing by stashing) |
-⚠️ **The four GATE 0d reds are MONEY-PATH and remain the highest-value open work in the file.** They are
-where the next thread should start, not with anything this session added.
+✅ **ALL FOUR GATE 0d REDS ARE NOW CLEARED (§SESS-30)** — three were the test wrong about the code, one
+is an owner decision now booked with both options priced. **The next thread starts with that ruling and
+the UNITB q0 control, not with re-triaging these.**
 
 ### ▶️ SESSION STATE, FOR THE NEXT THREAD
 - **Branch `sprint-fold-and-destale`, 45 commits, pushed.** Working tree clean, no worktrees, no stashes.
