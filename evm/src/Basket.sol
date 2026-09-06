@@ -80,25 +80,19 @@ contract Basket is ERC20, ERC6909,
     }
     function auth(address who) public view returns (bool) {
         // AUDIT (2026-06): LINK removed — it is the depeg-oracle forwarder and
-        // NEVER mints (it only ever read depeg state). §SCRUB: this named `onReport` alongside
-        // `isDepegged`/`getDepegSeverityBps` as the forwarder's calls; that CRE `onReport` path is
-        // RETIRED (see `Aux`: "the `onReport` forwarder path was RETIRED -- vault health is now
-        // driven [...]"), and Basket never declared it. The audit conclusion below is unchanged --
-        // the over-privilege was real and LINK is still correctly absent. Granting a
-        // rotatable forwarder address an (unused) mint capability was an
-        // over-privilege; minting is AUX + V4 (fees) +
-        // BTC_VAULT (the regrouped BTC-LP fee/close mints, previously V4's, plus
-        // `Vault.creditSwapOut` — the swap-out reissuance leg).
-        // ⛔ `creditLPForSwap` DOES NOT EXIST — zero declarations tree-wide and `git log -S` finds
-        // nothing; it is an inherited name from pre-`0af7f6db` history. The live swap-out credit is
-        // `Vault.creditSwapIn`/`creditSwapOut`, which is why BTC_VAULT is in `auth`, not just AUX.
+        // NEVER mints (it only ever read depeg state), and the CRE `onReport` forwarder path is
+        // RETIRED — see `Aux`. The audit conclusion stands: granting a rotatable forwarder address
+        // an (unused) mint capability was a real over-privilege, and LINK is still correctly
+        // absent. Minting is AUX + V4 (fees) + BTC_VAULT — the regrouped BTC-LP fee/close mints,
+        // previously V4's, plus `Vault.creditSwapIn`/`creditSwapOut`, the swap-out reissuance
+        // leg. That last pair is why BTC_VAULT is in `auth` and not just AUX.
         return (who == address(AUX) || who == RANGE || who == BTC_VAULT);
     } // BTC_VAULT is `Vault` — the BTC RANGE MANAGER and only that; `Quid` is its ETH twin.
-      // ⚠️ CORRECTED: this said `Vault` holds "range + channels" and "HOSTS both LevManagers".
-      // It holds NEITHER. Channels are `BTCChannels`; `Vault.LEV_MANAGER` is the BTC one ALONE
-      // (see its own docblock: "Distinct from the ETH LEV_MANAGER"), and the ETH manager is
-      // resolved by `Quid` off `AUX.ethVenue()`. Wiring the wrong instance is this repo's
-      // recurring bug class — do not restore the fused reading.
+      // ⚠️ IT HOLDS NEITHER CHANNELS NOR BOTH LEV MANAGERS. Channels are `BTCChannels`;
+      // `Vault.LEV_MANAGER` is the BTC one ALONE (see its own docblock: "Distinct from the ETH
+      // LEV_MANAGER"), and the ETH manager is resolved by `Quid` off `AUX.ethVenue()`. Wiring
+      // the wrong instance is this repo's recurring bug class — do not restore a fused reading
+      // in which Vault holds range + channels, or hosts both managers.
 
     /// @notice BtcVault — the regrouped BTC side. Its BTC-LP fee + close-time
     ///         USD-leg mints (formerly Quid's) need the same auth Quid has.
@@ -119,11 +113,9 @@ contract Basket is ERC20, ERC6909,
 
     // ─── tranche-supply view ──────────────────────────────────────
     // ALL burns (to == address(0)) gate on maturity via BasketLib.matureBatches
-    // — no bypass. There is no maturity exemption for any address: the old
-    // `burnable`/`setBurnable` allowlist + its only intended user (the stripped
-    // Stay/Clutch engine) are gone. A user therefore cannot bypass the maturity
-    // lockup by routing QUI through any contract, and no privileged address can
-    // early-burn an immature vintage.
+    // — no bypass. There is no maturity exemption for any address and no allowlist, so a user
+    // cannot bypass the maturity lockup by routing QUI through any contract, and no
+    // privileged address can early-burn an immature vintage.
 
     /// @notice The TRANCHE seed reserve: the cumulative seed-phase BONUS QU!D
     /// (the senior / bootstrap tranche) that is term-locked and is NOT part of the

@@ -812,15 +812,6 @@ library BasketLib {
         }
     }
 
-    /// @notice ETH→stable fallback body for redemption. Pulls `ethAmount`
-    ///         WETH from the ETH venue via the self-gated withdraw, then opens a
-    ///         V4 unlock that the host's `unlockCallback` recognizes as
-    ///         the ETH-source variant (sourceAsset = WETH, first hop's
-    ///         currency0 = native ETH). PoolKey is the canonical V4
-    ///         ETH/USDC pool (currency0 = native, currency1 = USDC,
-    ///         fee = 500, tickSpacing = 10, ).
-    /// @notice Body of Aux._redeemAs (delegatecall, address(this)==Aux).
-    /// Returns ethPart+price so the Aux wrapper runs the ETH-fallback leg.
     /// @notice (C) Total depeg loss across the basket, for fair-valuing the
     /// redemption total. get_deposits stores per-stable amounts at PAR (only
     /// the yield slot is riskFactor-discounted), so a held stable that depegs
@@ -1197,13 +1188,6 @@ library BasketLib {
         }
     }
 
-    // ⛔ `_repackPool` IS DELETED — it wrapped ONE external call and added nothing.
-    // Its own docstring recorded why it had stopped doing work: it used to ROUTE by boolean, and
-    // "a boolean plus both addresses was a dispatch the caller had already made". Once the target
-    // became the range address itself, the body was `ICore(range).repack()` and the wrapper
-    // was a second name for `.repack()`. Both call sites now say that directly, and the choice of
-    // WHICH range stays where it was always made — in the `ethFirst` ternary at the call site.
-
     /// @notice All-or-nothing deploy-finalize linkage assert (delegatecall from
     ///         Aux.finalize, so address(this)==Aux). Reverts unless every
     ///         external linkage EQUALS Aux's owner-set view — catching a
@@ -1264,10 +1248,10 @@ library BasketLib {
     /// @notice Per-VENUE health state. BINARY (blocked) + the evac clock —
     ///         mirroring the depeg model: an incident BLOCKS the vault (valued
     ///         at maxWithdraw in rangeETH/get_deposits, no new deposits routed)
-    ///         and auto-RECOVERS when liquid again. The former graded
-    ///         `haircutBps` was a vestige of the removed CRE onReport path
-    ///         (owner-only setter, owner renounced at finalize → always 0 in
-    ///         production); dropped (frees bytecode, removes dead branches).
+    ///         and auto-RECOVERS when liquid again.
+    ///         ⛔ DO NOT RE-GRADE IT. A per-vault haircut in bps needs an owner-only setter, and
+    ///         the owner is RENOUNCED at finalize — so in production the grade can only ever be
+    ///         0, which is a dead branch wearing the costume of a risk control.
     ///   • blocked    → _supply stops routing NEW deposits; valued at maxWithdraw.
     ///   • flaggedAt  → when first flagged for evac (the EVAC_DWELL clock).
     struct VaultHealth {
