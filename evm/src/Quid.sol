@@ -1914,14 +1914,24 @@ contract Quid is Shares,
     /// §E46 (2026-08-04) — RAISED 140,000 -> 200,000. The old value UNDER-REIMBURSED the cranker on
     /// every single crank: measured 172,299 gas on a 400-ETH range after real flow
     /// (`test_E45_CompoundCrankGasVsTheSelfFundingConstant`), against a 140,000 basis — short 32,299,
-    /// so the only keeper that cranked was one subsidising it. 200,000 is that measured worst case
-    /// plus ~16% headroom. It does NOT need to carry a RESEAT: `_rebalance()` is repack-first on the
+    /// so the only keeper that cranked was one subsidising it.
+    /// 🔴 **§SESS-27 — 200,000 WENT SHORT TOO, AND THE SAME TEST CAUGHT IT AGAIN.** Re-measured
+    /// 2026-09-06 at `FORK_BLOCK=25800000`: the crank costs **230,742**, i.e. short by 30,742 — the
+    /// keeper is under-reimbursed on every crank exactly as at 140,000. **250,000 is that measured
+    /// worst case plus ~8.3% headroom.**
+    /// ⭐ **AND THE WORST CASE IS THE *FIRST* CRANK, NOT THE HEAVY ONE — MEASURED, AGAINST INTUITION.**
+    /// The same run puts a HEAVY crank (30 further trades at 4x size) at **196,542**, i.e. CHEAPER:
+    /// warm storage and nothing pending. ⇒ sizing this off a stress scenario would UNDER-size it. The
+    /// cold first crank is the bound.
+    /// ⚠️ **THE MIRRORED LITERAL IN THE TEST MUST MOVE WITH THIS ONE** — the constant is `private`, so
+    /// `test_E45_…` re-declares it. They have now gone out of step twice.
+    /// It does NOT need to carry a RESEAT: `_rebalance()` is repack-first on the
     /// SWAP path too, so the range is recentred inside the swapper's own tx and a later crank never
     /// finds an out-of-range range (verified — 30 trades at 4x size left `reseatEpoch` unmoved).
     /// The tip is still `min(gasprice, COMPOUND_MAX_GASPRICE) x this`, GRIEF-CAPPED at half the
     /// harvest, so over-sizing can never take more than that cap; under-sizing costs liveness
     /// always, which is the asymmetry that argues for the headroom.
-    uint private constant COMPOUND_GAS = 200_000;
+    uint private constant COMPOUND_GAS = 250_000;
     /// Anti-grief ceiling on the gasprice the tip pays for: a caller can't inflate `tx.gasprice`
     /// to skim more of the LP's fees as "gas".
     uint private constant COMPOUND_MAX_GASPRICE = 200 gwei;

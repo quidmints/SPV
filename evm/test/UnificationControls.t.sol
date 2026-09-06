@@ -1195,7 +1195,9 @@ contract UnificationControls is AllesFixture {
         _assertTraded();
         vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
 
-        uint COMPOUND_GAS = 200_000;                  // Quid.sol:1504 (raised from 140,000, E46)
+        // §SESS-27 — 250,000 (was 200,000, itself raised from 140,000 by E46). MIRRORS the `private`
+        // constant in `Quid.sol`; they have gone out of step twice, which is why both cite each other.
+        uint COMPOUND_GAS = 250_000;
         vm.txGasPrice(10 gwei);
         uint g0 = gasleft();
         ETH.compound(lpA);
