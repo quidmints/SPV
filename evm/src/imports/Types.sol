@@ -3,9 +3,9 @@
 pragma solidity ^0.8.28;
 
 import {ILevVenue} from "./Interfaces.sol";
-/// @dev §FOLD-BOOK — ONE declaration. They were declared in `LevBase` AND the old
-///      the old `LevBookLib`; splitting the book across `RangeLib` and `BtcLib` would have made it FOUR.
-///      File-level so every user imports the same selector.
+/// @dev §FOLD-BOOK — the errors below are declared ONCE, file-level, so every user imports the
+///      same selector rather than a same-named error with a per-contract declaration. The
+///      selection rule and its twenty deliberate exceptions are stated at §E299 below.
 /// @dev §E266 — ONE `WAD` for our tree; it lived in NINE places. Declared HERE and deliberately
 ///      NOT imported from a vendored file — a compilation restriction on such a file would
 ///      propagate to every importer (§E267).
@@ -122,11 +122,12 @@ library Types {
     /// `fundingTxId`/`fundingVout` — the funding UTXO (FIXED for the channel's
     /// EVM life; the EVM never tracks per-commitment respends — those are
     /// off-chain BOLT state). The close proof checks a tx spends this outpoint.
-    /// `lpEth` — LP's Ethereum address (recovered signer of openChannel's
-    /// lpAuth); owns the pool position and is the close recipient.
+    /// `lpEth` — LP's Ethereum address, DERIVED from `p.lpPubkey` by `ChannelLib.lpEthOf`, not
+    /// supplied and not recovered from any EVM signature; owns the pool position and is the
+    /// close recipient.
     /// `status`: 0 = open, 2 = closed.
-    /// (No `hopEth`: it was always the global `hopNode` and never read — see
-    /// ChannelLib. The counterparty is surfaced via the ChannelOpened event.)
+    /// (No hop address field: the counterparty is surfaced via the ChannelOpened event. There is
+    /// no single global hop — BTCChannels is per-instance, each with its own two hop addresses.)
     ///
     /// Standard LDK channel — NO `selfRefundTime`/CLTV-refund. Unilateral
     /// recovery is an LDK force-close on Bitcoin (commitment tx + justice), not a
@@ -187,12 +188,12 @@ library Types {
     /// merkle root). The contract byte-matches the SPV-proven funding output against
     /// `0x5120||Q` AND proves `Q == TapTweak(KeyAgg(KeySort(lp,hop)))` on-chain via
     /// `BitcoinTx` (E129/E142), so both named keys are provably inside it.
-    /// ⚠️ TWO CLAIMS THAT STOOD HERE ARE RETIRED, NOT RELOCATED: "the contract does NO
-    /// secp256k1 EC math" is false, and "the LP's lpAuth signs the whole OpenParams"
-    /// describes a mechanism removed when `openChannel` moved to `(…, address lpEth)` gated
-    /// on `_authorizedHop` — `lpAuth` is not a parameter anywhere (E149). Q is bound by the
-    /// EC proof now, not by consent to bytes
-    /// — and spending the 2-of-2 still requires both parties' MuSig2 signatures
+    /// ⚠️ THE CONTRACT DOES DO secp256k1 EC MATH — that is what the `Q` proof above IS, and any
+    /// claim to the contrary belongs to a design that predates E129/E142. Q is bound by that
+    /// on-chain proof, not by anyone's consent to a byte string: `openChannel` takes no `lpAuth`
+    /// and no `lpEth` parameter, deriving the address via `ChannelLib.lpEthOf(p.lpPubkey)` and
+    /// gating submission on `_onlyHop()`. Spending the 2-of-2 still requires both parties'
+    /// MuSig2 signatures
     /// (Bitcoin-enforced, SPV-verified at close). `lpPubkey`/`hopPubkey` remain the
     /// channel identity (channelId + btcRecipient derivation).
     struct OpenParams {
@@ -207,10 +208,10 @@ library Types {
 
     /// @notice (E157) The LP's consent, carried BY the open instead of pre-registered.
     ///
-    /// `registerDelegation` existed to establish two things before any channel could open: WHO the
-    /// `lpEth` behind a position is, and WHERE its BTC pays out. Both are supplied here and
-    /// authenticated inline, so the standing registration — and every piece of state that existed
-    /// only to keep it safe — deletes.
+    /// Both facts a standing registration used to hold — WHO the `lpEth` behind a position is,
+    /// and WHERE its BTC pays out — are supplied here and authenticated inline, so no standing
+    /// grant (and no state existing only to keep such a grant safe) has to be kept alive
+    /// between transactions.
     ///
     /// 🔑 WHY THERE IS NO `version`. `delegationVersion` was a monotonic counter guarding a
     /// STANDING grant against replay and rollback. This signature is not standing: it commits to
@@ -220,11 +221,10 @@ library Types {
     /// ⇒ The counter's other job (revocation) is also covered: an unused signature binds an
     /// outpoint the LP simply never funds, and a smart wallet can invalidate it by rotating owners.
     ///
-    /// ⛔ THE PARAGRAPH THAT STOOD HERE DESCRIBED `lpSig` AS CHECKED WITH `SignatureChecker` —
-    /// it described code that §E183 item 1 deleted, eight lines above the struct field that says
-    /// so. There is no `lpSig` and no `isValidSignatureNow` anywhere in `evm/src`: the LP signs
-    /// NOTHING on the EVM, so the EOA/smart-wallet split that one path existed to serve has no
-    /// referent. Do not "restore" it — that would re-add a check for a signature that is gone.
+    /// ⛔ THE LP SIGNS NOTHING ON THE EVM. There is no `lpSig` and no `isValidSignatureNow`
+    /// anywhere in `evm/src` (§E183 item 1), so the EOA-vs-smart-wallet split that an EVM
+    /// signature check existed to serve has no referent here. Do not add one back — it would be
+    /// a check for a signature that is never produced. LP consent is the BIP-340 PoP below.
     struct OpenAuth {
         bytes32 btcRecipient;  // x-only P2TR payout key, pinned + locked at open
         /// (E138) BIP-340 signature BY `btcRecipient` over `btcRecipientPoPDigest(lpEth)`.
@@ -238,8 +238,6 @@ library Types {
         /// the submitter and the payout is redundant — `_onlyHop()` binds the first (§E185) and
         /// this PoP binds the second, because its digest COMMITS TO `lpEth`. The LP therefore
         /// signs nothing on the EVM, which is what item 1 asked for.
-        /// ⚠️ The previous comment here said this signature was "over `openAuthDigest(hop, …)`".
-        /// It never was: `_requireRecipientPoP` verifies it over `btcRecipientPoPDigest(lpEth)`.
         bytes   btcRecipientPoP;
         /// (§FORCE-CLOSE-SKIPS-THE-STALE-GUARD) The LP's 33-byte COMPRESSED Lightning payment
         /// basepoint (`ChannelPublicKeys::payment_point`). Consumed at open to derive

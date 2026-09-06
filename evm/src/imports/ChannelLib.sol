@@ -12,7 +12,6 @@ import {BitcoinTx} from "./BitcoinTx.sol";
 // `inputs[i].witnesses`, which is where a key-path Schnorr signature lives. Used ONLY for that:
 // §E140-r2 measured that its `previousHash` is byte-REVERSED relative to its own `calculateTxId`
 // and to our `BitcoinTx`, so it is not a drop-in for outpoint logic.
-// (E182) Same checker the open path uses, so an EOA and a smart-wallet LP authorize alike.
 import {ISPVGateway} from "../spv/interfaces/ISPVGateway.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
@@ -351,7 +350,7 @@ library ChannelLib {
 
     // CANONICAL source for these constants — BTCChannels references them as
     // `ChannelLib.X` (single definition; no more "keep in sync" drift — the prior
-    // STATUS_OPEN=1-here-vs-0-there mismatch that broke `whenOpen` is now impossible).
+    // STATUS_OPEN=1-here-vs-0-there mismatch is now unconstructible).
     // `internal constant` ⇒ inlined at the use site (delegatecall-safe).
     uint   internal constant MIN_CONFIRMATIONS = 6;
     uint8  internal constant STATUS_OPEN       = 0;
@@ -521,37 +520,16 @@ library ChannelLib {
     }
 
 
-    /// (§E182) THE REKEY GATE — decides WHO may rotate a channel's hop key and TO WHAT.
-    ///
-    /// ⚠️ **IT LIVES HERE FOR A MEASURED REASON, NOT FOR TIDINESS.** Implemented inline in
-    /// `BTCChannels`, the rekey feature measured **25,295 bytes — 719 OVER EIP-170**, i.e. an
-    /// undeployable contract, against the 637 bytes that were spare. `ChannelLib`'s functions are
-    /// `external`, so they are DELEGATECALLED and their bytecode is deployed with the library
-    /// rather than with the caller — which is exactly why `openChannelBody` already sits here.
-    /// Moving the gate keeps the decision logic out of the caller's 24,576-byte budget.
-    ///
-    /// `address(this)` is preserved under DELEGATECALL, so the digest still binds the BTCChannels
-    /// address and a signature cannot be replayed against another deployment.
-    ///
-    /// `keysHash` and `lpEth` are passed BY VALUE rather than read through a storage pointer: the
-    /// library then has no dependency on `BTCChannels`' storage LAYOUT, which is the coupling that
-    /// made the dust monitor fragile (`Core` slot-order note in CLAUDE.md).
-    /// (§E183 item 1) External face for `BitcoinTx.evmAddressOfCompressed`, so the square-root
-    /// derivation deploys with THIS library rather than inside the size-constrained `BTCChannels`.
-    /// Same reason `rekeyAuthBody` lives here.
+    /// (§E183 item 1) External face for `BitcoinTx.evmAddressOfCompressed`.
+    /// ⚠️ **IT LIVES HERE FOR A MEASURED REASON, NOT FOR TIDINESS.** `ChannelLib`'s functions are
+    /// `external`, so they are DELEGATECALLED and their bytecode deploys with the library rather
+    /// than with the caller — which is why `openChannelBody` sits here too. Keeping the
+    /// square-root derivation out of `BTCChannels` keeps it inside EIP-170's 24,576-byte budget,
+    /// which this feature set has already blown once by 719 bytes when equivalent logic was
+    /// written inline.
     function lpEthOf(bytes calldata lpPubkey) external pure returns (address) {
         return BitcoinTx.evmAddressOfCompressed(lpPubkey);
     }
-
-    // ⛔ (§SPLICE-ROTATES-BOTH-FUNDING-KEYS, 2026-08-31) `rekeyAuthBody` STOOD HERE, and it is
-    // deleted with `BTCChannels.rekey` — the rotation folded into `splice`, which re-pins
-    // `keysHash` itself. Its gate was `keccak256(abi.encode(p.lpPubkey, oldHopPubkey)) ==
-    // keysHash`: an equality check over PUBLIC values, subsumed by the SPV-proven spend of the
-    // channel's key-path taproot 2-of-2, which requires the LP's MuSig2 partial and — under
-    // BIP-341 `Prevouts::All` — commits that partial to the exact new pair. It was also
-    // UNSATISFIABLE against our own LN stack, which rotates BOTH funding pubkeys per splice.
-    // ⚠️ Its `RekeyUnchanged` error went too; `splice`'s no-op guard now covers both cases.
-    // 📌 The reasoning it carried is preserved in full at `BTCChannels.sol`'s fold note.
 
     /// @notice (§FORCE-CLOSE-SKIPS-THE-STALE-GUARD) Derive the LP's `to_remote` TAPROOT OUTPUT KEY
     ///         from its 33-byte compressed Lightning PAYMENT BASEPOINT. The commitment transaction's

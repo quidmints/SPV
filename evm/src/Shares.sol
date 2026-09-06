@@ -29,14 +29,13 @@ import {LevManagerPinned, WrongRangeManager} from "./imports/Types.sol";   // §
 ///         be kept in sync with `pooled`: precisely the drift class this refactor exists to delete.
 ///         Only the allowance machinery is stock, and that is not worth a base class.
 ///
-/// @dev    ⛔ THIS FILE HAS NO `totalSupply` AND NO `oorShares` — it declares STATE and zero
-///         functions. A previous version described a `totalSupply` spanning `lpShares + oorShares`;
-///         neither half exists (`oorShares`: zero references in `evm/src` and `evm/test`). The live
-///         face is `Quid.totalSupply() { return lpShares; }` — grep the SYMBOL, a line cite here
-///         drifted within days. The out-of-range book (`selfManaged`/`positions`/`oorBook`) is
-///         per-order with NO aggregate count, so boundary orders are absent from every share total
-///         by construction. ⇒ §E255's "settle the `totalSupply` semantics first" blocker had no
-///         subject; what blocks the merge is EIP-170, nothing here.
+/// @dev    ⛔ THIS FILE DECLARES STATE AND ZERO FUNCTIONS — no `totalSupply` lives here. The live
+///         face is `Quid.totalSupply() { return lpShares; }`; grep the SYMBOL, because a line cite
+///         into this file drifted within days of being written. Supply is `lpShares` and nothing
+///         else: the out-of-range book is per-order with NO aggregate count (§OOR-AS-INTENT,
+///         below), so boundary orders are absent from every share total by construction.
+///         ⇒ §E255's "settle the `totalSupply` semantics first" blocker has no subject. What
+///         blocks the merge is EIP-170, nothing here.
 ///
 /// ⚠️ NOT YET WIRED. The state and the share face live here; the engine still owns the range
 ///    (`POOLED`, the ring, skew, settlement). Migration order is in
@@ -113,16 +112,15 @@ abstract contract Shares {
     /// In-range shares, against the engine's `POOLED`.
     uint public lpShares;
 
-    // ─── §OOR-BOOK-DELETED (2026-08-29) — there is no out-of-range book any more ───
-    // `selfManaged`, `positions`, `ID` and `oorBook` lived here: a struct, a per-owner id array and
-    // a trigger-price sorted set, WRITTEN AT REST for orders that might never fill. A resting order
-    // is now a signed intent (§OOR-AS-INTENT) and the only storage it touches is one consumed bit,
-    // written AT THE FILL — `Quid.intentUsed[owner][nonce]`.
-    // ⭐ AND THE DELETION IS A PRIVACY FIX AS MUCH AS A SIZE ONE: `selfManaged[id].owner` plus
-    //   `positions[owner]` published a permanent, public link from an address to its intentions,
-    //   for orders that may never fill — shrinking the anonymity set every withdrawer relies on,
-    //   for no accounting benefit. The chain stores P&L attribution and withdrawability; a resting
-    //   order is neither until it fills.
+    // ─── §OOR-AS-INTENT — THERE IS NO OUT-OF-RANGE BOOK, AND THERE MUST NOT BE ONE ───
+    // A resting order is a SIGNED INTENT. The only storage it touches is one consumed bit,
+    // written AT THE FILL: `Quid.intentUsed[owner][nonce]`. Nothing is written at rest.
+    // ⛔ DO NOT REINTRODUCE AN AT-REST ORDER BOOK — THE ABSENCE IS A PRIVACY GUARANTEE, NOT
+    //   JUST A SIZE ONE. A per-owner id array beside an owner-keyed order struct publishes a
+    //   permanent, public link from an address to its intentions, for orders that may never
+    //   fill — shrinking the anonymity set every withdrawer relies on, for no accounting
+    //   benefit. The chain stores P&L attribution and withdrawability; a resting order is
+    //   neither until it fills.
     // ─── fee accumulators — PER-SHARE, not dollars (see CLAUDE.md: multiply back by the
     //     credit site's own share base before reading either as an amount) ───
     uint public feesPerShare;
