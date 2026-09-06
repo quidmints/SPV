@@ -1230,6 +1230,20 @@ lies. ⇒ **VERIFY THE EFFECT WITH AN INDEPENDENT GREP, NEVER THE TOOL'S EXIT CO
   log.** I wanted a contention-free build time and the answer was `Compiling N files`, printed by
   every build — see the lane section above. **The best fix for a poll loop is usually a measurement
   that does not need one.**
+- 🔴 **`forge build` EXIT 137 IS THE *LINTER* BEING OOM-KILLED, NOT A COMPILE FAILURE — AND IT KILLS
+  A BUILD THAT ALREADY SUCCEEDED** (measured 2026-09-06). Two consecutive `forge build --threads 1`
+  runs died with `Killed` / `exit=137`; `dmesg` says `Out of memory: Killed process (forge)
+  anon-rss:11188244kB` against **11 GB total on this box**. ⚠️ **THE SECOND RUN PRINTED
+  `No files changed, compilation skipped` AND STILL DIED** — solc had finished, the artifacts were
+  on disk (`out/LevMath.sol/LevMath.json` timestamped mid-run), and the POST-BUILD LINT is what
+  exhausted memory. ⇒ **exit 137 with a fresh artifact is not a failed build; check the artifact
+  mtime before re-running anything.**
+  ▶️ **`forge build --no-lint` (alias `--skip-lint`), or `lint_on_build = false` under `[lint]`.**
+  ⛔ **`forge test` DOES NOT ACCEPT `--no-lint`** — it errors out with a usage block, which reads like
+  a bad command rather than an unsupported flag. In practice `forge test` did not OOM here.
+  ⚠️ **AND THE CONTENDER MATTERS: the first kill happened while `cargo test -p quid-bridge` was
+  running.** Do not run a Rust build and a forge build concurrently on this box; `free -g` before
+  starting is one command and the whole diagnosis.
 - **Build+test in ONE call** (`forge build && forge test`) rather than two turns — it removes a whole
   turnaround per verification.
 
