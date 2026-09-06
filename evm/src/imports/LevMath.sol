@@ -1169,7 +1169,13 @@ library LevMath {
     /// worst execution. Collateral units are always weETH-rate: raw WETH collateral is dominated and gone.
     /// §C2.1 — `route` is the keeper-built 1inch calldata, threaded from the flash `data` down to
     /// `_wethToStableDex`. EMPTY means none was supplied and the leg falls back to V3.
-    struct ExtractCfg { address weth; address weeth; address aux; address flashProvider; address keeper; uint256 gasReserve; uint16 maxSlippageBps; uint256 dex; uint256 dex2; }
+    /// @dev §SESS-19 — **`route` JOINS `dex`/`dex2` HERE, WHICH MAKES THIS STRUCT MATCH THE OTHER TWO.**
+    ///      `SellCtx` (`:537`) and `WbtcCfg` (`:317`) already carry all THREE together; `ExtractCfg`
+    ///      carried only the two pool words, and that omission is what forced `_sellAndPay` and
+    ///      `collToWethDeliver` to build their `SellCtx` with `route: ""` — **the identical literal
+    ///      §E357 named as the BUY side's whole defect** (*"that one literal is where every empty route
+    ///      on the BUY side came from"*). Same bug class, same file, on the mirror leg.
+    struct ExtractCfg { address weth; address weeth; address aux; address flashProvider; address keeper; uint256 gasReserve; uint16 maxSlippageBps; uint256 dex; uint256 dex2; bytes route; }
 
     /// @dev Repay-first + withdraw the paired collateral, in its OWN frame so both callers' stacks stay shallow
     ///      (no via_ir). Flashed `assets` → venue → repay; then withdraw collateral worth (repaid + `extractUsd`)
@@ -1236,7 +1242,7 @@ library LevMath {
     function _sellAndPay(uint256 pulled, address stable, uint256 minOut, uint256 assets, address recipient, ExtractCfg memory cfg)
         private returns (uint256 newGasReserve, uint256 freed)
     {
-        SellCtx memory sc = SellCtx({weth: cfg.weth, weeth: cfg.weeth, aux: cfg.aux, keeper: cfg.keeper, reserveIn: cfg.gasReserve, dex: cfg.dex, dex2: cfg.dex2, route: ""});
+        SellCtx memory sc = SellCtx({weth: cfg.weth, weeth: cfg.weeth, aux: cfg.aux, keeper: cfg.keeper, reserveIn: cfg.gasReserve, dex: cfg.dex, dex2: cfg.dex2, route: cfg.route});
         uint256 stableOut;
         (stableOut, newGasReserve) = sellColl(sc, stable, pulled, minOut, assets);
         IERC20OZ(stable).forceApprove(cfg.flashProvider, assets);
@@ -1253,7 +1259,7 @@ library LevMath {
     function collToWethDeliver(uint256 collAmt, address recipient, uint256 minOut, ExtractCfg memory cfg)
         public returns (uint256 wethDelivered) {
         if (collAmt == 0) return 0;
-        SellCtx memory sc = SellCtx({weth: cfg.weth, weeth: cfg.weeth, aux: cfg.aux, keeper: cfg.keeper, reserveIn: cfg.gasReserve, dex: cfg.dex, dex2: cfg.dex2, route: ""});
+        SellCtx memory sc = SellCtx({weth: cfg.weth, weeth: cfg.weeth, aux: cfg.aux, keeper: cfg.keeper, reserveIn: cfg.gasReserve, dex: cfg.dex, dex2: cfg.dex2, route: cfg.route});
         wethDelivered = _weethToWeth(sc, collAmt);
         require(wethDelivered >= minOut, "swapDelever:minOut");
         if (wethDelivered > 0) IERC20Min(cfg.weth).transfer(recipient, wethDelivered);
@@ -1455,8 +1461,17 @@ library LevMath {
     ///         the max-slippage buffer) → sell → return the flash + surplus to the LP. VERBATIM of the manager's
     ///         former `_repayAndFree`+`_deleverSettle`. `pxWeth` = USD/WETH TWAP. @return newGasReserve gas-reserve
     ///         after the keeper peel (the thin forwarder writes it back).
-    function deleverSettleBody(uint256 assets, address lp, address venueAddr, address stable, uint256 minOut, uint256 pxWeth, ExtractCfg memory cfg)
+    /// @dev §SESS-19 — **THE MODE-0 PAYLOAD IS DECODED HERE, NOT IN THE MANAGER.** It used to be
+    ///      decoded in `LevManager._deleverSettle`, and widening it from one pool word to
+    ///      `(dex, dex2, route)` pushed `LevManager` **93 bytes OVER EIP-170** — measured, not feared.
+    ///      This library is `delegatecall`'d, so its bytecode does not count against the manager: the
+    ///      tree's own remedy (*"body in LevMath (EIP-170)"*) applied to the decode as well as the body.
+    ///      ⭐ It is also the better shape independently — the struct is populated in ONE place, beside
+    ///      the encoder that wrote the payload, so the two cannot drift in field order.
+    function deleverSettleBody(uint256 assets, address lp, address venueAddr, address stable, uint256 minOut, uint256 pxWeth, ExtractCfg memory cfg, bytes calldata data)
         public returns (uint256 newGasReserve) {
+        (,,,,, cfg.dex, cfg.dex2, cfg.route) =
+            abi.decode(data, (uint8, address, address, address, uint256, uint256, uint256, bytes));
         uint256 pulled = _repayAndPull(assets, lp, venueAddr, stable, 0, pxWeth, cfg);   // repay-first + withdraw (own frame)
         (newGasReserve, ) = _sellAndPay(pulled, stable, minOut, assets, lp, cfg);   // sell + return-flash + surplus→LP (own frame)
     }
@@ -1467,7 +1482,10 @@ library LevMath {
     ///         minted BOLD at the trove's `protocolMintLtvBps`. Morpho does not mint — you borrow what exists —
     ///         and Liquity went with `c11cb40f` because a trove cannot take weETH, which `ILevVenue` is
     ///         denominated in. The detector was unconditionally false, so mode-0 is the only path and always was.
-    function deleverFlashBody(ExtractCfg memory cfg, ILevVenue venue, address lp, address stable, uint256 repayUsd, uint256 minOut, uint256 dex)
+    /// @dev §SESS-19 — `dex2` and `route` ride the SAME payload the other five fields do. The close leg
+    ///      could reach only the single-hop `unoswap` before this: `_delever` took all three and handed
+    ///      on `dex` alone, and even had it not, the payload had nowhere to put them.
+    function deleverFlashBody(ExtractCfg memory cfg, ILevVenue venue, address lp, address stable, uint256 repayUsd, uint256 minOut, uint256 dex, uint256 dex2, bytes memory route)
         public {
         if (repayUsd == 0 || cfg.flashProvider == address(0)) return;
         uint256 debt = venue.debtOf(lp);
@@ -1476,7 +1494,7 @@ library LevMath {
         if (repayStable > debt) repayStable = debt;                              // never flash more than we can repay
         if (repayStable == 0) return;
         // mode 0 = the generic flash-the-stable → repay → withdraw → sell → return path.
-        IMorphoFlash(cfg.flashProvider).flashLoan(stable, repayStable, abi.encode(uint8(0), lp, address(venue), stable, minOut, dex));
+        IMorphoFlash(cfg.flashProvider).flashLoan(stable, repayStable, abi.encode(uint8(0), lp, address(venue), stable, minOut, dex, dex2, route));
     }
 
     // §E304-mintclose: `_isMintVenueM`'s natspec outlived the detector and hung over `_fromUsd`. The

@@ -409,8 +409,11 @@ contract LevManager is LevBase {
 
     /// @dev IGNORES `deltaUsd` deliberately: `deleverRepayUsd` is the closed-form `Δ/(1−t)`, so ONE
     ///      flash lands on target with no withdraw-before-repay health breach.
+    /// 🔴 §SESS-19 — **THIS USED TO TAKE `dex2` AND `route` AND HAND ON NEITHER.** `_deleverFlash(…,
+    ///    minOut, dex)` dropped both, so the two-hop was unreachable on the CLOSE leg from EVERY
+    ///    entrypoint — direct `rebalance` calls included, not just the batch. Fixed by carrying them.
     function _delever(ILevVenue venue, address lp, address stable, uint256, uint256 minOut, uint256 dex, uint256 dex2, bytes calldata route)
-        internal override { _deleverFlash(venue, lp, stable, deleverRepayUsd(lp), minOut, dex); }
+        internal override { _deleverFlash(venue, lp, stable, deleverRepayUsd(lp), minOut, dex, dex2, route); }
 
     // ════════════════════════════ CASCADE DE-LEVER (the correlated-crash path) ════════════════════════════
 
@@ -456,7 +459,11 @@ contract LevManager is LevBase {
         // ONE flash-repay-first shot reaches target (no health breach, any depth). If the position is
         // genuinely underwater/illiquid the flash can't be repaid → the whole op reverts → `cascadeDelever`
         // catches it and the position falls to the venue's own isolated liquidation.
-        _deleverFlash(p.venue, lp, p.venue.stable(), repayUsd, minOut, dex);
+        // ⚠️ §SESS-19 — `0, ""` is TODAY'S BEHAVIOUR MADE EXPLICIT, not a decision that this leg needs
+        //    no route. `deleverOne`/`cascadeDelever` are 3-arg and keeper-ALLOWLISTED, so widening them
+        //    is another selector change across `evm_validating_signer.rs` + `encode_batch` — the same
+        //    four-seam move `rebalanceMany` just made. Booked; deliberately not smuggled in here.
+        _deleverFlash(p.venue, lp, p.venue.stable(), repayUsd, minOut, dex, 0, "");
         require(p.venue.debtOf(lp) < debtBefore, "delever: no liquidity");      // sourced nothing → cascade skips it
         emit Rebalanced(lp, false, 0, getCurrentLtvBps(lp));
         // full-2×: reconcile the range to the reduced gross/debt (levBufferUsd must not exceed the now-smaller
@@ -527,7 +534,8 @@ contract LevManager is LevBase {
         // and the venue's own repay, agree on one market state.
         venue.accrue();
         uint256 d = debtUsd(lp);
-        if (d > 0) _deleverFlash(venue, lp, stable, d, minOut, dex);
+        // ⚠️ §SESS-19 — as above: `closeLev`/`closeLevFor` are 2-arg entrypoints. Explicit, not implied.
+        if (d > 0) _deleverFlash(venue, lp, stable, d, minOut, dex, 0, "");
         uint256 remaining = venue.collateralOf(lp);
         uint256 back = remaining > 0 ? venue.withdraw(lp, remaining) : 0;
         if (back > 0) IERC20Min(_collToken(venue)).transfer(lp, back); // weETH OR WETH, per the venue (incl. rebuilt short base)
@@ -565,10 +573,10 @@ contract LevManager is LevBase {
     ///         the withdraw, the LTV only ever DROPS during the op — a health-gated venue can NEVER revert on
     ///         a "withdraw breaches health" (the bug the old withdraw-then-repay chunk hit near liquidation).
     ///         Atomic and single-shot at any depth. Shared by rebalance-down, deleverOne, and close.
-    function _deleverFlash(ILevVenue venue, address lp, address stable, uint256 repayUsd, uint256 minOut, uint256 dex) internal {
+    function _deleverFlash(ILevVenue venue, address lp, address stable, uint256 repayUsd, uint256 minOut, uint256 dex, uint256 dex2, bytes memory route) internal {
         // repay-first flash (mode 0) — the ONLY mode this path emits; body in LevMath
         // (delegatecall — bytecode OUTSIDE this contract). The flash re-enters this manager's own onMorphoFlashLoan.
-        LevMath.deleverFlashBody(_extractCfg(), venue, lp, stable, repayUsd, minOut, dex);
+        LevMath.deleverFlashBody(_extractCfg(), venue, lp, stable, repayUsd, minOut, dex, dex2, route);
     }
 
     /// Transient handoff for the mode-2 (`deleverToVault`) callback's freed-stable result. Auto-clears at tx end.
@@ -578,7 +586,11 @@ contract LevManager is LevBase {
     function _extractCfg() internal view returns (LevMath.ExtractCfg memory) {
         return LevMath.ExtractCfg({ weth: WETH, weeth: address(COLL), aux: address(AUX),
             flashProvider: flashProvider, keeper: _activeKeeper, gasReserve: gasReserve,
-            maxSlippageBps: uint16(MAX_SLIPPAGE_BPS), dex: 0, dex2: 0 });
+            // ⚠️ §SESS-19 — these three are the MODE-2 defaults. Mode 0 OVERWRITES all of them in
+            //    `_deleverSettle` from the flash payload. `deleverToVault` (mode 2) still cannot route,
+            //    which is a SEPARATE gap and is booked as such — do not read this `""` as "no route
+            //    needed", read it as "mode 2 has no way to carry one yet".
+            maxSlippageBps: uint16(MAX_SLIPPAGE_BPS), dex: 0, dex2: 0, route: "" });
     }
 
     /// @notice §G.3 REDEEM/SWAP-OUT value-neutral extraction: free up to `extractUsd` (USD 1e18) of THIS LP's
@@ -784,11 +796,11 @@ contract LevManager is LevBase {
         // §C2.1 — pull the keeper's 1inch POOL WORD out of the SAME flash payload the other five fields
         // ride in. Mode 0 is the only layout that carries it; mode 2 returns above this line.
         LevMath.ExtractCfg memory cfg = _extractCfg();
-        (,,,,, uint256 dex) = abi.decode(data, (uint8, address, address, address, uint256, uint256));
-        cfg.dex = dex;
+        // §SESS-19 — the decode moved INTO `deleverSettleBody`: widening the payload to carry
+        // `(dex, dex2, route)` put this contract 93 bytes over EIP-170 with the decode here.
         // repay-first → withdraw the freed collateral → sell → return the flash + surplus: body in LevMath (EIP-170).
         gasReserve = LevMath.deleverSettleBody(assets, lp, venueAddr, stable, last,
-            AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), cfg);
+            AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), cfg, data);
     }
 
     /// The ETH sell/buy machinery lives in LevMath now (delegatecall, bytecode OUTSIDE this contract, so the

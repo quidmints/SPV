@@ -50589,6 +50589,14 @@ costs no new machinery.
 ⚠️ **It assumes θ is a live knob. On ETH it is not** — `clampByBacking`'s physical headroom sizes the
 range today (§PLP-14). **The idea survives; the mechanism named for it is currently inert.**
 
+▶️ **BOOKED 2026-09-06 AS GATE 2.5 — it was the open list's item 18 and had NO home in the master order.**
+It ranks as a **product ruling rather than a pricing item** because it can DELETE a machine, and **its
+only blocker is closed** (item 18 was gated on "the four cheap reads"; Q2.1 is resolved and Q2.3/Q2.4 are
+moot), so **it is decidable today.** ⚠️ **§PLP-6a's withdrawal changes the framing without dissolving the
+question** — the original form was *"18 may retire 8a rather than complete it"* and there is no dead leg
+left to retire, but **the comparison was never contingent on the leg being broken.** 🔑 **It must precede
+6e and 7a**, or `g` gets measured on a leg this ruling may scope down to the tail.
+
 ## §PLP-14 — RESTORED (dropped in the 2026-09-05 consolidation) + SUPERSEDES/CONTRADICTS
 
 **§E300's rate bound is the SECOND bound, and neither subsumes the other.** `q* = R/(1+R)`,
@@ -50977,9 +50985,21 @@ it.** Same reason `collectFees()` could be deleted.
 🟡 **The one residual — anchor manipulation mis-prices the SKEW, not the fill.** `RANGE_ANCHOR` is one
 write and everything derives from it. A repack fires on the deposit/withdraw path, so **a depositor
 triggers it.** An attacker who moves spot within the 300 bps tolerance and then deposits pins the anchor
-up to 300 bps off true. ⇒ Fills settle at **oracle**, so this cannot mis-price a trade. It mis-prices the
-**premium**. **Bounded by 300 bps and by the cost of moving spot against the 50-bps swap guard. Book as
-Q2.7; not established whether the premium error is first-order at 300 bps.**
+up to 300 bps off true. ⇒ Fills settle at **oracle**, so this cannot mis-price a trade.
+🔴 **AND THE NEXT CLAUSE — *"it mis-prices the premium"* — IS WRONG, CORRECTED BY §SESS-9.**
+`SwapLib.skewWad(poolVolUsd, flowUsd, sigmaSqWad, Risk, drainUsd6)` **takes no `lo`/`hi`/anchor
+parameter**, and `poolVolUsd` is a BALANCE, not a bounds-derived quantity — §V4-CUT removed the
+concentrated position that would have made it one. ⇒ **a wrong anchor cannot reach `q` or the premium
+at all.** What it feeds is `updateBounds` → `loPrice`/`upPrice` → **`QuidLib.kLvrWad`** ⇒ **θ's
+denominator and `ilTargetBps`'s band.** **Same magnitude question, different victim.**
+✅ **AND Q2.7 IS ANSWERED: NO.** Measured `~5 bps of K error, IDENTICAL at 25/50/100/200/300 bps` —
+`RANGE_DELTA` is ±20 bps, so any error past the band half-width pins `p` to the nearest EDGE
+(`QuidLib.sol:171`) and K stops moving. **The error saturates and is independent of magnitude.**
+📌 **The control matters more than the result:** widening the BAND swings K **125.06 → 12.56 (10×)**, so
+K is sensitive to what it should be sensitive to — which makes `Vault.sol:244`'s stray `delta = 200`
+seed worth ~200× this residual. ⇒ **booked at 6g/6h, not here.**
+⚠️ **§PLP-V's OTHER residual is the one that survived: the venue-yield bookmark ordering (former item 21)
+— now GATE 1h**, because it had no home in the master order and would have been lost with this one.
 
 ## §PLP-W — CARRIED FORWARD
 
@@ -51177,22 +51197,26 @@ produces numbers with the same defect, and **they would look exactly as authorit
 
 ## GATE 1 — FREE READS. Each can INVALIDATE a finding; all are read-only; do them in one pass.
 
-✅ **Five are now closed (§SESS-1, §SESS-2).** §BTC-1 (whose `ChannelDetails`) · **Q2.6** (`_bandFor` gates both
-legs) · **R1** (`unwindForRedeem` cannot reach LP-owned dollars) · **Q2.1's reasoning** (`_poolSwap` is
-deleted; the conclusion survives for a different reason) · **U1b** (the take loop handles a short return
-but orders by preference, not live withdrawability).
+✅ **ALL SEVEN ORIGINAL READS ARE CLOSED (§SESS-1, §SESS-2, §SESS-7, §SESS-8, §SESS-9).** ⚠️ **This table
+was still listing them as open on 2026-09-06 — the "closing the work is not closing the row" failure, in
+the one section whose whole job is to say what is left.** ⇒ **Each row now records WHERE ITS RESIDUE
+WENT**, because six of the seven left work behind and a closed read is not a finished item:
 
-**Still open, and still cheap:**
+| # | read | closed how | residue, and where it is now booked |
+|---|---|---|---|
+| 1a | A7 — the seed-backup discriminator | ✅ On SGX no plaintext mnemonic is ever written; the third arm short-circuits | 🔴 **A4/A5 ARE A REGRESSION AS WRITTEN** — deleting `HostingRole` drops the `WriteShares` k-of-n arm to a single plaintext file, and A5's build-time gate is NARROWER than `custody_ready()` (`Sgx \| SevSnp`). ⇒ **GATE 5 re-scopes A4/A5; it does not merely order them** |
+| 1b | are `ChannelMonitor`s sealed to MRENCLAVE? | ✅ **No** — a seed-derived vfs master key, no measurement input | **GATE 5 item 22 unblocked**; the monitors need no separate policy change |
+| 1c | can the hop be made to sign second? | ✅ `SpliceInit` carries `next_local_nonce`, so the INITIATOR cannot use `deterministicSign` | §BTC-2.2's exposure is **structurally real** and its fix rides on 4b. **Correction to §BTC-7: `TAPROOT-CHANNELS-BUILD-SPEC.md` is cited in 10 files, not 3** → **GATE 9b** |
+| 1d | Q2.2 — does `levPooled` go stale? | ✅ **Yes**, and §SESS-8's enumeration turned it from a question into an odd-one-out | 🔴 **Re-booked as a PROBABLE DEFECT → 7i.** Four of five delever paths reconcile; `swapOutDeleverPooled` does not |
+| 1e | Q2.5 (Y1) — TWAP lag, repeatable per block? | 🟡 **Narrowed**: zero `block.number`/`timestamp` guards, so the economic band is the only limiter | **The arithmetic step was not run** — `_leverUpBuy` moves debt AND collateral, so whether the post-rebalance LTV lands inside `rangeBps` is unmeasured. ⇒ **one fork test → GATE 8** |
+| 1f | Q2.7 — is a 300-bps-off anchor first-order? | ✅ **NO — ~5 bps of K error, SATURATING** (§SESS-9): `RANGE_DELTA` is ±20 bps, so any error past the band half-width pins `p` to the edge and K stops moving | 🔴 **§PLP-V NAMES THE WRONG VICTIM** — `skewWad` takes no bounds argument, so the anchor cannot reach the premium. It mis-sizes **K ⇒ θ's denominator and `ilTargetBps`'s band** → **6g/6h**, and the prose fix → **GATE 9** |
+| 1g | does swap-out delivery reach the offramp ladder? | ✅ **No** — `sendEth` sources balance → idle WETH → `rangeOp` → `deleverEthOnDelivery`, never `offrampBody` | 🔑 **Option G is scoped to WITHDRAW/REDEEM ONLY** → **7j**. And GATE 2.4's offramp measurement does not touch swap-out delivery at all |
+
+**Still open, and still cheap — the free-read slot is not empty:**
 
 | # | read | invalidates |
 |---|---|---|
-| 1a | **A7 — the seed-backup discriminator** (§BTC-8e) | decides whether a **plaintext mnemonic is ever written to disk**. ⚠️ **MUST precede A4**, which deletes the role arm that gates it |
-| 1b | **Are `ChannelMonitor`s sealed to MRENCLAVE or under a seed-derived key?** | gates whether §BTC-4.5-ter-fix is sufficient — **and §BTC-4.5-ter-fix deletes `migration.rs`**, so getting this wrong deletes the wrong thing |
-| 1c | **Can the hop be made to sign second?** (§BTC-2.2) | decides the app's nonce strategy **before the app signer is written** |
-| 1d | **Q2.2** — does `levPooled` go stale between a swap-forced delever and the next `syncLev`? | aggregate LTV reads wrong in the interval |
-| 1e | **Q2.5 (Y1)** — how far can a permissionless caller push TWAP lag, and is it repeatable per block? | §PLP-Y's last unbounded residual now that Y3 dissolved and Q2.6 closed |
-| 1f | **Q2.7** — is the skew error from a 300-bps-off `RANGE_ANCHOR` first-order? | bounds §PLP-V's only residual |
-| 1g | **The `_sendETH` funding trace** — does swap-out delivery reach the offramp ladder? | **decides whether §PLP-U option G helps swap-outs or only redemptions.** §PLP-U marks it *"close this first"* |
+| 1h | 🟡 **THE VENUE-YIELD BOOKMARK ORDERING — can a depositor capture venue appreciation accrued BEFORE its shares existed?** (§PLP-V, previously open item 21; **it had no home in this order until 2026-09-06 and would otherwise have been lost with §PLP-V's other residual**). `venueBm[user] = _venueAccrued(user, LP.pooled)` (`Quid.sol:480`) stamps the bookmark at the CURRENT `venueFeesPerShare`, and `_pendingFor` pays `venueOwed − venueBm` (`:536-537`). **The bookmark is only honest if the accumulator is already harvested when it is stamped** — `venueFeesPerShare += o.venueFeesPerShareInc` happens in `_rebalance` (`:1533`). ▶️ **THE READ: enumerate every site that stamps `venueBm` and confirm each is preceded by `_rebalance()` IN THE SAME CALL.** Two are visibly correct (`:1884` then `:1888`; `:1941` then `:1965`) and `:1016`'s comment asserts the discipline (*"`_repack` MUST run before `_depositETH` so that `_syncYield` reads…"*) — **so this is a check on the REMAINING sites (`:932`, `:1047`, `:1061`) and on the BTC leg, not a suspicion about the design.** | 🔑 **THE MIRROR OF `§BOOKMARK-OMITS-THE-COMPOUNDED-FEE`, WHICH IS THE REASON TO RUN IT: that one has a stale WEIGHT against a fresh accumulator; this asks about a stale ACCUMULATOR against a fresh weight. Same class, opposite operand, same file family — and the first was found by reading, not by a test.** ⚠️ **Read-only, and it is upstream of GATE 2.3**: the position token makes `balanceOf` a view over `pooled` and settles bookmarks on transfer, so a bookmark-ordering defect would be inherited by the transfer path rather than fixed by it |
 
 ## GATE 2 — 🔴 THE PRODUCT DECISIONS. **THIS IS THE GATE THE OWNER MEANS.**
 
@@ -51223,6 +51247,61 @@ reached from two directions**. ⇒ **rule on §PLP-0 and the §PLP-T class TOGET
 two-directional, `target = flowEwmaUsd` already mean-reverts drift and classes 1–3 are premature.
 ⚠️ **M7 (redemption volume and its co-timing) is not optional** — §PLP-T2 shows redemption is a **second,
 independent driver of the same drift**, so a class chosen on swap data alone is sized wrong.
+
+### 🔴 2.2 RE-SCOPED 2026-09-06 — **THE MEASUREMENT GATE WAS POINTING AT SOMETHING THAT CANNOT HAPPEN**
+
+**Four changes from §SESS-15 and §SESS-16, and the first one is a scheduling fact this order did not
+carry.**
+
+**① THE M-SERIES IS BLOCKED ON LAUNCH, NOT ON ANALYSIS.** `evm/deployments/l1.json` names `chainId: 1`
+addresses and **`core`, `aux`, `vault` and `levManager` all have ZERO CODE on mainnet** at the archive
+pin — it is a dry-run artifact. ⇒ **there is no realised flow to regress**, so M1–M3 and M7 as written
+are unmeasurable pre-launch. **"Gated on M1–M3 + M7" therefore reads as "deferred indefinitely", which
+is not what it was meant to say.**
+▶️ **SO THE GATE SPLITS IN TWO, AND ONLY THE SECOND HALF WAITS:**
+- **What is decidable NOW:** everything derivable from a PURE sweep of the shipped formulas at live
+  parameters — which is how M0's magnitude half was settled without any behavioural data (below), and
+  how the class-1 self-funding bound (`spread_paid < fee_income_recovered`) can be bounded in advance.
+- **What genuinely waits for flow:** M5 (does a posted spread attract anyone), M2/M3 (drift persistence
+  = class 2's exposure duration), M7's actual ratio. ⚠️ **A proxy venue would substitute; nothing else
+  will.** ⇒ **Do not let a launch-blocked measurement hold up work that a pure sweep can settle.**
+
+**② M0's MAGNITUDE HALF IS SETTLED AND IT REMOVES THE ESCAPE HATCH** (§SESS-16, `SkewTollCurve.t.sol`,
+4/4 pure, at live σ² / `flowEwmaUsd` / `POOLED`). **The toll is 0 bps at 1%, 5%, 10% and 25% of pool,
+and 1 bp at 50% and 75%.** ⇒ **the deterrent is ZERO across the entire operating range, so no elasticity
+can rescue it** — a 0-bps toll changes nobody's routing whatever their price sensitivity. **The
+counter-reading ("the pool is self-LIMITING, so §PLP-T's *no restoring term* is too strong") is refuted
+by measurement, and §PLP-T's ratchet stands.** The brake exists and switches on at ~75–90% depletion:
+**a wipeout guard, not a rebalancing incentive.**
+
+**③ SCOPE EVERY CLASS TO THE VOLATILE LEG ONLY** (§SESS-15). The USD leg is refilled by `deposit`, which
+is single-asset, always-on and costs nothing; **only the volatile leg has no natural source.** ⇒ a
+class-1 spread posted on the USD leg would be paying for something deposits already do free.
+⚠️ **This does not dissolve §PLP-T2** — a redemption wave can still outrun deposits. It makes T2 a RATE
+mismatch on a leg that HAS a source, which is a smaller problem than a leg with none.
+📌 **And the signed-skew idea is already the code:** `SwapLib:445-448` charges only the volatile-OUT
+drain, so **the refill direction already pays ZERO skew and that has not produced refill flow.** ⇒ at
+oracle settlement *"free"* is not an incentive; only *"better"* is, which is class 1's entire content.
+**A mechanism that is already implemented cannot be the missing mechanism.**
+
+**④ A CANDIDATE THAT IS NOT A FIFTH CLASS: COUNT REDEMPTION FLOW IN `target`.** `_bumpFlow` has exactly
+one call site (`Core.sol:1053`, the swap settlement path), and **`unwindForRedeem` is a BURN, not a
+swap** ⇒ **a redemption wave consumes range inventory and never raises `flowEwmaUsd`.** So `target`
+under-counts the demand the range actually serves, `inv/target` reads **4.54** at live values, and that
+is precisely why ② is a row of zeros. **Priced, same drain and inventory, only `target` varied: ×5 →
+34 bps, ×10 → 279 bps.** ⇒ **the omission is the difference between a mechanism that fires and one that
+does not.** It pays no third party, borrows nothing and holds no inventory.
+⚠️ **Not proposed as the answer, and bounded twice:** the multiplier is a SWEEP, not a measurement (what
+redemption volume actually is needs M7 — **which is why M7 is promoted from an optional seventh to the
+highest-value item in the set**), and fixing `target` is a **money-path change to a live pricing term**,
+so rule 10 makes it its own change with §E352's flush-branch defect sitting in the same function.
+
+⛔ **ON CLASS 2 (borrow), PER THE OWNER:** *"repay immediately from future flow"* turns a standing
+directional loan into a **bridge**, moving its cost from M6 (liquidation tail) to M2/M3 (exposure
+duration) — **but only if repayment is FORCED.** Absent a hard cap on outstanding size and a forced
+unwind at a duration bound, *"repaid from future flow"* is the same *"organic counter-flow"* §PLP-T
+already dismisses as **not a mechanism, a hope.** ⇒ **do not adopt it on the argument; the forcing
+mechanism is a precondition of the design, not a detail of it.**
 
 ### 2.3 ⭐ **MINT THE POSITION TOKEN TO THE LP, BOTH LEGS** (§BTC-2.5g-bis) — **THEN ERC-7540.**
 🔑 **THIS IS THE ORDERING THE OWNER NAMED.** ERC-7540's blocker is **shares**: the vault must BE the share
@@ -51271,6 +51350,42 @@ gonna be 1inch for sure. for the il protect borrow or for swap outs or redeems�
 for.** And the ~30–50k per-hop delta is small against a 500k–1M lever rebalance, so **it is not worth
 front-running the class ruling to save it.**
 
+### 2.5 ⭐ **θ OR THE LEVER: WHICH INSTRUMENT CARRIES LINEARITY?** (§PLP-13 — **previously open item 18,
+unbooked in this order until 2026-09-06**)
+
+🔑 **WHY IT IS A GATE-2 ITEM AND NOT A PRICING ONE: it can DELETE a machine.** The lever's up-leg needs a
+borrow, a venue, an aggregator route and a keeper — **four dependencies to undo something the range did
+to itself**, because `ilTargetBps = 1 − √(entry/now)` RISES with price exactly as the range SHEDS ETH.
+**θ is the same control with none of those dependencies**: un-ranged ETH sits in weETH and holds constant
+units (linear), in-range ETH holds √p (concave), so **lowering the in-range fraction as price rises sheds
+less and needs less lever** — a number this protocol already computes, on-chain, with no debt, no
+liquidation, no cascade, no route and no gas.
+✅ **IT IS UNGATED. ITS ONLY BLOCKER IS CLOSED** — the doc listed it as blocked on "the four cheap reads",
+and Q2.1 is resolved while Q2.3/Q2.4 are moot. **It can be ruled on today.**
+⚠️ **§PLP-6a's WITHDRAWAL CHANGES THE FRAMING WITHOUT DISSOLVING THE QUESTION.** The original form was
+*"18 may retire 8a rather than complete it"* — and 8a is withdrawn, so there is no dead leg to retire.
+**What survives is the comparison itself**, which was never contingent on the leg being broken: is the
+lever the right instrument for linearity at all, or only for the tail?
+▶️ **THE COMPARISON, and it is the one §PLP-3 says θ's formula is missing:** in-range fee yield against
+**`venueYield + borrowing cost + g + liquidation risk`.** Under the lever the last three are real and
+unmeasured; under θ they are zero.
+⚠️ **IT MUST PRECEDE 6e AND 7a**, which is the whole reason it is booked here: **6e measures `g` from the
+up-leg's cost and 7a collapses the rebalance walk** — both are investment in machinery this ruling may
+scope down to the tail. Measuring `g` on a leg you are about to stop using is the ordering trap this
+section exists to prevent.
+🔴 **IT IS BLOCKED ON Q4.2, WHICH IS A REAL UNKNOWN AND NOT A READ:** can θ hit `1 − √(entry/now)`
+exactly, or only track its direction? **That decides SUBSTITUTE vs REDUCE-THE-SIZE-OF**, and the two are
+different rulings. ⚠️ **θ can only shed what is in range** — once in-range is fully withdrawn, further
+linearity needs leverage, so **θ covers the common case and the lever remains for the tail.** Nobody has
+established where that boundary sits.
+⚠️ **AND THE MECHANISM NAMED FOR IT IS CURRENTLY INERT:** on ETH θ fails open at `1e18` and
+`clampByBacking`'s physical headroom sizes the range today (§PLP-W, Q5.4). ⇒ **the ruling is about which
+instrument to BUILD toward, and 6a is where θ becomes live.** **Do not read the comparison as available
+today.**
+📌 **THE CHEAP THIRD OPTION, worth pricing in the same pass rather than after it:** make the band
+**ASYMMETRIC** — rebalance down promptly (the down-leg is self-funding, atomic and routeless) and up
+lazily. It costs a wider `h` and a larger `C·K·σ²·h/2` term, and **no new machinery at all.**
+
 ## GATE 3 — 🔴 IMMUTABLE-CONTRACT WORK. Before `BTCChannels` is deployed; cannot be sequenced later.
 
 **§BTC-9 PHASE 0, all six checklist items, designed TOGETHER in `ChannelLib`** (§BTC-8c's ~1,049 bytes and
@@ -51311,6 +51426,20 @@ curve) · **D2.4-6**.
 test in the Bitcoin scope**, and the harness is now installed and verified.
 **4k.** **Keyless fee bump for the exit** (§BTC-2.4c) — ephemeral anchor, **not `bump.rs`**.
 **4l.** **`M1`, stated precisely** — the gate that stops the seed being exported **TO** a bad image.
+**4m.** 🔴 **§PLP-Y2's DEMAND-PATH RESIDUAL — RE-SCOPED 2026-09-06, AND IT IS THE §PLP ITEM THIS GATE'S
+OWN HEADER PROMISED.** Q2.6 closed *"the band rate-limits delevers"* and **that result was then applied
+wider than it holds.** §SESS-8 enumerated the surface: `_bandFor` is consulted from **exactly two**
+computation sites (`LevBase.debtDeltaToTarget` and `LevManager.deleverRepayUsd`), which covers
+`rebalance`/`rebalanceOne`/`rebalanceMany`/`deleverOne`/`cascadeDelever` — **the KEEPER family. It is
+consulted by NONE of `deleverToVault`, `swapOutDeleverPooled`, `deleverBook`, `closeLev`,
+`closeLevFor`** — the DEMAND family, which fires when a redeem, a swap-out delivery, a redemption
+shortfall or a withdraw asks it to, **because none of them are trying to reach a target.**
+⇒ **A caller who can trigger a demand-path delever pays the same `TWAP − MAX_SLIPPAGE` bleed with no
+band in the way**, so §PLP-Y2's *"bounded by crossing frequency"* is not the bound on that surface.
+⚠️ **DO NOT READ THIS AS "Y2 IS EXPLOITABLE."** The bleed is per-call and each call needs a real redeem
+or swap-out behind it, so **this is a RATE question, not free money** — and how often the demand paths
+are reachable is unmeasured. ▶️ **The work is to bound the demand family, or to state why it needs no
+bound**, not to re-close Q2.6. 🔗 **Same surface as 7i**, which is the odd-one-out inside that family.
 
 ## GATE 5 — ENCLAVE COLLAPSE, then the sealing change it enables (§BTC-9 PHASE 3)
 
@@ -51338,11 +51467,23 @@ that is a control loop through the numerator.
 **6d.** **§PLP-8: the smoothed snapshot and derived `W` FIRST, then the block-frozen size-independent
 rate.** ⛔ **9 blocks 10.** Shipping the freeze without the smoothing swaps order rent for cross-block
 manipulation — **the trade this file's own rule forbids.**
-**6e.** **`g` from measured up-leg cost** (§PLP-6c), replacing the frozen fitted curve.
+**6e.** **`g` from measured up-leg cost** (§PLP-6c), replacing the frozen fitted curve. ⚠️ **GATED ON
+2.5** — do not measure `g` on a leg the θ ruling may scope down to the tail. 🔴 **AND RE-SCOPED BY
+§SESS-8: `g` MODELS FAMILY 1 ONLY.** `deleverToVault` repays `ΔD = extractUsd·debt/netEq` and withdraws
+the paired collateral — a **proportional shrink that leaves LTV where it was** — while family 1 MOVES
+LTV to a target. ⇒ **applying `g` to an extraction attributes a leverage change that did not happen.**
+**Measure it on the keeper family and say so in the term's definition.**
 **6f.** **The freshness trade** (§BTC-2.4b.2) — 🔴 **re-weighted by §BTC-1: job 1 is LIVE again**, so
 correctness is back in play and option A gains weight. ⚠️ Price `B1` first; measure gas per rung.
 **6g.** **`Vault.sol:244`'s `delta = 200` seed** — a **10× K error** feeding θ AND the band (Q5.2).
-**6h.** **`K`'s second consumer** — `ilTargetBps`'s band under `kLvrWad` (Q5.3).
+🔑 **NOW THE PRIORITY ITEM OF THE K CLUSTER, AND §SESS-9 IS WHY.** Q2.7's sweep measured a 300-bps-off
+ANCHOR at **~5 bps of K error, saturating** — while its own control, widening the BAND, moved K
+**125.06 → 12.56, a 10× swing.** ⇒ **K is insensitive to the anchor and hypersensitive to `RANGE_DELTA`,
+so the stray `delta = 200` seed is worth ~200× the residual §PLP-V spent a section on.** 📌 That control
+also independently reproduces §PLP-4's `1/4δ` figures for ±2% vs ±0.2%, which were previously asserted.
+**6h.** **`K`'s second consumer** — `ilTargetBps`'s band under `kLvrWad` (Q5.3). 🔗 **Land with 6g and
+with 1f's re-scoped victim:** the anchor feeds `updateBounds` → `loPrice`/`upPrice` → `kLvrWad` ⇒ **θ's
+denominator AND the band**, so all three items are the same consumer set read from three directions.
 
 ## GATE 7 — STRUCTURAL CLEANUPS THAT NEEDED A DECISION FIRST
 
@@ -51359,16 +51500,61 @@ together, one on each side of the boundary.**
 F11** — gated on `§M.1` and `§STALE-BRANCH`.
 **7e.** **`ChannelLib:511`'s underflow panic → a named error** (§BTC-2.5a-quater).
 **7f.** **The `PendingOnchainSwapOut.sats` guard/cast width mismatch** (§BTC-2.5a-quinquies).
-**7g.** **U1a** surface `Aux.redeemableAmount()` in the quote · **U2** pay-in-immature-QU!D · **U3** rename
-`btcShortfall`. ⚠️ **All three are downstream of GATE 2.1.**
+**7g.** ✅ **U1a HAS LANDED — do not re-book it** (§SESS-13): `Aux.quoteSwapOut(asset, drainUsd6) →
+(skewWad, redeemable)` returns the price and its liquidity constraint **together**, deliberately not
+`view`. **What remains under this letter is U2** (pay-in-immature-QU!D, `perShare`-priced, opt-in,
+burn-on-direct-swap) **and U3** (rename `btcShortfall` — a dispatch signal, not a shortage).
+⚠️ **Both downstream of GATE 2.1.**
+🔴 **AND U1b's ANSWER ADDS A THIRD, WHICH WAS A FEAR AND IS NOW A MEASURED FACT.** `BasketLib:752-757`
+handles a throw AND a short return, so nothing reverts — **but the draw ORDER is by PREFERENCE, not by
+live withdrawability**, so it can pick a pinned venue while a free one sits beside it. ⇒ **the 15-slot
+diversification that §PLP-R2 calls *"the only real mitigation"* is NOT WIRED TO THE CONSTRAINT**, and the
+fifth shortfall bites more often than the slot count implies. ▶️ **Order the take loop by live
+withdrawability, or state why preference must win.** ⚠️ **It is the same live read `quoteSwapOut` already
+performs**, so the instrument exists; this is about who consumes it.
 **7h.** **Split shortfall DETECTION from REMEDIATION; signal unconditionally** (§PLP-14, §E308).
 ⚠️ **Downstream of GATE 2.1** — if option F lands, there may be nothing to remediate.
+**7i.** 🔴 **`swapOutDeleverPooled` DOES NOT RECONCILE THE RANGE, AND IT IS THE ONLY DELEVER PATH THAT
+DOES NOT** (1d, §SESS-8). Four of the five state-changing paths reconcile (`deleverBook` transitively via
+`deleverToVault`); this one repays, delivers and returns without `syncLev`/`_syncRange`, so **after a
+swap-forced delever the venue position has moved and the RECORDED `levPooled` has not.**
+⚠️ **§SESS-7 booked it as a QUESTION on the grounds that `§A.16b` deliberately prefers the RECORDED term
+so numerator and denominator share a clock. With the enumeration in hand it is an ODD-ONE-OUT rather than
+a design choice**, and `deleverToVault`'s own docblock states the expectation. ⇒ **re-booked as a PROBABLE
+DEFECT.** ⛔ **EXPLICITLY NOT A ONE-LINE PATCH** — `§A.16d` records the neighbouring change being reverted
+at **69% under-pricing**, which is what a plausible-looking correction on this surface cost last time.
+▶️ **Needs `§M.1`'s fork test, and it belongs with 7d** (same `§STALE-BRANCH` gate).
+**7j.** 🔑 **OPTION G IS SCOPED TO THE WITHDRAW/REDEEM PATH ONLY — settled by 1g, and it was previously
+recorded as *"SCOPE UNRESOLVED, close this first"*.** `Quid.deliverVolatile → _sendETH →
+QuidLib.sendEth:498-519` sources `address(this).balance` → idle `IWETH9.balanceOf` →
+`IEthVenue.rangeOp` → `SwapLib.deleverEthOnDelivery`, and **never reaches `offrampEtherFi`,
+`offrampBody` or `sellWeethOnCurve`.** ⇒ **borrowing WETH against the weETH instead of selling it helps
+redemptions and withdrawals; it does nothing for swap-outs**, which fall back to the delever instead.
+📌 **So §PLP-5's *"the swap path has no equivalent because it never asks"* is right about the LADDER
+specifically — the swap path is not unprotected, it has a different mechanism.** ⚠️ **Downstream of GATE
+2.4 and of 2.2** (class 3 changes what an offramp is for), and it carries option G's two stated costs:
+a **correlated-pair liquidation tail** and a **second ETH-side debt term** for `checkBacking` to net.
 
 ## GATE 8 — TESTS (after the code they test is settled)
 
 **F1, F3, F9 hold today and must keep holding.** Then **F2** (needs `W`), **F6/F8/F10** (need the
 register split), **F5** (needs the floor), **F13/F14** (need the routing change), **F11/F12** (need
 `§M.1`). 📌 **F14 survives §PLP-6a's withdrawal** — it is the regression test for the routing change.
+
+**Three named tests are now the CLOSING STEP of items above, and each is one test, not a campaign:**
+**8a.** **Q2.5/Y1 — rebalance TWICE in one block and assert the second returns `deltaUsd == 0`** (1e).
+There are **zero `block.number`/`block.timestamp` guards** in `LevManager.sol` or `LevBase.sol`, so the
+band is the only limiter; what is unmeasured is whether `_leverUpBuy` — which moves **debt AND
+collateral** — leaves LTV inside `rangeBps`. ⇒ **"not repeatable in one block" is asserted, not
+established**, and this settles it. 🔗 **Scope it to the KEEPER family**; the demand family has no band
+at all (4m).
+**8b.** **`§BOOKMARK-OMITS-THE-COMPOUNDED-FEE` — settle with `tokR > 0`, add NO new fees, assert
+`pendingFor == 0`** (today it returns `tokR·fps/WAD`). ⚠️ **That finding is 🔴 derived-from-code and NOT
+executed, and it was not in this order at all** — the fix is not landed until this fails before and
+passes after. **Reachability is every repeat depositor**, and the long-offline LP the owner asked about
+is the worst case.
+**8c.** **1h's venue-yield ordering**, IF the read finds a site that stamps `venueBm` without a harvest
+in the same call — the same shape as 8b with the operands swapped, so **write it as the same test.**
 
 ## GATE 9 — 🔴 DOCUMENTATION, LAST, AND THE REASON IS THE WHOLE POINT OF THIS SECTION
 
@@ -51409,12 +51595,27 @@ navigation aid.** §SESS-3 records the attempt and exactly what it got wrong.
 
 ## ✅ WHAT IS ALREADY CLOSED, SO IT IS NOT RE-OPENED
 
-§BTC-1 (§E172 survives; `:851-877` is wrong) · **Q2.6** (`_bandFor` gates both legs) · **R1**
-(`unwindForRedeem` cannot reach LP-owned dollars) · **Q1.1/Q1.2** (claims are pro-rata; swaps are
-value-neutral) · **Q2.1's conclusion** (§PLP-6a stays withdrawn, for a corrected reason) · **U1b**
-(partial) · **§BTC-9a**'s twelve presence-dependency guarantees · **§BTC-10c**'s nine completed audits ·
+§BTC-1 (§E172 survives; `:851-877` is wrong) · **R1** (`unwindForRedeem` cannot reach LP-owned dollars —
+`usdOut ≤ basketUsd` by construction, so the increment is invariant and **a redemption wave is not a
+transfer from LPs to QU!D holders**) · **Q1.1/Q1.2** (claims are pro-rata; swaps are value-neutral) ·
+**Q2.1's conclusion** (§PLP-6a stays withdrawn, for a corrected reason — `_poolSwap` is DELETED, and
+`_aggSwap` guards on `dex == 0`, not on an empty `route`) · **Q2.2** (yes, `levPooled` goes stale — but
+the *disposition* is open at 7i) · **Q2.7** (**NO, not first-order: ~5 bps of K error, saturating past
+the band half-width**) · **1a/1b/1c/1g** (see GATE 1's disposition table) · **U1a** (`Aux.quoteSwapOut`
+landed) · **U1b** (measured: preference order, **and the consequence is booked at 7g**) · **M0's
+MAGNITUDE half** (the toll is 0 bps across the operating range — the *behavioural* half is unmeasurable
+pre-launch) · **§BTC-9a**'s twelve presence-dependency guarantees · **§BTC-10c**'s nine completed audits ·
 **§PLP-U3 items 1 and 2** (built) · **§PLP-U2's "routes do not compose"** (measured false in-tree) ·
 **the `:1848` sweep** · **the toolchain, the graph and a clean baseline** (§SESS-4).
+
+🔴 **ONE ROW LEFT THIS LIST ON 2026-09-06, AND IT IS THE INSTRUCTIVE ONE. `Q2.6` USED TO READ
+*"`_bandFor` gates both legs"* — TRUE OF THE TWO COMPUTATION SITES IT WAS MEASURED ON, AND APPLIED FAR
+WIDER THAN IT HOLDS.** §SESS-8's enumeration shows the band is consulted by the **keeper** family and by
+none of the **demand** family. ⇒ **Q2.6 is closed for what it actually asked and is NOT a general bound;
+the residual is booked at 4m.**
+⚠️ **THE GENERAL LESSON FOR THIS LIST, since it has now bitten once: A READ IS CLOSED WHEN THE QUESTION
+IS ANSWERED — THE ITEM IS CLOSED WHEN ITS RESIDUE IS BOOKED.** Six of GATE 1's seven reads left work
+behind. **Put the answer here; put the consequence in a gate; never let a ✅ here stand for both.**
 
 ---
 
@@ -51472,6 +51673,10 @@ that "appears to give the result we want and actually doesn't" fails the delta c
 transaction reverts — a LIVENESS attack, never theft.** This holds even for raw keeper calldata
 (`routedSwap:695`), because the callee is pinned and the blast radius per leg is exactly `amt` of one
 token. **The residual is the §PLP-Y2 bleed at exactly `TWAP − slip`, which Q2.6 shows is band-limited.**
+🔴 **DESTALED 2026-09-06: "band-limited" HOLDS ONLY FOR THE KEEPER FAMILY.** §SESS-8 enumerates the
+surface — `_bandFor` is consulted by `rebalance`/`rebalanceOne`/`rebalanceMany`/`deleverOne`/
+`cascadeDelever` and by **none** of `deleverToVault`/`swapOutDeleverPooled`/`deleverBook`/`closeLev`/
+`closeLevFor`. ⇒ **the demand paths carry the same bleed with no band in the way; booked at 4m.**
 **Splitting one token across M venues works TODAY at the executor level** — nothing stops the same token
 appearing in several slots with different amounts and routes. **Only the ENCODER is single-pool**
 (`_aggSwap` builds a 1-element array). **`unoswap3` is not imported** — only `UNOSWAP_SELECTOR` and
@@ -52383,4 +52588,76 @@ loosened until it is satisfied is the §VACUOUS-BOUNDS shape.
 this tree does not have (§SESS-16: `l1.json`'s addresses hold zero code). ⇒ **the fix makes the mechanism
 CAPABLE of seeing redemptions; it does not tell us what the resulting toll will be.** §PLP-T's class
 ruling is unchanged and still open.
+
+## §SESS-19 — **U1 FIXED, AND IT WAS §E357's DEFECT ON THE MIRROR LEG. PLUS: THE FINAL SHAPE OF THE 1inch INTEGRATION.** (2026-09-06)
+
+### ⭐ THE ANSWER THE OWNER ASKED FOR: **ONE ROUTE VALUE · N LEGS · ONE EXECUTOR · FLOORS DERIVED ON-CHAIN**
+Not a preference — each clause is forced by something measured.
+
+**① THE CARRIER IS ONE VALUE, NEVER DESTRUCTURED.** `{dex, dex2, route}` are three loose parameters
+threaded through ~8 signatures, and **that is exactly why the close leg lost two of them at THREE
+independent points and hardcoded `route: ""` at two more.** The end state makes the drop
+**UNREPRESENTABLE** — a call site sees one `r`, so it cannot forget `dex2`. ✅ **The tree already does
+this twice**: `SellCtx` (`:537`) and `WbtcCfg` (`:317`) carry all three together. `ExtractCfg` carried
+only the two pool words and was the outlier; that is now fixed.
+
+**② THAT VALUE BECOMES A LIST, AND ONLY THE ENCODER IS SINGULAR.** `convertTo:641` loops `k < n` over
+parallel arrays **with no dedup on `inTokens[k]`** ⇒ **parallel load-balancing works at the EXECUTOR
+today.** The one singular thing is `_aggSwap:967`'s `new address[](1)`. ⇒ **§PLP-U3 is an ENCODER change**;
+the executor, the per-leg approve→zero, the `ROUTE_GAS_CAP` and the floor are already N-safe.
+
+**③ TWO ENCODERS IS CORRECT AND MUST STAY.** On-chain pool words (no off-chain dependency; works when the
+amount is computed on-chain) **and** off-chain aggregator calldata (reaches what pool words cannot —
+Curve, and the 4 of 8 stables with no direct v3 pool to USDC). **§V-R1-MIN rules out pre-built calldata
+wherever the amount is computed on-chain**, so neither encoder can replace the other. §C15 already states
+this (*"Two encoders … ONE executor"*). ⇒ **the missing half is encoder B's `swap()` executor path**, not
+a third encoder.
+
+**④ THE FLOOR NEVER COMES FROM THE CALLER, AND THAT MUST SURVIVE EVERY EXTENSION.** `minOut` is advisory;
+the binding bound is TWAP-derived on-chain (`_stableToWethSor:985`, `_wethStableFloor:1139`) — which is
+why the keeper already sends `minOuts` as **all zeros** and is not thereby trusted. ⛔ **N-leg balancing
+must keep ONE floor on the WHOLE conversion, never per-leg** — per-leg floors let a keeper pass the
+aggregate by making one leg over-deliver, which is the §PLP-Y2 bleed with extra steps.
+
+**⑤ AND THE PLUMBING LIVES IN `LevMath`, NOT `LevManager` — THIS IS MEASURED, NOT TASTE.** See below.
+
+### 🔴 WHAT U1 ACTUALLY WAS: THE SAME DEFECT §E357 DIAGNOSED, ON THE LEG IT DID NOT FIX
+The close leg dropped the route in **three** places, not one:
+| # | site | what was lost |
+|---|---|---|
+| 1 | `LevManager._delever` | took `dex2` + `route`, called `_deleverFlash(…, minOut, dex)` — **both dropped** |
+| 2 | `LevMath.deleverFlashBody` | flash payload was `abi.encode(uint8(0), lp, venue, stable, minOut, dex)` — **nowhere to put them** |
+| 3 | `LevMath._sellAndPay` + `collToWethDeliver` | built `SellCtx` with **`route: ""` hardcoded, twice** |
+⭐ **AND §E357's OWN DOCBLOCK NAMES SITE 3 AS THE BUY SIDE'S ENTIRE BUG:** *"`route` is a PARAMETER
+because this struct field was hardcoded `""`, and **that one literal is where every empty route on the BUY
+side came from**."* **Same literal, same file, unfixed on the mirror leg.** ⇒ U1 was never "thread a
+parameter"; it was a known bug class that had been fixed once and left standing on the other side.
+
+### ✅ WHAT SHIPPED
+`ExtractCfg` gains `bytes route` (matching `SellCtx`/`WbtcCfg`) · `_delever` carries all three ·
+`deleverFlashBody` puts `dex2`+`route` in the payload · the two `route: ""` become `cfg.route`.
+⇒ **the two-hop and keeper calldata are now reachable on the CLOSE leg from `rebalance` /
+`rebalanceOne` / `rebalanceMany`.**
+
+### 📏 EIP-170 IS THE BINDING CONSTRAINT, AND IT BIT MID-CHANGE — WHICH IS THE EVIDENCE FOR ⑤
+With the payload decode in `LevManager._deleverSettle`, this change put the manager at **−93 bytes,
+i.e. OVER EIP-170 and undeployable.** ⇒ moved the decode **into `LevMath.deleverSettleBody`** (the library
+is `delegatecall`'d, so its bytecode does not count against the manager) — the tree's own remedy,
+*"body in LevMath (EIP-170)"*, applied to the decode as well as the body. ⭐ **Independently the better
+shape:** the struct is now populated beside the encoder that wrote the payload, so the two cannot drift in
+field order. **Result: 24,354 bytes, margin 419 → 222.**
+⚠️ **U2 WAS LOAD-BEARING AND IS NOW TIGHTER.** Any further route work on this leg must budget bytes FIRST.
+
+### ⛔ WHAT IS STILL NOT ROUTED — EXPLICIT, NOT IMPLIED
+`deleverOne` / `cascadeDelever` (3-arg, **keeper-allowlisted**) and `closeLev` / `closeLevFor` (2-arg) now
+pass **`0, ""` written out at the call site** rather than by omission. Widening them is another four-seam
+selector change (`evm_validating_signer.rs` + `encode_batch` + contract + gate), exactly like
+`rebalanceMany`'s. ⛔ **Deliberately not smuggled into this change** (rule 10). Likewise **mode 2
+(`deleverToVault`) still cannot route** — `_extractCfg()`'s `route: ""` is a mode-2 default, and that
+comment says so at the site so it is not re-read as *"no route needed"*.
+
+### ▶️ VERIFIED
+`LevCascade` 22/22 · `LevDerivedBand` 8/8 · `LevVenueMarketPins` 5/5 · `LevYbPnl` 2/2 · `LevYbReal` 3/3 ·
+`LeverageCrossSubsidy` 1/1 · `LeveragePnL` 4/4 · `RedeemFlowTarget` 3/3 · `DrainAtomicity` 32/33 (the one
+red is §SESS-18's pre-existing UNITB q0 control, byte-identical with this change stashed).
 
