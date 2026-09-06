@@ -776,6 +776,13 @@ library LevMath {
         // Oracle-derived and SIZE-AWARE — the same curve every other floor in this library uses, so
         // a large conversion is not held to a small trade's tolerance.
         uint floor_ = _fromUsd(aux, payoutToken, drawn18) * (10_000 - _slipBps(drawn18)) / 10_000;
+        // §SESS-23 — **RAISE THE FLOOR TO WHAT WE COULD HAVE SERVED OURSELVES.** Summed per leg because
+        // the floor is on the WHOLE conversion (a per-leg floor would cost the liveness the `continue`
+        // above exists to buy). A leg with no quotable route contributes 0, so this can only ever
+        // TIGHTEN the bound — never loosen it, and never revert a conversion for want of a quote.
+        uint ref_;
+        for (uint k; k < st.length; ++k) ref_ += _selfServableQuote(st[k], amt[k], payoutToken);
+        if (ref_ > floor_) floor_ = ref_;
         uint extra = convertTo(st, amt, payoutToken, floor_, routes);
         if (extra == 0) return 0;
         IERC20OZ(payoutToken).safeTransfer(owner, extra);
@@ -1054,6 +1061,52 @@ library LevMath {
         return toUsdc
             ? curveExchange(stable, pool, iStable, iUsdc, amt, 0, false)
             : curveExchange(USDC,   pool, iUsdc, iStable, amt, 0, false);
+    }
+
+    /// @notice §SESS-23 — **WHAT THIS CONTRACT COULD GET FOR ITSELF, WITHOUT A KEEPER.** 0 when it has
+    ///         no way to know, which is the whole reason this is safe to use as a FLOOR.
+    ///
+    /// ⭐ **WHY THIS EXISTS: THE FLOOR'S SLACK IS THE BLEED, AND THE SLACK IS A GUESS.** `_slipBps` is
+    ///    25 bps rising to a 100 bps cap, applied to every leg — while §ROUTE-COST-MEASURED puts real
+    ///    execution at **1.7–8 bps** for the stables we route. **Every basis point between the two is a
+    ///    basis point a compromised keeper may take** by routing through a venue that delivers exactly
+    ///    the floor. §SESS-22 closed the outright THEFT (a leg that takes and gives nothing); this is
+    ///    the remaining QUALITY residual.
+    /// 🔑 **AND IT DISSOLVES THE OPEN QUESTION RATHER THAN ANSWERING IT.** The booked remedy was
+    ///    *"tighten `_slipBps`"*, with the standing warning *"**measure per-route before choosing the
+    ///    number** — the number that is safe for USDT is not automatically safe for GHO."* A quote
+    ///    **IS** that per-route measurement, taken live at the size actually being traded. ⇒ the
+    ///    constant stops being load-bearing wherever a quote exists, so nothing has to be guessed.
+    ///
+    /// ⚠️ **`max(oracleFloor, quote)` IS THE MANIPULATION-SAFE DIRECTION, AND THE DIRECTION IS THE
+    ///    ARGUMENT.** A reference pushed DOWN cannot lower our floor — `max` falls back to the oracle,
+    ///    i.e. exactly today's behaviour. A reference pushed UP costs LIVENESS (honest routes fail),
+    ///    never custody. That asymmetry is why a manipulable venue is admissible here and would not be
+    ///    admissible as a price. Same discipline as the min-of-two-prices shape used elsewhere.
+    /// ⚠️ **COVERAGE IS 2 OF 14 STABLES TODAY** (`_routeOf` holds RLUSD and PYUSD), so this raises the
+    ///    floor on a minority of legs and is inert on the rest — **inert, never loosening.** Growing
+    ///    the table grows the coverage; that is the same ungrowable-roster item §S2 books.
+    /// @dev Every read is `try`-wrapped to 0: an unquotable route must contribute NOTHING to the floor
+    ///      rather than revert a conversion, because a missing quote is not a missing conversion.
+    function _selfServableQuote(address tokenIn, uint256 amtIn, address tokenOut)
+        internal view returns (uint256)
+    {
+        if (amtIn == 0) return 0;
+        if (tokenIn == tokenOut) return amtIn;
+        if (tokenIn == USDC)  return _curveQuote(tokenOut, amtIn, false);
+        if (tokenOut == USDC) return _curveQuote(tokenIn,  amtIn, true);
+        uint256 viaHub = _curveQuote(tokenIn, amtIn, true);      // tokenIn → USDC
+        if (viaHub == 0) return 0;
+        return _curveQuote(tokenOut, viaHub, false);             // USDC → tokenOut
+    }
+
+    /// @dev One table hop, quoted. `toUsdc` mirrors `_hubSwap`'s parameter so the quote and the swap
+    ///      cannot disagree about direction — they read the SAME `_routeOf` row.
+    function _curveQuote(address stable, uint256 amt, bool toUsdc) private view returns (uint256) {
+        (address pool, int128 iStable, int128 iUsdc) = _routeOf(stable);
+        if (pool == address(0)) return 0;                        // not on the table ⇒ no opinion
+        try ICurvePool(pool).get_dy(toUsdc ? iStable : iUsdc, toUsdc ? iUsdc : iStable, amt)
+            returns (uint256 dy) { return dy; } catch { return 0; }
     }
 
     /// @dev Is this stable on the Curve routing table? Checked rather than caught: an unroutable

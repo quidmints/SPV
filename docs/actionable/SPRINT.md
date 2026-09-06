@@ -52917,3 +52917,68 @@ returned by the revert; **two controls**: a merely-FAILED leg still skips (the d
 preserved), and an honest `_aggSwap` fill is unaffected (the guard is not over-broad). Regression across
 the lev/route/skew suites **61/0**. `LevMath` 22,330 (2,246 margin); `LevManager` unchanged at 133.
 
+## §SESS-23 — **THE COMPETITIVE FLOOR. IT DISSOLVES THE "TIGHTEN `_slipBps`" QUESTION RATHER THAN ANSWERING IT.** (2026-09-06)
+
+**Owner:** *"now do the competitive floor."* ✅ Landed for the quotable routes, inert (never loosening)
+on the rest, with the coverage limit stated rather than hidden.
+
+### ⭐ WHAT IT REPLACES, AND WHY THIS SHAPE BEATS THE BOOKED REMEDY
+§SESS-22 closed the outright THEFT. What remained was QUALITY: a keeper may route through a venue that
+delivers **exactly the floor** and keep the difference. **That slack is `_slipBps` — 25 bps rising to a
+100 bps cap** — while §ROUTE-COST-MEASURED puts real execution at **1.7–8 bps**. This file already
+booked the remedy as *"tighten `_slipBps`… 100 bps is 12–60× the measured need"*, with the standing
+warning: ⚠️ ***"measure per-route before choosing the number — the number that is safe for USDT is not
+automatically safe for GHO."***
+🔑 **A LIVE QUOTE *IS* THAT PER-ROUTE MEASUREMENT**, taken at the size actually being traded. ⇒ **the
+constant stops being load-bearing wherever a quote exists, so no number has to be guessed at all.**
+That is why this is better than tightening: tightening trades bleed for liveness on thin routes and
+needs a number per route; a floor that reads the route needs neither.
+
+### ✅ THE MECHANISM
+`floor = max(oracleFloor, Σ_legs selfServableQuote(st[k], amt[k], payoutToken))` in `convertShortfall`.
+`_selfServableQuote` answers *"what could this contract get without a keeper?"* by walking `_routeOf`'s
+own rows through Curve `get_dy` — hub hop, both directions, composing two hops for stable→stable — and
+returns **0 when it has no way to know.**
+⚠️ **SUMMED, NOT PER-LEG.** The floor stays on the WHOLE conversion because a per-leg floor would cost
+the liveness the `continue` in `convertTo` exists to buy (*"one unlucky leg should not void a conversion
+the other legs completed"*).
+🔑 **THE QUOTE AND THE SWAP READ THE SAME `_routeOf` ROW**, so they cannot disagree about direction —
+`_curveQuote` mirrors `_hubSwap`'s `toUsdc` parameter deliberately.
+
+### ⚠️ THE DIRECTION IS THE SAFETY ARGUMENT, AND IT IS WHY A MANIPULABLE VENUE IS ADMISSIBLE HERE
+`max()` means a reference pushed **DOWN cannot lower our floor** — it falls back to the oracle, i.e.
+exactly today's behaviour — and one pushed **UP costs LIVENESS, never custody.** ⇒ a venue that would be
+**inadmissible as a PRICE is admissible as a FLOOR**, because the failure modes are not symmetric. Same
+discipline as the min-of-two-prices shape used elsewhere, and the same reasoning `ICurvePool.balances`
+carries for capacity-vs-tolerance.
+
+### 📊 MEASURED (`evm/test/CompetitiveFloor.t.sol`, 5/5, pinned fork)
+| route | real cost | oracle slack | **bleed removed** |
+|---|---|---|---|
+| USDC → PYUSD, $10k | **3.26 bps** (9,996.74) | 25 bps (9,975.00) | **21 bps** |
+| PYUSD → USDC → RLUSD, $10k | 5.37 bps (9,994.63) | 25 bps | ~20 bps |
+⇒ the measured cost sits inside §ROUTE-COST-MEASURED's **1.7–8 bps**, confirming the slack was ~8× the
+need on these routes, and the floor now tracks the market rather than the guess.
+
+### ⛔ COVERAGE, STATED PLAINLY — THIS IS A MINORITY OF LEGS
+`_routeOf` holds **2 of 14 stables** (RLUSD, PYUSD), so the floor tightens on those and is **inert on the
+other twelve — inert, never looser.** ⚠️ **AND IT IS NOT CONSTRUCTIBLE AT ALL FOR THE VOLATILE LEG:** the
+self-servable venues were deliberately deleted (§C2.1 removed `_poolSwap`; V3 is gone), so there is
+nothing on-chain to quote for `USDC→WETH`. **`_stableToWethSor` and `_wethStableFloor` are unchanged and
+still carry the full slack.** ▶️ Growing `_routeOf` grows the coverage — the same ungrowable-roster item
+§SESS-2 books — and that is now worth real basis points rather than only tidiness.
+
+### ▶️ WHAT REMAINS OF THE ORIGINAL ATTACK SURFACE
+| | status |
+|---|---|
+| keeper picks callee / function | ⛔ impossible — pinned constant + pinned selector |
+| keeper picks token / amount | ⛔ impossible — contract-derived, pro-rata draw |
+| keeper takes a leg and delivers nothing | ⛔ **unconstructible** (§SESS-22) |
+| keeper delivers exactly the floor | 🟡 **bounded, and now tightened to the real route cost where quotable** |
+| keeper refuses to route | 🟡 liveness only — degrades to the pool-word arm by design |
+
+▶️ Verified: `CompetitiveFloor.t.sol` **5/5** with **three controls** — unquotable routes contribute
+exactly 0 (never loosen, never revert), the two-hop composes, and a **vacuity check** asserting at least
+one route quotes non-zero, without which every "never loosens" assertion would hold trivially.
+Regression across the lev/route/skew suites **89/0**. `LevMath` 22,863 (+533 bytes, 1,713 margin).
+
