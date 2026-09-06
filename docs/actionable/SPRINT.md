@@ -53918,3 +53918,58 @@ venues is free to be wrong and must therefore live in the keeper.**
 stable to borrow may carry the dearest swap route — so the keeper should score `borrow rate + route cost`
 jointly, not sequentially. **Neither half exists today.**
 
+## §SESS-45 — **JOINT VENUE SCORING, BUILT — AND ITS DECISION POINT IS FIRST-OPEN, NOT PER-REBALANCE.** (2026-09-06)
+
+**Owner:** *"do the joint scoring in the keeper."* ✅ Built in `lev_keeper.rs`, **160/160**. But the
+scoping matters more than the code, and it is set by an on-chain pin.
+
+### 🔴 WHERE IT IS LIVE — AND WHERE BUILDING IT WOULD HAVE BEEN DEAD SURFACE
+`LevBase._openPos:393-395` — **`§POOL-VENUE` pins the venue on the FIRST open and reverts
+`VenueNotPooled()` on any second**: *"One position means one venue."* ⇒ **for an EXISTING range the
+candidate set is exactly ONE and there is nothing to score.** A per-rebalance scorer would have had no
+inputs — **the same anti-pattern as `borrowRateRay` itself, which is implemented on every venue and has
+ZERO callers.** ✅ **The decision IS live at the FIRST open of a range**, where `allowedVenue` still holds
+many, so that is what this scores. **Booked as structural blocker #7's consequence, not worked around.**
+
+### ⚖️ WHY JOINT AND NOT SEQUENTIAL — THE TEST THAT IS THE WHOLE POINT
+The lever borrows a stable **and then swaps it**. **The cheapest stable to borrow may carry the dearest
+route**, so a pair that loses on both axes taken separately can win taken together. `joint_scoring_beats_
+scoring_either_axis_alone` pins it with the same two candidates and **opposite answers**:
+| candidate | 30-day horizon | 3-year horizon |
+|---|---|---|
+| 4% borrow + **300 bps** route | loses | **wins** |
+| 6% borrow + **2 bps** route | **wins** | loses |
+⇒ **rate alone picks the first, route alone picks the second, and both are wrong half the time.**
+§CHEAPEST-DOLLAR measured the spread this is chasing at **33–414 bps.**
+
+### ⚠️ UNITS ARE THE TRAP THE FUNCTION EXISTS TO AVOID
+`ILevVenue.borrowRateRay` is **RAY (1e27) PER YEAR** — Aave's unit — and the Morpho venue lifts its
+WAD-per-second to match, with its own warning that a wrong lift *"does not revert — it silently reports a
+venue as ~3e7× cheaper."* A route cost is **one-off bps**. **A rate and a toll are not comparable until a
+horizon is chosen**, so `horizon_days` is an explicit argument and never a hidden constant. Asserted:
+4% over 365d == **400 bps**, over 182d == **199**, plus an undiscounted one-off toll.
+
+### ✅ AND FUNDABILITY ARRIVES FREE WITH THE RATE
+`borrowRateRay` **reverts `VenueCannotFund()`** rather than pricing a draw it cannot fund — *"a flattering
+number for a draw that cannot happen is exactly the input that would make an allocator pick it."*
+⇒ **the liquidity-at-size check IS the rate call**, needing no separate depth read. `unfundable_venues_
+are_excluded_not_ranked` proves an unfundable venue scoring **0** (the best possible) is still excluded.
+📌 Ties break toward the **lower route cost** — a one-off toll is certain where a rate is a forecast — and
+a test asserts the winner does not depend on candidate ORDER, which would not be a decision.
+
+### 🎯 AND IT NEEDS NO NEW ON-CHAIN CODE, WHICH IS THE OWNER'S PRINCIPLE EXACTLY
+*"Minimise on-chain code, keep safety checks on chain."* The on-chain guard already exists:
+`allowedVenue[venue]`, enforced by `requireOpenable` (`LevManager:238`) — **a hacked keeper cannot name a
+venue that is not allowlisted.** ⇒ choosing the cheapest AMONG allowlisted venues is **free to be wrong**,
+so it belongs off-chain and nothing was added on-chain for it.
+
+### ⛔ WHAT STILL BLOCKS THE VALUE, AND IT IS NOT THE SCORER
+1. **`§POOL-VENUE` pin** — one venue per range, so no migration for existing ranges (blocker #7).
+2. **`_routeOf` still has TWO entries** (RLUSD 4.74%, PYUSD 5.85%) — §SESS-24 grew `_quoteOf` to six but
+   **deliberately did NOT grow `_routeOf`**, because doing so changes EXECUTION and broke
+   `test_ProtectFromQuid_HostileOperatorNetsZero`. ⇒ **the reachable cheap dollar (USDT, 4.08%, $252M,
+   1.7 bps) is still unborrowable**, so the scorer's best answer is currently unreachable.
+3. **`LevVenueBase.STABLE` is immutable** — one debt asset per venue, so no capacity split (blocker #5).
+▶️ **The scorer is the cheap half. The expensive half is making its answer reachable**, and that is
+on-chain work gated on the §SESS-24 regression.
+

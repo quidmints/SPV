@@ -790,6 +790,75 @@ pub fn dex_word_wbtc() -> [u8; 32] {
 }
 
 /// Uniswap V3 WETH/USDC 0.05% — `0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640`.
+/// ═══════════════ §SESS-45 — JOINT VENUE SCORING (borrow cost + route cost) ═══════════════
+///
+/// ⭐ **THE TWO CHOICES INTERACT, SO THEY MUST BE SCORED TOGETHER.** The lever borrows a stable from a
+///    venue and then swaps it to WETH. **The cheapest stable to borrow may carry the dearest swap
+///    route**, so picking the venue on rate alone and the route on cost alone can lose to a pair that
+///    is worse on both axes taken separately. §CHEAPEST-DOLLAR measured the spread at **33–414 bps**.
+///
+/// 🔑 **WHERE THIS IS LIVE, AND WHERE IT IS NOT — THIS IS NOT A PER-REBALANCE DECISION.**
+///    `LevBase._openPos` **pins the venue on the FIRST open** and reverts `VenueNotPooled()` on any
+///    second (`§POOL-VENUE`: *"One position means one venue"*). ⇒ for an EXISTING range the candidate
+///    set is exactly one and there is nothing to score. **The decision point is the FIRST open of a
+///    range**, where `allowedVenue` still holds many. Scoring per rebalance would be dead surface —
+///    the same shape as `borrowRateRay` itself, which is implemented on every venue and has zero
+///    callers.
+///
+/// ⚠️ **UNITS ARE THE TRAP THIS FUNCTION EXISTS TO NOT FALL INTO.** `ILevVenue.borrowRateRay` is
+///    **RAY (1e27) PER YEAR** — Aave's unit — and the Morpho venue multiplies its WAD-per-second up to
+///    match, with its own docblock warning that getting it wrong *"does not revert — it silently
+///    reports a venue as ~3e7x cheaper."* A route cost is **one-off bps**. **A rate and a toll are not
+///    comparable until a HORIZON is chosen**, which is why `horizon_days` is an explicit argument and
+///    not a hidden constant.
+/// ⛔ **AND IT LIVES OFF-CHAIN DELIBERATELY.** The on-chain guard is `allowedVenue[venue]`, enforced by
+///    `requireOpenable` — a hacked keeper **cannot name a venue that is not allowlisted**. Choosing the
+///    cheapest AMONG allowlisted venues is therefore free to be wrong, so it belongs here and needs no
+///    new on-chain code.
+
+/// One candidate: an allowlisted venue, its size-aware borrow rate, and the cost of routing the
+/// stable it lends to the asset we actually want.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VenueQuote {
+    pub venue: LpAddr,
+    /// `borrowRateRay(extraBorrow)` at the size being borrowed. **RAY per YEAR.**
+    pub borrow_rate_ray: u128,
+    /// One-off cost of the swap this venue's stable implies, in bps of notional.
+    pub route_cost_bps: u32,
+    /// `false` when `borrowRateRay` reverted `VenueCannotFund()` — the venue cannot fund THIS size.
+    /// ⚠️ **THE REVERT IS THE LIQUIDITY CHECK.** `borrowRateRay` refuses to price a draw it cannot
+    ///    fund rather than returning *"a flattering number for a draw that cannot happen"*, so
+    ///    fundability arrives for free with the rate and needs no separate depth call.
+    pub fundable: bool,
+}
+
+/// Total expected cost in bps of notional over `horizon_days`: the one-off route toll plus the
+/// borrow rate accrued over the holding period.
+pub fn score_bps(q: &VenueQuote, horizon_days: u32) -> Option<u128> {
+    if !q.fundable { return None; }
+    // RAY/yr -> bps/yr: rate * 10_000 / 1e27, kept in u128 with the multiply first so a small rate
+    // does not truncate to zero before it is scaled.
+    let rate_bps_yr = q.borrow_rate_ray.checked_mul(10_000)? / 1_000_000_000_000_000_000_000_000_000u128;
+    let carried = rate_bps_yr.checked_mul(horizon_days as u128)? / 365;
+    Some(carried + q.route_cost_bps as u128)
+}
+
+/// The cheapest fundable venue over `horizon_days`, or `None` if none can fund the size.
+/// Ties break on the LOWER route cost: a one-off toll is certain where a rate is a forecast.
+pub fn pick_cheapest(qs: &[VenueQuote], horizon_days: u32) -> Option<(LpAddr, u128)> {
+    let mut best: Option<(LpAddr, u128, u32)> = None;
+    for q in qs {
+        if let Some(s) = score_bps(q, horizon_days) {
+            let better = match best {
+                None => true,
+                Some((_, bs, brc)) => s < bs || (s == bs && q.route_cost_bps < brc),
+            };
+            if better { best = Some((q.venue, s, q.route_cost_bps)); }
+        }
+    }
+    best.map(|(v, s, _)| (v, s))
+}
+
 /// ═══════════════════════ §SESS-25 — THE ROUTE PLANNER ═══════════════════════
 ///
 /// ⭐ **WHAT IT REPLACES.** `dex_word()` returns ONE hardcoded pool for EVERY pair. That is why
@@ -995,6 +1064,72 @@ mod tests {
         assert_eq!(at(word(3) as usize), 0, "dex2s must encode as a ZERO-length array");
         assert_eq!(at(r), 0, "routes must encode as a ZERO-length array");
         assert_eq!(4 + r + 32, d.len(), "nothing may trail an empty routes array");
+    }
+
+    fn vq(v: u8, ray: u128, bps: u32, fundable: bool) -> VenueQuote {
+        VenueQuote { venue: [v; 20], borrow_rate_ray: ray, route_cost_bps: bps, fundable }
+    }
+    /// 4% APR expressed in RAY per year.
+    const RAY_4PCT: u128 = 40_000_000_000_000_000_000_000_000;      // 0.04 * 1e27
+    const RAY_6PCT: u128 = 60_000_000_000_000_000_000_000_000;      // 0.06 * 1e27
+
+    /// §SESS-45 — the RAY/year -> bps conversion, pinned. The Morpho venue's own docblock warns that
+    /// getting this lift wrong "does not revert -- it silently reports a venue as ~3e7x cheaper", so
+    /// the unit is asserted rather than assumed.
+    #[test]
+    fn score_converts_ray_per_year_to_bps_correctly() {
+        // 4% for a full year, no route cost => 400 bps.
+        let s = score_bps(&vq(1, RAY_4PCT, 0, true), 365).unwrap();
+        assert_eq!(s, 400, "4% APR over a year must be 400 bps");
+        // half a year => half the carry.
+        assert_eq!(score_bps(&vq(1, RAY_4PCT, 0, true), 182).unwrap(), 199);
+        // route cost is one-off and adds on top, undiscounted by horizon.
+        assert_eq!(score_bps(&vq(1, RAY_4PCT, 25, true), 365).unwrap(), 425);
+    }
+
+    /// ⭐ §SESS-45 — **THE POINT OF SCORING JOINTLY.** A venue that is CHEAPER TO BORROW but DEARER TO
+    /// ROUTE must lose to the opposite pair once the horizon is short enough that the one-off toll
+    /// dominates. Scoring the two axes separately picks the wrong venue here, which is the failure
+    /// this function exists to prevent.
+    #[test]
+    fn joint_scoring_beats_scoring_either_axis_alone() {
+        let cheap_borrow_dear_route = vq(1, RAY_4PCT, 300, true);   // 4% + 300 bps toll
+        let dear_borrow_cheap_route = vq(2, RAY_6PCT, 2, true);     // 6% + 2 bps toll
+        // Rate alone would pick venue 1; route alone would pick venue 2.
+        assert!(cheap_borrow_dear_route.borrow_rate_ray < dear_borrow_cheap_route.borrow_rate_ray);
+        assert!(dear_borrow_cheap_route.route_cost_bps < cheap_borrow_dear_route.route_cost_bps);
+        // Over 30 days the toll dominates: venue 2 wins.
+        let (v30, _) = pick_cheapest(&[cheap_borrow_dear_route, dear_borrow_cheap_route], 30).unwrap();
+        assert_eq!(v30, [2u8; 20], "over a SHORT horizon the one-off route toll must dominate");
+        // Over 3 years the rate dominates: venue 1 wins. Same inputs, opposite answer.
+        let (v3y, _) = pick_cheapest(&[cheap_borrow_dear_route, dear_borrow_cheap_route], 1095).unwrap();
+        assert_eq!(v3y, [1u8; 20], "over a LONG horizon the borrow rate must dominate");
+    }
+
+    /// 🔴 §SESS-45 — an UNFUNDABLE venue is excluded, never merely ranked last. `borrowRateRay` reverts
+    /// `VenueCannotFund()` rather than returning "a flattering number for a draw that cannot happen",
+    /// so the liquidity-at-size check arrives with the rate and must not be discarded here.
+    #[test]
+    fn unfundable_venues_are_excluded_not_ranked() {
+        let unfundable_but_free = vq(1, 0, 0, false);               // would score 0 = best, if counted
+        let fundable_but_dear   = vq(2, RAY_6PCT, 300, true);
+        assert!(score_bps(&unfundable_but_free, 30).is_none(), "an unfundable venue has no score");
+        let (v, _) = pick_cheapest(&[unfundable_but_free, fundable_but_dear], 30).unwrap();
+        assert_eq!(v, [2u8; 20], "a venue that cannot fund the size was selected");
+        assert!(pick_cheapest(&[unfundable_but_free], 30).is_none(), "no fundable venue must be None");
+        assert!(pick_cheapest(&[], 30).is_none(), "an empty candidate set must be None");
+    }
+
+    /// §SESS-45 — ties break on the LOWER route cost: a one-off toll is certain where a rate is a
+    /// forecast. Without this the winner depends on candidate ORDER, which is not a decision.
+    #[test]
+    fn ties_break_toward_the_certain_cost() {
+        // 6% over 365d = 600 bps; pair each with tolls that make the totals equal.
+        let a = vq(1, RAY_6PCT, 10, true);                          // 600 + 10 = 610
+        let b = vq(2, RAY_4PCT, 210, true);                         // 400 + 210 = 610
+        assert_eq!(score_bps(&a, 365), score_bps(&b, 365), "premise: the scores must actually tie");
+        assert_eq!(pick_cheapest(&[a, b], 365).unwrap().0, [1u8; 20], "tie must go to the lower toll");
+        assert_eq!(pick_cheapest(&[b, a], 365).unwrap().0, [1u8; 20], "and must not depend on order");
     }
 
     /// §SESS-25 — the planner emits a word whose PROTOCOL bits and ADDRESS are where the contract
