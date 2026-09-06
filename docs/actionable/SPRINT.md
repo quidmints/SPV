@@ -53352,3 +53352,75 @@ fills it**, the same "does it actually fill" bar §SESS-25 held every planner ro
 📌 **Meanwhile the cheap, zero-risk reach win stands: `unoswap3` (`0x19367472`), three hops, amount at
 runtime, zero new security surface** — §SESS-32.
 
+## §SESS-35 — **THE SEED ROUTE IS CAPPED BY QUANTITY, NOT BY A YEAR — AND I GOT IT FROM A DOCBLOCK.** (2026-09-06)
+
+**Owner:** *"its not a bootstrap year. its whenever when 13 max mint is extinguished. there are many
+inaccurate or stale comments."* ⇒ **Correct, and the error is rule 21's, committed one message after
+writing rule 21.**
+
+### ✅ WHAT THE CODE ACTUALLY SAYS
+`Basket.sol:400` — `bool isSeed = month == 13 && seeded < CAP;` with **`CAP = 600_000 * 1e18`** (`:58`).
+`:441` refuses the seed projection once `seeded + normalized > CAP` and **re-projects as non-seed**;
+`:479` accrues `seeded += normalized`. ⇒ **the seed route is a FIXED 600,000 QU!D BUDGET, extinguished
+whenever it is consumed.** It has **no time gate at all.**
+⛔ **`currentMonth() < 12` IS A DIFFERENT GATE ON A DIFFERENT THING** — it sets `maxFwd` (the TENOR a
+deposit may lock), not whether a mint is a seed. **I read the docblock's "bootstrap year" prose and
+attributed it to `isSeed`.** Two gates, two purposes, one conflation.
+
+### ⇒ AND IT MAKES THE OVER-MINT SMALLER AND BOUNDED, WHICH §SESS-31 ALSO GOT WRONG
+The seed bonus is not an ongoing issuance policy — it is a **one-time 600k budget**. So the shortfall it
+can ever create is **bounded by CAP**, spent once, and `§E2-vest-boundary`'s *"if realised yield <"* is
+therefore bounded too. **§SESS-31 read a capped cold-start budget as a standing mechanism.**
+
+### 📌 THE METHOD POINT, AND IT IS THE OWNER'S SECOND SENTENCE
+*"There are many inaccurate or stale comments."* **Rules 19, 20 and 21 all point at this and I still
+quoted a docblock as evidence.** ⇒ **when a docblock and a condition disagree, the condition is the
+fact.** The docblock was not even wrong — it correctly describes `maxFwd`; it was attached near a
+different gate and I let proximity do the reasoning. **Add this to rule 20's worked examples: the prose
+does not have to be STALE to mislead, it only has to be about something ELSE.**
+
+## §SESS-36 — **CAN WE VERIFY A ROUTE IS OPTIMAL? NO — AND THE IMPOSSIBILITY IS THE DESIGN INPUT.** (2026-09-06)
+
+**Owner:** *"its not just about adding `unoswap3` but all the venues we might need and no limit to how
+many hops (is there a way to make sure that the provided route is optimal among all possible routes)"*
+
+### ⛔ THE ANSWER TO THE VERIFICATION QUESTION IS A PROVABLE NO
+To verify a route is **optimal** you must know what the alternatives were. That requires enumerating the
+route space on-chain — the same thing §SESS-34 shows a contract cannot do, and it is worse here because
+the space is unbounded in HOPS as well as venues. ⛔ **And you cannot execute-and-compare: the tokens can
+only be spent once.** A contract can never say *"this was the best route"*; it can only ever say *"this
+was at least as good as the references I can compute."*
+⇒ **Stop trying to verify optimality. Verify MAXIMALITY OVER A SUBMITTED SET, which is decidable, and
+make the submitted set large by competition.** That is the whole move.
+
+### ▶️ THE THREE THINGS THAT *ARE* VERIFIABLE, IN INCREASING STRENGTH
+| # | claim the contract can actually check | what it costs a hacked keeper |
+|---|---|---|
+| **1** | *"at least as good as MY references"* — §SESS-23's competitive floor | bounded by the gap between the floor and the market |
+| **2** | *"the best of N SUBMITTED outcomes"* — an auction | bounded by the second-best submission |
+| **3** | *"exactly the price I posted"* — we are the maker (§SESS-34) | **nothing — the price is ours** |
+⭐ **(1) is monotone and already shipping: every row added to `_quoteOf` tightens it and none can loosen
+it.** That is why growing the quote table is worth basis points and not tidiness.
+⚠️ **(2) IS THE ONE THAT ACTUALLY ANSWERS "OPTIMAL", AND IT CANNOT BE DONE ON-CHAIN IN ONE TX** — comparing
+N routes means executing N routes. ⇒ **the auction must run OFF-CHAIN and settle on-chain**, with the
+contract verifying a signed best-bid against its own floor. That is the RFQ/Fusion shape, and it is the
+same machinery as (3): `fillContractOrderArgs` (`0x56a75868`), verified present on the deployed router.
+⇒ **(2) and (3) are one build, not two.**
+
+### 🔑 SO "ALL VENUES, UNLIMITED HOPS" IS ALREADY ANSWERED — BY THE ARM WE DO NOT BUILD
+`unoswap`/`unoswap2`/`unoswap3` are **pool-word** entrypoints: amount-free, safe, and **bounded to 1-3
+hops and to venues 1inch's word format can address** (§SESS-22 measured Curve unreachable). **They can
+never mean "any venue, any hops."** The `swap()` executor arm can — arbitrary route, arbitrary depth —
+and §SESS-22 already made it **custody-safe** (`spent > 0 ⇒ delivered > 0`, pinned callee, contract-owned
+amounts). ⇒ **the gap is not encoder reach, it is that nothing BUILDS the calldata**, and that its PRICE
+is bounded only by `_slipBps` on the volatile leg.
+▶️ **REVISED PRIORITY, replacing "add `unoswap3` first":**
+1. **The maker/RFQ path (`fillContractOrderArgs`)** — it is the only one that answers *both* "any venue,
+   any hops" *and* "no extraction", and it subsumes the auction. **Scope it first.**
+2. **`unoswap3`** — still free reach with zero new security surface, but it is a 3-hop convenience, not an
+   answer to the question. **Demoted from "the gap" to "a cheap win."**
+3. **Grow `_quoteOf`** — monotone tightening of the floor for as long as we are still TAKING routes.
+⚠️ **None of this is measured yet.** §SESS-34's three unknowns still gate it: our amounts are computed
+mid-transaction while an order embeds its amount; an unfilled order is not a mechanism (the M5 problem);
+and ERC-1271 maker signing must not become a second keeper key.
+
