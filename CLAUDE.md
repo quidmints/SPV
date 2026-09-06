@@ -403,6 +403,23 @@ each grepping `evm/src` cost nothing, while six agents each building would take 
 ⚠️ **The parent writes.** Agents return findings; one process folds them into a file. That keeps
 rule 14 satisfiable — nobody can stage over anybody, because only one process stages at all.
 
+🔴 **AND THE PARENT MUST PERSIST AN ANCHOR, NOT A LABEL — THIS COST 48 ROWS ON 2026-09-06 AND THE
+LOSS WAS SILENT.** Six agents returned verdicts on ~670 `SPRINT.md` rows. Folding them, I compressed
+each row to a short descriptive tag of my own invention (`msig-rotation`, `amount-free-ladder`,
+`btcchannels-form`). 48 rows could not be marked because another lane shifted their line numbers
+mid-run — and when I went to relocate them, **25 of the 26 tags I tested did not occur in the file at
+all**, because I had made them up. **The line number had rotted and the only other locator was
+fiction, so the work was unrecoverable and had to be re-derived from scratch.**
+⇒ **PERSIST A VERBATIM EXCERPT FROM THE SOURCE — 30-50 distinctive characters, a symbol, an error
+name, a quoted phrase.** A line number alone is not enough in a tree where another lane is editing
+the same file, and a summary is not a locator no matter how descriptive it reads.
+⭐ **THE GENERAL FORM, which is this file's own line-number warning arriving through automation:**
+*"line numbers rot fastest of all, because every edit above them moves them."* A fan-out that records
+positions and paraphrases inherits that rot at N× scale. **Record something the file itself contains.**
+✅ **The recovery that works: stop relocating and re-derive from live data.** Re-running the
+extractor against the current file finds every still-unmarked row directly, with correct line
+numbers, and needs no memory of where anything used to be.
+
 ### ⭐ A COMMENT-ONLY EDIT NEEDS NO TEST RUN AT ALL — CONFIG-VERIFIED, NOT ASSUMED
 
 **`evm/foundry.toml` sets `bytecode_hash = "none"` and `cbor_metadata = false`** (`:51`, `:53`), so
