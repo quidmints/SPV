@@ -53521,3 +53521,73 @@ affordable at 14 legs — §SESS-13 measured the frame at 1.46M); ② does a con
 FILL on-chain (`fillContractOrderArgs`, the §SESS-25 bar: a row that does not fill is not a row);
 ③ what spread must be posted to attract a filler — the §PLP-T M5 problem, unchanged.
 
+## §SESS-39 — 📊 **ALL THREE MEASURED. THE MAKER PATH FILLS, IS 2× CHEAPER THAN TAKING, AND BREAK-EVEN IS ~0.05 bps AT $1M.** (2026-09-06)
+
+**Owner:** *"measure all three. no sacrifices. security paramount, but be creative, try alternatives, dont
+quit if you get stuck."* ⇒ `evm/test/MakerOrderFill.t.sol`, pinned fork, live router. **All three answered,
+and the answer is more favourable than the design assumed.**
+
+### ✅ ② **A CONTRACT-MAKER ORDER FILLS. THIS WAS THE GATE ON THE WHOLE RFQ DIRECTION.**
+`fillContractOrderArgs` accepted a **contract** maker via ERC-1271 on the deployed router: **10 WETH moved
+maker→taker, 25,000 USDC taker→maker.** ⇒ **the protocol can be the maker.** §SESS-34/36's direction is
+not theoretical.
+| notional | fill gas |
+|---|---|
+| $25,000 | 122,734 |
+| $100,000 | **105,678** |
+| $1,000,000 | **105,676** |
+| $5,000,000 | **105,708** |
+⭐ **FILL GAS IS FLAT IN NOTIONAL** — ~105.7k from $100k to $5M. And **§SESS-6 measured a routed
+`_aggSwap` at 264,124.** ⇒ **being the maker is ~2.5× CHEAPER than taking a route**, which was not the
+expected direction: the safer design is also the cheaper one.
+
+### ✅ ③ **BREAK-EVEN SPREAD, THE HARD LOWER BOUND ON §PLP-T's M5**
+M5 (*"what spread would actually attract refill flow"*) is called unanswerable from the code. **Its
+BEHAVIOURAL half is; its COST half is not** — a filler never fills below its own cost. At 20 gwei / ETH
+$2,500:
+| notional | filler gas cost | **break-even, gas only** | + route cost (§ROUTE-COST-MEASURED) |
+|---|---|---|---|
+| $25,000 | $6.14 | **2.45 bps** | ~4–10 bps |
+| $100,000 | $5.28 | **0.52 bps** | ~2.2–8.5 bps |
+| $1,000,000 | $5.28 | **0.05 bps** | ~1.8–8.1 bps |
+| $5,000,000 | $5.29 | **0.01 bps** | ~1.7–8.0 bps |
+🔑 **AT SIZE THE GAS TERM VANISHES AND THE FLOOR IS THE FILLER'S OWN ROUTE COST — 1.7–8 bps.**
+⇒ **A posted spread of ~10 bps is comfortably fillable at every size we care about.**
+🔴 **COMPARE WITH WHAT A KEEPER CAN EXTRACT TODAY: `_slipBps` is 25–100 bps.** ⇒ **posting orders at ~10 bps
+replaces a 25–100 bps extraction channel with a 10 bps chosen cost** — and unlike the slack, the 10 bps is
+*revenue to whoever fills*, not a leak to whoever routes. **That is the whole argument for the
+re-architecture, and it is now a measured argument.**
+
+### ✅ ① **PER-HOP COST — "UNLIMITED HOPS" IS AFFORDABLE**
+| | gas |
+|---|---|
+| `unoswap` (1 hop) | **159,306** |
+| `unoswap2` (2 hops) | **209,443** |
+| **marginal cost of one more hop** | **50,137** |
+⇒ a 5-hop route ≈ **359,854**. At the 14-leg pro-rata shape that is ~5.0M plus §SESS-13's 1.46M frame —
+**well inside a 30M block.** ⛔ **So "no limit to how many hops" is NOT gas-constrained.** The limit was
+always the ENCODER (pool words reach 1–3 hops and only addressable venues), never the budget.
+
+### ⚠️ TWO TRAPS HIT WHILE MEASURING, BOTH WORTH KEEPING
+① **HAND-BUILT POOL WORDS BURNED 57,182,543 GAS.** I wrote the two-hop words without deriving
+`ZERO_FOR_ONE` and hit the *"reverts deep inside 1inch's executor"* signature `convertTo`'s gas-cap note
+records at 931,857,691. **The contract derives that bit precisely so this cannot happen; a test that
+writes it by hand re-creates the bug it is measuring.** Fixed by deriving from `token0()`.
+② **`makerTraits = 0` USES THE *BIT* INVALIDATOR** — invalidation keys off a NONCE inside `makerTraits`,
+**not the salt** — so a second order with a fresh salt reverts `BitInvalidatedOrder()` (`0xa4f62a96`).
+**ALLOW_MULTIPLE_FILLS (bit 254)** switches to the remaining-amount invalidator, keyed by order hash.
+🔴 **THAT IS A DESIGN CONSTRAINT, NOT A TEST DETAIL: a protocol posting many orders must manage nonces
+explicitly or run in remaining-amount mode, and the DEFAULT silently allows one order per nonce.**
+③ **AND A UNITS BUG IN MY OWN FIRST DRAFT REPORTED EVERY BREAK-EVEN AS `0 bps`** — whole dollars divided
+by a 6-dec notional. **A zero that is a unit error looks exactly like a zero that is a finding**, which is
+§SESS-16's `_bps` overflow arriving from the other direction.
+
+### ▶️ WHAT THIS SETTLES AND WHAT IT DOES NOT
+✅ **Settled:** the maker path *works*, is *cheaper*, and is *fillable at ~10 bps*. Hops are not gas-bound.
+⛔ **NOT settled, and still gating:** ① **our amounts are computed mid-transaction while an order embeds
+its amount** (§UNOSWAP2's staleness argument applies to orders too) — an order must be posted for a size
+we FIX, which is a different flow from *"convert whatever the draw returned"*; ② **ERC-1271 signing must
+not become a second keeper key** — the stub here returns the magic value UNCONDITIONALLY, which is the
+opposite of a policy; ③ **an unfilled order is still not a mechanism** — break-even is a lower bound on
+M5, not an answer to it.
+
