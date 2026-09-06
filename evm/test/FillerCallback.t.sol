@@ -63,14 +63,29 @@ contract QuidFillDesk {
         } catch { revert NotPriced(t); }
     }
 
+    /// @notice **PARITY — the oracle conversion with NO haircut: what `amt` of `give` is WORTH in
+    ///         `want`, before any budget is subtracted.** ⭐ Split out of `floorOracle` so the budget
+    ///         invariant can be measured against it (§SESS-48). **ONE formula, two readers** — a test
+    ///         that reconstructed parity by dividing the haircut back out would be asserting against
+    ///         its own rounding, not against the contract.
+    function parity(address give, uint256 amt, address want) public view returns (uint256) {
+        uint256 usd18 = (amt * _pxUsd18(give)) / (10 ** IDec(give).decimals());
+        return (usd18 * (10 ** IDec(want).decimals())) / _pxUsd18(want);
+    }
+
+    /// @notice The USD size of a trade, 1e18 — the argument `_slipBps` is a function of. Exposed so a
+    ///         test can ask for the BUDGET at a size without re-deriving the scaling.
+    function usdSize(address give, uint256 amt) public view returns (uint256) {
+        return (amt * _pxUsd18(give)) / (10 ** IDec(give).decimals());
+    }
+
     /// @notice **THE ORACLE ARM — AND IT CARRIES THE ONLY GUESS IN THE SYSTEM.** Value what we hand over
     ///         in USD, convert at the ORACLE, haircut by `_slipBps`. ⚠️ **`_slipBps` IS A GUESS** — 25 bps
     ///         rising to a 100 bps cap, which this file books as *"12–60x the measured need"* against
     ///         §ROUTE-COST-MEASURED's 1.7–8 bps. Every basis point of it is takeable.
     function floorOracle(address give, uint256 amt, address want) public view returns (uint256) {
-        uint256 usd18 = (amt * _pxUsd18(give)) / (10 ** IDec(give).decimals());
-        uint256 raw   = (usd18 * (10 ** IDec(want).decimals())) / _pxUsd18(want);
-        return (raw * (10_000 - LevMath._slipBps(usd18))) / 10_000;
+        uint256 usd18 = usdSize(give, amt);
+        return (parity(give, amt, want) * (10_000 - LevMath._slipBps(usd18))) / 10_000;
     }
 
     /// @notice ⭐ **THE GUESS-FREE ARM: what this contract could get for itself, MEASURED, no constants.**
@@ -155,6 +170,10 @@ contract FillerCallbackTest is AllesFixture {
     address constant WETHA = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
     address constant USDTA = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
     address constant P_USDC_WETH = 0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640;
+    /// Uniswap V3 `QuoterV2` — simulates a swap and returns the output. **A VENUE, NAMED; NOT A PRICE,
+    /// FROZEN.** §SESS-48 uses it so the budget invariant is measurable at any pin.
+    address constant QUOTER_V2    = 0x61fFE014bA17989E743c5F6cB21bF9697530B21e;
+    address constant DAIA         = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
     address constant P_USDC_USDT = 0x3416cF6C708Da44DB2624D63ea0AAef7113527C6;
     QuidFillDesk desk;
 
@@ -195,36 +214,105 @@ contract FillerCallbackTest is AllesFixture {
         emit log_named_uint("USDC->WETH floor (oracle+slip)", o);
     }
 
-    /// 🔴 ⭐ **THE GUESS IS TOO TIGHT FOR THE REAL MARKET AT THIS BLOCK — MEASURED.**
-    ///    At $50k the derived floor is **21.3860 WETH** while the deepest V3 pool returns **21.3819**:
-    ///    the pool is **~28 bps** off the oracle and `_slipBps` allows **25**. ⇒ **the shipped floor
-    ///    REJECTS an honest, best-venue fill at that size.** `_slipBps` grows +25 bps per $1M, so the
-    ///    same trade clears at $1M. **That is the guessed constant being simultaneously too tight here
-    ///    and too loose at size** — exactly the shape §SESS-23 says a measured floor removes.
-    function test_TheGuessedSlipIsTooTightAtSmallSizeAndLooseAtLarge() public {
+    /// @dev One fee tier. `QuoterV2` SIMULATES the swap, so it does not move state and cannot perturb
+    ///      what the rest of the suite reads. Non-`view` by design, hence no `staticcall`.
+    ///      Returns 0 when the tier has no pool or cannot fill — a missing venue is not an error.
+    function _quoteTier(address tin, address tout, uint256 amtIn, uint24 fee) internal returns (uint256) {
+        (bool ok, bytes memory r) = QUOTER_V2.call(abi.encodeWithSelector(
+            bytes4(keccak256("quoteExactInputSingle((address,address,uint256,uint24,uint160))")),
+            tin, tout, amtIn, fee, uint160(0)));
+        return (ok && r.length >= 32) ? abi.decode(r, (uint256)) : 0;
+    }
+
+    /// @dev ⭐ **THE BEST REACHABLE VENUE, ACTUALLY SEARCHED — because "best" is the whole claim.**
+    ///      Quoting ONE tier and calling it the best assumes the answer, and at size the answer moves
+    ///      between tiers: impact grows with depth-relative size, so the cheap-fee/thin pool that wins
+    ///      at $50k can lose to a dear-fee/deep one at $1M. **A `need` measured against a venue we
+    ///      could have beaten is not the market's cost, it is our own search's cost** — and it would
+    ///      make `_slipBps` look insufficient for a shortfall that is really a routing failure.
+    ///      ⚠️ This is the §SESS-45 argument (score the venue, do not assume it) arriving inside a test.
+    /// 🔴 **AND IT IS NOT A HYPOTHETICAL — SEARCHING ONLY DIRECT POOLS MANUFACTURED A FALSE LIVENESS
+    ///    DEFECT, TWICE, AT TWO PINS.** Direct-only put `need` at 51–52 bps against a 50 bps budget and
+    ///    reported the floor as unmeetable. **The 2-hop through the USDT hub returns ~23 bps MORE**
+    ///    (measured at `25919955`: direct best `399.365`, hub 2-hop `400.282`, parity `401.497`), which
+    ///    drops `need` to ~30 bps and clears the budget with room. ⇒ **the shortfall was my own
+    ///    search's, exactly as the paragraph above warns.** Standing rule 13: the dismissal needed the
+    ///    same evidence as the finding, and it got it.
+    function _bestDirect(address tin, address tout, uint256 amtIn) internal returns (uint256 best) {
+        uint24[4] memory tiers = [uint24(100), 500, 3000, 10000];
+        for (uint256 i; i < tiers.length; ++i) {
+            uint256 q = _quoteTier(tin, tout, amtIn, tiers[i]);
+            if (q > best) best = q;
+        }
+    }
+
+    /// @dev **Mirrors `plan_route`'s own shape — direct, else two hops through the hub — so the number
+    ///      this returns is a route the protocol can actually take, not an abstract market best.**
+    function _quoteBestVenue(address tin, address tout, uint256 amtIn) internal returns (uint256 best) {
+        best = _bestDirect(tin, tout, amtIn);
+        address[2] memory hubs = [USDTA, DAIA];
+        for (uint256 i; i < hubs.length; ++i) {
+            if (hubs[i] == tin || hubs[i] == tout) continue;
+            uint256 mid = _bestDirect(tin, hubs[i], amtIn);
+            if (mid == 0) continue;
+            uint256 q = _bestDirect(hubs[i], tout, mid);
+            if (q > best) best = q;
+        }
+    }
+
+    /// ⭐ §SESS-48 — **THE BUDGET INVARIANT, MEASURED LIVE AT WHATEVER BLOCK WE ARE ON.**
+    ///
+    /// 🔴 **WHAT THIS REPLACES, AND WHY RE-BASING IT WOULD HAVE BEEN THE WRONG FIX.** The previous
+    ///    assertion pinned two WETH amounts read at `FORK_BLOCK=25800000`
+    ///    (`21381863684901085264` @ $50k, `425331345107636521215` @ $1M) and asserted the floor could
+    ///    **not** be met. That is a MEASUREMENT wearing an assertion's clothes: WETH is priced in
+    ///    dollars, so both constants go stale the moment ETH moves, and the test must fail whenever
+    ///    the basis moves **in either direction**. At `25919850` the floor cleared by ~6.3% and it
+    ///    went red for being RIGHT. Standing rule 4: updating the constant makes it pass and leaves
+    ///    the question exactly where it was — one more pin's worth of green.
+    ///
+    /// ⭐ **THE INVARIANT IS ONE SENTENCE: the budget must cover what the best reachable venue
+    ///    actually costs us.** Basis, venue fee and price impact do not need to be separated — the
+    ///    floor does not care which of them took the money, only that the total fits the budget:
+    /// ```
+    ///   need   = (parity - bestVenueOut) * 10_000 / parity     // what the market takes, bps
+    ///   budget = _slipBps(usdSize)                             // what we allow, bps
+    ///   invariant: budget >= need
+    /// ```
+    /// ✅ **NOTHING IN IT IS FROZEN.** `parity` is the oracle read this block, `bestVenueOut` is a live
+    ///    `QuoterV2` simulation at the traded size, and `budget` is read from the contract rather than
+    ///    restated. ⇒ it is falsifiable at ANY pin, which is the property the old shape lacked.
+    /// ⚠️ **AND IT FAILS IN THE DIRECTION THAT MATTERS.** A budget that does not cover the market is a
+    ///    LIVENESS defect — the floor rejects an honest best-venue fill — so a red here is a real
+    ///    finding about `_slipBps`, never about the block. **`need` is clamped at 0 when the venue
+    ///    beats parity outright**, because a venue better than the oracle costs us nothing and must
+    ///    not be read as negative slippage the budget has to "cover".
+    /// 📌 The complementary bleed question (**how much of the budget is unused**) is logged, not
+    ///    asserted: §SESS-23 owns it, and asserting a ceiling here would re-freeze a market reading
+    ///    through the back door — the exact defect being removed.
+    function test_TheSlipBudgetMustCoverWhatTheBestVenueActuallyCosts() public {
         _mkDesk();
-        uint256 small = 50_000e6;
-        uint256 big   = 1_000_000e6;
-        uint256 fSmall = desk.floorFor(address(USDC), small, WETHA);
-        uint256 fBig   = desk.floorFor(address(USDC), big,  WETHA);
-        emit log_named_uint("floor @ $50k  (slip 25bps) ", fSmall);
-        emit log_named_uint("floor @ $1M   (slip 50bps) ", fBig);
-        // what the best reachable venue actually returns, same block
-        emit log_named_uint("V3 0.05% returns @ $50k    ", 21381863684901085264);
-        emit log_named_uint("V3 0.05% returns @ $1M     ", 425331345107636521215);
-        // 🔴 **MEASURED: THE FLOOR IS UNMEETABLE BY THE BEST REACHABLE VENUE AT BOTH SIZES.**
-        //    $50k: floor 21.3860 vs best fill 21.3819 (short 2 bps). $1M: floor 426.648 vs 425.331
-        //    (short 31 bps). §SESS-37's best 2-hop at $1M is 425.460 — **also short.**
-        //    ⇒ at this block the oracle sits ~25 bps BELOW the pool's execution price, and `_slipBps`
-        //    budgets 25–50 bps for BOTH the basis AND the execution cost. **There is no headroom left
-        //    for the fee and impact that any real fill must pay.**
-        // ⚠️ **BOUND IT: one block, one oracle reading.** This is not "the floor is always unmeetable";
-        //    it is "at this block the guessed budget does not cover the observed basis", which is the
-        //    §SESS-23 argument arriving as a LIVENESS failure instead of a bleed.
-        assertGt(fSmall, 21381863684901085264,
-            "the $50k floor now clears the best venue - RE-MEASURE, the oracle/pool basis moved");
-        assertGt(fBig, 425331345107636521215,
-            "the $1M floor now clears the best venue - RE-MEASURE, the basis moved");
+        uint256[2] memory sizes = [uint256(50_000e6), uint256(1_000_000e6)];
+        for (uint256 i; i < sizes.length; ++i) {
+            uint256 amt = sizes[i];
+            uint256 par    = desk.parity(address(USDC), amt, WETHA);
+            uint256 best   = _quoteBestVenue(address(USDC), WETHA, amt);   // searched, not assumed
+            uint256 budget = LevMath._slipBps(desk.usdSize(address(USDC), amt));
+            uint256 need   = best >= par ? 0 : (par - best) * 10_000 / par;
+
+            emit log_named_uint("--- size (USDC, 6dec)      ", amt);
+            emit log_named_uint("parity  (oracle, no cut)   ", par);
+            emit log_named_uint("best venue out (live V3)   ", best);
+            emit log_named_uint("need   bps (basis+fee+imp) ", need);
+            emit log_named_uint("budget bps (_slipBps)      ", budget);
+
+            assertGt(par,  0, "parity is zero - the oracle arm is not wired, the check would be vacuous");
+            assertGt(best, 0, "no live venue quote - this cannot measure the market, do not read a pass");
+            assertGe(budget, need,
+                "LIVENESS: _slipBps does not cover the best venue's real cost at this size - the floor "
+                "rejects an honest fill. This is a finding about the BUDGET, not about the block.");
+            emit log_named_uint("headroom bps (budget-need) ", budget - need);
+        }
     }
 
     /// ⭐ ② THE THREE CONTROLS, RE-RUN AGAINST THE **DERIVED** FLOOR (not a parameter).
