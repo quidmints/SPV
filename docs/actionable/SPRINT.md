@@ -53591,3 +53591,72 @@ not become a second keeper key** — the stub here returns the magic value UNCON
 opposite of a policy; ③ **an unfilled order is still not a mechanism** — break-even is a lower bound on
 M5, not an answer to it.
 
+## §SESS-40 — ⭐ **THE STALENESS PROBLEM DISSOLVES: DO NOT POST AN AMOUNT, INVERT CONTROL.** (2026-09-06)
+
+**Owner:** *"solve the amount staleness problem for posted orders, and any other lingering problems…
+aim for the most elegant solution possible."*
+
+### 🔴 FIRST, THE PROBLEM IS NOT STALENESS — IT IS ASYNCHRONY, AND FIXING STALENESS WOULD NOT HAVE HELPED
+Our conversion paths are **flash-bound**: `LevMath:1605` and `LevManager:625` open a flash loan and the
+sale must complete **in the same transaction as the repay**. ⇒ **a posted order cannot serve them at all
+— an order is filled LATER; a flash loan repays NOW.** ⛔ **So the amount-getter extension I went looking
+for would have solved the wrong problem** (and its `getMakingAmount`/`getTakingAmount` selectors are not
+in the deployed router's bytecode either). §SESS-39's measurement stands and is still useful — a contract
+maker *does* fill, at ~105k gas — **but the maker/order shape fits an ASYNC flow, and ours is not one.**
+
+### ⭐ THE ELEGANT SHAPE: NOTHING IS EMBEDDED, SO NOTHING CAN GO STALE
+> **The filler initiates. We hand over what we are selling inside THEIR transaction, and require that by
+> the end our balance of the wanted asset rose by a floor WE COMPUTED BEFORE LETTING GO OF ANYTHING.**
+
+- **No amount is embedded** — it is whatever our internal computation just produced, used in the same
+  instant. There is no interval in which it can age.
+- **No price is embedded** — the floor is our own TWAP, read in the same transaction.
+- **Any venue, unlimited hops** — the filler sources however it likes; we never touch a venue.
+- **Synchronous** — it fits inside the flash, which the order model cannot.
+✅ **PROTOTYPED AND MEASURED** (`evm/test/FillerCallback.t.sol`, 4/4, pinned fork): an honest filler
+converted through a real venue and paid the floor; **gas 238,242** for the whole round trip.
+
+### 🔑 AND IT IS STRICTLY SAFER THAN TODAY'S `approve`-AND-CALL — THIS IS THE PART THAT SURPRISED ME
+`convertTo` grants the router an allowance and calls it. This **TRANSFERS and demands repayment**, so
+**no allowance survives the call.** ⇒ the standing-allowance hazard §SESS-2 flags on `curveExchange`
+(*"a pool that pulls less than approved leaves a standing allowance it can drain in a different
+transaction, with no `minOut` in sight"*) **cannot exist in this shape at all.**
+⚠️ **AND THE PINNED CALLEE STOPS BEING LOAD-BEARING.** Today the callee must be pinned because we approve
+it. Here we approve nobody, so an arbitrary counterparty is safe — **which is exactly the "any venue"
+property, obtained by removing a guard rather than widening one.** §SESS-38 asked whether pool words
+provide security; this asks the same of the callee pin and gets the same answer: **it was protecting the
+allowance, and the allowance is gone.**
+⚠️ **THE FLOOR IS READ BEFORE THE TRANSFER, DELIBERATELY.** Read after the callback, a filler could move
+the oracle inside their own call and lower the bar they must clear. **Order of operations is the whole
+security argument here**, and the prototype does it in that order.
+
+### ▶️ CONTROLS, BECAUSE "IT PAID US" PROVES LITTLE ON ITS OWN
+| control | result |
+|---|---|
+| filler takes the asset and returns nothing | ✅ **reverts**, input returned by the rollback |
+| filler is SOLVENT and underpays by **1 wei** | ✅ **reverts** `Short(owed-1, owed)` |
+| filler pays **exactly** the floor | ✅ **accepted** — the bound is `>=`, as documented |
+⚠️ The 1-wei control had to be rebuilt: a first draft asked for 1,000 WETH and so tested the FILLER's
+INSOLVENCY rather than the DESK's check. **It passed for the wrong reason**, which is the §VACUOUS-BOUNDS
+shape wearing a control's clothes.
+
+### ⛔ WHAT REMAINS OPEN — THIS IS A PROTOTYPE, NOT A LANDING
+① **WHO COMPUTES THE FLOOR, AND FROM WHAT.** The prototype takes `owed` as a parameter; in production it
+must be derived on-chain exactly as `_stableToWethSor`/`_wethStableFloor` do — **and §SESS-23's finding
+still binds: there is no quotable reference on the volatile leg**, so the floor there is still the
+guessed `_slipBps`. **This shape removes the ROUTE from the trust path; it does not by itself tighten the
+FLOOR.**
+② **REENTRANCY IS GUARDED BY A BOOL IN THE PROTOTYPE.** Production must use the tree's own guard and must
+consider that the callback can call back into other protocol entrypoints, not just this one.
+③ **MEV: the filler is the transaction sender**, so they choose ordering. The floor bounds the price they
+must pay, not the block position they take.
+▶️ **NEXT: derive the floor on-chain and re-run the same three controls against the real floor**, then
+compare gas against `convertTo`'s 264,124 route to price the swap.
+
+### 📌 A HARNESS LESSON, SECOND OCCURRENCE THIS SESSION
+`vm.expectRevert` binds to the **next external call**, and **an argument expression can make one**:
+`f.go(..., _word(pool, USDC), ...)` staticcalls `token0()` while evaluating arguments, so the cheatcode
+caught THAT and reported *"did not revert"* while the desk worked perfectly. **§SESS-22 hit the same
+cheatcode against an inlined internal library call.** ⇒ **hoist anything that touches the chain out of an
+`expectRevert` call's arguments.**
+
