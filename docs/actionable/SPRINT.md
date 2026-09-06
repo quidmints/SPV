@@ -52035,3 +52035,59 @@ reports a collapse to 0 indistinguishable from a real defect."* **Quote it with 
 ▶️ **STILL OPEN AND NOT ANSWERED BY THIS:** the WITHDRAW-side venue-walk cost per stable was **not**
 measured, only reasoned about. If a venue-count argument is ever made again, **that** is the loop to
 measure, and this row should not be cited as having priced it.
+## §S14 — §S12 RESOLVED: **`avail = rs − rd` COMPARED TWO OPERANDS THAT ARE BOTH OUR OWN BOOK.** (2026-09-06)
+
+The owner's scoping analysis ended: *"Either way `avail` needs to stop being `rs − rd` until we know what
+the two operands measure."* **They are now measured, and the answer is worse than a scope mismatch.**
+
+🔑 **BOTH OPERANDS ARE THIS SPOKE'S BOOK AGAINST THE HUB.** Aave v4 is hub-and-spoke: the HUB custodies
+the asset, spokes `add` liquidity to it and `draw` from it. Asserted on-chain in
+`evm/test/AaveHubLiquidity.t.sol` (4/4 green, `FORK_BLOCK=25800000`), not argued:
+- `spoke.getReserveSuppliedAssets(rid)` **==** `hub.getSpokeAddedAssets(aid, spoke)`
+- `spoke.getReserveTotalDebt(rid)` **==** `hub.getSpokeTotalOwed(aid, spoke)`
+and summing all **7 spokes** reproduces `hub.getAssetTotalOwed(5)` to **2 units**.
+⇒ **`rs − rd` is a NET INTERCOMPANY POSITION — (what this spoke lent the hub) − (what it borrowed) — and
+has no bearing on whether cash exists.** A spoke owing more than it added is an ordinary **credit line**,
+not distress. USDC sits at **123.1%**.
+
+🔴 **THE OLD FORM WAS WRONG IN BOTH DIRECTIONS, AND MOSTLY THE DANGEROUS ONE.** Measured, old bps → true:
+| reserve | old `rs−rd` | true `min(supplied, hub cash)` | old bps → new bps |
+|---|---|---|---|
+| USDC (rid 7) | **$0** (underflow-pinned) | **$543,837** | 0 → **825** |
+| USDT (rid 8) | $4,785,140 | $2,870,902 | 3446 → **2068** |
+| USDG (rid 11) | $41,633,710 | $21,460,898 | 6813 → **3512** |
+| GHO (rid 13) | $239,692 | $147,429 | 3060 → **1882** |
+⇒ **On three of four it OVER-PROMISES** — $41.6M claimed deliverable against $21.5M of real cash on USDG
+alone — **and this number feeds the REDEMPTION haircut**, which is precisely the direction that lets a
+redemption be quoted against liquidity that is not there. USDC failed the other way: `rs > rd` false
+pinned `avail` to 0, haircutting the whole position and flagging the leg maximally illiquid while
+$543,837 was drawable. ✅ **This answers the owner's *"if its at that kind of utilisation that means we
+cant get it out?"* — partially, and the real figure is 8.25%, not 0%.**
+
+✅ **THE FIX: `BasketLib._aaveAvail(aux, stable)` = `min(our supplied, hub.getAssetLiquidity(assetId))`.**
+`getAssetLiquidity` is the hub's real token balance — verified against `IERC20.balanceOf(hub)`: **drift 0**
+on USDT/USDG/GHO, **315 units ($0.0003)** of donated dust on USDC. The spokes hold nothing themselves
+(0 for USDC/USDG/GHO, $1,001 USDT against $2.87M at the hub), so ignoring the spoke's own balance is
+dust-sized and errs toward **under**-promising — the safe side for a haircut.
+⚠️ **It is still an UPPER bound, which the old comment never admitted:** hub cash is shared across all
+7 spokes and their users. Same shape as `QuidLib._withdrawableOf` for a 4626 leg.
+
+🔴 **AND THE SAME DEFECT WAS IN A SECOND PLACE — `test_AaveV4Legs_HaveRealDepth`.** It asserted
+`supplied − debt > 100 ether` and called it *"free WETH"*: **27,608 WETH claimed against 5,635 WETH of
+real hub cash, a 5× over-statement, on the exact axis (*"the discriminator is LIQUIDITY"*) that file
+exists to test.** It also **underflow-reverts** on any reserve where the spoke owes more than it added.
+Repointed at `hub.getAssetLiquidity`; still passes, now for the right reason.
+
+⛔ **THE DEAD END, RECORDED BECAUSE IT LOOKED SO PROMISING.** The spoke exposes BOTH `getReserveDebt` and
+`getReserveTotalDebt` — the singular/plural legacy-getter shape `CLAUDE.md`'s verification table warns
+about by name, and the obvious explanation for 123.1%. **Measured: equal on every reserve, premium 0.**
+`test_TheTwoDebtGettersAgree` keeps it dead rather than leaving it as folklore for the next thread.
+
+📌 **METHOD NOTE, since an earlier attempt failed the opposite way:** the hub was read by extracting the
+implementation behind the proxy and enumerating its **79 selectors**, then resolving names — not by
+guessing signatures. The earlier session guessed `getSpokes()`/`HUB()` against a 1,419-byte proxy, got
+reverts, and proved nothing. **`getSpokeCount`/`getSpokeAddress` is the spoke enumerator §S12 said it
+lacked** (*"the owner's cross-spoke discriminator needs a second spoke address I do not have"*) — there
+are 7, and it is now a read rather than a missing input.
+
+

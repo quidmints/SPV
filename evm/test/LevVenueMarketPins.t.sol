@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {ForkPin} from "./utils/ForkPin.sol";
 import {IMorphoStaticTyping as IMorphoMarketRead, MarketParams, Id} from "../src/imports/Interfaces.sol";
 import {Deploy} from "../script/DeployL1_s.sol";
-import {IAaveV4Spoke} from "../src/imports/Interfaces.sol";
+import {IAaveV4Spoke, IAaveV4Hub} from "../src/imports/Interfaces.sol";
 
 /// @notice Pins the LIVE Morpho market that `Deploy._ethLevVenues` joins for the ETH-denominated-debt
 ///         lev venue (collateral weETH, debt WETH).
@@ -81,13 +81,27 @@ contract LevVenueMarketPins is ForkPin, Deploy {
     /// and $2,095, and Euler's eWETH-14 -- which accepts the eweETH-1 escrow at 67% LTVBorrow / 77%
     /// LTVLiquidation with a renounced governor, and has totalAssets, cash AND totalBorrows all ZERO.
     /// Every structural check passes on all three. Only depth separates them, so only depth is asserted.
+    /// \U0001f534 **§S12 — THIS USED TO ASSERT ON `supplied - debt` AND CALL IT "free WETH". IT IS NOT.**
+    ///    MEASURED 2026-09-05 at `FORK_BLOCK=25800000`: `getReserveSuppliedAssets(0)` and
+    ///    `getReserveTotalDebt(0)` are both **this spoke's own book against the hub** — they equal
+    ///    `hub.getSpokeAddedAssets(aid, spoke)` and `hub.getSpokeTotalOwed(aid, spoke)` to the unit —
+    ///    so their difference is a NET INTERCOMPANY POSITION, not cash. On this very reserve it read
+    ///    **27,608 WETH** of "free" liquidity against **5,635 WETH** actually held by the hub: a 5x
+    ///    over-statement, on the exact axis (`the discriminator is LIQUIDITY`) this file exists to test.
+    ///    ⚠️ It also **underflow-reverts** whenever a spoke owes more than it added, which is an ordinary
+    ///    state — the USDC reserve on this same spoke sits at 123.1% at this block.
+    /// \U0001f511 In v4's hub-and-spoke shape the HUB custodies the asset, so hub liquidity is the only
+    ///    number that answers "can the borrow leg fill". Verified the same day against the hub's raw
+    ///    token balance: drift **0** on both reserves read here.
     function test_AaveV4Legs_HaveRealDepth() public view {
         IAaveV4Spoke sp = IAaveV4Spoke(aaveSpoke);
-        uint256 supplied = sp.getReserveSuppliedAssets(0);   // WETH -- the leg we BORROW
-        uint256 debt     = sp.getReserveTotalDebt(0);
-        assertGt(supplied - debt, 100 ether, "no free WETH on Aave ETH - the borrow leg cannot fill");
+        IAaveV4Hub   hb = IAaveV4Hub(aaveHub);
+        // WETH -- the leg we BORROW. Depth is the hub's cash for the asset, shared across its spokes.
+        assertGt(hb.getAssetLiquidity(hb.getAssetId(address(WETH))), 100 ether,
+            "no free WETH on the Aave v4 hub - the borrow leg cannot fill");
         // weETH is supply-only here (borrowable=false, correctly). Depth still matters: an empty collateral
-        // reserve means no liquidator has any reason to be watching it.
+        // reserve means no liquidator has any reason to be watching it. Kept SPOKE-scoped deliberately —
+        // the question is whether anyone uses this reserve through THIS spoke, not hub-wide custody.
         assertGt(sp.getReserveSuppliedAssets(2), 10 ether, "weETH collateral reserve is empty");
     }
 

@@ -256,6 +256,13 @@ interface IDepositAdapter {
 /// Canonical IAaveV4Hub — union of the former per-file variants.
 interface IAaveV4Hub {
     function getAssetId(address underlying) external view returns (uint256);
+    /// §S12 — **THE CASH.** MEASURED 2026-09-05 at `FORK_BLOCK=25800000` against the live hub
+    /// `0xCca852Bc`: this returns the hub's own token balance to within dust (USDT/USDG/GHO drift
+    /// EXACTLY 0; USDC drift 315 units = $0.0003 of donated dust). The spokes hold effectively
+    /// nothing themselves — `USDC/USDG/GHO.balanceOf(spoke)` are all 0 and USDT is $1,001 against
+    /// $2.87M at the hub — so in v4's hub-and-spoke shape **the hub holds the liquidity and this is
+    /// the only honest "can we actually get it out" number.**
+    function getAssetLiquidity(uint256 assetId) external view returns (uint256);
 }
 
 /// Canonical ILevEquity — ONE interface over BOTH lev managers. Union of ILevEquity, ILevEquity_V,
@@ -409,6 +416,7 @@ interface IAux is ISwap {
     function getStables() external view returns (address[] memory);
     function getVaults(address stable) external view returns (address[] memory);
     function AAVE_SPOKE() external view returns (address);
+    function AAVE_HUB() external view returns (address);
     function ethVenue() external view returns (address);
     function GHO_RESERVE_ID() external view returns (uint256);
     function USDG_RESERVE_ID() external view returns (uint256);

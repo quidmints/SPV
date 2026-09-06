@@ -11,7 +11,7 @@ import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {Types} from "./Types.sol";
 import {FeeLib} from "./FeeLib.sol";
-import {IAaveV4Spoke} from "./Interfaces.sol";
+import {IAaveV4Hub} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
 import {QuidLib} from "./QuidLib.sol";
 
@@ -871,6 +871,54 @@ library BasketLib {
         if (worst != address(0)) IAux(address(this)).flagIlliquidSelf(worst, worstBps < LIQ_TOL_BPS);
     }
 
+    /// @notice §S12 — **HOW MUCH OF OUR AAVE-v4 POSITION IS ACTUALLY WITHDRAWABLE.**
+    ///
+    /// \U0001f534 **THIS REPLACES `avail = rs − rd`, WHICH WAS WRONG IN BOTH DIRECTIONS.** That form read
+    ///    `getReserveSuppliedAssets(rid) − getReserveTotalDebt(rid)` and called the difference "reserve
+    ///    cash". MEASURED 2026-09-05 at `FORK_BLOCK=25800000`, **neither operand is a reserve-wide
+    ///    quantity and their difference is not cash.** Both are OUR SPOKE's own book against the hub,
+    ///    reconciled to the unit through the hub's own accessors:
+    ///      `spoke.getReserveSuppliedAssets(7)` = 6,588,733,684,611 == `hub.getSpokeAddedAssets(5, spoke)`
+    ///      `spoke.getReserveTotalDebt(7)`      = 8,113,797,917,683 == `hub.getSpokeTotalOwed(5, spoke)`
+    ///    and summing all 7 spokes reproduces `hub.getAssetTotalOwed(5)` to **2 units**. So `rs − rd` is
+    ///    *(what this spoke lent the hub) − (what this spoke borrowed from it)* — a NET INTERCOMPANY
+    ///    POSITION between one spoke and the hub, which has no bearing on whether cash exists.
+    ///
+    /// ⚠️ **THE OLD FORM'S FAILURE IS MOSTLY THE DANGEROUS DIRECTION — IT OVER-PROMISES.** Measured, same
+    ///    block, old bps vs true bps: USDG **6813 → 3512**, USDT **3446 → 2068**, GHO **3060 → 1882**.
+    ///    On USDG alone it claimed $41.6M deliverable against $21.5M of real cash. This number feeds the
+    ///    **REDEMPTION haircut**, so over-stating deliverability is exactly the error that lets a
+    ///    redemption be quoted against liquidity that is not there. USDC is the one leg that failed the
+    ///    *other* way — debt 123.1% of supplied makes `rs > rd` false, so `avail` pinned to **0** and the
+    ///    leg was haircut in full and flagged maximally illiquid, when $543,837 was in fact drawable.
+    ///    A spoke owing more than it added is NORMAL here, not distress: it is a credit line from the hub.
+    ///
+    /// \U0001f511 **WHAT IS CORRECT INSTEAD.** In v4's hub-and-spoke shape the HUB custodies the asset and the
+    ///    spokes are frontends, so the ceiling on any withdrawal is the hub's cash for that asset. We
+    ///    cannot take out more than we put in either, hence the `min`. The spoke's OWN token balance is
+    ///    deliberately NOT added: measured, it is 0 for USDC/USDG/GHO and $1,001 for USDT against $2.87M
+    ///    at the hub, so ignoring it is dust-sized and errs toward under-promising — the safe side for a
+    ///    haircut.
+    ///
+    /// ⚠️ **AND THIS IS STILL AN UPPER BOUND, WHICH THE OLD COMMENT NEVER ADMITTED.** `getAssetLiquidity`
+    ///    is shared across all 7 spokes and every one of their users; nobody is holding it for us. It is
+    ///    the same shape as `QuidLib._withdrawableOf` for a 4626 leg — "what the venue could pay right
+    ///    now", not "what is reserved for us".
+    ///
+    /// @dev Every read is `try`-wrapped to 0, which is CONSERVATIVE here: 0 avail ⇒ full shortfall ⇒
+    ///      over-haircut, never over-promise. Kept as a separate function so `_illiquidLoss`'s already
+    ///      deep frame does not gain three more locals.
+    function _aaveAvail(address aux, address stable) internal view returns (uint) {
+        address hub = IAux(aux).AAVE_HUB();
+        if (hub == address(0)) return 0;
+        try IAaveV4Hub(hub).getAssetId(stable) returns (uint aid) {
+            try IAaveV4Hub(hub).getAssetLiquidity(aid) returns (uint liq) {
+                uint mine = IAux(aux).aaveBalance(stable);
+                return liq < mine ? liq : mine;
+            } catch { return 0; }
+        } catch { return 0; }
+    }
+
     /// @notice Redemption-only DELIVERABILITY haircut. get_deposits values
     /// each 4626 leg at convertToAssets (PAR/solvency), which can exceed what the
     /// vault can actually pay out NOW (maxWithdraw) — e.g. a solvent-but-frozen
@@ -924,12 +972,7 @@ library BasketLib {
                         : IAux(aux).aaveReserveId(stable);
                     if (rid == 0) continue;
                     uint supA = IAux(aux).aaveBalance(stable); // our supplied (asset-dec)
-                    uint avail;                  // reserve cash = supplied − debt
-                    try IAaveV4Spoke(aaveSpoke).getReserveSuppliedAssets(rid) returns (uint rs) {
-                        try IAaveV4Spoke(aaveSpoke).getReserveTotalDebt(rid) returns (uint rd) {
-                            avail = rs > rd ? rs - rd : 0;
-                        } catch { avail = 0; }   // debt unreadable → conservative (defer all)
-                    } catch { avail = 0; }       // supplied unreadable → conservative
+                    uint avail = _aaveAvail(aux, stable);
                     if (supA > avail) shortfall += supA - avail;
                     // §E198 — the aave leg can now be nominated, keyed PER RESERVE. Until this, the
                     // `continue` below was the only thing stopping §E197's traffic flagging from
