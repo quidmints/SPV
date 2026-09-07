@@ -136,3 +136,19 @@ optimizer_runs = 1
 paths = "src/identity/generated/pool/verifiers/TreeRoot*HonkVerifier.sol"
 optimizer_runs = 1
 
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────────
+# §OOM-LINT (2026-09-07) — THE LINTER IS NOT ALLOWED TO RUN ON `forge build`, AND THIS IS NOT A STYLE
+# PREFERENCE. `forge build` with linting enabled exhausted this machine TWICE: 11 GB of RAM *and* the
+# entire 32 GB swapfile (`total-vm: 87.8 GB`, `Free swap = 4kB`), then took a global OOM kill —
+# `oom-kill:constraint=CONSTRAINT_NONE ... global_oom`, so no cgroup cap was involved, it genuinely
+# ran the box out. Each death cost ~20 minutes of swap thrash before the kill landed.
+# ⇒ The discriminator, measured, not guessed: every build that passed `--no-lint` SUCCEEDED; every
+#   build that omitted it DIED. `--threads 1` does NOT help — the allocation is the linter's, not
+#   solc's, confirmed by watching RSS climb past 8.9 GB while it emitted `cyclomatic-complexity`
+#   diagnostics. Do not "fix" a future OOM here by lowering thread count; that is the wrong knob.
+# ⛔ Do not set this back to `true` to get lint coverage in CI without first checking the memory
+#    ceiling of whatever runs it. Lint is still available on demand: `forge lint` runs it explicitly,
+#    which is the right place for it — a machine that can afford it, not every incremental build.
+[lint]
+lint_on_build = false

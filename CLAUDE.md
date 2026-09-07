@@ -505,7 +505,12 @@ OTHER thread's uncommitted comment edits into `cab7b86b`, whose message does not
 not, say so and let the owner land it. Nothing was lost that time; nothing guarantees that.
 
 **3. THE BUILD IS THE SERIALIZATION POINT, AND PROSE WORK DOES NOT TOUCH IT.**
-One `forge build` at a time (rule: a second OOMs the box). ⇒ N threads scale **only** if most of
+One `forge build` at a time (rule: a second OOMs the box). ⚠️ **RE-MEASURED 2026-09-07 — THE RULE IS
+RIGHT BUT ITS STATED CAUSE WAS NOT THE BINDING ONE.** A build OOMed here with **NO contender at all**
+(`ps` showed no other solc/forge, 10 GB free at kill time): the lint pass alone reached 11 GB RAM plus
+the whole 32 GB swapfile. With `lint_on_build = false` now applied, a single build peaks well under
+10 GB, so serialising builds is cheaper insurance than it used to be — but keep serialising, because
+two 10 GB builds still exceed 11 GB of RAM. ⇒ N threads scale **only** if most of
 them never build. They do not have to: `bytecode_hash = "none"` + `cbor_metadata = false` mean a
 comments-only edit is **byte-identical**, so it needs no build and no test — the gate is
 `tools/comment-only.sh <files>`, which comment-strips, drops blank lines, and requires byte identity
@@ -1451,6 +1456,7 @@ lies. ⇒ **VERIFY THE EFFECT WITH AN INDEPENDENT GREP, NEVER THE TOOL'S EXIT CO
 
 | | |
 |---|---|
+| 🔴 **`lint_on_build` IS NOW `false` — APPLIED 2026-09-07, NOT JUST RECOMMENDED** | The §exit-137 note further down has recommended `lint_on_build = false` for weeks and **nobody had ever applied it**, so the box kept OOMing on a fix that was already written down. It is now set in `evm/foundry.toml` (verify: `forge config \| grep lint_on_build`). ⚠️ **THE LESSON IS THE GAP, NOT THE FLAG:** a documented remedy that lives only in prose gets re-derived by each thread at ~20 minutes a time — I re-derived this one from scratch today before finding the note. When you diagnose something whose fix is a CONFIG VALUE, change the config in the same breath. ▶️ Backstop for the next cause: `/root/.foundry/bin/forge` is now a guard shim (real binary at `forge-real`) running under `systemd-run --scope -p MemorySwapMax=8G`; a runaway dies in ~1 min with 24 GB swap free instead of freezing the box. `FORGE_NO_GUARD=1` bypasses. ⚠️ Installed at the BINARY's path, not via `PATH` — `~/.bashrc` returns early on non-interactive shells (`[ -z "$PS1" ] && return`) and each Bash call is initialized from a session-start snapshot, so **a `PATH` edit reaches no running session, including your own.** |
 | solc | `0.8.30`, optimizer on, **200 runs** (`evm/foundry.toml`) |
 | **foundry** | 🔴 **THIS TREE NEEDS A MODERN `forge` AND SAYS SO IN TWO PLACES, NEITHER OF WHICH THIS TABLE RECORDED UNTIL 2026-08-29.** A `forge 0.2.0 (2024-08-15)` **cannot load the config at all** — it panics `failed to extract foundry config: Unknown evm version: osaka` reading `evm/lib/openzeppelin-contracts/foundry.toml`, which is the **PINNED** submodule, so this is not drift and cannot be waited out. Independently, `foundry.toml`'s own `dynamic_test_linking = true` is a key that build predates. ⚠️ **THE FAILURE IS NOT A TEST FAILURE AND NAMES NOTHING IN THIS REPO** — it is a Rust panic with a backtrace and *"This is a bug, consider reporting it"*, arriving AFTER forge has spent minutes cloning missing submodules. ▶️ **`foundryup`.** CI has always been right: `foundry-rs/foundry-toolchain@v1` with `version: stable`. Measured working here 2026-08-29: **`1.6.0-nightly` (`5e88010a`)**. ⚠️ Two identity tests move with the toolchain and are NOT contract evidence — see §WARP-THE-PRECONDITION for the shape (a test whose PREMISE was a harness default). |
 | **`evm/.env`** | ⚠️ **DOES NOT EXIST IN A FRESH CHECKOUT** (it is gitignored, and every row below that says *"`evm/.env` now points there"* describes one machine's file, not the repo). ⇒ **`ETH_RPC_URL` must be passed on the command line**, or `foundry.toml`'s `mainnet = "${ETH_RPC_URL}"` resolves to empty and every fork dies. |
