@@ -52978,6 +52978,43 @@ FOLDED citation is still stale** — the one bucket that is actionable. Per this
 with a binary result beats a disposition; and per the tooling-traps rule it fails loudly, exiting with
 a FATAL if the tree walk returns zero `.md` files rather than reporting a clean run.
 
+# 🔎 §COMMENT-SWEEP-2026-09-07 — **TWO CLASSES SWEPT AGAINST THE CODE. ONE FOUND NOTHING, AND THE OTHER FOUND THE SWEEP'S OWN TRAP.**
+
+Owner direction: *"docblocks can be stale. check everything against code and update or delete stale
+comments."* **1,977 property-asserting comment lines across 101 files** is too many to read, so the
+sweep targeted the two subclasses a grep can settle. **Both results are reported with their
+false-positive class named, per the sweep rule — a raw count is not a finding.**
+
+## ⓵ "THE ONLY CALLER IS X" — 11 CLAIMS, **ZERO REFUTED**, AND THE CHECK CANNOT VERIFY THEM EITHER
+
+CLAUDE.md names this class as known-dangerous (*"the only caller is X — **a declaration is not a
+caller**"*). Swept every such comment in `evm/src`: **11 claims. 6 pass trivially; the 5 that flagged
+are ALL my extractor's error, not the file's.** ⛔ **THE FALSE-POSITIVE CLASS: the claim names the
+CALLER, and a first-backticked-symbol extractor reads it as the CALLEE.** *"the ONLY caller now is
+`Core`"* (`FeeLib:32`) counts `Core`'s 122 references; *"`splice` is the only caller today"*
+(`BTCChannels:1304`) counts `splice`'s 29. ⇒ **resolving the claim needs the enclosing DECLARATION,
+which is a read, not a grep.** **Low-yield class: 11 items, none refuted. Do not re-sweep it
+mechanically.**
+
+## ⓶ ABSENCE CLAIMS IN `quid-ln` — 54 FOUND, TWO CHECKED, **BOTH HOLD** — AND THE TRAP IS THAT THEY COUNT THEMSELVES
+
+- ✅ **`node.rs:358` — *"THERE IS NO keysend LEG, AND THERE CANNOT BE ONE"* HOLDS.**
+- ✅ **`§E108` / `channel_driver.rs:1326` — *"routing fees are never observed"* HOLDS.**
+
+🔴 **BUT THE RAW GREP SAYS 2 HITS EACH, NOT ZERO, AND THAT NEARLY READ AS A REFUTATION.** Every hit is
+prose or a label: `send_spontaneous_payment` appears in a doc comment (`payments/outbound.rs:670`) and
+**in the very comment asserting its absence** (`channel_driver.rs:1278`, *"Do not add one: no
+`send_spontaneous_payment` call…"*); `PaymentForwarded` appears in a stringify arm
+(`event.rs:110`, `Event::PaymentForwarded { .. } => "PaymentForwarded"`) and again **in the comment
+asserting the absence** (`:1326`).
+
+⭐ **THE REUSABLE DISCRIMINATOR, AND IT IS THIS SESSION'S THIRD INSTANCE OF ONE SHAPE: WHEN VERIFYING AN
+ABSENCE CLAIM, EXCLUDE COMMENT LINES — OR THE CLAIM ALWAYS APPEARS TO REFUTE ITSELF.** A well-written
+absence claim names the symbol it says is missing, so it is guaranteed to show up in the grep that
+checks it. **Same family as `check-orphans.py` counting a declaration as its own caller, and as
+`§RANGEOP-IS-NOT-AN-ORPHAN` where callers hid behind `IFace(x).member`. All three are a NAME match
+standing in for a CALL-SHAPE match.**
+
 # 🔴 §MSIG-GROWS-THEN-FREEZES — **THE OWNER'S DESIGN IS NOT EXPRESSIBLE IN THE CODE, AND A DOCBLOCK CLAIMED IT WAS (2026-09-07)**
 
 **Owner direction, 2026-09-07:** *"we are not using gnosis safe but a simple msig that can **grow after
