@@ -424,18 +424,30 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> BtcLevKeeperEvm for Daemon
         // `debtDeltaToTarget`; a revert is fail-safe (retried next tick).
         let (evm, bm, gas) = (self.evm.clone(), self.btc_lev_manager, self.gas_limit);
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-            // §C2.1 — three STATIC words: (lp, minStableOut, dex). The hand-rolled `bytes` tail
-            // (an offset word of 0x60 then a zero length) is gone, and with it the empty route that
-            // made every one of these calls revert `NoVolatileRoute()` on arrival.
+            // ⭐ §SESS-90 — **THE WBTC LEG IS PLANNED NOW, NOT HARDCODED.** This sent
+            //    `dex_word_wbtc()` — ONE fixed WBTC/USDC pool — with `dex2 = 0` and an EMPTY route,
+            //    so the deepest leg in the system took the least-informed path in the system: no
+            //    tier selection, no hub hop, no two-hop, and no 1inch calldata.
+            // 📊 **MEASURED, AND THIS IS WHY IT MATTERS MOST HERE.** The §SESS-88 A/B put 1inch ahead
+            //    on WBTC at $1M by **+62 / +60 / +84 / +83 bps** across USDC / USDT / DAI / crvUSD —
+            //    consistent across four independent pairs, i.e. structural, not noise — while the
+            //    WETH leg at the same size was a wash (−6 … +10). ⇒ the volatile leg the keeper was
+            //    NOT planning is exactly the one where planning pays, and up to ~$8,400 per $1M.
+            // ⚠️ `plan_for_lp` works against `BtcLevManager` because everything it reads (`pos`,
+            //    `grossCollateral`, `collValueUsd`, `debtUsd`) is on `LevBase`; see `ranking_size`.
+            let p = crate::lev_keeper::plan_for_lp(&evm, bm, lp, crate::lev_keeper::WBTC_ADDR);
+            let route = p.route_bytes();
             let mut d = selector4("rebalanceWbtc(address,uint256,uint256,uint256,bytes)");
             d.extend_from_slice(&addr_word(lp));
             d.extend_from_slice(&[0u8; 32]);   // minStableOut = 0 (contract floors against the oracle)
-            d.extend_from_slice(&crate::lev_keeper::dex_word_wbtc());   // WBTC/USDC, NOT the WETH pool
-            // hub pool word (stable->USDC); ZERO ⇒ contract uses its legacy Curve hub hop.
-            d.extend_from_slice(&[0u8; 32]);
-            // `bytes route` — empty ⇒ pool-word arm. Head is five slots, so the offset is 0xA0.
+            d.extend_from_slice(&p.dex);       // volatile leg, PLANNED across tiers/venues
+            d.extend_from_slice(&p.dex2);      // hub hop; ZERO ⇒ the contract's own Curve row
+            // `bytes route` — head is five slots, so the tail offset is 0xA0. A non-empty route takes
+            // the full-venue arm; an empty one degrades to the pool words above, which is the ladder.
             d.extend_from_slice(&crate::abi::u64_word(0xA0));
-            d.extend_from_slice(&[0u8; 32]);
+            d.extend_from_slice(&crate::abi::u64_word(route.len() as u64));
+            d.extend_from_slice(&route);
+            if route.len() % 32 != 0 { d.extend_from_slice(&vec![0u8; 32 - route.len() % 32]); }
             evm.send_tx(bm, d, gas)?;
             Ok(())
         })

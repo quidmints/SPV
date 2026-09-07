@@ -1507,7 +1507,7 @@ fn venue_stable_of<R: JsonRpc, S: TxSigner>(
 /// 📌 Costs two `eth_read`s per LP per cycle against a 5-minute poll. `position_view` already reads
 ///    `pos(lp)`; threading the stable through it would save one read at the price of widening the
 ///    `LevKeeperEvm` trait and its mock, so the duplicate read is the smaller change.
-fn plan_for_lp<R: JsonRpc, S: TxSigner>(
+pub fn plan_for_lp<R: JsonRpc, S: TxSigner>(
     evm: &JsonRpcEvmClient<R, S>, lm: Address, lp: LpAddr, volatile: LpAddr,
 ) -> Plan {
     let planned = venue_stable_of(evm, lm, lp).and_then(|stable| {
@@ -1558,9 +1558,26 @@ fn plan_for_lp<R: JsonRpc, S: TxSigner>(
 fn ranking_size<R: JsonRpc, S: TxSigner>(
     evm: &JsonRpcEvmClient<R, S>, lm: Address, lp: LpAddr, stable: LpAddr,
 ) -> Option<U256> {
-    let eq = evm.eth_read(lm, "netEquityUsd(address)", Some(&addr_word(lp))).ok()?;
-    if eq.len() < 32 { return None; }
-    let usd18 = U256::from_be_slice(&eq[..32]);
+    // ⭐ §SESS-90 — **TWO WAYS TO THE SAME NUMBER, BECAUSE ONLY ONE MANAGER HAS THE CLEAN READ.**
+    //    `netEquityUsd` lives on `LevManager` only; `BtcLevManager` extends `LevBase`, which does not
+    //    carry it. ⛔ And `LevBase.netEquity` is NOT a substitute — its own docblock says the unit is
+    //    the instance's native one, *"1e18 ETH on the ETH side, 8-dec sats on the BTC side"*, so
+    //    substituting it would size the BTC leg in sats and rank routes against a number 1e10 out.
+    // ⇒ fall back to `collValueUsd(grossCollateral(lp)) − debtUsd(lp)`, all three on `LevBase` and
+    //   all three USD-1e18, which is what `netEquityUsd` computes anyway. Costs two extra reads on
+    //   the BTC path only, and the ETH path is untouched.
+    let usd18 = match evm.eth_read(lm, "netEquityUsd(address)", Some(&addr_word(lp))) {
+        Ok(eq) if eq.len() >= 32 => U256::from_be_slice(&eq[..32]),
+        _ => {
+            let g = evm.eth_read(lm, "grossCollateral(address)", Some(&addr_word(lp))).ok()?;
+            if g.len() < 32 { return None; }
+            let c = evm.eth_read(lm, "collValueUsd(uint256)", Some(&g[..32])).ok()?;
+            let d = evm.eth_read(lm, "debtUsd(address)", Some(&addr_word(lp))).ok()?;
+            if c.len() < 32 || d.len() < 32 { return None; }
+            let (coll, debt) = (U256::from_be_slice(&c[..32]), U256::from_be_slice(&d[..32]));
+            if coll > debt { coll - debt } else { U256::ZERO }
+        }
+    };
     if usd18.is_zero() { return None; }                 // nothing to size ⇒ nothing to rank
     let d = evm.eth_read(Address::from_slice(&stable), "decimals()", None).ok()?;
     if d.len() < 32 { return None; }
