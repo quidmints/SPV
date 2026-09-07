@@ -414,6 +414,7 @@ pub async fn tick<E: LevKeeperEvm>(
         // discovery was never buildable: 1inch calldata embeds its own `amount` and every amount is
         // computed on-chain, so a fetched route is stale before it lands. `cascade_delever` now
         // sends a POOL WORD per LP, which has no amount in it and needs no API and no key.
+        // §SESS-73 — `&[]` here means "the impl plans them"; it no longer means "no route".
         if let Err(e) = evm.cascade_delever(&urgent, &[]).await {
             tracing::warn!(error = %e, "cascade_delever failed; the un-saved positions fall to the venue backstop");
         }
@@ -587,12 +588,19 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
             let p = plan_for_lp(&evm, lm, lp, WETH_ADDR);
             data.extend_from_slice(&p.dex);
             data.extend_from_slice(&p.dex2);
+            // §SESS-73 — and the ROUTE, which until now was a hand-written empty tail. `route_bytes`
+            // emits the planned hops as `unoswap`/`unoswap2`/`unoswap3` calldata with ZEROS in the
+            // token/amount/minReturn slots, because `_retarget` overwrites all three on-chain.
+            let route = p.route_bytes();
             // `bytes route` — EMPTY, so the contract takes the keyless pool-word arm of the ladder.
             // A dynamic tail needs TWO words: the head offset (0xA0 = five 32-byte head slots) and
             // then a zero length. Supply a real 1inch `swap()` calldata here to take the full-venue
             // arm instead; the contract bounds either identically on the balance delta.
-            data.extend_from_slice(&u64_word(0xA0));
-            data.extend_from_slice(&[0u8; 32]);
+            data.extend_from_slice(&u64_word(0xA0));          // head offset: five 32-byte head slots
+            data.extend_from_slice(&u64_word(route.len() as u64));
+            let mut pad = route.clone();
+            if pad.len() % 32 != 0 { pad.resize(pad.len() + (32 - pad.len() % 32), 0); }
+            data.extend_from_slice(&pad);
             evm.send_tx(lm, data, gas)?;
             Ok(())
         })
@@ -607,6 +615,15 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
             (self.evm.clone(), self.lev_manager, self.gas_limit, lps.to_vec(), routes.to_vec());
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
             let plans: Vec<Plan> = lps.iter().map(|&lp| plan_for_lp(&evm, lm, lp, WETH_ADDR)).collect();
+            // §SESS-73 — a route PER LP, from the same plan the words came from, so the two cannot
+            // disagree about the venue. An empty one (a >3-hop plan has no encoding) simply leaves
+            // that LP on the pool-word arm, which is the correct degrade rather than a truncation.
+            // §SESS-73 — a CALLER-SUPPLIED route still wins; we only fill in what nobody supplied.
+            // The parameter was previously dead (every caller passed empty), and silently ignoring it
+            // now would be worse than leaving it dead: it would look like an override and not be one.
+            let routes: Vec<Vec<u8>> = if routes.is_empty() {
+                plans.iter().map(|p| p.route_bytes()).collect()
+            } else { routes };
             let dexes: Vec<[u8; 32]> = plans.iter().map(|p| p.dex).collect();
             let dex2s: Vec<[u8; 32]> = plans.iter().map(|p| p.dex2).collect();
             evm.send_tx(lm, encode_batch5(CD_SIG, &lps, &dexes, &dex2s, &routes), batch_gas(gas, lps.len()))?;
@@ -627,6 +644,15 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
             (self.evm.clone(), self.lev_manager, self.gas_limit, lps.to_vec(), routes.to_vec());
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
             let plans: Vec<Plan> = lps.iter().map(|&lp| plan_for_lp(&evm, lm, lp, WETH_ADDR)).collect();
+            // §SESS-73 — a route PER LP, from the same plan the words came from, so the two cannot
+            // disagree about the venue. An empty one (a >3-hop plan has no encoding) simply leaves
+            // that LP on the pool-word arm, which is the correct degrade rather than a truncation.
+            // §SESS-73 — a CALLER-SUPPLIED route still wins; we only fill in what nobody supplied.
+            // The parameter was previously dead (every caller passed empty), and silently ignoring it
+            // now would be worse than leaving it dead: it would look like an override and not be one.
+            let routes: Vec<Vec<u8>> = if routes.is_empty() {
+                plans.iter().map(|p| p.route_bytes()).collect()
+            } else { routes };
             let dexes: Vec<[u8; 32]> = plans.iter().map(|p| p.dex).collect();
             let dex2s: Vec<[u8; 32]> = plans.iter().map(|p| p.dex2).collect();
             evm.send_tx(lm, encode_batch5(RM_SIG, &lps, &dexes, &dex2s, &routes), batch_gas(gas, lps.len()))?;
@@ -896,8 +922,58 @@ pub const DAI_ADDR:    LpAddr = [0x6B,0x17,0x54,0x74,0xE8,0x90,0x94,0xC4,0x4D,0x
 ///    `routedSwap(stable, weth, amt, floor, c.dex2, c.dex, route)` — *"hub hop FIRST"* — so **`dex2` is
 ///    the FIRST hop (stable→USDC) and `dex` is the SECOND (USDC→volatile)**. Naming them by position
 ///    would be clearer and would also silently disagree with the contract, so they are named to match it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Plan { pub dex: [u8; 32], pub dex2: [u8; 32] }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Plan {
+    pub dex: [u8; 32],
+    pub dex2: [u8; 32],
+    /// §SESS-73 — the FULL ordered hop list, hop 1 first. `dex`/`dex2` stay for the legacy two-word
+    /// entrypoints; this is what `route_bytes` encodes and it is not limited to two.
+    pub hops: Vec<[u8; 32]>,
+}
+
+/// 1inch unoswap-family selectors, by hop count. Kept here rather than imported so the keeper and the
+/// contract can be diffed against each other by eye (`Interfaces.sol` holds the same three).
+const SEL_UNOSWAP:  [u8; 4] = [0x83, 0x80, 0x0a, 0x8e];
+const SEL_UNOSWAP2: [u8; 4] = [0x87, 0x70, 0xba, 0x91];
+const SEL_UNOSWAP3: [u8; 4] = [0x19, 0x36, 0x74, 0x72];
+
+impl Plan {
+    /// ⭐ §SESS-73 — **THE ROUTE PRODUCER. THE THING THE WHOLE 1inch ARM WAS WAITING ON.**
+    ///
+    /// 🔴 §SESS-60 measured that the `bytes route` arm had **NO PRODUCER**: the keeper sent literal
+    ///    empty routes at three sites and nothing in `quid-ln` fetched 1inch calldata at all. So every
+    ///    byte of on-chain route-handling was reachable only by a human calling the entrypoint
+    ///    directly. This closes that.
+    ///
+    /// ⭐ **AND IT NEEDS NO API KEY, NO NETWORK DEPENDENCY, AND CANNOT GO STALE — because the contract
+    ///    overwrites the three fields that could.** `LevMath._retarget` rewrites `token`, `amount` and
+    ///    `minReturn` with its own values before forwarding, so this emits **ZEROS** for all three.
+    ///    ⇒ the calldata carries only VENUE CHOICE, which is the one thing an off-chain quote decides
+    ///    better than the contract. **The staleness that justified pool words is not dodged here, it
+    ///    is absent**: there is no amount in the bytes to be stale.
+    /// ⚠️ **WHICH IS ALSO WHY THIS IS NOT MERELY POOL WORDS IN A LONGER COAT.** The two-word ABI can
+    ///    express one or two hops and nothing else; this reaches `unoswap3`, so a third pool becomes
+    ///    available without touching a single on-chain signature — the owner's *"no limit to how many
+    ///    hops"*, delivered off-chain.
+    /// ⛔ Returns EMPTY above 3 hops rather than truncating: `_retarget` whitelists exactly these three
+    ///    selectors, so a 4-hop plan has no encoding and must fall back to the pool-word arm. **Silently
+    ///    dropping a hop would route somewhere the planner did not price.**
+    pub fn route_bytes(&self) -> Vec<u8> {
+        let sel = match self.hops.len() {
+            1 => SEL_UNOSWAP,
+            2 => SEL_UNOSWAP2,
+            3 => SEL_UNOSWAP3,
+            _ => return Vec::new(),
+        };
+        let mut d = Vec::with_capacity(4 + (3 + self.hops.len()) * 32);
+        d.extend_from_slice(&sel);
+        d.extend_from_slice(&[0u8; 32]);          // token     — overwritten by `_retarget`
+        d.extend_from_slice(&[0u8; 32]);          // amount    — overwritten, computed on-chain
+        d.extend_from_slice(&[0u8; 32]);          // minReturn — overwritten; the delta floor binds
+        for w in &self.hops { d.extend_from_slice(w); }
+        d
+    }
+}
 
 /// The 256-bit word for a V3 pool: `proto=1` at bits 253-255, address in the low 160. No direction bit.
 fn v3_word(pool: LpAddr) -> [u8; 32] {
@@ -1065,7 +1141,7 @@ fn curve_best<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Opti
         if dy.len() < 32 { continue; }
         let out = U256::from_be_slice(&dy[..32]);
         if out.is_zero() { continue; }
-        if best.is_none_or(|(_, b2)| out > b2) { best = Some((curve_word(pool, i, j), out)); }
+        if best.as_ref().is_none_or(|(_, b2)| out > *b2) { best = Some((curve_word(pool, i, j), out)); }
     }
     best
 }
@@ -1078,7 +1154,7 @@ fn best_direct<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Opt
         let Some(pool) = pool_for(rpc, tin, tout, fee) else { continue };
         if !deep_enough(rpc, pool, tin, amt) { continue; }   // §SESS-67 — depth BEFORE price
         let Some(out) = quote_hop(rpc, tin, tout, amt, fee) else { continue };
-        if best.is_none_or(|(_, b)| out > b) { best = Some((pool, out)); }
+        if best.as_ref().is_none_or(|(_, b)| out > *b) { best = Some((pool, out)); }
     }
     best
 }
@@ -1103,7 +1179,7 @@ fn best_plan<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Optio
 fn best_plan_quoted<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Option<(Plan, U256)> {
     let mut best: Option<(Plan, U256)> = None;
     if let Some((pool, out)) = best_direct(rpc, tin, tout, amt) {
-        best = Some((Plan { dex: v3_word(pool), dex2: [0u8; 32] }, out));
+        best = Some((Plan { dex: v3_word(pool), dex2: [0u8; 32], hops: vec![v3_word(pool)] }, out));
     }
     // ⭐ §SESS-58 — **EVERY CANDIDATE HUB, INCLUDING WHEN THE INPUT IS ITSELF A HUB.**
     // 🔴 This read `if tin != USDC_ADDR` with USDC as the only hub, so **a USDC-denominated venue —
@@ -1131,9 +1207,9 @@ fn best_plan_quoted<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -
         };
         let Some((w1, mid)) = first_leg else { continue };
         let Some((second, out)) = best_direct(rpc, hub, tout, mid) else { continue };
-        if best.is_none_or(|(_, b)| out > b) {
+        if best.as_ref().is_none_or(|(_, b)| out > *b) {
             // `dex2` is hop 1 (see `Plan`) — the crossing is deliberate and load-bearing.
-            best = Some((Plan { dex: v3_word(second), dex2: w1 }, out));
+            best = Some((Plan { dex: v3_word(second), dex2: w1, hops: vec![w1, v3_word(second)] }, out));
         }
     }
     best
@@ -1183,7 +1259,7 @@ fn plan_for_lp<R: JsonRpc, S: TxSigner>(
         let amt = ranking_size(evm, lm, lp, stable)?;
         best_plan(evm.rpc(), stable, volatile, amt)
     });
-    planned.unwrap_or(Plan { dex: dex_word(), dex2: [0u8; 32] })
+    planned.unwrap_or(Plan { dex: dex_word(), dex2: [0u8; 32], hops: vec![dex_word()] })
 }
 
 /// §SESS-49 — **THE SIZE TO RANK AT, IN THE STABLE'S OWN UNITS.**
