@@ -823,3 +823,41 @@ the owner, and worth stating plainly because "the callee is pinned, not a parame
 every safety argument this lane has made.
 📌 **NOT BUILT.** The hard part is de-risked: the router, the selector, the head layout and the reason
 patching fails are all measured. **Do not start it in `LevMath`.**
+
+---
+
+## §SESS-86 — **`V4Lib` DELETED. IT WAS UNREACHABLE, AND THE NUMBER THAT JUSTIFIED IT WAS WRONG.**
+
+The design above was BUILT in §SESS-83 and it never ran. `_hubHop`'s `PROTO_V4` arm cannot be entered:
+every caller reaches `_hubHop` only under `hub == 0 || hub >> 253 == PROTO_CURVE`
+(`LevMath:1178, 1356, 1380`) and `consolidate` passes a literal `0`, so a v4 word is excluded by the
+guard before `_hubHop` looks at it. The keeper cannot send one either — `venue_word(Venue::V4) => None`,
+because a singleton has no address to put in a word.
+🔴 **AND THE ONLY TEST CALLED THE LIBRARY DIRECTLY**, so a green suite said *"the v4 encoding executes
+against the real router"* — true about `V4Lib`, false about the protocol. Deleting it returned **196
+bytes** (LevMath 24,357 → 24,161, 415 free).
+
+### ▶️ WHAT IS ACTUALLY MISSING, AND IT IS NOT ON-CHAIN
+`Plan.fetched` — *"pre-built calldata for a venue a pool word cannot spell"* — is `Vec::new()` at all
+three construction sites. **Nothing populates it.** Neither does anything build a generic `swap()`
+descriptor, and `hops` is only ever `vec![w]` or `vec![w1, second]`, so **`unoswap3` is accepted
+on-chain and never produced.** ⇒ the contract accepts far more than the keeper can emit: v4, Fluid's
+11.36M GHO, Balancer, splits, and the `dai-usds` 0.000% par converter are all reachable in principle
+and unreached in fact. **The unfinished half is the producer, not the executor.**
+
+### 📊 COVERAGE, CORRECTED: **10/14, NOT 12/14**
+The matrix counted `!venues_for(..).is_empty()`, and `venues_for` returns v4 candidates. GHO and
+FRXUSD reach both volatiles ONLY on v4 → `v4 only (UNTRADEABLE)` is now its own cell. USDS and CUSD
+have no venue at all. ⚠️ The distinction is load-bearing: *"there is no liquidity"* sends you to find
+some; *"there is liquidity we cannot address"* sends you to write an encoder.
+
+### 🔴 A LIVE DEFECT FOUND WHILE TRACING IT
+`best_plan_quoted` read `if let Some(w) = venue_word(v)`, so a v4 venue that WON the ranking was
+dropped **silently and the direct arm produced NOTHING** — not the second-best V3, nothing. Fixed in
+`best_direct`, where the ranking happens: a venue we cannot encode no longer competes.
+
+### 📌 STILL OPEN — **THE HUB ARM DISCARDS THE SUPPLIED ROUTE**
+`LevMath:1178, 1356, 1380` pass `""` as the route: when the keeper has no 1inch-reachable hub word, the
+stable↔USDC leg takes the on-chain Curve table and **the volatile leg falls back to a single pool
+word**, throwing away whatever route the keeper computed. So for every NON-HUB stable a two-hop or
+split volatile route is unusable. Not previously written down as a gap.
