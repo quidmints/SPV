@@ -12,6 +12,15 @@ getRateToEth             # IOffchainOracle — 1inch spot oracle, used to cross-
 idToMarketParams         # IMorphoStaticTyping — market identity probe in fork tests
 getReserveConfig         # IAaveV4Spoke — capacity probe (see the v4-is-nearly-full measurement)
 getDynamicReserveConfig  # IAaveV4Spoke — as above
+getReserveSuppliedAssets # IAaveV4Spoke — §S12's PIN, not litter. `avail = rs - rd` compared two
+                         #   operands whose scopes were never verified; d9fb7f98 booked that and
+                         #   3fea7aaa resolved it: rs - rd is OUR OWN BOOK against the hub, NOT
+                         #   reserve cash. AaveHubLiquidity.t.sol asserts exactly that equality
+                         #   against the live hub. Deleting these deletes the pin on a distinction
+                         #   a real defect turned on — the create_sweep_tx shape.
+getReserveTotalDebt      # IAaveV4Spoke — the other half of the same §S12 pin; see above. Note the
+                         #   singular/plural trap the test names: getReserveDebt and
+                         #   getReserveTotalDebt are different questions.
 #
 # CLASS 2: OURS, DELIBERATELY NOT YET CONSUMED. Each names the work that will consume it.
 # ⚠️ An entry here is a debt, not an exemption: if the named work is cancelled, DELETE the member.

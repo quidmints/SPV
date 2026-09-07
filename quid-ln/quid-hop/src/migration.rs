@@ -59,6 +59,11 @@ use secp256k1::{
 };
 use serde::{Deserialize, Serialize};
 
+/// ⚠️ **THE NAME IS SUPERSEDED, THE VALUE IS LOAD-BEARING — DO NOT DELETE IT.** There is no Gnosis
+/// Safe (module header), but this const IS the EIP-712 domain's `verifyingContract` at two live
+/// sites, so removing it breaks every migration and sweep signature. **Rename, do not delete**;
+/// booked in SPRINT.md §OPERATOR-SAFE-IS-A-NAME-NOT-A-SAFE.
+///
 /// The operator msig address — the EIP-712 `verifyingContract` a
 /// [`MigrationAuth`] is bound to, so an auth cannot be replayed against a
 /// different deployment. ⛔ **NOT a Gnosis Safe**: see the module header's
@@ -73,7 +78,8 @@ use serde::{Deserialize, Serialize};
 /// [`Measurement::PROD_SIGNER`] — the boot guard below refuses to run until you do.
 pub const OPERATOR_SAFE: Address = address!("000000000000000000000000000000000000dEaD");
 
-/// The EVM chain the operator Safe lives on (EIP-712 domain `chainId`).
+/// The EVM chain the operator msig lives on (EIP-712 domain `chainId`).
+/// ⚠️ Named `OPERATOR_SAFE_CHAIN_ID` for a Safe that does not exist — see the rename note above.
 /// PLACEHOLDER (dev) — set to the real chain id alongside [`OPERATOR_SAFE`].
 pub const OPERATOR_SAFE_CHAIN_ID: u64 = 1;
 

@@ -52983,6 +52983,40 @@ FOLDED citation is still stale** — the one bucket that is actionable. Per this
 with a binary result beats a disposition; and per the tooling-traps rule it fails loudly, exiting with
 a FATAL if the tree walk returns zero `.md` files rather than reporting a clean run.
 
+# 🏷️ §OPERATOR-SAFE-IS-A-NAME-NOT-A-SAFE — **RENAME, DO NOT DELETE. THE VALUE IS THE EIP-712 DOMAIN (2026-09-07)**
+
+**Owner asked for zero-reference symbols and "existing variables but superseded logic" to be removed.
+This is the second class, and it is the one where deleting is a fund-affecting mistake.**
+
+⛔ **`OPERATOR_SAFE` IS NOT DEAD. IT IS THE EIP-712 `verifyingContract`**, consumed at
+`migration.rs:228` and `:451` (`dom.extend_from_slice(&address_word(OPERATOR_SAFE))`) and guarded at
+boot (`:128` refuses to start while it is still the `0x…dEaD` dev placeholder). ⇒ **removing it breaks
+every migration and sweep signature.** The *name* encodes a Gnosis Safe the owner has ruled out; the
+*value* is a domain separator that has nothing to do with Safes.
+
+| symbol | status | action |
+|---|---|---|
+| `OPERATOR_SAFE` | **live** — 2 consumers + a boot guard | **rename** (`OPERATOR_MSIG` / `EIP712_VERIFYING_CONTRACT`) |
+| `OPERATOR_SAFE_CHAIN_ID` | **live** — same two sites | rename with it |
+| the `assert!` message at `:129` | live string naming a Safe | update in the same commit |
+| `quid-migrate-auth.rs:4`, `:232` | prose naming a Safe | update in the same commit |
+
+⚠️ **NOT DONE IN THIS SWEEP, AND THE REASON IS THE SWEEP'S OWN RULE:** a `pub const` rename crosses two
+crates and ~15 sites, and **this sweep runs no compiler** (owner direction: one build+test at the end).
+A cross-crate rename that cannot be compile-checked is exactly the change that should not ride along
+with comment-only edits — if it is wrong, it fails at the single end run mixed in with everything else,
+and rule 10's attribution is already spent. ⇒ **booked as a discrete change to land with a build.**
+
+✅ **WHAT WAS DONE: the docblocks now say the name is superseded and the value is load-bearing**, so the
+next reader running a zero-reference sweep does not delete a live domain separator. **A symbol whose
+NAME is dead and whose VALUE is live is the most dangerous rot class here** — it looks like litter under
+exactly the query that finds real litter.
+
+📌 **AND THE GENERAL DISCRIMINATOR, since this sweep keeps needing it: `grep` the CONSUMERS, not the
+declaration.** `OPERATOR_SAFE` reads as dead if you look at what its *name* is about and alive the
+moment you look at what *reads* it. Same shape as `§RANGEOP-IS-NOT-AN-ORPHAN` and as
+`check-orphans.py`'s original defect: **a name match standing in for a use match.**
+
 # ⭐ §T1-F-ROOT-IS-NOT-A-WORKAROUND — **THE SUBTRACTION WAS A SYMPTOM. THE CAUSE IS GONE, AND IT PAID A SECOND DIVIDEND (2026-09-07)**
 
 **Owner asked whether *"every payout path must subtract to work out who owns what"* has a better
