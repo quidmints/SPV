@@ -980,6 +980,13 @@ a green targeted run says nothing about the suites it did not execute.
   CONSTRUCTION — then copy the gitignored `evm/.env`. Cost: ~6 min cold compile (342s vs ~105s warm).
   **Clean baseline that day: 4,402 passed / 1 failed**, the failure being `testRoundTripNoRaceNoDrain`
   at `499224755743233795668` — pre-existing, and byte-identical across every arm all day.
+  ✅ **THAT TEST IS NO LONGER FAILING — MEASURED 2026-09-07 in the full pinned suite
+  (`FORK_BLOCK=25928228`): `[PASS] testRoundTripNoRaceNoDrain() (gas: 4,450,097)` and `[PASS]
+  testRoundTripNoRaceNoDrain_BTC() (gas: 6,454,540)`.** ⇒ **STOP QUOTING IT AS "the tree's one known
+  red"**, which is how it has been carried since 2026-08-10. Nobody booked the fix, which is the
+  ordinary way a red dies: the row that named it (`SPRINT.md` §5) still said FAILING too, and both
+  were closed by the same run. ⚠️ The 4,402 figure itself is still UNRECONCILED — see the next
+  paragraph; only the failure attached to it has resolved.
   🔴 **UNRECONCILED, BOOKED 2026-08-23, AND DELIBERATELY NOT "FIXED" BY REPLACING ONE NUMBER WITH THE
   OTHER.** Today's control run at `9896c5be` is **432 passed / 55 failed / 2 skipped — 489 TOTAL tests
   across 83 suites.** Against `4,402 passed` that is an **order-of-magnitude** discrepancy in a state

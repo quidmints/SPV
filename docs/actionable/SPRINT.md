@@ -4257,8 +4257,19 @@ different stables and keeps them apart, not one that lets each choose freely.**
 there and appear NOWHERE in this file** — measured: `grep "#47\|#48"` over SPRINT returns nothing.
 **A refutation and its follow-up tasks, booked only in a deploy script.**
 
-### 🔴 AND THE SECOND FINDING IS LIVE TODAY: THE BTC TWO-VENUE DESIGN IS ALREADY BROKEN
-`DeployL1_s` allowlists **two** BTC venues — `vsB[0]` the Morpho vBTC/USDC pin, `vsB[1]` the Aave-v3
+### ⏸️ AND THE SECOND FINDING WENT LATENT ON 2026-09-07 — THE MECHANISM IS INTACT, ITS SUBJECT IS NOT
+🔴 **RE-MEASURED AFTER §NO-VBTC-MORPHO-MARKET: `DeployL1_s` NOW ALLOWLISTS EXACTLY ONE BTC VENUE**
+(`vsB = [wbtcV]`, the Aave-v3 WBTC/USDC escrow; the Morpho vBTC market is not created at all). With
+one venue there is no second venue to lock out, so **nothing is broken TODAY** — the row's defect is
+real and currently unreachable.
+⛔ **DO NOT CLOSE IT, AND THIS IS THE PART THAT MATTERS: §ANY-DOLLAR-BORROW PUTS THE SECOND VENUE
+BACK.** That design returns vBTC-as-collateral alongside the WBTC leg, which is exactly the two-venue
+configuration `_openPos`'s pin refuses — so **the pin must be fixed AS PART OF that work, not
+discovered by it.** `LevBase._openPos` still reads `if (poolVenue == address(0)) poolVenue = venue;
+else if (poolVenue != venue) revert VenueNotPooled();` (verified 2026-09-07). A row that goes latent
+because its subject was deleted is one deploy change away from being live again.
+*(the finding as originally written, whose premise was two venues:)*
+`DeployL1_s` allowlisted **two** BTC venues — `vsB[0]` the Morpho vBTC/USDC pin, `vsB[1]` the Aave-v3
 WBTC/USDC escrow — and says they coexist: *"Allowlisted ALONGSIDE the native vBTC venue —
 `openBtcLev` branches on the venue's `COLLATERAL()` (WBTC ⇒ LP brings external WBTC)"*. And
 `BtcLevManager:164` really does branch on `COLLATERAL() == address(COLL)`.
@@ -4275,7 +4286,7 @@ path with no execution path.**
 ### ▶️ SO THE THREE ASKS RESOLVE DIFFERENTLY THAN I REPORTED LAST TURN
 1. **RLUSD/PYUSD "cheapest" comparator — DO NOT BUILD.** Refuted at the deploy site with a mechanism.
    The replacement is *"a rule that holds the legs apart"*, which is a DIFFERENT design and is #47/#48.
-2. **WBTC v3 fallback — the venue already exists** (`AaveV3Venue`, `vsB[1]`, `stable` a constructor
+2. **WBTC v3 fallback — the venue already exists** (`AaveV3Venue`, `vsB[0]` since 2026-09-07 and now the ONLY BTC venue, so it is no longer a *fallback* — see §BTC-IL-PROTECT-IS-INERT; `stable` a constructor
    argument, env-overridable via `AAVE_V3_WBTC_DEBT`, default USDC because *"an Aave v3 RLUSD/PYUSD
    borrow market has NOT been verified to exist with real idle depth"*). **What is missing is not the
    fallback — it is that `_openPos` makes the second venue unreachable.** Fix the pin, and the
@@ -10805,9 +10816,13 @@ contract that compiles, tests green, and cannot be deployed.
 
 ## 2. 🔴 §E251 — vBTC MINT SCOPE
 
-⚠️ **COORDINATE STALE, SUBSTANCE INTACT (checked 2026-08-28): the call site is `Vault:324`, not
-`:333`.** Still **exactly one**, still inside `exposeBtcToLev`, so the finding holds — only the line
-moved. Re-grep `mintTo` rather than trusting the number.
+⚠️ **COORDINATE STALE FOR THE THIRD TIME — `:333` → `:324` → NOW `Vault:280` (re-measured
+2026-09-07).** Still **exactly one** call site, still inside `exposeBtcToLev`, so the finding holds and
+only the line moves. **Stop writing the number down; grep `mintTo`.**
+📌 **AND THIS ROW IS THE ANSWER TO THE TRANSFERABILITY ASK — see §VBTC-IS-ALREADY-TRANSFERABLE.**
+"Make vBTC transferable" is WIDENING THE MINT, which is exactly what the ⛔ below governs: a second
+consumer minting against the same `pooled` passes `vbtcExposeBody`'s `sats <= plainNet(pooled,
+levPooled)` guard while the two jointly over-mint. **The double count arrives THROUGH the guard.**
 `VBtc.mintTo` has **exactly one call site** (`Vault:324`, inside `exposeBtcToLev`), so the entire
 vBTC supply is the levered slice. `outOfRangeBtc` mints none. The design is broader: range BTC
 *including* the out-of-range locked portion should be mintable and lendable on Morpho, subset-
@@ -20976,8 +20991,16 @@ fed the Chainlink mock FROM `AUX.getTWAPforAsset` and was therefore circular.**
 one by a count. ⇒ **Two independent quantities in a codebase this size WILL collide numerically. A
 matching number is a reason to run the control, never a substitute for it.**
 
-### 5. 🟡 `testRoundTripNoRaceNoDrain_BTC` IS FAILING AND HAS **ZERO** MENTIONS IN THIS FILE
-Fails `assertion failed: 0 <= 0` in `DrainProbe`. ⚠️ CLAUDE.md books the **ETH** variant
+### 5. ✅ `testRoundTripNoRaceNoDrain_BTC` — **CLOSED 2026-09-07: IT PASSES, AND SO DOES THE ETH TWIN**
+Measured in the full pinned suite at `FORK_BLOCK=25928228` (§FULL-SUITE-2026-09-07): **`[PASS]
+testRoundTripNoRaceNoDrain_BTC() (gas: 6,454,540)`** and **`[PASS] testRoundTripNoRaceNoDrain() (gas:
+4,450,097)`**. ⇒ the row's ask (*"classify it — same root as the ETH one, or its own"*) is moot:
+neither is failing, so there is no root to classify.
+⚠️ **AND IT RETIRES A CLAIM IN `CLAUDE.md`, WHICH IS THE MORE USEFUL HALF.** That file books
+`testRoundTripNoRaceNoDrain` as *"pre-existing, and byte-identical across every arm all day"* at
+`499224755743233795668` — **a long-standing failure that is no longer failing.** Do not carry it
+forward as the tree's one known red.
+*(the row as written:)* Fails `assertion failed: 0 <= 0` in `DrainProbe`. ⚠️ CLAUDE.md books the **ETH** variant
 (`testRoundTripNoRaceNoDrain`, at `499224755743233795668`) as a long-standing pre-existing failure; the
 **BTC** variant is a different test and is booked nowhere. ▶️ Classify it — same root as the ETH one, or
 its own.
