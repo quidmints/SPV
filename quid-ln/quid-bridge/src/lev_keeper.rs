@@ -463,7 +463,9 @@ use crate::abi::{addr_word, selector4, u64_word, word_to_lpaddr, word_to_uint};
 use crate::client::{eth_call_raw, JsonRpcEvmClient, TxSigner};
 use crate::transport::JsonRpc;
 use alloy_primitives::{Address, U256};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 /// Concrete [`LevKeeperEvm`] over the daemon's signing EVM client: reads `LevManager` views via `eth_read`,
 /// writes `rebalance`/`cascadeDelever`/`syncLev` via `send_tx`. The client is blocking JSON-RPC, so each call
@@ -1089,6 +1091,15 @@ fn deep_enough<R: JsonRpc>(rpc: &R, pool: LpAddr, token: LpAddr, amt: U256) -> b
 /// A Curve hop word the contract can execute: `proto | j | i | pool` (see `Interfaces.sol`).
 /// ⚠️ Deliberately NOT a 1inch pool word: `unoswap` was probed with six candidate Curve layouts
 /// against the live router and **0 of 6 filled**. `LevMath._hubHop` calls `exchange` directly.
+/// One word per venue KIND, or `None` when the venue cannot be expressed as one (v4 needs a PoolKey).
+fn venue_word(v: Venue) -> Option<[u8; 32]> {
+    match v {
+        Venue::V3 { pool, .. } => Some(v3_word(pool)),
+        Venue::Curve { pool, i, j } => Some(curve_word(pool, i, j)),
+        Venue::V4 { .. } => None,   // §SESS-79 — a singleton pool has no address to put in a word
+    }
+}
+
 fn curve_word(pool: LpAddr, i: u8, j: u8) -> [u8; 32] {
     let mut w = [0u8; 32];
     w[12..].copy_from_slice(&pool);
@@ -1152,17 +1163,137 @@ fn curve_best<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Opti
     best
 }
 
-/// Best DIRECT hop across every tier: `(pool, out)`. Searched, never assumed — the tier that wins at
-/// $50k is routinely not the tier that wins at $1M, because impact grows with depth-relative size.
-fn best_direct<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Option<(LpAddr, U256)> {
-    let mut best: Option<(LpAddr, U256)> = None;
+/// ⭐ §SESS-80 — **THE VENUE CACHE: DISCOVER RARELY, QUOTE EVERY TIME.**
+///
+/// 🔴 **ENUMERATION IS ALREADY THE BOTTLENECK AND IT HAS FAILED ONCE, SILENTLY.**
+///    `find_pools_for_coins(USDT, USDC)` returns **121 pools**; quoting them is ~363 `eth_call`s for
+///    ONE leg, and doing it **starved the endpoint badly enough that the UniswapV3 quotes on the same
+///    run began returning nothing.** ⚠️ That failure was invisible: `.ok()?` turns a throttled call
+///    into "no route", so the planner degrades to a worse venue rather than erroring. **A rate limit
+///    wearing a routing decision's clothes.**
+///
+/// 🔑 **THE SPLIT IS THE DESIGN, AND THE TWO HALVES HAVE DIFFERENT SHELF LIVES:**
+///   · **WHICH POOLS EXIST AND ARE DEEP** changes on the timescale of pool deployments — hours to
+///     weeks. Discover it rarely and CACHE it.
+///   · **WHICH OF THEM WINS** changes every block and with every SIZE. Measured this session: 3pool
+///     beats the UniV3 0.01% tier above ~$500k and loses below it; the 2-hop beats direct on
+///     USDT→WETH by ~28 bps and loses on USDC→WETH at $1M. **Never cache a winner — only a candidate.**
+/// ⛔ **THE DEPTH GATE BELONGS IN THE DISCOVERY HALF, NOT THE QUOTING HALF.** A venue below threshold
+///    never enters the cache, so it is never quoted and can never be selected. That is both cheaper
+///    and what stops the keeper picking the pool this session measured at a **2,308 bps** shortfall.
+/// ⚠️ **TTL, NOT PERMANENCE.** A cached pool can drain — `_hubRowOf`'s own rows were chosen by depth
+///    and 3pool has fallen from ~$3B to $160M. The cache holds CANDIDACY; the live quote holds truth.
+const VENUE_CACHE_TTL: Duration = Duration::from_secs(3600);
+
+/// One executable venue for a pair. ⚠️ Deliberately not "a pool address": a v4 pool HAS no address.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Venue {
+    V3 { pool: LpAddr, fee: u32 },
+    Curve { pool: LpAddr, i: u8, j: u8 },
+    /// §SESS-79 — `hooks` is absent BY CONSTRUCTION: the contract forces `address(0)`, so a hooked
+    /// pool cannot be named here even by a compromised keeper.
+    V4 { fee: u32, tick_spacing: i32 },
+}
+
+type CacheKey = (LpAddr, LpAddr);
+static VENUE_CACHE: OnceLock<Mutex<HashMap<CacheKey, (Instant, Vec<Venue>)>>> = OnceLock::new();
+
+fn cache() -> &'static Mutex<HashMap<CacheKey, (Instant, Vec<Venue>)>> {
+    VENUE_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Candidates for `a -> b` at roughly `amt`, discovered once per TTL and depth-gated on entry.
+/// ⚠️ **KEYED ON THE UNORDERED PAIR** — a venue that can serve `a→b` serves `b→a`, and the contract
+///    derives direction itself, so caching both directions separately would double the RPC cost to
+///    store the same fact twice.
+fn venues_for<R: JsonRpc>(rpc: &R, a: LpAddr, b: LpAddr, amt: U256) -> Vec<Venue> {
+    let key: CacheKey = if a <= b { (a, b) } else { (b, a) };
+    if let Some((at, v)) = cache().lock().unwrap().get(&key) {
+        if at.elapsed() < VENUE_CACHE_TTL { return v.clone(); }
+    }
+    let mut out: Vec<Venue> = Vec::new();
     for fee in FEE_TIERS {
-        let Some(pool) = pool_for(rpc, tin, tout, fee) else { continue };
-        if !deep_enough(rpc, pool, tin, amt) { continue; }   // §SESS-67 — depth BEFORE price
-        let Some(out) = quote_hop(rpc, tin, tout, amt, fee) else { continue };
-        if best.as_ref().is_none_or(|(_, b)| out > *b) { best = Some((pool, out)); }
+        if let Some(pool) = pool_for(rpc, a, b, fee) {
+            if deep_enough(rpc, pool, a, amt) { out.push(Venue::V3 { pool, fee }); }
+        }
+    }
+    for (x, y, pool, ia, ib) in CURVE_SHORTLIST {
+        let m = (x == a && y == b) || (x == b && y == a);
+        if m && deep_enough(rpc, pool, a, amt) {
+            let (i, j) = if x == a { (ia, ib) } else { (ib, ia) };
+            out.push(Venue::Curve { pool, i, j });
+        }
+    }
+    // §SESS-79 — v4 candidacy is checked through StateView, because the singleton holds EVERY pool's
+    // tokens together and a `balanceOf` on it says nothing about the pool we would trade.
+    for (fee, ts) in V4_TIERS {
+        if v4_pool_has_liquidity(rpc, a, b, fee, ts) {
+            out.push(Venue::V4 { fee, tick_spacing: ts });
+        }
+    }
+    cache().lock().unwrap().insert(key, (Instant::now(), out.clone()));
+    out
+}
+
+/// Uniswap v4 fee/tickSpacing pairs, and the StateView that answers whether a HOOKLESS pool exists.
+const V4_TIERS: [(u32, i32); 4] = [(100, 1), (500, 10), (3000, 60), (10000, 200)];
+const V4_STATE_VIEW: LpAddr = [0x7f,0xFE,0x42,0xC4,0xa5,0xDE,0xeA,0x5b,0x0f,0xeC,
+                               0x41,0xC9,0x4C,0x13,0x6C,0xf1,0x15,0x59,0x72,0x27];
+
+/// `getLiquidity(poolId)` on the canonical HOOKLESS PoolKey. ⛔ Non-zero liquidity is CANDIDACY, not
+/// depth — the fill is still quoted at size, because this session measured a v4 tier that existed,
+/// held liquidity, and returned a **2,308 bps** shortfall on $50k.
+fn v4_pool_has_liquidity<R: JsonRpc>(rpc: &R, a: LpAddr, b: LpAddr, fee: u32, ts: i32) -> bool {
+    let (c0, c1) = if a <= b { (a, b) } else { (b, a) };
+    let mut enc = Vec::with_capacity(160);
+    enc.extend_from_slice(&addr_word(c0));
+    enc.extend_from_slice(&addr_word(c1));
+    enc.extend_from_slice(&u64_word(fee as u64));
+    enc.extend_from_slice(&u64_word(ts as u64));
+    enc.extend_from_slice(&[0u8; 32]);                     // hooks = address(0), always
+    let id = alloy_primitives::keccak256(&enc);
+    let Ok(r) = eth_call_raw(rpc, Address::from_slice(&V4_STATE_VIEW),
+        "getLiquidity(bytes32)", Some(id.as_slice())) else { return false };
+    r.len() >= 32 && U256::from_be_slice(&r[..32]) != U256::ZERO
+}
+
+/// Best direct hop for a pair: quote every CACHED candidate at the traded size, take the max.
+/// ⭐ §SESS-80 — **DISCOVERY MOVED OUT; THIS IS NOW PURE QUOTING.** It used to walk the factory and
+///    depth-gate on every call, which is the work the cache exists to stop repeating. What stays
+///    per-call is the QUOTE, because the winner is size- and block-dependent and caching one would be
+///    caching a fact with a one-block shelf life.
+/// ⚠️ Returns the winning venue, not just its output, so the caller can encode the right hop kind —
+///    a v4 venue has no pool address and cannot be represented by a pool word.
+fn best_direct<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Option<(Venue, U256)> {
+    let mut best: Option<(Venue, U256)> = None;
+    for v in venues_for(rpc, tin, tout, amt) {
+        let out = match v {
+            Venue::V3 { fee, .. } => quote_hop(rpc, tin, tout, amt, fee),
+            Venue::Curve { pool, i, j } => curve_quote(rpc, pool, i, j, tin, tout, amt),
+            // ⛔ v4 is CANDIDATE-ONLY until a quoter is wired: `getLiquidity` says a pool exists, not
+            //    what it fills at size, and this session measured an existing, liquid v4 tier
+            //    returning a **2,308 bps** shortfall on $50k. Selecting it unquoted would be exactly
+            //    the mistake the depth gate was added to prevent, one venue class over.
+            Venue::V4 { .. } => None,
+        };
+        let Some(out) = out else { continue };
+        if best.is_none_or(|(_, b)| out > b) { best = Some((v, out)); }
     }
     best
+}
+
+/// `get_dy` on a cached Curve candidate, oriented for the direction we are actually trading.
+fn curve_quote<R: JsonRpc>(rpc: &R, pool: LpAddr, i: u8, j: u8, tin: LpAddr, _tout: LpAddr,
+                           amt: U256) -> Option<U256> {
+    let (i, j) = if tin <= _tout { (i, j) } else { (j, i) };
+    let mut qa = Vec::with_capacity(96);
+    qa.extend_from_slice(&{ let mut w = [0u8; 32]; w[31] = i; w });
+    qa.extend_from_slice(&{ let mut w = [0u8; 32]; w[31] = j; w });
+    qa.extend_from_slice(&u256_word(amt));
+    let r = eth_call_raw(rpc, Address::from_slice(&pool), "get_dy(int128,int128,uint256)", Some(&qa)).ok()?;
+    if r.len() < 32 { return None; }
+    let out = U256::from_be_slice(&r[..32]);
+    if out.is_zero() { None } else { Some(out) }
 }
 
 /// ⭐ **THE PLANNER: quote every shape we can execute, take the best.** Direct across all tiers, and
@@ -1184,8 +1315,10 @@ fn best_plan<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Optio
 /// (standing rule 23 — the declaration returns something already computed).
 fn best_plan_quoted<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Option<(Plan, U256)> {
     let mut best: Option<(Plan, U256)> = None;
-    if let Some((pool, out)) = best_direct(rpc, tin, tout, amt) {
-        best = Some((Plan { dex: v3_word(pool), dex2: [0u8; 32], hops: vec![v3_word(pool)], fetched: Vec::new() }, out));
+    if let Some((v, out)) = best_direct(rpc, tin, tout, amt) {
+        if let Some(w) = venue_word(v) {
+            best = Some((Plan { dex: w, dex2: [0u8; 32], hops: vec![w], fetched: Vec::new() }, out));
+        }
     }
     // ⭐ §SESS-58 — **EVERY CANDIDATE HUB, INCLUDING WHEN THE INPUT IS ITSELF A HUB.**
     // 🔴 This read `if tin != USDC_ADDR` with USDC as the only hub, so **a USDC-denominated venue —
@@ -1204,18 +1337,19 @@ fn best_plan_quoted<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -
         // ⚠️ Measured this session: 3pool beats the UniV3 0.01% tier for USDT→USDC above ~$500k
         //    (−0.42 vs −0.72 bps at $1M, −0.68 vs −2.16 at $5M) and LOSES below it. So neither venue
         //    wins by class — which is exactly why both are quoted rather than one being preferred.
-        let v3_first = best_direct(rpc, tin, hub, amt).map(|(p, o)| (v3_word(p), o));
-        let cv_first = if hub == USDC_ADDR { curve_best(rpc, tin, hub, amt) } else { None };
+        let v3_first = best_direct(rpc, tin, hub, amt).and_then(|(v, o)| venue_word(v).map(|w| (w, o)));
+        let cv_first: Option<([u8; 32], U256)> = None;   // §SESS-80 — Curve is a cached candidate now
         let first_leg = match (v3_first, cv_first) {
             (Some(a), Some(b)) => Some(if b.1 > a.1 { b } else { a }),
             (x, None) => x,
             (None, y) => y,
         };
         let Some((w1, mid)) = first_leg else { continue };
-        let Some((second, out)) = best_direct(rpc, hub, tout, mid) else { continue };
+        let Some((second_v, out)) = best_direct(rpc, hub, tout, mid) else { continue };
+        let Some(second) = venue_word(second_v) else { continue };
         if best.as_ref().is_none_or(|(_, b)| out > *b) {
             // `dex2` is hop 1 (see `Plan`) — the crossing is deliberate and load-bearing.
-            best = Some((Plan { dex: v3_word(second), dex2: w1, hops: vec![w1, v3_word(second)], fetched: Vec::new() }, out));
+            best = Some((Plan { dex: second, dex2: w1, hops: vec![w1, second], fetched: Vec::new() }, out));
         }
     }
     best
@@ -1534,6 +1668,38 @@ mod tests {
     /// `direct_pool` was a four-entry table and could plan exactly **USDT and DAI** of the basket's
     /// **fourteen** (`DeployL1_s:240-250`). Asking the factory covers whatever exists, including
     /// tokens nobody has written down. ⚠️ **This asserts COVERAGE, not a price** — how many bps a
+    /// ⭐ §SESS-80 — **THE CACHE'S ACCEPTANCE TEST: THE SECOND LOOKUP MUST NOT RE-DISCOVER.**
+    ///
+    /// 🔑 The point is that discovery is rare and quoting is per-plan, so the property to assert is
+    ///    that a warm call does no discovery — NOT that it returns the same winner, which it need not:
+    ///    the winner is size- and block-dependent by design.
+    /// ⚠️ Measured by wall time, which CLAUDE.md rightly calls a weak instrument (*"seconds measure
+    ///    the machine's load"*). It earns its place only because the gap is an order of magnitude: a
+    ///    cold call makes ~20 RPC round trips and a warm one makes ZERO. **A 5x margin survives
+    ///    contention that a 20% one would not.**
+    #[test]
+    fn the_venue_cache_stops_rediscovery_on_the_second_lookup() {
+        let Some(rpc) = live_rpc() else { println!("SKIP venue cache: no RPC"); return };
+        let amt = U256::from(100_000u64) * U256::from(1_000_000u64);
+        let t0 = std::time::Instant::now();
+        let cold = venues_for(&rpc, USDC_ADDR, WETH_ADDR, amt);
+        let cold_ms = t0.elapsed().as_millis().max(1);
+        let t1 = std::time::Instant::now();
+        let warm = venues_for(&rpc, USDC_ADDR, WETH_ADDR, amt);
+        let warm_ms = t1.elapsed().as_millis();
+        println!("cold {cold_ms}ms -> warm {warm_ms}ms   candidates: {}", cold.len());
+        for v in &cold { println!("   {v:?}"); }
+        assert!(!cold.is_empty(), "no candidates for USDC/WETH - discovery or the endpoint is broken");
+        assert_eq!(cold, warm, "the warm lookup returned a different candidate SET");
+        assert!(warm_ms * 5 < cold_ms, "warm lookup was not far faster ({warm_ms}ms vs {cold_ms}ms)");
+        // ⛔ **THE REVERSE PAIR MUST HIT THE SAME ENTRY.** A venue serving a->b serves b->a and the
+        //    contract derives direction itself, so keying per-direction would store one fact twice.
+        let t2 = std::time::Instant::now();
+        let rev = venues_for(&rpc, WETH_ADDR, USDC_ADDR, amt);
+        assert_eq!(rev, cold, "the reversed pair discovered separately - the key is not unordered");
+        assert!(t2.elapsed().as_millis() * 5 < cold_ms, "reversed pair re-discovered");
+    }
+
     /// route costs is market state and belongs in a log, per §POINT-IN-TIME-IS-NOT-AN-INVARIANT.
     #[test]
     fn best_plan_finds_routes_the_deleted_table_never_could() {
