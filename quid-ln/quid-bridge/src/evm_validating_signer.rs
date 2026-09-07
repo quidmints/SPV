@@ -32,10 +32,10 @@ use crate::client::TxFields;
 /// signer, so they are intentionally absent.
 const HOP_SIGNED_FN_SIGS: &[&str] = &[
     // --- BTCChannels ---
-    // (§E247) `settleSwapInBuffered` was listed HERE while also arriving via
-    // `HOP_BTCCHANNELS_SIGS` (its builder, `swap.rs`, encodes with the codec const) — a
-    // duplicate of exactly the "second source of truth" the E178 note below retired.
-    // Deleted; the codec-derived entry is the one that cannot drift from what is sent.
+    // ⛔ DO NOT ADD A BTCChannels SIGNATURE HERE THAT `HOP_BTCCHANNELS_SIGS` ALREADY CARRIES.
+    // Listing one in both places makes this the second source of truth that the E178 note
+    // below retired, and the codec-derived entry is the one that cannot drift from what is
+    // actually sent.
     "markMigrationNonceUsed(bytes32)",
     // ⚠️ (E178) THE BTCChannels CHANNEL-LIFECYCLE SIGNATURES ARE NO LONGER LISTED HERE.
     // They used to be, and they DRIFTED: `openChannel` and `recordClose` changed shape and

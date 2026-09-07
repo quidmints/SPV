@@ -651,7 +651,7 @@ mod tests {
     /// ⚠️ **A KNOWN, BOUNDED DIVERGENCE — recorded so it is not discovered as a bug.**
     ///
     /// `rust-bitcoin`'s `push_int` uses CANONICAL script encoding: 1..=16 become the single
-    /// opcodes `OP_1`..`OP_16`, and 0 becomes `OP_0`. `ExitLib._scriptNum` always emits a DATA
+    /// opcodes `OP_1`..`OP_16`, and 0 becomes `OP_0`. `BitcoinTx._scriptNum` always emits a DATA
     /// PUSH (`0x01 0x01` for 1). **So the three builders agree only for values above 16.**
     ///
     /// That is safe here because `cltvHeight` is a real Bitcoin block height — currently ~900k,

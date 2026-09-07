@@ -345,7 +345,7 @@ pub async fn run(
     // (§FLEET-FRONTS-THE-WINDOW) No `evm` argument any more: this rail no longer settles USD from
     // the pool. It fails HTLCs back until the fleet-side payout exists.
     set.spawn(run_swap_in_sender(claimer, header_source.clone(), store.clone(), swap_in_rx));
-    // run_lp_fee_settler REMOVED — BTC-leg fees compound in-channel via the fee-splice.
+    // BTC-leg fees compound in-channel via the hop-funded fee-splice; there is no settler task.
     set.spawn(run_spv_relayer(cfg.clone(), rpc_relayer, header_source, evm.clone(), store.clone()));
     set.spawn(run_channel_driver(
         cfg.clone(),

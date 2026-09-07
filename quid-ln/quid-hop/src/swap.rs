@@ -1,18 +1,21 @@
 //! The bidirectional HTLC swap bridge — the LN↔EVM glue. The LDK node event
 //! handlers (over `quid_ln::payments` / `quid_ln::event`) call into here:
 //!   • swap-IN  — a SETTLED inbound invoice (the seller paid us BTC, we learned
-//!     the preimage) → emit `BTCChannels.settleSwapIn(seller, sats, token, hash)`
+//!     the preimage) → emit `BTCChannels.settleSwapInProven(terms, proof, rawDepositTx)`
 //!     to the EVM. The `(seller, token)` binding is authored by the hop into the
 //!     invoice's `payment_metadata` at issue (`encode_swap_in_metadata`), echoed
 //!     verbatim by the payer, and recovered from `PaymentClaimed.onion_fields`.
-//!     This supersedes the old hop-side `PendingSwapIn` map: LDK persists the
-//!     event+onion, so the binding is durable across restarts with no bespoke
-//!     state. SECURITY: credit only ever issues against
-//!     sats actually claimed, and `swapInUsed[hash]` dedups on the EVM — so even
-//!     though the payer transmits the metadata, they cannot conjure credit
-//!     without paying, nor double-credit. A swap-IN sells BTC back into the pool;
+//!     No hop-side pending map is kept: LDK persists the event and the onion, so the binding
+//!     is durable across restarts with no bespoke state.
+//!     SECURITY: credit only ever issues against sats actually claimed, and the EVM dedups on
+//!     the DEPOSIT OUTPOINT — `swapInUsed` is keyed by txid, shared across both provers, so the
+//!     same transaction cannot be claimed once as a swap-in and again as a reserve top-up.
+//!     ⛔ NOT on `paymentHash`: that is a HOP-CHOSEN value, and keying replay protection on it
+//!     is the weakness the proven rail exists to remove. So even though the payer transmits the
+//!     metadata, they cannot conjure credit without paying, nor double-credit.
+//!     A swap-IN sells BTC back into the pool;
 //!     the EVM settles the USD side from the EXISTING pooled BTC-register USD
-//!     (`creditSwapIn` draws `POOLED_USD_BTC`, undoing a prior delivery) and
+//!     (`creditSwapIn` draws the BTC `Core`'s `POOLED_USD`, undoing a prior delivery) and
 //!     delivers it to the payer. The payer is the one who provided the BTC, so
 //!     payer-named credit is the correct settlement target, not a redirection.
 //!   • swap-OUT — an EVM BTC-delivery obligation → pay the swapper's invoice via
@@ -53,8 +56,8 @@ pub fn reverse_swap_out_calldata(
 /// 6-dec, $50k/BTC = 50_000 * 1e6), less `slippage_bps` tolerance.
 ///
 /// Computed OFF-chain in the stable's native units. This is DELIBERATELY not the
-/// on-chain `volScale`/×1e10 TWAP conversion (that 8-dec-WBTC-vs-1e18-RAW-basis
-/// trick is fragile and easy to get wrong — SwapLib.sol:638-647); the hop simply
+/// on-chain ×1e10 TWAP conversion (the 8-dec-WBTC-vs-1e18-RAW-basis trick inside
+/// `SwapLib.creditSwapInBody` is fragile and easy to get wrong); the hop simply
 /// attests the price it quoted the seller. `slippage_bps` exists because the
 /// V4 curve fills with slippage, so an honest swap-in delivers slightly under
 /// the spot quote — the floor must sit below that, or every settle reverts.

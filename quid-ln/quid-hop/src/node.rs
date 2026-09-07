@@ -355,11 +355,11 @@ pub async fn initiate_splice(
     Ok(())
 }
 
-// The self-host keysend_to_lp (hop→LP LN-balance move for fee-into-channel) was
-// REMOVED: under Option B the LP runs no LN node (the fleet vault holds the LP-side), so
-// there is no LP peer to keysend to. BTC-leg fees compound via the hop-funded fee-splice +
-// `feeSettleSats` on-chain clear (drive_splice / maybe_flush_btc_fees) which grows LP.pooled
-// directly — no LN-balance leg. See project-quid-fee-into-close-design.
+// ⛔ THERE IS NO keysend LEG, AND THERE CANNOT BE ONE: under Option B the LP runs no LN
+// node (the fleet vault holds the LP side), so there is no LP peer to keysend to. BTC-leg
+// fees compound IN-CHANNEL via the hop-funded fee-splice — `drive_splice` /
+// `maybe_flush_btc_fees` in `quid-bridge/src/channel_driver.rs` — which grows LP.pooled
+// directly. See project-quid-fee-into-close-design.
 
 /// LP-side: initiate a SPLICE-OUT (partial withdrawal) shrinking channel
 /// `ldk_channel_id` by `withdraw_sats`, paying that BTC to the LP's OWN committed
