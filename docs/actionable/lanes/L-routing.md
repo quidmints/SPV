@@ -393,3 +393,54 @@ audited.
 ⚠️ **AND THE SWEEP'S OWN FALSE-POSITIVE CLASS IS NAMED ABOVE (4 of 6)**, per the sweep rule: `msg.sender`
 in a delegatecalled library is only a defect when it is a PAYOUT TARGET or an AUTHORISATION. Pulling
 from it, or crediting it, is correct.
+
+---
+
+## 🔴 §SESS-60 — **"HOW DO YOU KNOW 1inch WAS BUILT RIGHT?" MEASURED: TWO SELECTORS OF SIX, AND THE FLEXIBLE ARM HAS NO PRODUCER**
+
+Answered by grep, not by recollection.
+
+### WHAT `evm/src` ACTUALLY EMITS
+**`UNOSWAP_SELECTOR` and `UNOSWAP2_SELECTOR`. That is all.** Zero occurrences of `unoswap3`
+(`0x19367472`), the generic `swap()` descriptor (`0x07ed2379`), `ethUnoswap`, `unoswapTo`, or
+`fillContractOrderArgs` (`0x56a75868`) anywhere in `src`.
+⇒ **the pool-word arm is capped at TWO HOPS by construction.** The owner's ask was *"not just unoswap3
+but all the venues we might need and no limit to how many hops"* — **neither half is built.** §SESS-58
+prices multi-hub candidates, but every candidate it can EXPRESS is still ≤ 2 hops.
+
+### 🔴 AND THE ARM THAT WOULD LIFT THAT LIMIT IS UNREACHABLE IN PRACTICE
+`bytes route` can carry ANY 1inch calldata, and `convertTo` bounds it safely (pinned callee, per-leg
+gas cap, `spent>0 ⇒ delivered>0`, floor on the measured delta). **Nothing produces one:**
+· `lev_keeper.rs:417` `cascade_delever(&urgent, &[])` — literal empty
+· `lev_keeper.rs:430` `let rebal_routes: Vec<Vec<u8>> = Vec::new();`
+· `rebalance` writes a zero-length `bytes` tail by hand
+· **`grep -rn "fetch_route|oneinch_api|api\.1inch" quid-ln --include=*.rs` → ZERO.** Nothing anywhere
+  fetches 1inch calldata.
+⇒ **The full-venue arm is plumbing with no producer.** It is reachable only by a human calling the
+permissionless entrypoint directly. **This is the built-but-unwired shape for the THIRD time this
+session** (§SESS-47's discarded plan, `quoteFill`'s zero callers, now this).
+⚠️ **DO NOT READ THE `convertTo` TESTS AS COVERAGE OF IT.** They prove the EXECUTOR is safe given
+calldata; they say nothing about a system that never produces any.
+▶️ **NOT BUILT:** either a keeper-side 1inch API client (with the amount problem re-examined — §SESS-40
+concluded a posted order cannot serve a flash-bound path, which is a different question from calldata),
+or `unoswap3` support to reach 3 hops with pool words and no amount at all. **The second is smaller and
+needs no off-chain dependency; it is probably the right next move.**
+
+## 🔴 §SESS-61 — **WHY IS USDC THE HUB? I NEVER DECIDED, AND NEVER MEASURED.**
+
+Owner: *"why did you decide that usdc is the best hub? when is it ever necessary."* **I did not decide
+it — I inherited it and only half-questioned it.** Every row of `_hubRowOf` is a `<stable>/USDC` Curve
+pool, so USDC is the hub BY CONSTRUCTION OF A TABLE, and §SESS-58 added USDT as a second *quoted*
+candidate without ever asking whether USDC is the best one.
+
+**The answer splits by path, and only one half is defensible:**
+| path | is USDC necessary? | evidence |
+|---|---|---|
+| **off-chain planner** | **No — it is a CANDIDATE that gets priced.** Measured: USDT→WETH via USDC wins by ~28 bps; USDC→WETH via USDT loses. A hub is used when it wins. | ⭐ measured |
+| **on-chain `_hubHop` / `_consolidateTo`** | **Structural and UNTESTED.** `_hubHop(stable, amt, toUsdc)` converts only to/from USDC and `_consolidateTo` runs `s → USDC → target`, so **every consolidate slice funnels through USDC whether or not that is the best pair.** | 🔴 assumed |
+⇒ **If a `<stable>/USDT` pool were deeper than the `<stable>/USDC` one, `consolidate` would eat the
+difference silently** — no revert, just a worse fill inside the flat 100 bps `CONSOL_SLIP_BPS`, which
+is itself 4x wider than `_slipBps` at small size. **The two weaknesses compound.**
+▶️ **NOT BUILT.** The measurement is cheap (`get_dy` on both hubs per basket stable at 2-3 sizes) and
+would either justify the assumption or name the rows that should be re-pointed. Doing it BEFORE
+tightening `CONSOL_SLIP_BPS`, since a tighter floor on a worse hub is how you turn a bleed into a stall.
