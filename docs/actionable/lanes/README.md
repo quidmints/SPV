@@ -100,6 +100,24 @@ seven-lane table as covering the repo. It covers the money path.
 question for one file against the CURRENT tree, parses the lane table above as its single source of
 truth, and **exits 1 with a FATAL rather than printing an empty map** if that table stops parsing.
 
+🔴 **AND DELETIONS FROM AN UNOWNED HEADER NEED A CALL-SHAPE GREP, NOT A NAME GREP — THIS IS THE HALF
+THE ADDITIONS-ONLY RULE DID NOT COVER (2026-09-07).** `Interfaces.sol` is where it bites, because it is
+unowned, has 21 importers, and is exactly the file a *"delete unused interface members"* tidy-up would
+sweep. **Measured: `IEthVenue.rangeOp` was handed over as an unreachable declaration and has TWO live
+callers** — `QuidLib._venueBalanceLib:296` and `QuidLib.sendEth:429` — **which a bare `rangeOp` grep
+cannot see, because they reach it as `IEthVenue(ev).rangeOp(`.**
+⛔ **AND DELETING IT WOULD HAVE RE-OPENED A WITHDRAWAL BUG CLOSED THE SAME DAY.** `QuidLib` is
+delegatecalled, so that call with `ev == address(this)` is a genuine EXTERNAL self-call, and it is the
+only thing making `msg.sender == address(this)` true inside `Quid.rangeOp`'s
+`if (msg.sender != address(this)) revert NotSelf();` — the gate closing an unauthenticated WETH
+withdrawal of up to `rangeETH()`. **The obvious simplification once a member looks orphaned is to
+collapse the external self-call into an internal one, which silently disarms the gate and stays green
+through every test that does not model an external attacker.**
+⇒ **BEFORE DELETING ANY `Interfaces.sol` MEMBER: `grep -rn 'IFace(.*)\.member' evm/src`, never the bare
+name.** 📌 Same blind spot as `check-orphans.py` and opposite sign: that tool reported **0 orphans on a
+tree that had three** because a declaration counted as its own caller; this reported a live member AS an
+orphan. **Both come from matching a NAME instead of a CALL SHAPE.**
+
 ▶️ **One command before you touch any header:** `grep -rl 'imports/<TheFile>' evm/src --include='*.sol'`
 — if it names another lane's file, you are serial with that lane. Full note: SPRINT.md §LANES.
 
