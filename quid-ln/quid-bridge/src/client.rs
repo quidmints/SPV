@@ -877,6 +877,59 @@ mod tests {
 
 
 
+    /// 🔴 **`read_consumed_sats` MUST FAIL TOWARD "TAKE THE WHOLE DEPOSIT", NEVER TOWARD A REFUND.**
+    ///
+    /// Its docblock states the property: an undecodable, missing or erroring log returns `sats`,
+    /// because over-refunding gives away the hop's BTC while over-taking cannot. That direction is
+    /// the safety argument for the whole fallback, and it was UNTESTED — `with_settled_logs`, the
+    /// mock builder written to test exactly this, sat unused and `cargo` warned about it. The
+    /// warning was the finding: not dead code, a missing test.
+    ///
+    /// ⚠️ Each case below must fail in the SAME direction. A test that only checks the happy path
+    /// would pass against a fallback that refunds everything on a malformed log.
+    #[test]
+    fn consumed_sats_falls_back_to_the_whole_deposit_on_every_bad_log() {
+        let (_, _, _, hash, _) = args();
+        let sats = 500_000u64;
+
+        // 1. no log at all (the default) — the settle happened but the range returned nothing.
+        let c = client(MockRpc::new(Some("0x1"), ONE_WORD));
+        assert_eq!(c.read_consumed_sats(hash, 0, 100, sats), sats, "empty log set must take all");
+
+        // 2. a log with EMPTY data — present, but nothing to decode.
+        let c = client(MockRpc::new(Some("0x1"), ONE_WORD)
+            .with_settled_logs(json!([{ "data": "0x" }])));
+        assert_eq!(c.read_consumed_sats(hash, 0, 100, sats), sats, "empty data must take all");
+
+        // 3. a log whose data is SHORT — a truncated word cannot be a consumedSats.
+        let c = client(MockRpc::new(Some("0x1"), ONE_WORD)
+            .with_settled_logs(json!([{ "data": "0xdeadbeef" }])));
+        assert_eq!(c.read_consumed_sats(hash, 0, 100, sats), sats, "short data must take all");
+
+        // 4. outright garbage where the array should be.
+        let c = client(MockRpc::new(Some("0x1"), ONE_WORD)
+            .with_settled_logs(json!("not-an-array")));
+        assert_eq!(c.read_consumed_sats(hash, 0, 100, sats), sats, "garbage must take all");
+
+        // ⚠️ A SINGLE ZERO WORD IS *SHORT DATA*, NOT A ZERO READING — and I got this wrong first
+        // time. `consumedSats` is the SECOND word (`data[32..64]`), so a 32-byte blob has no
+        // second word and correctly takes the fallback. Asserting 0 there tested my own
+        // misreading of the layout, not the contract.
+        let c = client(MockRpc::new(Some("0x1"), ONE_WORD)
+            .with_settled_logs(json!([{ "data": ZERO_WORD }])));
+        assert_eq!(c.read_consumed_sats(hash, 0, 100, sats), sats,
+                   "one word is short data - consumedSats is the SECOND word");
+
+        // The boundary the fallback must NOT swallow: a WELL-FORMED log that genuinely decodes
+        // to 0 is a real answer ("the pool converted nothing, refund everything") and must be
+        // returned as 0. This is the one case where falling back to `sats` would be WRONG, and
+        // it is the direction that costs the depositor rather than the hop.
+        let c = client(MockRpc::new(Some("0x1"), ONE_WORD)
+            .with_settled_logs(settled_log(sats, 0)));
+        assert_eq!(c.read_consumed_sats(hash, 0, 100, sats), 0,
+                   "a well-formed zero is a real reading, not a decode failure");
+    }
+
     /// A tx unmined in the first poll window is re-sent at the SAME nonce
     /// with a bumped fee; once it mines the settle succeeds. The mock withholds a
     /// receipt until the 2nd broadcast (i.e. after one fee bump) and keeps the
