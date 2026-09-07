@@ -77,8 +77,10 @@ contract VaultDonationClassify is ForkPin {
         // donation from a real on-chain holder instead is what keeps that venue CLASSIFIED rather
         // than silently dropped; an unfundable token is a harness problem, and answering
         // "unknown" for a live basket leg because of one is not acceptable.
-        address[N] memory funders;
-        funders[13] = MORPHO_BLUE; // aUSD: Morpho Blue custodies the aUSD markets' cash
+        // ⛔ THE FUNDER IS SELECTED BY ADDRESS, NEVER BY INDEX. It was `funders[13] = MORPHO_BLUE`,
+        //    a positional pin onto `vs`, and removing two earlier entries shifted aUSD to 11 — so
+        //    the funder landed on sDAI, aUSD's probe reverted, and the sweep classified 14 of 15.
+        //    The count assertion caught it; the coupling is now unconstructible instead.
         uint classified; uint inflating;
         for (uint i; i < N; i++) {
             emit log_string("----------------------------------------");
@@ -86,7 +88,7 @@ contract VaultDonationClassify is ForkPin {
             // The probe runs in its OWN frame so one uncooperative venue cannot abort the sweep,
             // but the verdict is taken on the RETURNED measurements out here — assertions inside a
             // try/catch are exactly how a sweep like this stays green while classifying nothing.
-            try this.probeExt(vs[i], funders[i]) returns (Probe memory p) {
+            try this.probeExt(vs[i], vs[i] == morphoAusd ? MORPHO_BLUE : address(0)) returns (Probe memory p) {
                 emit log_named_uint("  totalAssets", p.totalAssets);
                 emit log_named_uint("  cta(1e18) before", p.a0);
                 emit log_named_uint("  cta(1e18) after 100% donation", p.a1);
