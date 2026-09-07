@@ -163,7 +163,7 @@ contract OfframpRouteGas is ForkPin {
 
         uint256 before = IERC20G(WETH).balanceOf(address(this));
         uint256 g0 = gasleft();
-        uint256 out = LevMath._aggSwap(USDC, WETH, amt, 1, DEFAULT_UNWIND_DEX, 0);
+        uint256 out = LevMath.routedSwap(USDC, WETH, amt, 1, 0, 0, abi.encodeWithSelector(UNOSWAP_SELECTOR, uint256(0), uint256(0), uint256(0), DEFAULT_UNWIND_DEX));
         uint256 used = g0 - gasleft();
         uint256 delta = IERC20G(WETH).balanceOf(address(this)) - before;
 

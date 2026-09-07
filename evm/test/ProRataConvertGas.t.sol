@@ -100,7 +100,7 @@ contract ProRataConvertGas is ForkPin {
         deal(USDC, address(this), amt);
         uint256 before = IERC20P(WETH).balanceOf(address(this));
         uint256 g0 = gasleft();
-        LevMath._aggSwap(USDC, WETH, amt, 1, DEFAULT_UNWIND_DEX, 0);
+        LevMath.routedSwap(USDC, WETH, amt, 1, 0, 0, abi.encodeWithSelector(UNOSWAP_SELECTOR, uint256(0), uint256(0), uint256(0), DEFAULT_UNWIND_DEX));
         uint256 used = g0 - gasleft();
         assertGt(IERC20P(WETH).balanceOf(address(this)) - before, 0, "the real fill did not fill");
         console2.log("ONE real routed leg (frame + router + swap), gas:", used);

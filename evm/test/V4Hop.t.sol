@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import "forge-std/Test.sol";
-import {SwapLib} from "../src/imports/SwapLib.sol";
+import {V4Lib} from "../src/imports/V4Lib.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
 /// @notice §SESS-79 — **DOES THE V4 ENCODING ACTUALLY EXECUTE?** Build-don't-patch is only correct if
@@ -13,7 +13,7 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 /// An external frame so `vm.expectRevert` has something to attach to.
 contract V4Caller {
     function hop(address a, address b, uint256 amt, uint256 minOut, uint24 fee, int24 ts)
-        external returns (uint256) { return SwapLib.v4Swap(a, b, amt, minOut, fee, ts); }
+        external returns (uint256) { return V4Lib.v4Swap(a, b, amt, minOut, fee, ts); }
 }
 
 contract V4HopTest is Test {
@@ -28,7 +28,7 @@ contract V4HopTest is Test {
     function test_V4SwapExecutesAgainstTheRealRouter() public {
         uint256 amt = 50_000e6;
         deal(USDC, address(this), amt);
-        uint256 out = SwapLib.v4Swap(USDC, WETH, amt, 0, 500, 10);
+        uint256 out = V4Lib.v4Swap(USDC, WETH, amt, 0, 500, 10);
         emit log_named_decimal_uint("USDC -> WETH via UniV4", out, 18);
         assertGt(out, 0, "the v4 encoding did not fill - build-don't-patch produced a shape the router "
                          "does not accept, and no amount of unit-testing the bytes would have said so");
@@ -52,7 +52,7 @@ contract V4HopTest is Test {
     function test_GhoIsRoutableOnV4AndOnlyThere() public {
         uint256 amt = 10_000e18;
         deal(GHO, address(this), amt);
-        uint256 out = SwapLib.v4Swap(GHO, USDC, amt, 0, 500, 10);
+        uint256 out = V4Lib.v4Swap(GHO, USDC, amt, 0, 500, 10);
         emit log_named_decimal_uint("GHO -> USDC via UniV4", out, 6);
         assertGt(out, 0, "GHO did not fill on v4 - the one venue measured to have its liquidity");
         // Stables are ~1:1, so a fill this far from par means the wrong pool or the wrong direction.
@@ -70,7 +70,7 @@ contract V4HopTest is Test {
         // ⚠️ **AN EXTERNAL FRAME, BECAUSE `vm.expectRevert` CANNOT BIND TO AN INLINED `internal`
         //    LIBRARY CALL.** CLAUDE.md records this trap firing repeatedly; my first version reported
         //    FAIL on a revert that was exactly what it asked for.
-        vm.expectRevert(SwapLib.V4SwapFailed.selector);
+        vm.expectRevert(V4Lib.V4SwapFailed.selector);
         c.hop(USDS, USDC, amt, 1, 500, 10);
     }
 }

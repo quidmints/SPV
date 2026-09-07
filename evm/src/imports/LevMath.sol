@@ -8,6 +8,10 @@ import {WAD, VenueNotAllowed} from "./Types.sol";
 // §A.52: the canonical view lives in Interfaces.sol — imported, never re-declared file-local.
 import {ICore, IAux, IWeETH, IDepositAdapter, ILevVenue, TWAP_WINDOW_SECS} from "./Interfaces.sol";
 import {IERC20Min, IWETH9} from "../imports/Interfaces.sol";
+// §SESS-83 — a LEAF library: `V4Lib` imports no sibling, so importing it here does not invert
+// `LevMath`'s bottom-layer position. Its body is `external`, so it links rather than inlines.
+import {V4Lib} from "./V4Lib.sol";
+import {PROTO_V4} from "./Interfaces.sol";
 import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, UNOSWAP3_SELECTOR, SWAP_SELECTOR, PROTO_UNIV3,
         PROTO_CURVE, HOP_I_OFFSET, HOP_J_OFFSET, ZERO_FOR_ONE, IUniV3PoolMin, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN, CURVE_3POOL, USDT_TOKEN, CRV_USDT_IDX, CRV_USDT_USDC_IDX, DAI_TOKEN, CRV_DAI_IDX, CRV_DAI_USDC_IDX, USDG_TOKEN, CURVE_USDG_USDC, CRV_USDG_IDX, CRV_USDG_USDC_IDX, CRVUSD_TOKEN, CURVE_CRVUSD_USDC, CRV_CRVUSD_IDX, CRV_CRVUSD_USDC_IDX} from "./Interfaces.sol";
 
@@ -658,6 +662,23 @@ library LevMath {
     ///      ⚠️ `minOut` MUST be oracle-derived by the caller. This function does NOT value its own
     ///      inputs — valuation differs per asset class and already lives correctly at each call site,
     ///      where the size-aware `_slipBps` is applied.
+    /// @dev §SESS-84 — rewrite one pool word's `ZERO_FOR_ONE` from a token this frame owns.
+    ///      `matchIsZero` distinguishes the two rules: hop 1 sets the bit when `token == token0`,
+    ///      the last hop sets it when `token != token0`. Both need only `token0()`, which is why the
+    ///      interface never had to widen. A pool that cannot be read is LEFT ALONE.
+    function _deriveBit(bytes memory route, uint256 off, address token, bool matchIsZero) private view {
+        uint256 w;
+        assembly { w := mload(add(route, off)) }
+        if (w >> 253 != PROTO_UNIV3) return;
+        (bool ok, bytes memory r) = address(uint160(w)).staticcall(abi.encodeWithSelector(
+            IUniV3PoolMin.token0.selector));
+        if (!ok || r.length < 32) return;                 // not a pool we can read — leave it as-is
+        address t0 = abi.decode(r, (address));
+        w &= ~ZERO_FOR_ONE;
+        if (matchIsZero ? token == t0 : token != t0) w |= ZERO_FOR_ONE;
+        assembly { mstore(add(route, off), w) }
+    }
+
     /// @notice §SESS-65 — **THE ONLY THING A CALLER MAY CHOOSE IS THE VENUE.**
     ///
     /// Rewrites a supplied `unoswap`-family call so its `token`, `amount` and `minReturn` are OURS.
@@ -698,6 +719,26 @@ library LevMath {
                 mstore(add(route, 0x44), amountIn)             // word 1 — how much, computed on-chain
                 mstore(add(route, 0x64), 0)                    // word 2 — the aggregate floor decides
             }
+            // ⭐ §SESS-84 — **DERIVE THE DIRECTION BITS HERE, FOR BOTH ARMS.** This was `_aggSwap`'s
+            //    real job — *"the keeper names a POOL; which way we cross it is a fact about
+            //    `tokenIn`, which this frame owns … removes the last thing a keeper could get
+            //    wrong"* — and it is the half that had to STAY when the encoder left. Whatever bit
+            //    arrived is DISCARDED, so one route serves a lever-up and the de-lever that unwinds it.
+            // ⚠️ First hop from `tokenIn`, last from `tokenOut`: the same trick, needing no knowledge
+            //    of the token BETWEEN them. A 3-hop route's middle bit stays as supplied — a stated
+            //    gap. The full chaining version was built and measured at **+425 bytes**, which put
+            //    `LevMath` 203 OVER EIP-170, and a green suite would not have caught that.
+            // ⚠️ **`token0()` IS READ WITHOUT TRUSTING THE POOL TO EXIST.** A typed call to an address
+            //    with no code REVERTS on solc's `extcodesize` guard, which would turn a bad pool word
+            //    into a hard revert HERE instead of the graceful skip `convertTo` already implements
+            //    (*"a failed leg is skipped and the floor decides"*). Measured: four tests that
+            //    deliberately name a dead pool went from skipping to reverting.
+            // ⇒ a raw `staticcall`: **a pool we cannot read is left as the keeper set it**, and the
+            //   leg then fails at the router and is skipped, exactly as before. Derivation is a
+            //   correction where it can be applied, never a new failure mode.
+            _deriveBit(route, 0x84, tokenIn, true);                       // hop 1, from tokenIn
+            uint256 lOff = 0x24 + (words - 1) * 32;
+            if (lOff != 0x84) _deriveBit(route, lOff, tokenOut, false);   // last hop, from tokenOut
             return;
         }
         // ⭐ §SESS-69 — **THE GENERIC EXECUTOR, AND IT IS THE ONLY DOOR TO UNISWAP V4.** A v4 pool has
@@ -834,7 +875,29 @@ library LevMath {
     ///      none of which a pool word can address.
     function routedSwap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut,
                         uint256 dex, uint256 dex2, bytes memory route) internal returns (uint256) {
-        if (route.length == 0) return _aggSwap(tokenIn, tokenOut, amountIn, minOut, dex, dex2);
+        // ⭐ §SESS-84 — **THE ENCODER IS SIX LINES, NOT SIXTY-ONE.** `_aggSwap` is deleted: it built
+        //    `unoswap`/`unoswap2` calldata AND derived the direction bits, and the derivation now
+        //    lives in `_retarget`, shared by BOTH arms. What is left is the wrapping, which is this.
+        // 🔑 **THE ENCODING NEVER NEEDED TO BE ON-CHAIN; THE DERIVATION DID.** A keeper can wrap pool
+        //    words in calldata off-chain (§SESS-73 does), but it cannot be trusted to say which way we
+        //    cross a pool — that is a fact about `tokenIn`, which this frame owns. Separating the two
+        //    is what lets 61 lines leave without giving anything up.
+        if (route.length == 0) {
+            // 🔴 **§SESS-50's COMPACTION, WHICH I DELETED WITH `_aggSwap` AND DID NOT CARRY OVER.**
+            //    `(0, w)` and `(w, 0)` both mean ONE HOP through `w`. `_stableToWethSor` passes
+            //    `(hub, c.dex)` in the CROSSED order its docblock flags as a trap, so a USDC venue —
+            //    which has no hub hop BY NATURE — arrives here with `dex == 0` and a perfectly good
+            //    volatile word sitting in `dex2`.
+            // ⚠️ **THIS COST THREE FAILED ATTEMPTS AT THE SAME REFACTOR, EACH TIME 26 TESTS RED WITH
+            //    `NoVolatileRoute()`, AND I GUESSED TWICE BEFORE TRACING ONCE.** The trace showed the
+            //    revert landing immediately after `swapFloor` — i.e. at the routed call, not inside it
+            //    — which named the line in one read. Standing rule: trace one failure before fixing any.
+            if (dex == 0) { dex = dex2; dex2 = 0; }
+            if (dex == 0) revert NoVolatileRoute();
+            route = dex2 == 0
+                ? abi.encodeWithSelector(UNOSWAP_SELECTOR,  uint256(0), uint256(0), uint256(0), dex)
+                : abi.encodeWithSelector(UNOSWAP2_SELECTOR, uint256(0), uint256(0), uint256(0), dex, dex2);
+        }
         address[] memory t = new address[](1);
         uint256[] memory a = new uint256[](1);
         bytes[]   memory r = new bytes[](1);
@@ -1057,9 +1120,6 @@ library LevMath {
     ///         permissionless, so the caller picks WHEN and the contract picks the PRICE BOUND —
     ///         that division is what makes a permissionless rebalance anti-sandwich.
     /// @notice Execute a volatile hop on 1inch AggregationRouterV6. §C2.1 (owner: "1inch only").
-    /// @param dex THE KEEPER SUPPLIES ONE THING: **WHICH POOL**. Packed as V6's `Address` word —
-    ///        low 160 bits the pool, protocol in bits 253-255 (`0` UniswapV2, `1` UniswapV3,
-    ///        `2` Curve), and for V3 bit 247 is `zeroForOne`. `0` means "no pool supplied".
     /// @dev  ⭐ **THE KEEPER SUPPLIES NO CALLDATA ON THIS ARM, AND THAT IS THE WHOLE POINT OF ITS
     ///       SHAPE.** ⛔ Do not make this function take `bytes route` and `call` it verbatim — that is
     ///       `routedSwap`'s other arm, and it belongs there rather than here, because **1inch calldata
@@ -1087,10 +1147,6 @@ library LevMath {
     ///           that survives a reverted swap is a standing claim on the next block's balance.
     ///       ⚠️ `dex == 0` is REFUSED rather than treated as a no-op: silently swapping nothing and
     ///       returning 0 would surface as a slippage revert four frames away.
-    /// @param dex2 OPTIONAL second pool, same encoding as `dex`. **`0` means one hop** — the single-pool
-    ///        call is unchanged, so every existing caller keeps its exact behaviour. Non-zero switches
-    ///        to `unoswap2`, which is 1inch's TWO-POOL entrypoint and, crucially, still takes the
-    ///        amount as a runtime argument (§CURVE-ALONE-CANNOT-DO-IT).
     /// @dev   ⚠️ EVERY SECURITY PROPERTY OF THE ONE-HOP FORM IS UNCHANGED AND SHARED, WHICH IS WHY THIS
     ///        IS ONE BODY AND NOT AN OVERLOAD: the callee is still the pinned router, the selector is
     ///        still a CONSTANT (now one of two, chosen by our own arithmetic rather than by the
@@ -1098,68 +1154,6 @@ library LevMath {
     ///        oracle-derived floor, and the floor is still enforced on the MEASURED BALANCE DELTA of
     ///        `tokenOut` — which bounds the whole route regardless of how many pools it crossed.
     ///        ⛔ A second selector does NOT widen what the keeper can reach: it still supplies only
-    ///        pool words, never a destination and never a function.
-    function _aggSwap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut, uint256 dex,
-                      uint256 dex2) internal returns (uint256 out)
-    {
-        if (amountIn == 0) return 0;
-        // ⭐ §SESS-50 — **COMPACT A ZERO HOP. `(0, w)` AND `(w, 0)` BOTH MEAN "ONE HOP THROUGH `w`",
-        //    AND UNTIL NOW ONLY THE SECOND DID.** The hops are an ORDERED LIST with an elided empty
-        //    slot, not two named roles, so a caller that has no first hop should be able to say so
-        //    with a zero rather than having to re-pack its arguments.
-        // 🔴 **THE COST OF NOT DOING THIS WAS A WHOLE ROUTE ARM, SILENTLY.** `_stableToWethSor` and
-        //    `_stableToWbtc` pass `(hubHop, volHop)` into `(dex, dex2)` — the CROSSED order their
-        //    docblocks flag as a trap — so a **USDC-denominated venue, which legitimately has NO hub
-        //    hop, arrived here with `dex == 0` and reverted `NoVolatileRoute()`.** That is the real
-        //    reason adding `&& stable != USDC` to the compat guard *"BROKE 17 TESTS"*: an artifact of
-        //    the crossing, not a property of USDC. To dodge it those sites took a legacy branch that
-        //    **DISCARDS `route` ENTIRELY** ⇒ **the full-venue 1inch arm was unreachable for the most
-        //    common venue in the system.** Compacting here is what makes that branch narrowable.
-        // ⚠️ **DIRECTION STAYS CORRECT ACROSS THE COMPACTION, AND IT IS WORTH SEEING WHY.** Hop 2's
-        //    direction is derived from `tokenOut` (*"set exactly when `tokenOut` is the pool's
-        //    token1"*) and hop 1's from `tokenIn`. For a pool that holds BOTH ends — which is what a
-        //    SOLE hop is by definition — `tokenIn == token0` and `tokenOut != token0` are the same
-        //    predicate, so promoting `dex2` into `dex` and re-deriving from `tokenIn` yields the
-        //    identical bit. The two rules only diverge for a genuine intermediate token, which a
-        //    compacted route no longer has.
-        if (dex == 0) { dex = dex2; dex2 = 0; }
-        if (dex == 0) revert NoVolatileRoute();
-        // ⭐ `zeroForOne` IS DERIVED, NEVER TRUSTED. The keeper names a POOL; which way we cross it
-        //    is a fact about `tokenIn`, which this frame owns. Reading `token0()` costs one cold
-        //    SLOAD-equivalent and removes the last thing a keeper could get wrong — and it means ONE
-        //    pool word serves BOTH directions, so a lever-up and the de-lever that unwinds it take
-        //    the identical argument. A keeper that had to flip the bit by direction would be
-        //    re-deriving state it reads a block earlier than we execute it.
-        if (dex >> 253 == PROTO_UNIV3) {
-            dex &= ~ZERO_FOR_ONE;                                  // ignore whatever the keeper set
-            if (tokenIn == IUniV3PoolMin(address(uint160(dex))).token0()) dex |= ZERO_FOR_ONE;
-        }
-        // ⭐ HOP 2's DIRECTION IS DERIVED FROM ITS **OUTPUT**, WHERE HOP 1's COMES FROM ITS **INPUT** —
-        //    and that symmetry is what makes the intermediate token unnecessary. This frame owns
-        //    `tokenIn` (hop 1 consumes it) and `tokenOut` (hop 2 produces it); the token BETWEEN the
-        //    pools is whatever pool 1 pays out, which we would otherwise have to read and trust.
-        //    `ZERO_FOR_ONE` means token0→token1, so hop 2 must set it exactly when `tokenOut` is the
-        //    pool's token1 — expressed here as `tokenOut != token0()`, which needs only the SAME
-        //    accessor hop 1 uses and so does not widen `IUniV3PoolMin`. As with hop 1, whatever the
-        //    keeper set in that bit is DISCARDED: the keeper names pools, never directions.
-        if (dex2 != 0 && dex2 >> 253 == PROTO_UNIV3) {
-            dex2 &= ~ZERO_FOR_ONE;
-            if (tokenOut != IUniV3PoolMin(address(uint160(dex2))).token0()) dex2 |= ZERO_FOR_ONE;
-        }
-        // §C15 — **THE SEAM IS ONE FUNCTION.** This no longer executes anything: it ENCODES a
-        //    pool-word route and hands it to `convertTo`, which is the single execution path for
-        //    every conversion in the protocol. Two encoders (pool words here, aggregator calldata
-        //    off-chain), ONE executor — so the approval pattern, the pinned callee and the
-        //    balance-delta floor exist in exactly one place and cannot drift between paths.
-        address[] memory tin = new address[](1);
-        uint256[] memory tam = new uint256[](1);
-        bytes[]   memory rts = new bytes[](1);
-        tin[0] = tokenIn; tam[0] = amountIn;
-        rts[0] = dex2 == 0
-            ? abi.encodeWithSelector(UNOSWAP_SELECTOR,  uint256(uint160(tokenIn)), amountIn, minOut, dex)
-            : abi.encodeWithSelector(UNOSWAP2_SELECTOR, uint256(uint160(tokenIn)), amountIn, minOut, dex, dex2);
-        return convertTo(tin, tam, tokenOut, minOut, rts);
-    }
 
     function _stableToWethSor(SellCtx memory c, address stable, uint256 stableAmt) internal returns (uint256) {
         if (stable == c.weth) return stableAmt;          // already WETH: no venue needed
@@ -1185,7 +1179,7 @@ library LevMath {
         // bounds the whole route on the final token.
         uint256 hub = c.dex2;
         if (stable != USDC && (hub == 0 || hub >> 253 == PROTO_CURVE))
-            return _aggSwap(USDC, c.weth, _hubHop(stable, stableAmt, true, 0, hub), floor_, c.dex, 0);
+            return routedSwap(USDC, c.weth, _hubHop(stable, stableAmt, true, 0, hub), floor_, c.dex, 0, "");
         // `c.dex2` is hop 1, `c.dex` hop 2. A USDC venue has `c.dex2 == 0` and `_aggSwap` compacts it
         // (§SESS-50) — which is what finally lets a USDC venue reach `c.route` at all.
         return routedSwap(stable, c.weth, stableAmt, floor_, hub, c.dex, c.route);
@@ -1220,6 +1214,17 @@ library LevMath {
     {
         if (amt == 0) return 0;
         if (stable == USDC) return amt;            // hub itself — nothing to convert, either direction
+        // ⭐ §SESS-83 — **A V4 HUB HOP, WHICH IS THE LEG GHO DEPENDS ON.** Measured: GHO's UniV3
+        //    pools hold 8,179 and its V3/WETH pools hold zero, so `GHO -> USDC` has no venue this
+        //    contract could reach — while its HOOKLESS v4 pool quotes 9,984.93 for 10,000 GHO, a
+        //    figure the executed swap reproduced exactly.
+        // 🔑 **`V4Lib` IS A LEAF LIBRARY WITH AN `external` BODY, WHICH IS WHY THIS FITS.** `LevMath`
+        //    is the bottom layer and imports no sibling library; an external library function is
+        //    DELEGATECALLED from its own deployment, so this pays for a call site rather than
+        //    inlining ~80 lines of nested `abi.encode` into a contract with 222 bytes to spare.
+        // ⛔ `hooks` is not decodable from the word BY CONSTRUCTION — `V4Lib` forces `address(0)` — so
+        //    a caller cannot name a hooked pool and cannot put foreign code on our call stack.
+        if (word >> 253 == PROTO_V4) return V4Lib.v4SwapWord(word, stable, USDC, amt, toUsdc, minOut);
         (address pool, int128 iS, int128 iU) = word >> 253 == PROTO_CURVE
             ? (address(uint160(word)),
                int128(uint128(uint8(word >> HOP_I_OFFSET))),
@@ -1354,7 +1359,7 @@ library LevMath {
                            uint256 hubDex, bytes memory route) internal returns (uint256) {
         uint256 hub = hubDex;   // §SESS-66 — a CURVE word takes this arm too; 1inch cannot carry one
         if (stable != USDC && (hub == 0 || hub >> 253 == PROTO_CURVE))
-            return _aggSwap(USDC, wbtc, _hubHop(stable, amt, true, 0, hub), minOut, volDex, 0);
+            return routedSwap(USDC, wbtc, _hubHop(stable, amt, true, 0, hub), minOut, volDex, 0, "");
         return routedSwap(stable, wbtc, amt, minOut, hub, volDex, route);
     }
 
@@ -1378,7 +1383,7 @@ library LevMath {
         //    USDC intermediate is deliberately unbounded, because nothing leaves on it.
         uint256 hub = hubDex;   // §SESS-66 — a CURVE word takes this arm too; 1inch cannot carry one
         if (stable != USDC && (hub == 0 || hub >> 253 == PROTO_CURVE))
-            return _hubHop(stable, _aggSwap(vol, USDC, amt, 0, volDex, 0), false, minOut, hub);
+            return _hubHop(stable, routedSwap(vol, USDC, amt, 0, volDex, 0, ""), false, minOut, hub);
         return routedSwap(vol, stable, amt, minOut, volDex, hub, route);
     }
 

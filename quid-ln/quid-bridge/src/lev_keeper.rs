@@ -1277,6 +1277,45 @@ const V4_TIERS: [(u32, i32); 4] = [(100, 1), (500, 10), (3000, 60), (10000, 200)
 const V4_STATE_VIEW: LpAddr = [0x7f,0xFE,0x42,0xC4,0xa5,0xDE,0xeA,0x5b,0x0f,0xeC,
                                0x41,0xC9,0x4C,0x13,0x6C,0xf1,0x15,0x59,0x72,0x27];
 
+/// ⭐ §SESS-82 — **THE V4 QUOTER. WITHOUT IT, V4 WAS CANDIDATE-ONLY AND COULD NEVER BE CHOSEN.**
+///
+/// `V4Quoter.quoteExactInputSingle` — verified against the chain before a line was written against it:
+/// **GHO→USDC for 10,000 GHO quotes `9_984_928_755`, byte-identical to the swap actually EXECUTED**
+/// through `SwapLib.v4Swap` in §SESS-79. Quote and execution agree exactly.
+/// 🔑 **AND IT IS WHAT MAKES V4 SAFE TO SELECT, NOT JUST REACHABLE.** The same quoter reports
+///    USDC→WETH at 100k as **15.23 WETH** — roughly $37.9k of $100k on that thin tier — so the planner
+///    now SEES the bad price and picks UniswapV3 instead. ⛔ Candidacy said "a pool exists"; only a
+///    quote says "and it is the best one". Selecting on existence is exactly the mistake the depth
+///    gate exists to prevent, one venue class over.
+/// ⚠️ Non-`view` by design (it simulates and reverts internally), so it is `eth_call`ed, never sent.
+/// 📌 Encoding: the outer tuple is DYNAMIC because `hookData` is `bytes`, so word 0 is an offset to
+///    the struct — the same struct-vs-fields distinction that made `v4Swap` revert until it was fixed.
+const V4_QUOTER: LpAddr = [0x52,0xF0,0xE2,0x4D,0x1c,0x21,0xC8,0xA0,0xcB,0x1e,
+                           0x5a,0x5d,0xD6,0x19,0x85,0x56,0xBD,0x9E,0x12,0x03];
+
+fn v4_quote<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256, fee: u32, ts: i32)
+    -> Option<U256>
+{
+    let (c0, c1) = if tin <= tout { (tin, tout) } else { (tout, tin) };
+    let mut a = Vec::with_capacity(320);
+    a.extend_from_slice(&u64_word(0x20));                  // offset to the (dynamic) struct
+    a.extend_from_slice(&addr_word(c0));
+    a.extend_from_slice(&addr_word(c1));
+    a.extend_from_slice(&u64_word(fee as u64));
+    a.extend_from_slice(&u64_word(ts as u64));
+    a.extend_from_slice(&[0u8; 32]);                       // hooks = address(0), always
+    a.extend_from_slice(&u64_word(if tin == c0 { 1 } else { 0 }));   // zeroForOne, derived
+    a.extend_from_slice(&u256_word(amt));
+    a.extend_from_slice(&u64_word(0x100));                 // hookData offset, struct-relative
+    a.extend_from_slice(&[0u8; 32]);                       // hookData length = 0
+    let r = eth_call_raw(rpc, Address::from_slice(&V4_QUOTER),
+        "quoteExactInputSingle(((address,address,uint24,int24,address),bool,uint128,bytes))",
+        Some(&a)).ok()?;
+    if r.len() < 32 { return None; }
+    let out = U256::from_be_slice(&r[..32]);
+    if out.is_zero() { None } else { Some(out) }
+}
+
 /// `getLiquidity(poolId)` on the canonical HOOKLESS PoolKey. ⛔ Non-zero liquidity is CANDIDACY, not
 /// depth — the fill is still quoted at size, because this session measured a v4 tier that existed,
 /// held liquidity, and returned a **2,308 bps** shortfall on $50k.
@@ -1307,11 +1346,10 @@ fn best_direct<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Opt
         let out = match v {
             Venue::V3 { fee, .. } => quote_hop(rpc, tin, tout, amt, fee),
             Venue::Curve { pool, i, j } => curve_quote(rpc, pool, i, j, tin, tout, amt),
-            // ⛔ v4 is CANDIDATE-ONLY until a quoter is wired: `getLiquidity` says a pool exists, not
-            //    what it fills at size, and this session measured an existing, liquid v4 tier
-            //    returning a **2,308 bps** shortfall on $50k. Selecting it unquoted would be exactly
-            //    the mistake the depth gate was added to prevent, one venue class over.
-            Venue::V4 { .. } => None,
+            // §SESS-82 — quoted at the traded size, like every other venue. Candidacy said a pool
+            //    exists; the quote says whether it is the best one, and for the thin USDC/WETH tier
+            //    it says emphatically not.
+            Venue::V4 { fee, tick_spacing } => v4_quote(rpc, tin, tout, amt, fee, tick_spacing),
         };
         let Some(out) = out else { continue };
         if best.is_none_or(|(_, b)| out > b) { best = Some((v, out)); }
