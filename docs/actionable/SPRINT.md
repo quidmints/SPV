@@ -54510,3 +54510,60 @@ re-weighting is one function rather than two money-path sites that can drift.
 each exists for.** ⇒ **What is NOT: that this is the best design.** Nobody compared it against
 alternatives, and the sharpest evidence that it is unfinished is item 1 above — **a discriminator
 nothing reads is not yet a design decision, it is a measurement.**
+
+## §SETTER-FOLD — **25 DEPLOY CALLS → 1, AND THE BATCH IS ALL-OR-NOTHING ON PURPOSE.** (2026-09-07)
+
+`DeployL1_s` wired the basket with **25 separate owner-only calls** — 13 `setStableFeed`, 10
+`setVault`, 2 `setAssetFeed`. Each was its own chance to reorder, omit, or stop halfway, and a
+half-wired deploy leaves a **LIVE contract with a partially-pinned oracle set that nothing on-chain
+distinguishes from a finished one.** Now one `AUX.configure(Aux.Wiring{…})`.
+
+🔑 **THE DESIGN DECISION, MADE DELIBERATELY RATHER THAN INHERITED.** A batch differs from 25 calls
+in exactly one way that matters: what happens when an entry is ALREADY PINNED.
+  · **Chosen: ALL-OR-NOTHING.** Every write keeps its own pin-once guard, so one pinned entry
+    reverts the whole batch.
+  · **Rejected: skip-on-pinned.** It would report SUCCESS for a wiring it did not perform, and
+    unlike 25 calls the operator has no per-call receipt to inspect. ⛔ Do not "improve" it that way.
+Pin-once exists so a feed cannot be silently repointed; a loud revert on re-run is what makes a
+half-finished deploy visible.
+
+⭐ **THE SINGULAR SETTERS SURVIVE AND SHARE THE WRITE.** `setStableFeed`/`setAssetFeed`/`setVault`
+are now thin `onlyOwner` wrappers over private `_setStableFeed`/`_setAssetFeed`/`_setVault`, which
+`configure` also calls — **one write, two entrypoints, so the batch cannot diverge from a single
+call.** 68 existing test call sites are untouched.
+
+📏 **SIZE:** Aux 21,019 → **21,972 bytes, 2,604 to spare.** `configure` cost 953 bytes. Aux is not
+the binding contract — **LevManager is, at 24,443 with 133 to spare** — so this spends slack where
+there is slack.
+
+⚠️ **`wire` IS NOT FOLDED IN, AND CANNOT BE.** `DeployLib` must pin the ETH venue only AFTER
+`ETH.setup` runs (it needs WETH set), so wiring is legitimately two-phase. `configure`'s three
+address fields are optional (zero = leave unpinned) for callers that can do it in one shot.
+
+⚠️ **`_wireBasketFeedsAndVenues()` IS A SEPARATE FUNCTION FOR A HARD REASON, NOT STYLE.** Inlined
+into the deploy body its six array locals produce **`Stack too deep`** — this tree builds with
+`via_ir = false`, so that is a limit, not a tuning knob.
+
+✅ **TESTED**: `evm/test/ConfigureIsAllOrNothing.t.sol` — the batch writes what the singular setter
+writes; one pinned entry reverts the whole batch AND the earlier fresh entry does not survive;
+mismatched array lengths revert; the entrypoint is owner-gated.
+⚠️ **`DeployL1_s` ITSELF HAS NO TEST** — nothing under `evm/test/` references it, so the migration
+there is COMPILE-VERIFIED ONLY. The behaviour is covered through `configure`'s own suite.
+
+🔴 **A FALSE CAPABILITY CLAIM FOUND IN THE SAME BLOCK AND FIXED.** The script said unwired stables
+are fine because *"Once Morpho lists them, anyone can call `AUX.setVault(stable, vaultAddress)`"*.
+**`setVault` is `onlyOwner` and `finalize()` RENOUNCES** — so an unwired stable can NEVER be wired.
+The comment promised a recovery path that does not exist, which is the inverse of §SESS-COMMENTS-5's
+pattern: not a limit overstated, a CAPABILITY invented.
+
+## 🔴 TOOLING — `forge build --force` CAN LEAVE DUPLICATE LIBRARY ARTIFACTS THAT BREAK `forge test` (2026-09-07)
+
+After several `--force` builds, EVERY suite began failing before running a single test:
+`Error: multiple library artifacts resolve to the same key lib/poseidon-solidity/PoseidonT3.sol:PoseidonT3`.
+Cause: `out/PoseidonT3.sol/` held THREE artifacts — `PoseidonT3.json`, `PoseidonT3.default.json`,
+`PoseidonT3.size-optimised-verifier.json` — profile-suffixed outputs colliding on one link key.
+⇒ **It is not a code error and not a stale-read; it is a link-resolution error, and it fails the
+whole run identically for every test.** `forge clean` + rebuild fixes it. `out/` is gitignored, so
+the only cost is build time. ⚠️ Pair this with the OTHER forge trap booked today: `--force` is
+required to trust a security verification, and `--force` is also what produces this. Use it, then
+`clean` if linking starts failing.
