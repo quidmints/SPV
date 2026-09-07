@@ -347,10 +347,19 @@ environment actually is*. Every line below was verified in-repo, not recalled.
       zero callers and its private why are you keeping it"*). Nothing revives it today, and GIT
       PRESERVES THE CLAMP for whoever ever does. Speculative future-proofing is exactly what this
       rule exists to remove, and a keep-note is a past decision, not evidence.
-      ⛔ **DO NOT LET "IT IS `private`, THE OPTIMIZER DROPS IT" DECIDE THIS.** I used that to argue
-      the survival was free WITHOUT MEASURING IT. Even if true it is the weaker argument — dead
-      source still has to be read, still goes stale, and still lies to the next reader. If the
-      bytecode question actually matters, MEASURE it with `tools/check-contract-sizes.py`.
+      ⛔ **DO NOT LET "IT IS `private`, THE OPTIMIZER DROPS IT" DECIDE THIS — IT IS TRUE AND IT IS
+      THE WRONG ARGUMENT.** ⭐ **MEASURED 2026-09-07, two full builds of the same tree differing only
+      in whether `_repayPretransferred` was present: `LevMath` 22,720 B BOTH WAYS. DELTA = 0 BYTES.**
+      So an unreferenced `private` function really does cost nothing in bytecode — which means
+      **SIZE IS NEVER THE REASON TO DELETE ONE, AND IS NEVER A REASON TO KEEP ONE EITHER.** The
+      reason is that dead source still has to be read, still goes stale, and still lies to the next
+      reader — a cost the compiler cannot remove. ⇒ Argue source clarity, not bytes, and when bytes
+      ARE the claim, measure with `tools/check-contract-sizes.py` before asserting.
+      ⚠️ **THE SAME MEASUREMENT PREDICTS THE FOLD HALF OF THIS RULE IS MOSTLY ALREADY DONE.** If
+      solc removes an unreferenced private function entirely, it is also inlining the small
+      single-caller ones — so "138 fold candidates" is a count of SOURCE-LEVEL tidiness, not of
+      recoverable bytes. Do not spend a day folding on the assumption that it buys headroom; the
+      headroom comes from DELETING (dead code, and `public`/`external` surface nobody calls).
     · **A CAPABILITY THAT WAS NEVER REAL** ⇒ delete the code AND correct the claim. (`rangeUnwindDex`
       was justified as *"GOV can repoint it"* while its setter was gated on RANGE, which GOV is not
       and which never called it — and `DEFAULT_UNWIND_DEX` repeated the false "GOV-overridable"
