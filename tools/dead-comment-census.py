@@ -33,7 +33,8 @@ code_idents = set(re.findall(r'\b[A-Za-z_][A-Za-z0-9_]*\b', CODE))
 tick = re.compile(r'`([A-Za-z_][A-Za-z0-9_]*)(?:\(\))?`')
 targets = sys.argv[1:] or [str(p) for p in SRC if "evm/src" in str(p) or "quid-ln" in str(p)]
 
-hits = collections.defaultdict(list)
+hits  = collections.defaultdict(list)
+maybe = collections.defaultdict(list)
 for f in targets:
     p = pathlib.Path(f)
     if not p.is_file(): continue
@@ -45,15 +46,17 @@ for f in targets:
             if len(n) < 4: continue
             if n in code_idents:
                 continue
-            # ⚠️ THE FALSE POSITIVE THIS CATCHES, MEASURED: `ChopIsBenign` was reported
-            # dead while `test_RunSim_IL_Baseline_ChopIsBenign` is a live test at
-            # Alles.t.sol:3533. The tokenizer matches WHOLE identifiers, so a backticked
-            # comment word that is only a SUFFIX or infix of a live name has no token of
-            # its own and reads as gone. A comment naming the distinctive half of a
-            # longer symbol is normal writing, not a tombstone.
-            if any(n in ident for ident in code_idents):
-                continue
-            hits[str(p)].append((i, n))
+            # ⚠️ NEITHER SUBSTRING RULE IS RIGHT ON ITS OWN — BOTH ERRORS WERE MEASURED.
+            #   Suppressing nothing: `ChopIsBenign` reported dead, but it is the tail of the
+            #     live test `test_RunSim_IL_Baseline_ChopIsBenign` (Alles.t.sol:3533). The
+            #     tokenizer matches WHOLE identifiers, so a comment naming the distinctive
+            #     half of a longer symbol has no token of its own and reads as gone.
+            #   Suppressing every substring: `trackOpen` is GENUINELY dead, and got
+            #     suppressed because `untrackOpen` contains it.
+            # So a substring hit is neither "dead" nor "live" — it is CHECK BY HAND, and it
+            # goes in its own bucket rather than silently joining either answer.
+            owner = next((ident for ident in code_idents if n in ident), None)
+            (maybe if owner else hits)[str(p)].append((i, n, owner) if owner else (i, n))
 
 tot = 0
 for f in sorted(hits, key=lambda k: -len(hits[k])):
@@ -62,3 +65,10 @@ for f in sorted(hits, key=lambda k: -len(hits[k])):
     print(f"       {', '.join(syms)}")
     tot += len(hits[f])
 print(f"\nTOTAL {tot} comment sites naming {len({n for v in hits.values() for _, n in v})} dead symbols")
+if maybe:
+    m = {(n, o) for v in maybe.values() for _, n, o in v}
+    print(f"\n⚠️  {len(m)} CHECK BY HAND — the word is a substring of a live identifier, which")
+    print("   means EITHER it is that identifier's distinctive half (live) OR a shorter name")
+    print("   the longer one merely contains (dead). Grep at a word boundary to decide:")
+    for n, o in sorted(m)[:40]:
+        print(f"     {n:<34} inside  {o}")
