@@ -22,9 +22,9 @@ import {IMorphoBase as IMorphoFlash} from "../imports/Interfaces.sol";
 /// The range surface the derived band + the reseat decision read. Mirrors the managers' `ICore`
 /// handle — a delegatecall'd library can't read their immutables, so the manager passes the
 /// range address in. All view: the three members this file reaches (`kLvrWad`, `rangePrice`,
-/// `rangeBounds`) are `view` fns or auto-generated getters over `public` state, so `view` external
-/// calls are STATICCALL-safe inside the
-/// try/catch below (Solidity allows try/catch on view calls) and callable from both view and non-view callers.
+/// `rangeBounds`) are `view` fns or auto-generated getters over `public` state, so `view` external calls are
+/// STATICCALL-safe inside the try/catch below (Solidity allows try/catch on view calls) and callable from
+/// both view and non-view callers.
 
 /// @title  LevMath — asset-agnostic IL-protect leverage economics + up-side leg mechanics
 /// @notice ONE leverage library shared by the ETH (`LevManager`, weETH) and BTC (`BtcLevManager`, vBTC) paths.
@@ -258,7 +258,8 @@ library LevMath {
         if (range == address(0) || syncKeyPx == 0) return (false, 0);
         try ICore(range).rangePrice() returns (uint v) { newPrice = v; } catch { return (false, 0); }
         if (newPrice == 0) return (false, 0);
-        // ONE accessor pair. The range is per-asset and answers for its own range, so there is no name
+        // ONE accessor pair. The range is per-asset and answers for its own range, so `rangeBounds()`
+        // is declared once with no per-asset variant — there is no name to select between.
         uint lo; uint hi;
         // §ONE-ANCHOR — ONE call, ONE try/catch. Two reads meant two chances to half-fail and a
         // caller left holding a lower bound with no upper; the pair now arrives together or not at
@@ -289,7 +290,7 @@ library LevMath {
     //      `syncKeyPx == spot` and `sf` comes back 0 — the estimate then runs, correctly, BY ACCIDENT.
     //      Restoring `syncKeyPx` (the natural next step after §C19) would switch every position in
     //      the book to a constant 50% hedge, capped at `capBps`.
-    //   `ilTargetBps` below is the ONLY target, and it is `public` so the body stays in this
+    //   `ilTargetBps` above is the ONLY target, and it is `public` so the body stays in this
     //   delegatecalled library rather than inlining into the size-critical managers.
 
     /// @notice (§3) The stable (USD 1e18) to REPAY to bring a position to target LTV on the FIXED E0 (over-hedge
@@ -832,7 +833,7 @@ library LevMath {
     ///      of one external call is two places to add a router, two places to get an approval wrong,
     ///      and two places for the ETH offramp to drift from the lever's.
     ///      ⭐ **THE BODY LIVES HERE BECAUSE `SwapLib` ALREADY IMPORTS `LevMath` (`SwapLib.sol:28`)
-    ///      AND THE REVERSE WOULD BE A CYCLE.** Callers today: `QuidLib:840`, plus `sourceWeth` and
+    ///      AND THE REVERSE WOULD BE A CYCLE.** Callers today: `QuidLib`, plus `sourceWeth` and
     ///      `_weethToWethDex` in this file (the latter adds the redemption-rate floor).
     ///      ▶️ **THIS IS THE SEAM TO ROUTE, AND THE REASON TO FOLD FIRST: a single hardcoded Curve
     ///      pool is not a best path.** `ETHERFI_CURVE_POOL` has no fallback — if it is thin or paused
@@ -898,7 +899,7 @@ library LevMath {
         return sellWeethOnCurve(c.weeth, ETHERFI_CURVE_POOL, pulled, wethFloor);
     }
 
-    /// stable → collateral (lever-up BUY). weETH venue mints via ether.fi; WETH venue supplies WETH directly.
+    /// stable → collateral (lever-up BUY). ONE arm, no venue branch: buy WETH, mint weETH at ether.fi.
     function stableToColl(SellCtx memory c, address stable, uint256 stableAmt, uint256 minOut)
         public returns (uint256)
     {
@@ -914,8 +915,9 @@ library LevMath {
         if (weethOut < minWeethOut) revert Slippage();
     }
 
-    /// WETH → weETH on-ramp (the INVERSE of `_weethToWeth`): mint at ether.fi's fair rate. NON-reverting (fair-rate mint always clears) so the short-close
-    /// can call it after its own try/catch'd stable→WETH SOR without a nested revert escaping the catch.
+    /// WETH → weETH on-ramp (the INVERSE of `_weethToWeth`): mint at ether.fi's fair rate. NON-reverting —
+    /// a fair-rate mint always clears, and `wethRem == 0` is a no-op rather than an error, so the single
+    /// caller (`_stableToWeeth`) can apply its own `minWeethOut` instead of catching a nested revert.
     function _wethToWeeth(SellCtx memory c, uint256 wethRem) internal returns (uint256 weethOut) {
         if (wethRem > 0) { // mint the remainder WETH→weETH at ether.fi's fair rate.
             IERC20Min(c.weth).approve(ETHERFI_ADAPTER_M, wethRem);
@@ -1096,9 +1098,9 @@ library LevMath {
 
     /// @notice §SESS-52 — **ONE HUB HOP, EITHER DIRECTION, ON THE ONE TABLE.** Curve stableswap,
     ///         `toUsdc ? stable→USDC : USDC→stable`; ONE body for the two legs, which differ only in
-    ///         which token is approved and in the index order. A stable that is not on `_quoteOf`
+    ///         which token is approved and in the index order. A stable that is not on `_hubRowOf`
     ///         fails CLOSED (`NoStableRoute`) — a silent 0 would leave a position unhedged.
-    /// ⛔ **DO NOT GIVE THE EXECUTION PATH ITS OWN ROUTE TABLE.** `_quoteOf` returns exactly the
+    /// ⛔ **DO NOT GIVE THE EXECUTION PATH ITS OWN ROUTE TABLE.** `_hubRowOf` returns exactly the
     ///    `(pool, iStable, iUsdc)` this needs and is already pinned row-by-row by
     ///    `CurveTablePins.t.sol`; a second table — settable or not — is a copy of a superset, which
     ///    standing rule 23, question 2 rules out (*a subset or a copy is never worth a declaration*),
@@ -1114,7 +1116,7 @@ library LevMath {
     function _hubHop(address stable, uint256 amt, bool toUsdc, uint256 minOut) internal returns (uint256) {
         if (amt == 0) return 0;
         if (stable == USDC) return amt;            // hub itself — nothing to convert, either direction
-        (address pool, int128 iS, int128 iU) = _quoteOf(stable);
+        (address pool, int128 iS, int128 iU) = _hubRowOf(stable);
         // fail closed — a silent 0 would leave the position unhedged, and a caller that sizes a hedge
         // from "converted nothing" is the failure this revert exists to make loud.
         if (pool == address(0)) revert NoStableRoute();
@@ -1143,7 +1145,7 @@ library LevMath {
     ///    i.e. exactly today's behaviour. A reference pushed UP costs LIVENESS (honest routes fail),
     ///    never custody. That asymmetry is why a manipulable venue is admissible here and would not be
     ///    admissible as a price. Same discipline as the min-of-two-prices shape used elsewhere.
-    /// ⚠️ **COVERAGE IS THE SIX ROWS IN `_quoteOf`**, so this raises the floor on the stables it knows
+    /// ⚠️ **COVERAGE IS THE SIX ROWS IN `_hubRowOf`**, so this raises the floor on the stables it knows
     ///    and is inert on the rest — **inert, never loosening.** Growing that table grows the coverage;
     ///    that is the same ungrowable-roster item §S2 books.
     /// @dev Every read is `try`-wrapped to 0: an unquotable route must contribute NOTHING to the floor
@@ -1176,20 +1178,22 @@ library LevMath {
     /// @dev Each row was picked by DEPTH AT SIZE and verified against `coins()` — see the constants'
     ///      block, `evm/test/CurveTablePins.t.sol` (pins all six rows, asserts the exclusions stay
     ///      zero) and `evm/test/HubHopRoster.t.sol` (asserts the execution behaviour head-on).
-    function _quoteOf(address stable) private pure returns (address pool, int128 iStable, int128 iUsdc) {
+    function _hubRowOf(address stable) private pure returns (address pool, int128 iStable, int128 iUsdc) {
         if (stable == RLUSD_TOKEN)  return (CURVE_USDC_RLUSD,   CRV_RLUSD_IDX,  CRV_RLUSD_USDC_IDX);
         if (stable == PYUSD_TOKEN)  return (CURVE_PYUSD_USDC,   CRV_PYUSD_IDX,  CRV_PYUSD_USDC_IDX);
         if (stable == USDT_TOKEN)   return (CURVE_3POOL,        CRV_USDT_IDX,   CRV_USDT_USDC_IDX);
         if (stable == DAI_TOKEN)    return (CURVE_3POOL,        CRV_DAI_IDX,    CRV_DAI_USDC_IDX);
         if (stable == USDG_TOKEN)   return (CURVE_USDG_USDC,    CRV_USDG_IDX,   CRV_USDG_USDC_IDX);
         if (stable == CRVUSD_TOKEN) return (CURVE_CRVUSD_USDC,  CRV_CRVUSD_IDX, CRV_CRVUSD_USDC_IDX);
-        // Absent ⇒ (0,0,0) ⇒ the leg contributes NOTHING to the floor. Never a revert, never a loosening.
+        // Absent ⇒ (0,0,0). On the QUOTE side that contributes NOTHING to the floor — never a revert,
+        // never a loosening. On the EXECUTION side it is the fail-closed case: `_routableStable` says no
+        // and `_hubHop` reverts `NoStableRoute` rather than trading somewhere unmeasured.
     }
 
     /// @dev One table hop, quoted. `toUsdc` mirrors `_hubHop`'s parameter, and both read the SAME
-    ///      `_quoteOf` row, so the quote and the swap cannot disagree about the pool OR the direction.
+    ///      `_hubRowOf` row, so the quote and the swap cannot disagree about the pool OR the direction.
     function _curveQuote(address stable, uint256 amt, bool toUsdc) private view returns (uint256) {
-        (address pool, int128 iStable, int128 iUsdc) = _quoteOf(stable);
+        (address pool, int128 iStable, int128 iUsdc) = _hubRowOf(stable);
         if (pool == address(0)) return 0;                        // not on the table ⇒ no opinion
         try ICurvePool(pool).get_dy(toUsdc ? iStable : iUsdc, toUsdc ? iUsdc : iStable, amt)
             returns (uint256 dy) { return dy; } catch { return 0; }
@@ -1200,7 +1204,7 @@ library LevMath {
     /// §SESS-52 — asks THE one table. `pure` again: nothing about a route is state any more.
     function _routableStable(address t) internal pure returns (bool) {
         if (t == USDC) return true;                // the hub itself
-        (address pool,,) = _quoteOf(t);
+        (address pool,,) = _hubRowOf(t);
         return pool != address(0);
     }
 
@@ -1219,7 +1223,7 @@ library LevMath {
     ///    keep sending the same word and it would be used for the wrong leg. Appending the new
     ///    parameter and CROSSING it here keeps every existing caller's meaning intact.
     /// @dev ⚠️ **`hubDex == 0` IS AN OVERRIDE WITH A DEFAULT, NOT A COMPATIBILITY SHIM.** No keeper
-    ///      word for the hub leg ⇒ take the table's route (`_hubHop` → `_quoteOf`), which is available
+    ///      word for the hub leg ⇒ take the table's route (`_hubHop` → `_hubRowOf`), which is available
     ///      for every stable on the table and needs no keeper to be up. `stable == USDC` skips the guard
     ///      because USDC IS the hub — there is no hub leg to route, and `_aggSwap` compacts the
     ///      resulting zero hop (§SESS-50) so a USDC venue reaches `route` like every other venue.
@@ -1305,7 +1309,7 @@ library LevMath {
 
     /// @notice Self-funding keeper-gas — external entry for the manager's direct reimburse points (the de-lever
     ///         settle's freed WETH, protect). Delegatecall ⇒ WETH unwrapped + ETH sent are the MANAGER's. See
-    ///         `_reimburse`. (§E304-mintclose: the BOLD-close entry named here went with the Liquity venue.)
+    ///         `_reimburse`.
     function reimburseKeeper(address weth, address keeper, uint256 availWeth, uint256 reserveIn)
         public returns (uint256 skimmed, uint256 reserveOut)
     {
@@ -1504,7 +1508,7 @@ library LevMath {
 
     /// @dev Consolidate every OTHER basket stable this manager holds into `target` (the venue's loan token, whatever
     ///      stable it lends) so the protect never depends on the basket holding a specific stable. ONE ROUTE PER
-    ///      SLICE: `stable → USDC → target`, both hops on the `_quoteOf` Curve rows (`_hubHop`). A slice whose
+    ///      SLICE: `stable → USDC → target`, both hops on the `_hubRowOf` Curve rows (`_hubHop`). A slice whose
     ///      stable — or whose `target` — is not on that table is NOT swapped at all; it is refunded to the LP below.
     ///      Each pair carries its own `swapFloor`, enforced on the SECOND hop; the caller's aggregate
     ///      `minStableOut` is the outer bound, so a slice that cannot move only lowers `got` and trips that floor
@@ -1540,7 +1544,7 @@ library LevMath {
             //    address the SELECTION of every venue against a flat 100 bps `CONSOL_SLIP_BPS` — the
             //    floor bounds the loss, never the selection, and selection is the takeable part. It
             //    would also widen `LevManager`, which has **133 bytes** left.
-            //    ⇒ the pools come from `_quoteOf`, which no caller can influence.
+            //    ⇒ the pools come from `_hubRowOf`, which no caller can influence.
             if (_routableStable(s) && _routableStable(target)) {
                 // `floor` is enforced on the SECOND hop, so it bounds the pair on the measured delta.
                 _hubHop(target, _hubHop(s, bal, true, 0), false, floor);

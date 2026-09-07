@@ -187,3 +187,62 @@ external frame.
 2. **A clean full-suite number.** The §SESS-51 targeted run compiled another thread's uncommitted
    `Core`/`Quid`/`FeeLib` work, so 112/0 is not a measurement of this change alone.
 3. **§SESS-49** (planner never quotes the 2-hop when a direct pool exists, ~23 bps at $1M) — still unbuilt.
+
+---
+
+## ✅ §SESS-52 — **`hubHopOf` DELETED. `_quoteOf` (now `_hubRowOf`) ALREADY HELD EVERY ROW IT DID.**
+
+Owner, 2026-09-07: *"hubhopof feels like a variable that should not exist and there are many such
+variables."* Correct, and the check was one grep I never ran. **Promoted to CLAUDE.md standing rule 23.**
+
+§SESS-51 deleted `_routeOf` (2 rows) and created `Aux.hubHopOf` to hold them — **while `_quoteOf`,
+twenty lines below in the same file, already held both of those rows and four more.** Two tables became
+two tables, plus a mapping, a setter, an event, an interface member, two offset constants, deploy
+seeding, and an `aux` parameter threaded through three functions. **Nothing was deleted.**
+
+| | `LevMath` | margin |
+|---|---|---|
+| before any of this | 23,846 | 730 |
+| §SESS-51 first attempt | 24,301 | **275** |
+| §SESS-51 lean | 23,936 | 640 |
+| **§SESS-52, one table** | **23,726** | **850** |
+
+⭐ **AND THE ARGUMENT I USED TO JUSTIFY THE SPLIT SURVIVES, POINTING THE OTHER WAY.** *"A floor whose
+reference is settable by the same key that sets the route is not a floor"* is an argument for the table
+being **COMPILE-TIME** — which it is, for both readers now. It was never an argument for a second,
+settable execution table; I used it as one.
+
+### 🔴 AND §SESS-24's JUSTIFICATION FOR THE SPLIT NO LONGER HOLDS — MEASURED, NOT ASSUMED
+With one table the four quote-only stables (USDT/DAI/USDG/crvUSD) become **executable**, which §SESS-24
+recorded as breaking `test_ProtectFromQuid_HostileOperatorNetsZero`. **That test now PASSES** — verified
+it actually ran (`[PASS]`, gas 12,356,436), as does its BTC counterpart, per standing rule 20. The four
+rows measure **4 / 1 / -1 / 0 bps flat to $1M**, each verified against `coins()`, so a slice that swaps
+at a measured-flat venue serves the LP better than one refunded mid-protect.
+⚠️ **The behaviour change is asserted head-on in `HubHopRoster.t.sol`, not hidden behind a second
+table.** If that assertion ever has to be weakened, the second table is being re-invented.
+
+### 📌 DESTALES THIS FORCED (rule 19, fixed in the same pass)
+- **`_quoteOf` → `_hubRowOf`.** The old name was quote-only when a second table held the executable
+  rows; it is now the ONE table, so the name had become a lie. **A stale name is worse than a stale
+  comment — it is what a grep returns.**
+- ⛔ **ONE LEFT, DELIBERATELY NOT FIXED: `lev_keeper.rs:965` still says `_hubHop` → `_quoteOf`.** That
+  file is **dirty with another thread's uncommitted work**, and editing it would mix my one-word change
+  into their diff — rule 14's failure mode. **Fix it when that lands, not before.**
+
+## 🔴 §SESS-53 — `test_E2_IncumbentLossDoesNotScaleWithTheMint` IS BLOCK-SENSITIVE, NOT CODE-CAUSED
+
+**Attributed by control, not by argument.** Same commit (`adf6a694`), same binary, two pins:
+| pin | result |
+|---|---|
+| 25919850 | **PASS** |
+| 25920058 | **FAIL** — `667916670000 >= 419039500000` |
+Gas is **identical (16,888,417)** at `adf6a694` and at my `HEAD`, so no execution path moved: it is not
+§SESS-46/47/50/51/52. **208 blocks changed the verdict.**
+
+⇒ **SAME CLASS AS §SESS-48's SLIP TEST**, and it should get the same treatment: it asserts a
+market-dependent quantity against a bound that only holds at some blocks. ⚠️ **Do NOT re-base the
+bound** (standing rule 4) — the message itself says the sibling bound *"is now hiding it"*, so the
+question is which dilution property is actually being claimed, expressed so it is falsifiable at ANY
+pin. ▶️ **NOT BUILT.** Booked with the measurement so it is not re-derived.
+📌 It also means **the tree has at least two market-sensitive assertions**, so a red suite must be
+attributed by pin before it is attributed to a change. That is now twice in two days.

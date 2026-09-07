@@ -89,7 +89,7 @@ contract QuidFillDesk {
     }
 
     /// @notice ⭐ **THE GUESS-FREE ARM: what this contract could get for itself, MEASURED, no constants.**
-    ///         `_selfServableQuote` walks `_quoteOf`'s rows through Curve `get_dy` at the size actually
+    ///         `_selfServableQuote` walks `_hubRowOf`'s rows through Curve `get_dy` at the size actually
     ///         being traded. **There is no tolerance, no slip curve and no tuned number in it** — it is a
     ///         live quote or it is 0.
     function floorQuoted(address give, uint256 amt, address want) public view returns (uint256) {
@@ -97,7 +97,7 @@ contract QuidFillDesk {
     }
 
     /// @notice The floor actually enforced: **the better of a live quote and the oracle arm.**
-    /// 🔑 **THE GUESS ONLY SURVIVES WHERE THERE IS NOTHING TO MEASURE.** Where `_quoteOf` has a row the
+    /// 🔑 **THE GUESS ONLY SURVIVES WHERE THERE IS NOTHING TO MEASURE.** Where `_hubRowOf` has a row the
     ///    floor is fully derived from live state; where it does not, we fall back to the oracle arm and
     ///    `_slipBps` is doing the work. ⇒ **the remaining guesswork is EXACTLY the volatile leg**, which
     ///    is §SESS-23's finding restated as a bound rather than a caveat.
@@ -184,7 +184,7 @@ contract FillerCallbackTest is AllesFixture {
         if (IV3c(pool).token0() == tin) w |= (uint256(1) << 247);
     }
 
-    /// ⭐ ①a — **THE GUESS-FREE CASE.** USDC→USDT has a `_quoteOf` row, so the floor is a LIVE Curve
+    /// ⭐ ①a — **THE GUESS-FREE CASE.** USDC→USDT has a `_hubRowOf` row, so the floor is a LIVE Curve
     ///    quote at the traded size: no tolerance, no slip curve, no tuned constant anywhere in it.
     function test_DerivedFloor_IsFullyMeasuredWhereAQuoteExists() public {
         _mkDesk();
@@ -201,7 +201,7 @@ contract FillerCallbackTest is AllesFixture {
         emit log_named_uint("bps of guesswork REMOVED", (q - o) * 10_000 / q);
     }
 
-    /// 🔴 ①b — **AND WHERE NO QUOTE EXISTS, THE GUESS IS WHAT BINDS.** USDC→WETH has no `_quoteOf` row
+    /// 🔴 ①b — **AND WHERE NO QUOTE EXISTS, THE GUESS IS WHAT BINDS.** USDC→WETH has no `_hubRowOf` row
     ///    (§SESS-23: the self-servable venues were deleted), so `_slipBps` is doing the work. This
     ///    asserts that fact rather than letting it hide.
     function test_DerivedFloor_TheGuessSurvivesOnlyOnTheVolatileLeg() public {

@@ -212,7 +212,7 @@ environment actually is*. Every line below was verified in-repo, not recalled.
     HOLDS THIS, AND WHY IS IT NOT ENOUGH?** Answer it in one sentence before writing the declaration.
     If the sentence needs a "but it would be nicer if…", the answer is that the existing thing is enough.
     *Worked example — this rule exists because I did it, 2026-09-06:* asked to *"delete the table"*, I
-    deleted `LevMath._routeOf` (2 rows) and **created `Aux.hubHopOf` to replace it — while `_quoteOf`,
+    deleted `LevMath._routeOf` (2 rows) and **created `Aux.hubHopOf` to replace it — while `_quoteOf` (since renamed `_hubRowOf`),
     a SIX-row table in the same file, already held both of those rows.** So the tree went from two
     tables to two tables, plus a mapping, a setter, an event, an interface member, two offset constants,
     deploy seeding, and an `aux` parameter threaded through three functions. **Nothing was deleted; a

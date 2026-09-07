@@ -19,8 +19,8 @@ contract HubHopCaller {
 /// @notice §SESS-52 — **ONE TABLE. `_routeOf` IS DELETED AND NOTHING REPLACED IT.**
 ///
 /// 🔴 **THE HISTORY IS THE POINT.** §SESS-51 deleted `_routeOf` (two rows) and created `Aux.hubHopOf`
-///    to hold them — **while `_quoteOf`, in the same file, already held both rows and four more.** The
-///    owner caught it from the variable name. `_hubHop` now reads `_quoteOf`, and the mapping, setter,
+///    to hold them — **while `_hubRowOf`, in the same file, already held both rows and four more.** The
+///    owner caught it from the variable name. `_hubHop` now reads `_hubRowOf`, and the mapping, setter,
 ///    event, interface member, two offset constants, deploy seeding and a threaded `aux` parameter are
 ///    all gone. See CLAUDE.md standing rule 23.
 contract HubHopRosterTest is AllesFixture {
@@ -70,8 +70,8 @@ contract HubHopRosterTest is AllesFixture {
         c.hop(address(0xBEEF), 1_000e6, true);
     }
 
-    // ⛔ NO "does the RLUSD row name the right pool" TEST HERE, AND NO `_quoteOfForTest` ACCESSOR TO
-    //    ENABLE ONE. `_quoteOf` is `private`, and `CurveTablePins.t.sol` ALREADY pins all six rows and
+    // ⛔ NO "does the RLUSD row name the right pool" TEST HERE, AND NO `_hubRowOfForTest` ACCESSOR TO
+    //    ENABLE ONE. `_hubRowOf` is `private`, and `CurveTablePins.t.sol` ALREADY pins all six rows and
     //    asserts the exclusions stay zero. Adding an accessor so this file could re-assert it would be
     //    standing rule 23's exact failure - a declaration that exists to serve a duplicate test.
 }
