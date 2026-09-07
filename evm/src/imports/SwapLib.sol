@@ -2291,7 +2291,7 @@ library SwapLib {
     ///   (Quid==address(this) IS authorized — `V4==Quid` in `Aux._requireUs`), and calls
     ///   `swapOutDeleverPooled` ONCE, which delivers the freed collateral as WETH to `recipient` (Quid,
     ///   which unwraps + sends). There is no loop and no per-LP iteration, so nothing "stops once the
-    ///   shortfall is covered" — the single repay is pre-bounded by `needUsd`. VALUE-NEUTRAL (the
+    ///   shortfall is covered" — the single repay is pre-bounded by `ask`. VALUE-NEUTRAL (the
     ///   swapper's input de-levers the pooled position; the keeper re-levers next tick); fault-tolerant
     ///   — both `try/catch`es emit `DeliverDeleverSkipped` and return a partial fill (#105) rather than
     ///   reverting the settle. @param px USD 1e18/WETH. @return deliveredEth to recipient.
@@ -2339,19 +2339,32 @@ library SwapLib {
         // ⇒ The pooled amounts come from the POOL directly: the stable is the venue's, and the
         //   repayable size is the shortfall bounded by what the pool actually owes.
         address stable = ILevVenue(venue).stable();
-        uint needUsd = SoladyMath.fullMulDiv(shortfallEth, px, 1e18);      // WETH → USD 1e18
+        uint ask = SoladyMath.fullMulDiv(shortfallEth, px, 1e18);      // WETH → USD 1e18
         uint poolDebtUsd = LevMath._toUsd18(aux, stable, ILevPooled(venue).totalDebt());
         uint amtNative = poolDebtUsd == 0 ? 0 : LevMath._fromUsd(aux, stable,
-                            needUsd > poolDebtUsd ? poolDebtUsd : needUsd);
+                            ask > poolDebtUsd ? poolDebtUsd : ask);
         if (amtNative == 0) return 0;   // venue == 0 already returned above
         uint fundUsd = LevMath._toUsd18(aux, stable, amtNative);
-        if (fundUsd > needUsd) fundUsd = needUsd;
+        if (fundUsd > ask) fundUsd = ask;
         if (fundUsd == 0) return 0;
+        // §STACK-REUSE — `ask` CHANGES UNITS HERE: USD-1e18 above this line, ETH WEI below it. The slot
+        // is reused deliberately and the reuse is FORCED. This file compiles with `via_ir = false`, and
+        // computing `shortfallEth · fundUsd / ask` inline at the nested `try` below puts `shortfallEth`
+        // out of reach — `Stack too deep`, which is exactly how this line came to exist. Binding a SIXTH
+        // local fails the same way; the only slot that costs nothing is one already on the stack whose
+        // last read is right here. ⛔ Do not "clean this up" into a fresh variable — that is the change
+        // that does not compile, and it looks like an improvement right up until you build.
+        // ⇒ The value: the native slice `fundUsd` stands for, from quantities already in hand — NO PRICE
+        //   READ. `fundUsd <= ask` (capped one line up), and `ask` was itself derived from
+        //   `shortfallEth`, so this scales DOWN and cannot exceed the shortfall.
+        ask = SoladyMath.fullMulDiv(shortfallEth, fundUsd, ask);
         // Source the swap's OWN proceeds into the venue, then repay the pool and free the matching
         // collateral in one manager call. try/catch preserved: a venue that cannot source must leave a
         // partial fill (#105), never revert the settle — and the skip is ANNOUNCED (§SILENT-SKIP).
         try IAux(aux).takeToSettle(venue, BasketLib.scaleTokenAmount(fundUsd, stable, false), stable) returns (uint) {
-            try ILevEthDeliver(mgr).swapOutDeleverPooled(venue, fundUsd, recipient, 0) returns (uint, uint w) {
+            // `ask` is ETH wei by this point, not USD — see §STACK-REUSE above.
+            try ILevEthDeliver(mgr).swapOutDeleverPooled(venue, fundUsd, recipient, 0, ask)
+                    returns (uint, uint w) {
                 deliveredEth = w;
             } catch { emit DeliverDeleverSkipped(venue, fundUsd, false); }
         } catch { emit DeliverDeleverSkipped(venue, fundUsd, true); }

@@ -620,6 +620,14 @@ contract LevManager is LevBase {
     ///         stable draw ⇒ NO backing hazard: withdraw up to `wethWanted`-worth of the net-equity collateral and
     ///         deliver it as WETH. The V4 curve already did the ETH→USD rebalance for the LP's range slice; `syncLev`
     ///         reconciles the shrunk net-equity; the keeper re-levers next tick. Gated to the range.
+    /// ⛔ NOT AN ORPHAN — DO NOT DELETE. `tools/check-orphans.py` reports this as dead and it IS dead by
+    ///    the letter: ZERO Solidity callers, ZERO tests. It stays anyway. The §POOL-VENUE collapse replaced
+    ///    the per-LP walk that used to route 0-debt LPs here, so the CALL SITE went away — the HOLE DID NOT.
+    ///    `swapOutDeleverPooled` still no-ops when the pooled position has no debt, and the unlevered
+    ///    net-equity is then priced in POOLED and undeliverable, which is precisely what this closes.
+    ///    Whether that 0-debt case is still REACHABLE under §POOL-VENUE is booked as §M.1 and is pending a
+    ///    fork test — until that test exists, deleting this silently reopens a money path. See the
+    ///    §STALE-BRANCH note at SwapLib.sol:2303 for how the call site disappeared.
     function swapOutDeliverUnlevered(address lp, uint256 wethWanted, address recipient, uint256 minWethOut)
         external nonReentrant returns (uint256 wethDelivered) {
         _onlyRange();          // range settle path only
@@ -668,7 +676,19 @@ contract LevManager is LevBase {
     ///      loudly here, not silently do something else.
     /// @param stableUsd USD 1e18 the range pre-transferred to the venue for the repay.
     /// @return usedUsd USD actually applied to the pool's debt. @return wethDelivered WETH to `recipient`.
-    function swapOutDeleverPooled(address venue, uint256 stableUsd, address recipient, uint256 minWethOut)
+    /// @param askNative the NATIVE (ETH-wei) amount `stableUsd` was derived from, passed down
+    ///        INSTEAD OF A PRICE. ⭐ **THE ORACLE READ THAT USED TO BE HERE IS GONE, BECAUSE THE
+    ///        PRICE CANCELS.** The caller converts an ETH shortfall to USD
+    ///        (`needUsd = shortfallEth·px/1e18`) and this used to convert it BACK
+    ///        (`usedUsd·1e18/px`) from a SECOND `getTWAPforAsset`. Scaling the native ask by the
+    ///        funded fraction — `askNative · usedUsd / stableUsd` — is identical to the wei.
+    ///        ⛔ Do not restore the read "for symmetry": two reads at two moments in one tx can
+    ///        disagree and the round trip absorbed the difference silently, and the old
+    ///        `px == 0` branch repaid the debt and delivered NOTHING. The remaining exposure is
+    ///        the single UPSTREAM read, which already BOUNDS the ask — so moving the price can
+    ///        only shrink what is asked for, never inflate what is withdrawn.
+    function swapOutDeleverPooled(address venue, uint256 stableUsd, address recipient,
+                                  uint256 minWethOut, uint256 askNative)
         external nonReentrant returns (uint256 usedUsd, uint256 wethDelivered) {
         _onlyRange();
         if (stableUsd == 0) return (0, 0);
@@ -676,12 +696,17 @@ contract LevManager is LevBase {
         uint256 repaid = ILevPooled(venue).repayPool(LevMath._fromUsd(address(AUX), stable, stableUsd));
         if (repaid == 0) return (0, 0);
         usedUsd = LevMath._toUsd18(address(AUX), stable, repaid);
-        // Free exactly the repaid VALUE of collateral: USD -> ETH at the anchor, ETH -> weETH at the
-        // ether.fi rate. `getWeETHByeETH` is the inverse of the `getEETHByWeETH` every valuation here
-        // uses, so the round trip cannot drift the two apart.
-        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
-        if (px == 0) return (usedUsd, 0);          // no anchor: repay stands, deliver nothing (never divide by 0)
-        uint256 freeWeeth = IWeETH(address(COLL)).getWeETHByeETH((usedUsd * 1e18) / px);
+        // Free exactly the repaid VALUE of collateral. The ETH->weETH leg still goes through the
+        // ether.fi rate — `getWeETHByeETH` is the inverse of the `getEETHByWeETH` every valuation
+        // here uses, so that round trip still cannot drift the two apart. What is gone is the
+        // USD->ETH leg: it re-read the anchor to undo a conversion the CALLER had already done.
+        if (askNative == 0) return (usedUsd, 0);   // nothing asked for: repay stands, deliver nothing
+        // Plain mul-div, not `fullMulDiv`: `askNative` is ETH wei and `usedUsd` is USD-1e18, so
+        // even at absurd sizes (1e9 ETH against $1e12) the product is ~1e57 against a 1.15e77
+        // ceiling. 512-bit math would cost bytecode on the contract with the least headroom in
+        // the tree to buy a bound that cannot bind.
+        uint256 freeWeeth = IWeETH(address(COLL))
+            .getWeETHByeETH((askNative * usedUsd) / stableUsd);
         uint256 got = ILevPooled(venue).withdrawPool(freeWeeth);
         if (got > 0) wethDelivered = LevMath.collToWethDeliver(got, recipient, minWethOut, _extractCfg());
     }
