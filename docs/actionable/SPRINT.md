@@ -54282,3 +54282,34 @@ code):**
 📌 **`CurveObserverIsCheapAndSane` WAS A CENSUS "CHECK BY HAND" HIT AND IS LIVE**
 (`evm/test/CurveObserverIsCheapAndSane.t.sol`). Recorded as evidence the bucket earns its keep:
 under either of the old suppression rules it would have been silently mis-answered.
+
+## §SESS-COMMENTS-4 — **`len % 32 == 4` IS A VACUOUS BOUND, AND IT IS ON NINE MORE ENCODERS.** (2026-09-07)
+
+§SESS-54 (`2edccfe7`) fixed the five-token `requestSwapOutOnchain` encoder and pinned its test to an
+EXACT length. ⚠️ **The assertion that failed to catch it is still in use nine more times.**
+
+🔴 **WHY IT CANNOT CATCH AN ARITY BUG.** `assert_eq!(cd.len() % 32, 4)` says only "4-byte selector
+plus a whole number of words". **An extra ABI token adds exactly 32 bytes, which leaves the
+remainder at 4.** So the assertion passes identically for the right arity and for any wrong one. It
+is not a weak check — with respect to arity it is a check of NOTHING.
+
+📌 **THE SITES, all `quid-ln/quid-hop/src/evm_codec.rs`** (encoder in parentheses):
+`:1254` (`encode_emit_dead_man_exit`) · `:1323` (`encode_open_channel`) · `:1326`
+(`encode_record_close`) · `:1340` (`encode_splice`) · `:1409`
+(`encode_deliver_swap_out_onchain`) · `:1547` (`encode_open_channel`) · `:1562` (`encode_splice`) ·
+`:1575` (`encode_record_close`). Plus the same shape at `quid-ln/quid-bridge/src/lev_keeper.rs:1092`
+(`(d.len() - 4) % 32 == 0`).
+
+▶️ **THE FIX IS NOT "PIN THE EXACT LENGTH" HERE.** Unlike `requestSwapOutOnchain`, every one of
+these encoders has DYNAMIC parameters (an `OpenParams` tuple, `bytes`, `ExitArming[]`), so total
+length legitimately varies with input. **What is fixed for each is the HEAD WORD COUNT** — assert
+that, i.e. the offset the first dynamic tail is written at. Two tests in the file already do exactly
+this and are the model: `splice_calldata_layout` asserts word1 == 0xA0 (5 head words) and the
+deadman test asserts word1 == 0x60 (3 head words). ⇒ Give every encoder test that assertion; an
+extra token moves the offset and cannot hide.
+
+⛔ **AND DO NOT READ A CLEAN `tools/check-client-abis.py` AS COVERAGE FOR THIS.** It reported
+"0 drifted" throughout, and correctly: it matches declared SIGNATURES against `evm/out`, and the
+signature was never wrong — the drift was in the TOKEN LIST the encoder built. **The gate cannot
+see arity-in-encoding at all, by construction.** Same trap shape as the documented
+`check-orphans.py` one: a green check that was never looking at the thing.
