@@ -24,14 +24,15 @@ import {Shares} from "./Shares.sol";
 import {Core} from "./Core.sol";
 import {Aux} from "./Aux.sol";
 
-/// EthVenue — the ETH yield-venue custody (AAVE WETH + ether.fi weETH) carved out
-/// of Aux. Quid routes its WETH venue ops here. rangeETH() is still read via AUX
-/// (a thin forwarder), so only the WRITE ops (rangeOp/supply*/offramp/arb) re-point.
-/// IL-protect fee lane: Quid reads the LevManager through the Vault's already-secure 
-/// needs NO new trust surface of its own (Quid renounces ownership at setup). 
-// `netEquityEth(lp)` is the LIVE net-of-debt equity the levered slice is sized to.
+/// Quid — THE ETH RANGE MANAGER, and the ETH yield-venue custody with it. The venue is
+/// ether.fi weETH, held by this contract; `rangeETH()` is still read through AUX (a thin
+/// forwarder), so only the WRITE ops (rangeOp/supply*/offramp) live here.
+/// IL-protect fee lane: Quid reads the LevManager pinned by `Shares.setLevManager`, so it
+/// needs NO new trust surface of its own (Quid renounces ownership at setup).
+// `grossCollateral(lp)`/`totalNetEquity()` are the LIVE net-of-debt reads the levered slice
+// is sized to.
 
-    // §E252 — the THIRTEEN shared range-state declarations moved to `State` (Shares.sol).
+    // §E252 — the shared range-state declarations live on `Shares` (Shares.sol), not here.
     // They were byte-identical in both managers; the merge aligns STORAGE LAYOUT, which is the
     // precondition for one implementation with two instances. No bytecode changes: state emits none.
 contract Quid is Shares,
@@ -51,10 +52,10 @@ contract Quid is Shares,
     //
     //  Standing rule 8c, and the same trade §E346 measured on `onlyUs` (316 bytes back over SIX
     //  sites) and §E164 on `BTCChannels._onlyHop` (200 over four). `Quid` uses `nonReentrant` at
-    //  NINE (was twelve; §OOR-BOOK-DELETED removed `outOfRange`, `pull` and `fillOOR`): reseat,
-    //  transfer, transferFrom, deposit, mint, redeem, withdraw, collectFees, compound. Each
-    //  carried its own copy of an SLOAD, a comparison, the
-    //  `"REENTRANCY"` revert and TWO SSTOREs. One routine each way and twelve jumps instead.
+    //  TEN sites: fillIntent, reseat, transfer, transferFrom, deposit, mint, redeem, withdraw,
+    //  collectFees, compound. Each carried its own copy of an SLOAD, a comparison, the
+    //  `"REENTRANCY"` revert and TWO SSTOREs. One routine each way, and a jump in and out at
+    //  each site, instead.
     //
     //  WHY IT COULD NOT BE DONE BY OVERRIDING: solmate declares `uint256 private locked = 1`, so a
     //  derived contract cannot read it and cannot write the split modifier. The base had to go.
@@ -87,7 +88,7 @@ contract Quid is Shares,
     Basket QUID; Aux AUX;
 
     // ════════════════════════════════════════════════════════════════════════════════════════
-    //  §ETHVENUE-FOLD — the ETH yield venue IS this contract. `EthVenue` is deleted.
+    //  §ETHVENUE-FOLD — the ETH yield venue IS this contract; there is no separate venue address.
     //
     //  It was carved out of `Vault` for a good reason: `Vault` was ETH-VENUE CUSTODY and BTC RANGE
     //  ACCOUNTING fused, and `Quid`'s real counterpart is the BTC-range slice, not the whole of
@@ -98,11 +99,6 @@ contract Quid is Shares,
     //  means every member exists on BOTH; ETH venue custody has NO BTC counterpart, because BTC
     //  custody is Lightning channels and not 4626 venues. That asymmetry is real, so this state
     //  stays on the ETH side however the range managers merge.
-    //
-    //  WHAT THE FOLD DELETES, which is why it fits: three of the five immutables (`RANGE` is now
-    //  `this`; `AUX` and `WETH` already existed here), all eight `msg.sender != address(RANGE)`
-    //  gates, the `IEthVenue` external-call stubs on this side, the standing WETH approval that
-    //  existed only so a separate address could pull, and one deployable contract.
     // ════════════════════════════════════════════════════════════════════════════════════════
 
     // ether.fi — fixed mainnet contracts. It is the ONLY ETH yield venue: `QuidLib.supplyVenueBody`
@@ -199,10 +195,9 @@ contract Quid is Shares,
     }
 
     /// @notice OFFRAMP a withdrawal: weETH → WETH, delivered to `recipient`.
-    /// @dev    This said *"the ether.fi SLICE of a withdrawal"* until 2026-09-05, which reads as a
-    ///         partial. It is not one — `_withdraw` states it in place: *"Every exit is an ether.fi
-    ///         exit: all ETH is weETH, so the slice IS the withdrawal"* (`ethfiPart = amount`). The
-    ///         word invited sizing logic for a split that does not exist.
+    /// @dev    NOT a SLICE of a withdrawal — the WHOLE of one. `_withdraw` states it in place:
+    ///         *"Every exit is an ether.fi exit: all ETH is weETH, so the slice IS the withdrawal"*
+    ///         (`ethfiPart = amount`). ⛔ Do not add sizing logic for a split that does not exist.
     function offrampEtherFi(uint amount, address recipient) public returns (uint served) {
         return QuidLib.offrampBody(amount, recipient, _etherfiCfg());
     }
@@ -248,17 +243,13 @@ contract Quid is Shares,
         return QuidLib.withdrawETH(_ethCfg(), _etherfiCfg(), token, amount, to);
     }
 
-    /// @notice ETH-yield accounting. Single venue (Morpho 4626 wethVault
-    /// — see Aux.wethVault). The previous per-venue maps (lpShares/
-    /// feesPerShare/bookmark indexed by a uint8 tag, plus the
-    /// lpVenue[user] selector and the VENUE_MORPHO constant) were
-    /// scaffolding for a multi-venue future that hasn't materialized;
-    /// every keyed access was uniformly `[VENUE_MORPHO]`. Collapsed to
-    /// plain uints. If multi-venue support is ever needed, the
-    /// mapping form can be re-introduced.
+    /// @notice ETH-yield accounting against the ONE venue — ether.fi weETH, held by this
+    /// contract and valued in `rangeETH()`. `lpShares`/`feesPerShare`/`bookmark` are plain
+    /// uints rather than per-venue maps because there is exactly one venue to key on; if
+    /// multi-venue support is ever needed, the mapping form comes back with it.
     uint public bookmark;
 
-    /// @notice SEPARATE accumulator for VENUE (Morpho WETH) appreciation, distinct from the
+    /// @notice SEPARATE accumulator for VENUE (ether.fi weETH) appreciation, distinct from the
     ///         CORE-trading-fee `feesPerShare`. Venue yield is funded ONLY by PLAIN LP deposits (the
     ///         lev slice's capital lives in the external lev venue; the buffer is range depth), so it
     ///         accrues over PLAIN depth (`lpShares - totalLevPooled`) and is paid on weight
@@ -291,10 +282,10 @@ contract Quid is Shares,
     ///         it without stranding basket USD. Bounded by the LP's own debt by construction (`levAddBuf`
     ///         sizes it to the buffer collateral at the range price, capped at debtUsd).
 
-    /// @notice Bumped whenever the range ticks RECENTER (repack/reseat in `_rebalance`). A reseat realizes the
-    ///         range's IL and moves the ticks, so the IL-protect re-anchors its `syncKeyPx`/`E0` when this
-    ///         advances past a position's recorded epoch — otherwise the sold-fraction would be measured
-    ///         across a tick-config change and mis-hedge.
+    /// A reseat realizes the range's IL and moves the ticks, so the IL-protect must re-anchor its
+    /// `syncKeyPx`/`E0` across one. The signal is the RANGE BOUNDS themselves — `LevMath.reanchorCompute`
+    /// re-anchors iff the position's `syncKeyPx` now sits OUTSIDE `[lower, upper]` — so there is no
+    /// counter here to read or to desynchronise.
 
 
     // CORE.POOLED() = principal + ALL compounded fees (even unclaimed)
@@ -315,8 +306,8 @@ contract Quid is Shares,
     }
 
     // BTC LP accounting (autoManaged/lpShares/feesPerShare/USD_FEES/
-    // btcFeesOwedSats + UPPER_TICK_BTC/LOWER_TICK_BTC) lives entirely in
-    // BtcVault.sol — Quid is the ETH vault; its helpers are ETH-only now.
+    // btcFeesOwedSats) lives entirely on the BTC range manager, `Vault.sol`
+    // — Quid is the ETH vault; its helpers are ETH-only now.
 
 
   
@@ -416,7 +407,7 @@ contract Quid is Shares,
     /// six copies in bytecode for one rule. Moving the body into a `private view` leaves the
     /// modifier as one `JUMP` per site and the rule as one routine — the same trade §E164 measured
     /// on `BTCChannels`, where `_onlyHop()` gave back 200 bytes over four sites.
-    /// ⚠️ Deliberately NOT done by rewriting the six signatures to call `_onlyUs()` in their bodies:
+    /// ⚠️ Deliberately NOT done by rewriting the guarded signatures to call `_onlyUs()` in their bodies:
     /// that moves the guard from the DECLARATION into the body, where a later edit can reorder it
     /// after a state read. The modifier keeps the guard positionally first by construction and the
     /// saving is identical — what costs bytes is the body being copied, not the modifier existing.
@@ -463,11 +454,6 @@ contract Quid is Shares,
         return _pendingFor(user);
     }
 
-    /// @dev Shared body for ETH/BTC pending rewards. Picks the right
-    ///      LP mapping + fee accumulators based on isBTC. ETH yield is
-    ///      from the ETH venue; BTC LPs earn USD fees only (no native
-    ///      BTC yield source — feesPerShare holds V4 trading fees in
-    ///      WBTC raw).
     /// @dev Refresh LP's fee bookmarks against current per-share accumulators.
     ///      Called whenever LP.pooled changes (deposit, withdraw, reward
     ///      settlement) to mark the LP as up-to-date through this point.
@@ -506,7 +492,7 @@ contract Quid is Shares,
     /// @dev Settle pending rewards. `mintRecipient == address(0)` accumulates
     ///      usd into `LP.usd_owed` (deposit-side semantics); non-zero mints
     ///      outstanding USD to that address (withdraw-side). Tok reward
-    ///      always compounds into LP.pooled + lpShares (or BTC variant).
+    ///      always compounds into LP.pooled + lpShares.
     function _settlePending(Types.Deposit storage LP,
         address user, address mintRecipient) internal {
         if (LP.pooled == 0) return;
@@ -532,7 +518,7 @@ contract Quid is Shares,
         // TRADING fees (CORE): gross range-depth weight (buffer IS real CORE depth).
         (tokReward, usdReward) = SwapLib.pendingFor(LP, LP.pooled + levBuf[user], feesPerShare, USD_FEES);
         // VENUE yield: PLAIN weight only. The lev slice earns its own yield via the
-        // LevManager, not this Morpho position, so crediting it here would skim plain LPs.
+        // LevManager, not this weETH position, so crediting it here would skim plain LPs.
         uint venueOwed = _venueAccrued(user, LP.pooled);
         if (venueOwed > venueBm[user]) tokReward += venueOwed - venueBm[user];
     }
@@ -567,10 +553,7 @@ contract Quid is Shares,
     ///     past-free withdraw crystallizes the whole in-range lever (full-close, not partial — that IS the
     ///     opt-in). `closeLevFor` stays gated to the GOV-pinned RANGE OR GOV, and `closeLev`'s
     ///     LP-only msg.sender gate is untouched.
-    ///     **CORRECTED 2026-07-26 — this comment previously read "PRIMITIVE BUILT, INLINE WIRING DEFERRED"
-    ///     and listed two blocking forks. That text outlived the code and is what caused #109 to be tracked as
-    ///     in_progress while it was in fact shipped** (the exact "anchor claims to HEAD, never to comments"
-    ///     trap the build-queue STANDING LAW names). For the record, the two forks resolved as: (a) minOut —
+    ///     The two design forks it opened are settled: (a) minOut —
     ///     the inline call passes `0`, deliberately, because the slice is closed at the LP's own request during
     ///     THEIR withdraw, and the swap is bounded by the venue's own oracle/LTV rather than a caller floor;
     ///     (b) re-entrancy — `closeLevFor`'s flash callback re-enters `syncLev` under this contract's
@@ -588,43 +571,36 @@ contract Quid is Shares,
     ///      stack (no via_ir): the LP's pro-rata share of the PLAIN venue balance. Returns the ETH
     ///      actually sent to `recipient`.
     ///
-    /// 🔴 §C25 — **THE `- inPool` SUBTRACTION IS DELETED. IT WAS THE ASYMPTOTE.** This read
-    ///      `excess = min(shortfall, vaultShare > inPool ? vaultShare - inPool : 0)` with
-    ///      `inPool = CORE.POOLED()`, described as *"capped by what POOLED can't already cover"*.
-    ///      **It subtracted a POOL-WIDE balance from an LP-SPECIFIC slice of a DIFFERENT pot.**
-    ///      `vaultShare` is this LP's pro-rata claim on the EXTERNAL venue
-    ///      (`_venueBalance` = `rangeOp(0,2)` − lev net-equity, i.e. the 4626 vaults); `inPool` is
-    ///      the whole range's ETH. For any LP whose venue slice is smaller than the entire pool
-    ///      balance — nearly always, and MORE so on each successive exit as `amount` shrinks —
-    ///      `excess` was 0 and the venue leg delivered nothing at all.
-    ///      ⇒ That is the measured tail: `ChopIsBenign` clears ~4% of the remaining claim per
-    ///      `withdraw`, the per-exit ratio RISING toward 1 (0.937 → 0.971), so a full exit costs
-    ///      ~63 transactions. The residual after ONE call is by design (venue illiquidity is a
-    ///      recoverable deferral); the RATE was the defect, exactly as §C25 states.
+    /// 🔑 §C25 — **EXACTLY TWO BOUNDS, AND EACH CARRIES ONE OF THE TWO GUARANTEES:**
+    ///      • FAIRNESS is `vaultShare` — this LP's pro-rata claim on the EXTERNAL venue
+    ///        (`_venueBalance` = `rangeOp(0,2)` − lev net-equity, i.e. the 4626 vaults), scaled by
+    ///        `amount / plainDepth`. The call site's own note is the argument: *"`amount` ≤
+    ///        `plainDepth`, so the share never over-delivers"*. No first-out advantage exists.
+    ///      • SOLVENCY is `QuidLib.sendEth` behind `_sendETH`, which sources on-hand ETH → WETH →
+    ///        `rangeOp(·,1)` (a real venue withdraw) → de-lever, and **returns what it ACTUALLY
+    ///        delivered**. A request the venue cannot source comes back short and is re-credited as
+    ///        `pooled`, which is the deferral this path is built around. Delivery is therefore sized
+    ///        by what the venue can SOURCE rather than by a fraction of a shrinking request —
+    ///        §C25's own prescription.
     ///
-    /// ⭐ **AND THE COVER IT CLAIMED WAS ALREADY APPLIED ONE LEVEL UP.** `_withdraw` computes
+    /// ⛔ **DO NOT CAP THIS BY A POOL-WIDE BALANCE** — e.g. `vaultShare > CORE.POOLED() ?
+    ///      vaultShare − CORE.POOLED() : 0`, "capped by what POOLED can't already cover". **That
+    ///      subtracts a POOL-WIDE balance from an LP-SPECIFIC slice of a DIFFERENT pot**: `vaultShare`
+    ///      is the venue claim, `CORE.POOLED()` is the whole range's ETH. For any LP whose venue
+    ///      slice is smaller than the entire pool balance — nearly always, and MORE so on each
+    ///      successive exit as `amount` shrinks — `excess` is 0 and the venue leg delivers nothing at
+    ///      all. That is an ASYMPTOTE: ~4% of the remaining claim cleared per `withdraw`, the
+    ///      per-exit ratio RISING toward 1 (0.937 → 0.971), so a full exit costs ~63 transactions.
+    ///      **And the cover such a cap claims is ALREADY APPLIED ONE LEVEL UP:** `_withdraw` computes
     ///      `deliverable = AUX.deliverableETH()`, burns `min(amount, deliverable)`, and only then
     ///      forms `shortfall = amount − sent`. **`shortfall` IS "what POOLED could not cover"**, so
-    ///      subtracting the pool again double-counted it.
+    ///      subtracting the pool again double-counts it.
     ///
-    /// 🔑 **NEITHER BOUND THIS REMOVES WAS LOAD-BEARING, and both survive elsewhere:**
-    ///      • FAIRNESS is `vaultShare` itself — the pro-rata cap on the venue, which stays. The call
-    ///        site's own note is the argument: *"`amount` ≤ `plainDepth`, so the share never
-    ///        over-delivers"*. No first-out advantage is created by removing `- inPool`.
-    ///      • SOLVENCY is `QuidLib.sendEth`, which sources on-hand ETH → WETH → `rangeOp(·,1)`
-    ///        (a real venue withdraw) → de-lever, and **returns what it ACTUALLY delivered**. A
-    ///        request the venue cannot source comes back short and is re-credited as `pooled`, which
-    ///        is the deferral this path is built around. Delivery is therefore sized by what the
-    ///        venue can SOURCE rather than by a fraction of a shrinking request — §C25's own
-    ///        prescription.
-    ///
-    /// ⚠️ **UNVERIFIED AGAINST A RUN AT THE TIME OF WRITING** (rule 15 — the batch is deliberately
-    ///      unbuilt). **Falsifiable prediction, stated before the run per rule 10:**
-    ///      `test_RunSim_IL_Baseline_ChopIsBenign` currently fails on a **0.990386 ETH** residual
-    ///      against a 0.05 tolerance. If this diagnosis is right that residual collapses on the
-    ///      FIRST withdraw; if it merely improves the per-exit ratio, the proportional cap was only
-    ///      part of it and `deliverableETH` binds too. **The test must NOT be loosened either way**
-    ///      (rule 4 — §C25 leaves it failing on purpose).
+    /// ⚠️ A residual after ONE call is BY DESIGN — venue illiquidity is a recoverable deferral, and
+    ///      the RATE, not the residual, was the defect. **`test_RunSim_IL_Baseline_ChopIsBenign` must
+    ///      NOT be loosened** if it fails on that residual (rule 4 — §C25 leaves it failing on
+    ///      purpose). A residual that merely SHRINKS per exit, rather than collapsing on the FIRST
+    ///      withdraw, means `deliverableETH` binds too and the fix is upstream of this frame.
     function _deliverVenueShortfall(uint amount, uint shortfall, uint plainDepth, address recipient)
         private returns (uint excess) {
         uint venueBal = _venueBalance();
@@ -647,7 +623,8 @@ contract Quid is Shares,
     ///
     ///      Paid as QU!D against dollars the burn just freed into the basket: the SAME shape as
     ///      the `usd_owed` fee leg (`_settlePending`), hence backed 1:1 by construction.
-    ///      RETURNS `paidEth` — the ETH-EQUIVALENT of the QU!D just paid. `_withdraw`'s ledger is
+    ///      The USD leg is returned as its ETH-EQUIVALENT (`_payUsdLeg`'s `ethEquiv`) and folded
+    ///      into `sent`, because `_withdraw`'s ledger is
     ///      ETH-DENOMINATED and its ONE invariant is *pooled debited == value delivered*; its
     ///      `shortfall` re-credit exists for a SINGLE cause, venue illiquidity, which is temporary
     ///      and recoverable. Paying part of the claim in a SECOND asset gives "undelivered" a
@@ -709,8 +686,8 @@ contract Quid is Shares,
     }
 
     function _withdraw(uint amount, address recipient) internal {
-        // LENIENT: LP withdrawal SHRINKS POOLED_USD (Core lines
-        // 512-513) → shrinks committedSum → heals over-commit. Allow
+        // LENIENT: LP withdrawal SHRINKS POOLED_USD (via `Core.modLP`)
+        // → shrinks committedSum → heals over-commit. Allow
         // the repack attempt to run but don't gate the exit on its
         // success. Tradeoff: first-out LPs are made whole at the
         // expense of remaining-LP backing share. Accepted for liveness:
@@ -721,17 +698,16 @@ contract Quid is Shares,
         // full-2×: self-heal a levered position seized by an EXTERNAL venue liquidation BEFORE this LP extracts
         // value — reconciles the (possibly stale) levered slice to the live gross so the withdrawal cap
         // (`pooled − levPooled`) and fee accrual use post-seizure truth, not vanished backing.
-        // 🔴 **THE `levPooled[msg.sender] > 0` GATE IS DELETED, AND IT WAS CIRCULAR.** It read the STALE
-        //    MIRROR to decide whether to refresh the stale mirror: a position whose mirror wrongly says
+        // ⛔ **DO NOT GATE THIS ON `levPooled[msg.sender] > 0`. THAT IS CIRCULAR:** it reads the STALE
+        //    MIRROR to decide whether to refresh the stale mirror, so a position whose mirror wrongly says
         //    zero — a prior seizure that zeroed the net leg while the venue still holds a claim, or an
-        //    `openLev` not yet synced — could never correct itself, because the only thing that would
-        //    correct it was gated on the value that was wrong. A guard cannot use the quantity it is
+        //    `openLev` not yet synced — can never correct itself, because the only thing that would
+        //    correct it is gated on the value that is wrong. A guard cannot use the quantity it is
         //    protecting as its own predicate.
-        // ⇒ Call it UNCONDITIONALLY. The venue side is already a live accumulator (`collateralOf` and
+        // ⇒ It is called UNCONDITIONALLY. The venue side is already a live accumulator (`collateralOf` and
         //    `debtOf` are pro-rata slices of the pool, so interest and seizures reach every LP with no
-        //    per-LP bookkeeping); the only thing that was ever stale is this range's mirror of it, and
-        //    the only thing that was stopping the mirror from tracking it was this gate. Now a withdraw
-        //    at ANY time crystallises against live truth, no matter when the LP last moved.
+        //    per-LP bookkeeping); the only thing that can be stale is this range's mirror of it. So a
+        //    withdraw at ANY time crystallises against live truth, no matter when the LP last moved.
         //    Cost is the all-zero fast path in `_reconcileLev` — three SLOADs for an LP with no lever.
         _reconcileLev(msg.sender);
         Types.Deposit storage LP = autoManaged[msg.sender];
@@ -898,10 +874,10 @@ contract Quid is Shares,
         // basket-USD fees, identical to the prior per-withdraw mint, just deferred to full exit.
         if (LP.pooled == 0 && LP.usd_owed > 0) {
             uint owed = LP.usd_owed; LP.usd_owed = 0;
-            // §A.57/C5: `usd_owed` is 6-dec; QU!D is 18-dec. This was the FOURTH sibling of the same
-            // mint and the ONLY one missing the scale-up (cf. `_settlePending:439`,
-            // `BtcLib.settleBtcLp:57`, `settleDelivered:74`). Without it, an LP whose fees were
-            // DEFERRED by a partial exit and who then FULLY exits was paid 1e-12 of the leg.
+            // §A.57/C5: `usd_owed` is 6-dec; QU!D is 18-dec. This is the FOURTH sibling of the same
+            // mint (cf. `_settlePending`, `BtcLib.settleBtcLp`, `settleDelivered`) and was the ONLY
+            // one missing the scale-up. Without it, an LP whose fees were DEFERRED by a partial exit
+            // and who then FULLY exits was paid 1e-12 of the leg. `_mintQuid` now owns the ×1e12.
             _mintQuid(recipient, owed);
         }
         _onExit(LP, msg.sender);
@@ -916,9 +892,6 @@ contract Quid is Shares,
                         address user) internal {
         if (LP.pooled == 0) {
             delete autoManaged[user];
-            // Hygiene: clear the per-LP venue attribution so a stale residual
-            // (e.g. a partial-fill offramp leaving ethfiBacked > 0) can't
-            // mis-route a later re-deposit's exit venue.
             // Defensive: a fully-exited position carries no buffer depth (levBurnAll
             // already zeroed it on close); clear any residual so totalBuffer stays exact.
             if (levBuf[user] > 0) { totalBuffer -= levBuf[user]; delete levBuf[user]; }
@@ -934,8 +907,8 @@ contract Quid is Shares,
         }
     }
 
-    /// @dev The 7-arg in-range modLP in its own frame so _depositImpl stays within
-    ///      the legacy stack (no via_ir crutch). Mirrors Vault._modLpBtc.
+    /// @dev The in-range modLP in its own frame so _depositImpl stays within
+    ///      the legacy stack (no via_ir crutch). The BTC side keeps its own copy in `BtcLib`.
     /// §V4-RESIDUE (2026-08-18) — `spotPrice`/`loPrice`/`upPrice` DELETED, same three as
     /// `_burnInRange`: `CORE.modLP` takes deltas and a pledge, and never read them.
     function _modLpEth(uint deltaETH, uint deltaUSD, address pledge) private {
@@ -1013,9 +986,9 @@ contract Quid is Shares,
         if (amount == 0 && 
          msg.value == 0) return;
 
-        // _repack MUST run before _depositETH so that _syncYield reads
-        // the pre-deposit balance. Otherwise the deposit is
-        // misattributed as yield, inflating ETH_FEES.
+        // The rebalance MUST run before _depositETH so the venue-yield sync inside
+        // `QuidLib.rebalanceBody` reads the PRE-deposit venue balance. Otherwise the
+        // deposit is misattributed as yield, inflating the fee accumulators.
         Types.Deposit storage LP = autoManaged[pledge];
         _rebalance();   // §V4-RESIDUE 2026-08-18: called for its EFFECT (repack/re-centre); every returned
                         // value became unused when the v4 price bounds left the burn path. Do NOT delete the call.
@@ -1062,17 +1035,18 @@ contract Quid is Shares,
         }
         // Re-sync the yield bookmark to the REALIZED aggregate venue balance
         // (NOT `+= amount`): for multi-venue / ether.fi deposits the staked or
-        // supplied value can differ from `amount` by dust, and `_syncYield` would
-        // otherwise book that delta as pro-rata yield. Runs for fully-paired
+        // supplied value can differ from `amount` by dust, and the next rebalance's
+        // venue-yield sync would otherwise book that delta as pro-rata yield. Runs for fully-paired
         // deposits too (the previous code only reset on the unpaired branch).
         bookmark = _venueBalance();
     }
 
     /// @dev Live PLAIN-venue ETH balance for the venue-yield sync + withdrawal delivery. `rangeOp`
-    ///      op=2 returns rangeETH -- ALL plain venues (weETH/AAVE/idle) PLUS the lev net-equity. SUBTRACT the lev net-equity so this is the
+    ///      op=2 returns rangeETH -- the plain venue (weETH, plus idle WETH/eETH) PLUS the lev net-equity. SUBTRACT the lev net-equity so this is the
     ///      pure plain-venue value: the lev collateral earns its own yield via the LevManager, so
     ///      including it would (a) skim plain LPs' venue yield and (b) make a lev open/close appear
-    ///      as fake venue yield in _syncYield. No-op when no leverage (totalNetEquity == 0).
+    ///      as fake venue yield in the rebalance's venue sync. No-op when no leverage
+    ///      (totalNetEquity == 0).
     /// §FOLD-VENUEBAL — ONE DEFINITION. This body and `QuidLib._venueBalanceLib` were the same four
     /// statements, and they must agree: the two are read on the SAME quantity (plain venue depth net of
     /// the levered slice) by the compound path here and the rebalance path there. A drift between them
@@ -1093,7 +1067,7 @@ contract Quid is Shares,
     // only shrink LVR, so dropping them yields a SMALLER, safer θ.)
     // K = the LVR coefficient (annual LVR_rate = K·σ²). NO HARDCODE: K is NOT a free constant — for a
     // concentrated-liquidity range it is a CLOSED-FORM function of the range's own geometry, computed LIVE
-    // from the on-chain ticks in `_kLvrWad()` below. The earlier 0.71/2.24 sim-fit constants are gone.
+    // from the on-chain ticks by `kLvrWad()` below (body in `QuidLib.kLvrWad`).
     /// @notice The LIVE LVR coefficient K (WAD) for the pool's current range — read the real, dynamic
     ///         number (front-end / probe / monitoring). 0 ⇒ range unset/degenerate (caller fails open).
     ///         Body in QuidLib (EIP-170 headroom); range ticks passed in.
@@ -1120,36 +1094,29 @@ contract Quid is Shares,
 
     /// @notice The range's current spot √P (Q96) — the leverage records this as its `syncKeyPx` at open so
     ///         `soldFractionWad` can measure the IL from the true range price (not the oracle).
-    /// @dev NO isBTC ARGUMENT, deliberately. Quid is the ETH range manager, so it reads the ETH pool
-    ///      — full stop. It previously FORWARDED the caller's flag, meaning `rangePrice(true)` returned
-    ///      the BTC pool's price from the ETH contract, while `Vault.rangePrice` IGNORED the same flag
-    ///      and always read BTC. Two implementations disagreeing about one parameter is a silent
+    /// @dev ⛔ NO isBTC ARGUMENT, AND DO NOT ADD ONE. Quid is the ETH range manager, so it reads the
+    ///      ETH pool — full stop; `Vault.rangePrice` is the BTC twin and reads BTC. A flag either side
+    ///      FORWARDED would let `rangePrice(true)` return the BTC pool's price from the ETH contract
+    ///      while the twin ignored it. Two implementations disagreeing about one parameter is a silent
     ///      mis-pricing waiting on a range mis-wiring: it returns the wrong asset's price rather than
-    ///      reverting. Each side now names its own asset and cannot be asked for the other's.
+    ///      reverting. Each side names its own asset and cannot be asked for the other's.
     function rangePrice() external view returns (uint priceWad) {
         return _corePrice();
     }
 
     /// @notice θ derived live: yield / (K·σ²), clamped to ≤1. Body in QuidLib
-    ///         (EIP-170 headroom); range ticks + Core/Aux handles passed in.
+    ///         (EIP-170 headroom); range ticks + the Core handle passed in.
+    /// ⚠️ THE CORE IS A PARAMETER, NOT A CONSTANT, AND THAT MATTERS. `QuidLib.derivedThetaWad` reads
+    ///    `ICore(core).realizedVarianceWad()`, so a range handed ANOTHER range's Core gets that ring's
+    ///    variance applied to its own price bounds. θ throttles range depth by the range's OWN
+    ///    volatility; mixing the two is wrong in both directions and SILENT — it returns a plausible
+    ///    number either way. Each range passes its own `CORE`, and Quid passes the ETH instance.
     function derivedThetaWad() public view returns (uint) {
         return QuidLib.derivedThetaWad(address(CORE), _lo(), _hi());
     }
 
-    /// @notice θ for an EXPLICIT range range. The BTC range ticks live in the Vault (LOWER_TICK_BTC/
-    ///         UPPER_TICK_BTC), so it passes them in here -- Quid stays the single home of the range-θ
-    ///         math for BOTH pools, and the Vault needs no QuidLib link of its own.
-    /// 🔴 §ISBTC-SPLIT — THE CORE IS A PARAMETER NOW, AND THAT IS A BUG FIX, not tidying. This
-    ///         took a `bool isBTC` it NEVER READ and always used `address(CORE)` -- Quid's own core,
-    ///         the ETH instance. `derivedThetaWad` reads `ICore(core).realizedVarianceWad()`, so the
-    ///         BTC range was getting theta from the ETH ORACLE'S VARIANCE applied to BTC's price
-    ///         bounds. Theta throttles range depth by the range's OWN volatility; mixing the two is
-    ///         wrong in both directions and silent -- it returns a plausible number either way.
-    ///         Harmless while one Core held both rings; wrong the moment they became two instances.
-    ///         Quid stays the single home of the range-theta math (the Vault still needs no QuidLib
-    ///         link); it just has to be told WHOSE ring to measure.
-
-    /// @notice Annualized realized variance (WAD) from Core's oracle ring. Body in QuidLib.
+    /// @notice Annualized realized variance (WAD) — forwarded straight to this range's Core, which
+    ///         owns the oracle ring.
     function realizedVarianceWad() public view returns (uint) {
         return CORE.realizedVarianceWad();   // §E59: ONE source — Core reads its own ring
     }
@@ -1212,7 +1179,7 @@ contract Quid is Shares,
     ///            ⚠️ THIS IS THE ONLY STORAGE, AND IT IS WRITTEN AT FILL, NEVER AT REST. A resting
     ///            order costs the chain nothing and reveals nothing.
     ///         3. the SIGNATURE — the OWNER authorises, so a fully-compromised keeper holds no key
-    ///            that moves funds. Plain `ecrecover` (`SwapLib.sol:1181`), NOT
+    ///            that moves funds. Plain `ecrecover` (in `SwapLib.fillIntentBody`), NOT
     ///            `SignatureCheckerLib`: §B7 records that `lpEth` is derived from the channel key,
     ///            so an LP is necessarily that key's EOA and a smart-wallet LP is not expressible.
     ///            Carrying ERC-1271 costs ~2 KB of `Quid` for a case the design has ruled out. If
@@ -1229,15 +1196,6 @@ contract Quid is Shares,
     ///         while `POOLED_*`, shares and backing stayed unchanged until the owner happened to
     ///         call `pull`. The protocol was blind in between. It carries the owner's `loadBalance`
     ///         consent for exactly the reason an in-range swap does (§E308).
-    /// @dev    🔴 **FOUR STACKED `@notice` BLOCKS WERE COLLAPSED INTO THE ONE ABOVE (2026-09-05).**
-    ///         Three superseded rewrites had accreted here, each re-opening *"⭐ THE … OUT-OF-RANGE
-    ///         MECHANISM"*, and **the oldest CONTRADICTED the other three on a security-relevant
-    ///         fact**: it said *"`SignatureCheckerLib` accepts an EOA or an ERC-1271 smart wallet,
-    ///         so this does not exclude the smart-wallet holders §E183 narrowed toward."* The body
-    ///         uses bare `ecrecover`, so a smart-wallet maker is refused — the opposite of what the
-    ///         first block a reader meets promised. Only the last block reached NatSpec, which is
-    ///         why this survived: the contradiction was invisible to every tool and to any reader
-    ///         who stopped at the first paragraph.
     /// @param routes ONE aggregator route per basket stable, RELAYER-SUPPLIED AND UNSIGNED — the
     ///        maker cannot know at signing time which venue will be deepest at fill time, and should
     ///        not have to. Only used on a SELL whose named stable the basket cannot fully cover:
@@ -1251,21 +1209,13 @@ contract Quid is Shares,
         (int usdDelta, int volDelta, uint wantUsd6) = SwapLib.fillIntentBody(
             intentUsed, i, sig, address(CORE), address(AUX), address(WETH), _oorDomain());
         if (wantUsd6 > 0) usdDelta = _settleSellIntent(i, wantUsd6, routes);
-        // §INTENT-FUNDING-LEG — the gate that stood here is GONE because the hole it covered is
-        // closed: `fillIntentBody` now spends the maker's basket claim through `AUX.spendClaim`
-        // BEFORE deriving either leg, and `usdDelta` is what that burn realised rather than what
-        // was asked for.
-        // 🔴 **DESTALED — THE SELL LEG IS BUILT, AND THIS SAID IT WAS NOT.** It read *"The SELL
-        //    direction is still unbuilt and reverts inside the body (`IntentSellLegUnbuilt`) — its
-        //    settlement shape is `_withdraw`'s, not `settleOor`'s."* **`IntentSellLegUnbuilt` has
-        //    ZERO occurrences in `evm/src` outside that sentence** — it is not a declared error and
-        //    nothing raises it — while `_settleSellIntent` is implemented below, called on the line
-        //    above whenever `wantUsd6 > 0`, with `_convertShortfall` wired into it. And the shape
-        //    claim was wrong too: it settles through `settleOor` like the buy leg, by SHRINKING the
-        //    maker's claim on ether that never moves (`volDelta` stays 0), which is exactly what
-        //    `_settleSellIntent`'s own docblock explains.
-        // ⚠️ This is the worst-shaped stale in the file: a comment saying "unbuilt" about working
-        //    code makes a reader skip the code rather than re-read it.
+        // §INTENT-FUNDING-LEG — NO GATE IS NEEDED HERE: `fillIntentBody` spends the maker's basket
+        // claim through `AUX.spendClaim` BEFORE deriving either leg, so `usdDelta` is what that burn
+        // actually realised rather than what was asked for.
+        // THE SELL LEG SETTLES THROUGH `settleOor` EXACTLY LIKE THE BUY LEG: `_settleSellIntent`
+        // (below, called on the line above whenever `wantUsd6 > 0`, with `_convertShortfall` wired
+        // into it) SHRINKS the maker's claim on ether that never moves, so `volDelta` stays 0 and
+        // only `usdDelta` carries the fill. Its own docblock has the detail.
         CORE.settleOor(i.owner, usdDelta, volDelta, i.loadBalance);
         emit IntentFilled(i.owner, i.nonce, i.size, i.limitPx, i.buyVolatile);
         return true;
@@ -1356,9 +1306,8 @@ contract Quid is Shares,
 
     event IntentFilled(address indexed owner, uint64 indexed nonce, uint size, uint limitPx, bool buyVolatile);
 
-    // _distributeV4Fees + _calcYield folded into QuidLib.rebalanceBody (their ONLY caller was _rebalance; the
-    // APY `yield` _calcYield computed was already discarded there). The token-canonical reorder + fee-increment
-    // distribution now live in the library body; LAST_REPACK is stamped by the _rebalance forwarder.
+    // The token-canonical reorder + fee-increment distribution live in `QuidLib.rebalanceBody`;
+    // `LAST_REPACK` is stamped by the `_rebalance` forwarder below.
 
     /// @dev Thin forwarder: the venue-routing body lives in QuidLib (EIP-170
     ///      headroom). Delegatecall preserves msg.value/address(this), so the WETH
@@ -1391,17 +1340,15 @@ contract Quid is Shares,
         // ETH to pull = usdWanted·eth/(usd6·1e12); _burnInRange caps at POOLED. ZERO oracle dependency — so a
         // dead TWAP no longer zeroes the unwind, and the mixed USD/ETH release no longer under-delivers.
         //
-        // 🔴 **DESTALED — "RELEASES EXACTLY `usdWanted`" IS FALSE WHENEVER LPs HOLD AN INCREMENT.** This read
-        //    *"Removing the fraction `usdWanted/(usd6·1e12)` of the position releases EXACTLY `usdWanted` USD …
-        //    This frees precisely what redemption asks (no over/under-free)."* The SIZING here uses `usd6`
-        //    (`_corePooledUsd6()`, the WHOLE USD leg); the RELEASE is sized by `SwapLib.burnInRange` as
-        //    `basketUsd·pulled/pooled` — the BASKET's own share. The two agree only when `usd6 == basketUsd`.
+        // ⚠️ **THIS DOES NOT RELEASE EXACTLY `usdWanted`, AND MUST NOT BE DOCUMENTED AS IF IT DID.** The
+        //    SIZING here uses `usd6` (`_corePooledUsd6()`, the WHOLE USD leg); the RELEASE is sized by
+        //    `SwapLib.burnInRange` as `basketUsd·pulled/pooled` — the BASKET's own share. The two agree
+        //    only when `usd6 == basketUsd`.
         //    ⇒ With an LP increment present the unwind frees `usdWanted · basketUsd/POOLED_USD`, i.e. it
         //    **UNDER-frees**, and the increment is the NORMAL state: the fee mint passes `basketLeg = false`,
         //    so `POOLED_USD` grows without `basketUsd` (correctly — fees are LP-owned).
-        // ✅ **NOTHING DOWNSTREAM IS MISLED, WHICH IS WHY THIS WAS SURVIVABLE:** `usdFreed` below is measured
-        //    as the real `usd6` delta, not assumed equal to `usdWanted`, so `BasketLib` sees the true smaller
-        //    figure. The defect was the CLAIM, not the number.
+        // ✅ **NOTHING DOWNSTREAM IS MISLED:** `usdFreed` below is measured as the real `usd6` delta, not
+        //    assumed equal to `usdWanted`, so `BasketLib` sees the true smaller figure.
         // ✅ **AND IT IS THE REASON A REDEMPTION WAVE CANNOT TOUCH LP-OWNED DOLLARS** (checked 2026-09-05):
         //    `usdOut <= basketUsd` by construction, so `_poolUsdInRange`'s burn arm always takes the
         //    `usdAmount` branch of `min(basketUsd, usdAmount)` and BOTH legs fall by the same amount — the
@@ -1412,9 +1359,10 @@ contract Quid is Shares,
         uint freed6 = usd6 > after6 ? usd6 - after6 : 0;
         usdFreed = freed6 * 1e12;
         // §SESS-18 — A REDEMPTION SHEDS RANGE INVENTORY, SO IT IS FLOW. `flowEwmaUsd` is `skewWad`'s
-        // `target`, and until now only `_handleSwap` raised it — so a redemption wave consumed the
-        // range and left `target` decaying, making the pool read as over-stocked exactly when it was
-        // being emptied. MEASURED at live inputs: `inv/target` 4.54 and a 0-bps drain toll (§SESS-16).
+        // `target`, and `Core._bumpFlow` (its ONE call site is inside `Core.swap`) raises only the
+        // SWAP leg — so without this a redemption wave consumed the range and left `target` decaying,
+        // making the pool read as over-stocked exactly when it was being emptied. MEASURED at live
+        // inputs: `inv/target` 4.54 and a 0-bps drain toll (§SESS-16).
         // ⚠️ The REALISED delta, not `usdWanted`: the block above records that this UNDER-frees by
         //    `basketUsd/POOLED_USD` whenever LPs hold an increment, and the increment is normal.
         if (freed6 != 0) CORE.bumpRedeemFlow(freed6);
@@ -1447,8 +1395,8 @@ contract Quid is Shares,
     }
 
     // ─── ICore — the ETH range's face (see docs/actionable/IRANGE-THE-RANGE-MANAGER-FACE.md) ───
-    // `Core` used to branch on `IS_BTC` to reach one of two managers for each of these. The facts
-    // differ per range, so they live in the range, and `Core` asks one interface.
+    // The facts differ per range, so they live in the range and `Core` asks ONE interface for all
+    // of them — no per-range branching on the caller's side.
 
     /// @notice This range's leverage manager. `totalDebtUsd` is shared; only the LOOKUP differed.
     function levManager() external view returns (address) {
@@ -1465,8 +1413,8 @@ contract Quid is Shares,
     ///         gross buffer term belongs. The BTC side adds one, for the mirror-image reason.
     function sharesForShortfall() external view returns (uint) { return totalShares(); }
 
-    /// @notice REAL inventory, never just the in-pool token: in-range POOLED plus AAVE/ether.fi
-    ///         venue retention plus idle. Comparing raw POOLED over-fired the shortfall arb on
+    /// @notice REAL inventory, never just the in-pool token: in-range POOLED plus the ether.fi
+    ///         venue retention plus idle. Comparing raw POOLED over-fires the shortfall arb on
     ///         off-range retention.
     function realInventory() external view returns (uint) { return _auxRangeETH(); }
 
@@ -1485,16 +1433,14 @@ contract Quid is Shares,
         return _sendETH(amount, who);
     }
 
-    /// @notice Sync Morpho wethVault appreciation into the per-LP fees
-    /// accumulator. NOT an aToken-era artifact — the bookmark/feesPerShare
-    /// pattern is what attributes 4626 share appreciation to LPs (since
-    /// the share count is fixed at Aux, only the per-share value moves;
-    /// LPs don't hold shares directly, they hold a `pooled` claim
-    /// against the shared Aux position). Removing this would leave
-    /// Morpho appreciation unclaimable by LPs.
-    // _syncYield folded into QuidLib.rebalanceBody (its ONLY caller was _rebalance). The plain-venue
-    // appreciation accrual over PLAIN depth into venueFeesPerShare is unchanged; `_venueBalance` (below) STAYS
-    // because _withdraw/_depositImpl also call it.
+    /// @notice Sync ether.fi weETH appreciation into the per-LP fees accumulator. The
+    /// bookmark/feesPerShare pattern is what attributes that appreciation to LPs: the weETH
+    /// balance is fixed between deposits and only its ETH value moves, and LPs do not hold
+    /// weETH directly — they hold a `pooled` claim against the shared position. Removing
+    /// this sync would leave venue appreciation unclaimable by LPs.
+    // The accrual itself runs inside `QuidLib.rebalanceBody`, off the `_rebalance` forwarder below:
+    // plain-venue appreciation over PLAIN depth into `venueFeesPerShare`. `_venueBalance` (below)
+    // stays on Quid because `_withdraw`/`_depositImpl` call it directly.
 
     /// @dev The delivery ladder itself lives in `QuidLib.sendEth` (E32: it was 777
     ///      RUNTIME bytes against a hard EIP-170 deficit, and it is called from only
@@ -1512,37 +1458,34 @@ contract Quid is Shares,
     // ════════════════════════════════════════════════════════════════
 
 
-    /// @notice ETH (isBTC=false) is the live entrypoint; the wrapper keeps the
-    ///         `bool isBTC` shape so the same calls and the JIT/repack flow read
-    ///         identically to the pre-library code. The SHARED skeleton (range
-    ///         read, TWAP manipulation guard, CORE.repack, JIT-defense collect)
-    ///         lives in SwapLib.rebalanceCore; only the ETH-only steps stay
-    ///         here: the Morpho _syncYield pre-sync, the _calcYield post-metric
-    ///         (LAST_REPACK + avgYield), and the per-pool fee reorder/distribute.
-    /// @dev Thin forwarder: the fee/yield harvest cluster (_syncYield + rebalanceCore + _calcYield/
-    ///      _distributeV4Fees) moved to QuidLib.rebalanceBody (delegatecall — EIP-170; relocates the inlined
-    ///      rebalanceCore). It mutates only value-type accumulators, returned as increments/flags applied here.
-    ///      Byte-identical: same ordering (_syncYield reads venue balance BEFORE rebalanceCore), same arithmetic;
-    ///      the discarded `_calcYield` APY return is dropped. `_venueBalance` STAYS (its other callers use it).
+    /// @notice Thin forwarder to `QuidLib.rebalanceBody` (delegatecall — EIP-170 headroom). The
+    ///         SHARED skeleton (range read, TWAP manipulation guard, CORE.repack, JIT-defense
+    ///         collect) is `SwapLib.rebalanceCore`, inlined inside that body; the ETH-only steps
+    ///         around it are the venue-yield pre-sync, the LAST_REPACK stamp, and the per-pool fee
+    ///         reorder/distribute.
+    /// @dev The body mutates only value-type accumulators, returned as increments/flags and applied
+    ///      here. ⚠️ ORDERING IS LOAD-BEARING: the venue-yield sync reads the venue balance BEFORE
+    ///      `rebalanceCore` runs, or a repack's own movement is booked as venue appreciation.
+    ///      `_venueBalance` stays on Quid (its other callers use it).
     function _rebalance() internal returns (uint spotPrice,
         uint loPrice, uint upPrice, uint myLiquidity, uint resolvedTwap) {
         QuidLib.RebalOut memory o = QuidLib.rebalanceBody(QuidLib.RebalIn({
             core: address(CORE), aux: address(AUX), ev: address(this), weth: address(WETH),
             lpShares: lpShares, totalLevPooled: totalLevPooled,
             totalBuffer: totalBuffer, loPrice: _lo(), upPrice: _hi(), bookmark: bookmark}));
-        venueFeesPerShare += o.venueFeesPerShareInc;             // _syncYield accrual
+        venueFeesPerShare += o.venueFeesPerShareInc;             // venue-yield accrual
         bookmark = o.newBookmark;
-        feesPerShare += o.feesPerShareInc; USD_FEES += o.usdFeesInc; // _distributeV4Fees
+        feesPerShare += o.feesPerShareInc; USD_FEES += o.usdFeesInc; // pool-fee distribution
         
-        if (o.setLastRepack) LAST_REPACK = block.timestamp;      // _calcYield's live effect
+        if (o.setLastRepack) LAST_REPACK = block.timestamp;      // the APY clock
         RANGE_ANCHOR = o.spotPrice;   // §ONE-ANCHOR: store the anchor; the range derives from it
         return (o.spotPrice, o.loPrice, o.upPrice, o.myLiquidity, o.resolvedTwap);
     }
 
     /// @notice Repack the ETH pool's in-range LP position when it drifts
-    ///         outside the LP range. The `bool` arg is retained only for the
-    ///         Core IQuidRepack interface (BtcVault repacks the BTC
-    ///         pool); Quid is ETH-only. Returns the post-repack pool state.
+    ///         outside the LP range. Takes NO arguments: Quid is ETH-only, and
+    ///         `Vault.repack()` is the BTC twin behind the same Core-facing
+    ///         signature. Returns the post-repack pool state.
     function repack() public onlyUs returns (uint spotPrice,
         uint loPrice, uint upPrice, uint myLiquidity, uint resolvedTwap) {
         return _rebalance();
@@ -1558,17 +1501,6 @@ contract Quid is Shares,
         _rebalance();
     }
 
-    // §E347 — `paddedSqrtPrice` DELETED (rule 1: unreachable code goes). It was a `public pure`
-    // forwarder to `SwapLib.paddedSqrtPrice` with ZERO callers anywhere: `evm/src`, `evm/test`,
-    // `evm/script`, `spa/`, `quid-ln/` and `tools/` contain the identifier only at SwapLib's own
-    // definition, and the selector `0x60fd0b8d` appears nowhere either (the control for a
-    // call-by-raw-selector, which a name grep would miss). `Vault` never had a counterpart, so this
-    // was an asymmetric leftover of §DE-TICK rather than a deliberate marker.
-    // WHY IT WAS WORTH THE BYTES: `SwapLib.paddedSqrtPrice` is `internal`, so its body — including
-    // TWO `FixedPointMathLib.sqrt` expansions — was INLINED here, and nothing else in `Quid` pulls
-    // solady's `sqrt` in. Deleting the wrapper takes the whole sqrt routine with it.
-
-
 
     // ════════════════════════════════════════════════════════════════
     //          ERC-20 TRANSFER FACE + NATIVE LP ENTRYPOINTS
@@ -1579,13 +1511,9 @@ contract Quid is Shares,
     // PRESERVED EXACTLY — this layer adds standard ERC-20 transfer/
     // approve plus the deposit/redeem entrypoints.
     //
-    // THE ERC-4626 IDENTITY IS HERE, with the state it describes. It was split to
-    // `VEth.sol` on the premise that Quid manages both asset classes; that was
-    // measured false (no BTC state, and nothing ever supplied the `isBTC`
-    // arguments), so the projection was an indirection over a distinction that
-    // did not exist. `asset`, `totalAssets`, `convertTo*`, `preview*`, `max*`,
-    // `name`, `symbol` and the ERC-20 mutators all sit below, over the same
-    // `autoManaged[].pooled` / `lpShares` they have always described.
+    // THE ERC-4626 IDENTITY IS HERE, with the state it describes: `asset`, `totalAssets`,
+    // `convertTo*`, `preview*`, `max*`, `name`, `symbol` and the ERC-20 mutators all sit
+    // below, over the same `autoManaged[].pooled` / `lpShares` they have always described.
     //
     // Yield attribution preservation invariant:
     //   On any transfer, BOTH parties' pending rewards are settled
@@ -1613,26 +1541,22 @@ contract Quid is Shares,
     event Withdraw(address indexed sender, address indexed receiver,
                    address indexed owner, uint assets, uint shares);
     
-    // BtcLpFeesOwed event regrouped into BtcVault.sol.
-    /// @notice ERC-20 balance = LP's principal in pool. This is the
-    /// already-compounded value; pending rewards (not yet credited)
-    /// are revealed via previewRedeem / pendingRewards.
     // ─── THE vETH TOKEN FACE — 4626 identity and ERC-20, both HERE ────────────────
-    // §J.2b/§J.2c split this out to `VEth` on the premise that "Quid manages BOTH asset
-    // classes, so a single-asset 4626 on it would be dishonest". THAT PREMISE WAS MEASURED
-    // FALSE (2026-08-15): Quid declares NO BTC state — not one `Btc`/`BTC` member. Its
-    // `isBTC` arguments were pass-throughs to QuidLib math bodies, and NOTHING supplied
-    // them. Quid is, and was, the ETH range manager; `rangePrice` already said so in its own
-    // docblock while the comments here said the opposite.
+    // The face lives on the contract that owns the balances it describes, not on a separate
+    // token address projecting through a call boundary. Quid declares NO BTC state — not one
+    // `Btc`/`BTC` member — so a single-asset 4626 sits honestly on it, and nothing here needs
+    // a pin, a one-shot setter, a `msg.sender ==` gate or a share-transfer trampoline. The
+    // ERC-20 `allowance` below is held by the contract that owns the balances it approves.
     //
-    // So the face returns to the state instead of projecting through a call boundary. That
-    // deletes the whole span the split needed to exist: the `VETH` pin, its one-shot setter,
-    // `VEthPinned`, the `msg.sender == VETH` gate, and `transferSharesFor` — a trampoline
-    // whose only job was letting the projection reach `_transferShares`. The allowance is no
-    // longer stranded on a contract that owns none of the balances it approves.
+    // ⚠️ THIS IS NOT THE `VBtc` CASE, and the discriminator is WHETHER AN ERC-20 UNDERLYING
+    // ALREADY EXISTS. On the ETH side one does — WETH — so `asset()` names it and this range
+    // IS the 4626 outright. The BTC range's underlying is LN-custodied native BTC with no EVM
+    // token, so it must MINT the synthetic underlying it points `asset()` at; that is `VBtc`,
+    // and `VBtc.sol`'s header is the record of why it survives.
     //
     // The ENTRYPOINTS (`deposit`/`mint`/`withdraw`/`redeem`) remain the protocol's native LP
-    // API below, carrying the per-deposit `venue` selector and the payable ETH path.
+    // API below, carrying the payable ETH path. There is no venue argument: every ETH deposit
+    // becomes weETH (see `QuidLib.supplyVenueBody`).
 
     string public constant name   = "QU!D Quid ETH LP";
     string public constant symbol = "vETH";
@@ -1641,7 +1565,7 @@ contract Quid is Shares,
     function asset() external view returns (address) { return address(WETH); }
 
     /// @notice Total ETH-equivalent backing all LP positions: principal + ALL accrued
-    ///         CORE/Morpho fees, claimed or not. Deliberately `rangeETH()` RAW, NOT
+    ///         CORE/venue fees, claimed or not. Deliberately `rangeETH()` RAW, NOT
     ///         `_pricingBacking()`, which restates the levered book onto the denominator's
     ///         clock for SHARE PRICING (§A.16b); the conversions below carry that
     ///         restatement, so applying it here too would double-count it.
@@ -1660,21 +1584,17 @@ contract Quid is Shares,
     function maxMint(address) external pure returns (uint) { return type(uint).max; }
     function previewDeposit(uint assets) external view returns (uint) { return convertToShares(assets); }
     function previewMint(uint shares) external view returns (uint) { return convertToAssets(shares); }
-    // §E295 — **THE REDEMPTION-SIDE 4626 ACCESSORS ARE DELETED: THEY DESCRIBED AN ASYNC FLOW AS
-    // SYNCHRONOUS.** `redeem`/`withdraw` reach `_withdraw`, whose own comment is the finding — *"4626
-    // path defaults to WAIT (no forced haircut)"* — so a redemption may DEFER. ERC-7540 requires
-    // `preview*` to REVERT on an async flow for exactly this reason; ours returned a number.
-    //   `maxRedeem` claimed the owner's WHOLE balance was redeemable and `previewRedeem` named an
-    // exact asset amount, while capacity gating can defer both. **That is rule 3's inverse: the
-    // failure was SILENT and produced plausible-but-wrong output**, which is the class of check that
-    // earns its place — or, having none to make, the accessor that must go.
-    // ⇒ **THE DEPOSIT SIDE IS UNTOUCHED AND THAT ASYMMETRY IS THE POINT.** `_deposit4626` mints
-    // immediately, so `previewDeposit`/`previewMint`/`maxDeposit`/`maxMint` describe a genuinely
-    // SYNCHRONOUS flow and are honest 4626. **It was never "both faces deny it" — it is the
-    // redemption half, and which half is decided by which side defers.**
-    // ⚠️ SAFE TO DELETE, CONTROLLED: zero references in `spa/src` and `quid-ln` — and the CONTROL is
-    // that the same search DOES find `redeem` and `totalSupply` there, so it can see client usage
-    // where it exists. `check-client-abis.py` is the gate and was run.
+    // §E295 — ⛔ **DO NOT ADD `maxRedeem` OR `previewRedeem`. THE REDEMPTION SIDE IS ASYNC AND THEY
+    // WOULD DESCRIBE IT AS SYNCHRONOUS.** `redeem`/`withdraw` reach `_withdraw`, whose own comment is
+    // the finding — *"4626 path defaults to WAIT (no forced haircut)"* — so a redemption may DEFER.
+    // ERC-7540 requires `preview*` to REVERT on an async flow for exactly this reason. A `maxRedeem`
+    // claiming the owner's WHOLE balance is redeemable, or a `previewRedeem` naming an exact asset
+    // amount, is plausible-but-wrong output from a SILENT failure — the class of accessor that must
+    // not exist rather than lie.
+    // ⇒ **THE DEPOSIT SIDE IS PRESENT AND THAT ASYMMETRY IS THE POINT.** `_deposit4626` mints
+    // immediately, so `previewDeposit`/`previewMint`/`maxDeposit`/`maxMint` (above) describe a
+    // genuinely SYNCHRONOUS flow and are honest 4626. Which half gets accessors is decided by which
+    // side defers, and clients are checked against this by `check-client-abis.py`.
 
     mapping(address => mapping(address => uint)) public allowance;
     event Transfer(address indexed from, address indexed to, uint value);
@@ -1724,7 +1644,7 @@ contract Quid is Shares,
 
     /// @dev Pricing backing: `rangeETH` with the levered book restated onto the SAME CLOCK as the
     ///      denominator. `rangeETH` adds `totalNetEquity()` read LIVE from the venues
-    ///      (`QuidLib:150`), but the matching term inside `lpShares` is `totalLevPooled`, which is
+    ///      (`QuidLib._rangeETH`), but the matching term inside `lpShares` is `totalLevPooled`, which is
     ///      STORED and only refreshed by `_reconcileLev`/`syncLev` — i.e. on the levered LP's own next
     ///      action. Live numerator over lazy denominator is the whole defect (§A.16b): an external
     ///      Morpho liquidation cut the numerator instantly while the denominator still carried the
@@ -1818,9 +1738,9 @@ contract Quid is Shares,
     /// §E347 — `mint` IS `deposit` PLUS A FLOOR. The two bodies were the same five statements
     /// (zero-receiver check, pre-balance snapshot, `_depositImpl`, share delta, `Deposit` event);
     /// only the conversion in front and the `mint:short` floor behind differed, so the shared five
-    /// are called instead of copied. `_deposit4626` returns exactly the `actualShares` this used to
-    /// compute, and emits exactly the same `Deposit(msg.sender, receiver, assets, actualShares)`.
-    /// ⚠️ The event now fires BEFORE the floor check rather than after. That is not observable: a
+    /// are called instead of copied. `_deposit4626` returns the realised share delta and emits
+    /// `Deposit(msg.sender, receiver, assets, shares)` off that same delta.
+    /// ⚠️ The event fires BEFORE the `mint:short` floor check, not after. That is not observable: a
     /// revert discards the whole log set, so the only trace either ordering can leave is the
     /// successful one, where both orderings emit the identical event.
     /// ⚠️ The redundant `receiver != 0` check is NOT kept "for safety" (rule 1) — `_deposit4626`
@@ -1829,8 +1749,8 @@ contract Quid is Shares,
         assets = convertToAssets(shares);
         // 4626-compliance: mint must yield AT LEAST the requested shares.
         // If the caller's allowance/balance falls short, _depositImpl pulls
-        // less than `assets` and actualShares < shares — revert to surface
-        // the underdelivery rather than silently returning a stale `assets`.
+        // less than `assets` and `_deposit4626` returns fewer shares than asked —
+        // revert to surface the underdelivery rather than returning a stale `assets`.
         require(_deposit4626(assets, receiver) >= shares, "mint:short");
     }
 
@@ -1927,7 +1847,7 @@ contract Quid is Shares,
     /// `test_E45_…` re-declares it. They have now gone out of step twice.
     /// It does NOT need to carry a RESEAT: `_rebalance()` is repack-first on the
     /// SWAP path too, so the range is recentred inside the swapper's own tx and a later crank never
-    /// finds an out-of-range range (verified — 30 trades at 4x size left `reseatEpoch` unmoved).
+    /// finds an out-of-range range (verified — 30 trades at 4x size left the range bounds unmoved).
     /// The tip is still `min(gasprice, COMPOUND_MAX_GASPRICE) x this`, GRIEF-CAPPED at half the
     /// harvest, so over-sizing can never take more than that cap; under-sizing costs liveness
     /// always, which is the asymmetry that argues for the headroom.
@@ -1943,8 +1863,8 @@ contract Quid is Shares,
     ///         LP always keeps the majority), unwrapped from the JUST-HARVESTED WETH (in-flight — no
     ///         idle WETH is ever held). Below the floor ⇒ keeper-safe no-op:
     ///         the fees stay pending and compound later (a bigger crank, or when the LP itself touches
-    ///         its position). Backing-consistent: `pooled` grows by exactly `tokR − tipSent`, and
-    ///         exactly `tipSent` WETH leaves, so `pooled` ↔ backing stays matched.
+    ///         its position). Backing-consistent: `pooled` grows by exactly `tokR − sent` and exactly
+    ///         `sent` leaves as the cranker's tip, so `pooled` ↔ backing stays matched.
     function compound(address lp) external nonReentrant {
         Types.Deposit storage LP = autoManaged[lp];
         if (LP.pooled == 0) return;                  // nothing to compound — keeper-safe no-op
