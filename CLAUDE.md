@@ -296,6 +296,29 @@ environment actually is*. Every line below was verified in-repo, not recalled.
     opener converts a quoted FALSE claim into an asserted true one. This was done once here and
     caught only on re-read.
 
+    ### 🔴 FINISH WHAT YOU START BEFORE STARTING THE NEXT THING (owner, 2026-09-07: *"make sure
+    nothing ever gets left half done (standing rule). never continue to another task before finish
+    previous"*). **A half-done task is worse than an untouched one**: it looks handled, it is booked
+    as if it were, and the next reader cannot tell a finished result from an abandoned one.
+    ⇒ **A task is DONE when it is measured, committed, and its booking says what it actually shows.**
+    Not when the interesting part is over.
+    ⚠️ **THE FAILURE MODE IS DRIFT, NOT LAZINESS — AND IT IS INVISIBLE FROM THE INSIDE.** Measured on
+    2026-09-07, in one session: an owner asked for refill manipulation-resistance; that surfaced a
+    `px` round trip (finished, `304ad9c9`), which produced an algebraic-elimination candidate list —
+    of which **only the DEAD-CODE half was worked and the CONVERSION half was silently dropped**;
+    the session then went to an OOM, a lint config, an RPC throttle, a slip-budget measurement and a
+    variance harness, each one a REAL blocker for the one before it, and the owner had to ask *"i
+    thought you got rid of px and found other algebraic elimination"* to surface the gap. **Every
+    individual hop was justified. The aggregate was abandonment.**
+    ⇒ **Before opening a new thread of work, say out loud what the previous one's terminal state
+      is** — landed, booked-open with a named next step, or explicitly dropped with a reason. If it
+      is none of those, it is not finished and the new thread waits.
+    ⛔ **A BLOCKER IS NOT PERMISSION TO SWITCH SUBJECTS.** Fixing the blocker IS the current task;
+       when it clears, return to what it was blocking rather than to whatever the blocker suggested.
+    📌 **AND SAY WHEN YOU PARK SOMETHING.** A measurement abandoned after N failed hypotheses is a
+       legitimate outcome — but it must be reported as *parked with the hypotheses ruled out*, never
+       left to look pending. Silence reads as "still in progress" forever.
+
     ### 🔴 DELETE AND FOLD AS MANY FUNCTIONS AS POSSIBLE — THE TIGHTEST SOLIDITY WINS (owner,
     2026-09-07: *"we need to delete and fold as many functions as possible to have the tightest
     possible solidity (standing rule)"*). This is not tidiness. **EIP-170 is the binding constraint
