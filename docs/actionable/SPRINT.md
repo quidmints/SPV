@@ -97789,3 +97789,45 @@ use `minOut` and `MAX_SLIPPAGE_BPS`, and an LP-chosen `minOut` on their OWN exit
 owner than a keeper-chosen one; **(c)** whether a WBTC-mode exit may touch the shared swap-out
 proceeds pool at all, or must settle entirely inside the position. ⛔ Do NOT build it before (c):
 `BTCChannels.sol:477-496`'s cross-LP-theft argument is about exactly this boundary.
+
+## §FULL-SUITE-2026-09-07 — 1,056 passed / 23 failed, and ALL 23 ARE ENVIRONMENTAL
+
+Clean rebuild (`forge clean`, 0 compiler errors) then the whole suite at `FORK_BLOCK=25928228`:
+**179 suites, 1,079 tests, 1,056 passed, 23 failed, 0 skipped, 436.70s.**
+🔴 **THE TOTAL IS A FLOOR, NOT A TOTAL** — CLAUDE.md's three contamination checks all fire:
+**16 `setUp` failures** and **69 RPC/env error lines**. Quoted only with that attached.
+
+▶️ **EVERY FAILURE CLASSIFIED, because "23 failed" is unusable otherwise:**
+| n | class | evidence |
+|---|---|---|
+| **19** | Ankr **429**, `call rate limit exhausted, retry in 10m0s` | the 429 body is in the failure string itself |
+| **2** | **RPC pressure wearing `EvmError: Revert`** — `DeployPool.t.sol`, `PassportVerifierRegistry.t.sol` | **both PASS in isolation: 1/1 and 7/7.** A bare revert under load is not a defect |
+| **2** | **THE 1INCH API KEY IS DEAD** — `ConvertToRouted.t.sol` | see below |
+| **0** | real code failures | — |
+
+⚠️ **THE THROTTLE FLAGS WERE ON AND WERE NOT ENOUGH.** `--compute-units-per-second 100
+--fork-retries 10 --fork-retry-backoff 1000` is the incantation this file prescribes, and a 179-suite
+run still exhausted the key. ⇒ **The flags fix a TARGETED run; a full pinned suite needs more headroom
+than one free-tier key has.** Do not read a 429 tail as a regression, and do not re-run hoping.
+
+### 🔴 THE 1INCH KEY RETURNS 403 FORBIDDEN, AND THE FETCHER HID IT
+`ONEINCH_API_KEY` (32 chars, present in `evm/.env`) →
+`{"error":"Forbidden","statusCode":403,"code":"FORBIDDEN"}`. This is an ACCOUNT state at the
+provider — **a session cannot fix it; it needs a live key from the owner**, exactly like the two dead
+Ankr keys this file already records.
+⛔ **AND THE FAILURE WORE OUR CODE'S CLOTHES, WHICH IS THE PART WORTH REMEMBERING.**
+`tools/fetch_1inch_route.py` caught every exception and printed `0x` — the SAME output as the
+deliberate no-key path, whose comment calls `0x` *"the HONEST pre-key behaviour"*. It is honest when
+there is no key. **With a key present and REJECTED it conflates a dead credential with a missing
+one**, so the test surfaced as *"the conversion produced no WETH: 0 <= 0"* and
+*"a single route must execute: 0 <= 0"* — which read as OUR router returning nothing.
+▶️ **I FIRST BLAMED THE PIN AND WAS WRONG, AND THE ONLY REASON IT DID NOT STICK IS THAT I RAN THE
+CONTROL.** CLAUDE.md says `ConvertToRouted` must not be pinned and that pinning yields exactly
+`got == 0` — a perfect-fitting explanation. **Re-run UNPINNED: identical failure.** Then one `curl`
+named the real cause. ⇒ *"Would this look the same if I were wrong?"* — it did, and the documented
+trap was the thing making the wrong answer plausible.
+✅ **FIXED THE DISGUISE (not the key): the fetcher now prints the status/error to STDERR** while
+stdout stays `0x`, so the FFI contract is unchanged and the operator sees `403 Forbidden`.
+📌 **OPEN, OWNER-BLOCKED:** a live `ONEINCH_API_KEY`. Until then `ConvertToRouted.t.sol`'s 2 tests
+cannot pass and **`_aggSwap`'s live-route leg has no coverage at all** — which matters more than the
+two reds, because §E357 threads `route` through every `WbtcCfg` and the BTC lev path depends on it.

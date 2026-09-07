@@ -56,9 +56,21 @@ def main():
              "-H", "Accept: application/json", url],
             capture_output=True, text=True, timeout=30).stdout
         body = json.loads(out)
-    except Exception:
+    except Exception as e:
+        print(f"fetch_1inch_route: transport/parse failure: {e}", file=sys.stderr)
         print("0x", end=""); return 0
-    print(body.get("tx", {}).get("data", "0x"), end="")
+    data = body.get("tx", {}).get("data", "0x")
+    # 🔴 SAY WHY THE ROUTE IS EMPTY. `0x` on stdout is the contract with the FFI caller and does not
+    #    change — but a KEY THAT IS PRESENT AND REJECTED is not the no-key case above, and printing
+    #    the same thing for both is what let a dead key wear a routing defect's clothes: measured
+    #    2026-09-07, `ConvertToRouted.t.sol` failed "the conversion produced no WETH: 0 <= 0" while
+    #    the API was answering 403 Forbidden. That reads as OUR router returning nothing. Same shape
+    #    as the dead-Ankr-key trap in CLAUDE.md, and the remedy is the same: make the endpoint say so.
+    if data == "0x":
+        print(f"fetch_1inch_route: 1inch returned no tx.data — "
+              f"{body.get('statusCode', '?')} {body.get('error', '')} {body.get('description', '')}".rstrip(),
+              file=sys.stderr)
+    print(data, end="")
     return 0
 
 if __name__ == "__main__":
