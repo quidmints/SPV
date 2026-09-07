@@ -54745,8 +54745,18 @@ expected"* — the attacker's withdrawal succeeds. The test seeds the venue with
 first, because against an empty venue `rangeETH() == 0` and the whole suite would pass vacuously
 against a gate that does nothing.
 
-📌 `Interfaces.sol:677` still declares `IEthVenue.rangeOp` — now unreachable for any external
-caller. Harmless, but it is the kind of declaration that invites someone to "wire it up".
+🔴 **I WROTE HERE THAT `Interfaces.sol:677`'s `IEthVenue.rangeOp` IS "UNREACHABLE FOR ANY EXTERNAL
+CALLER". THAT IS WRONG AND IT IS WRONG IN THE DANGEROUS DIRECTION** — see §RANGEOP-IS-NOT-AN-ORPHAN.
+It has TWO live callers, `QuidLib._venueBalanceLib:296` and `QuidLib.sendEth:429`, both in the form
+`IEthVenue(ev).rangeOp(...)`. ⛔ **AND THE EXTERNAL FORM IS THE SAFETY PROPERTY, NOT AN ARTEFACT.**
+QuidLib is DELEGATECALLED from Quid, so that call with `ev == address(this)` is a genuine EXTERNAL
+self-call, and it is the only thing that makes `msg.sender == address(this)` true inside the callee —
+which is the gate closing the unauthenticated WETH withdrawal fixed in `53fe1e84`. Collapsing it to
+an internal call, the obvious "simplification" once the member looks orphaned, SILENTLY DISARMS THAT
+GATE, and every test that does not model an external attacker stays green while it happens.
+⚠️ **WHY MY GREP MISSED IT:** the callers reach it through the INTERFACE, so a bare `rangeOp`
+name-grep finds the definition and the tests but not `IEthVenue(ev).rangeOp(`. ⇒ **Before deleting
+any `Interfaces.sol` member, grep `IFace(...).member`, never the bare name.**
 
 ## §SESS-OFFRAMP — 🔴 **SECOND UNAUTHENTICATED WITHDRAWAL, SAME CLASS, SAME FILE.** (2026-09-07)
 
@@ -54991,8 +55001,10 @@ those at a fresh pin rather than reading them as findings.
     `LevMath._repayPretransferred` has zero callers.
   · `§SESS-COMMENTS-4` — the nine `len % 32 == 4` encoder assertions. ▶️ Fix is the HEAD WORD COUNT,
     not an exact length: those encoders all have dynamic params.
-  · `§SESS-RANGEOP` — `Interfaces.sol:677` still declares `IEthVenue.rangeOp`, now unreachable
-    externally. Harmless; invites someone to "wire it up".
+  · ⛔ **STRUCK — THIS ITEM WAS WRONG.** It read "`IEthVenue.rangeOp` is unreachable externally,
+    harmless". It has two live callers via `IEthVenue(ev).rangeOp(`, and the external self-call is
+    what arms the `NotSelf` gate on a withdrawal path. See §RANGEOP-IS-NOT-AN-ORPHAN. **Nothing to
+    do here; do NOT delete the member.**
   · `§SESS-COMMENTS-1` — `QuidLib.supplyVenueBody`'s deleted do-not-remove-the-rungs note: restore
     it BEFORE re-adding a venue rung, not after.
 
