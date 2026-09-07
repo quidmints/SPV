@@ -19,9 +19,15 @@ import {Math} from "@openzeppelin-submodule/utils/math/Math.sol";
 ///         and RPC reverse these for human display. THIS LIBRARY USES INTERNAL
 ///         ORDER THROUGHOUT — the same order the SPV gateway uses.
 ///
-///         Pass LEGACY-serialized tx bytes (no segwit marker/flag/witness).
-///         The txid computed from segwit serialization would be the wtxid and
-///         would not match the block's Merkle tree.
+///         TWO PARSERS, TWO INPUT SHAPES — do not mix them up. The hand-rolled
+///         walker in the first half (`txid`, `inputCount`, the `extract*` family,
+///         the output scans) takes LEGACY-serialized bytes ONLY; `_assertLegacy`
+///         rejects a segwit marker outright, because a txid computed over segwit
+///         serialization is the wtxid and would not match the block's Merkle tree.
+///         The exit/sighash half (`verifyDeadManExit`, `taprootKeyPathSighash`,
+///         `_exitStructure`) goes through solarity's `TxParser` instead and REQUIRES
+///         the witness — a key-path spend is nothing but its 64-byte Schnorr
+///         signature — and hands `previousHash` back byte-REVERSED (see §E140-r2).
 library BitcoinTx {
     error InputOutOfRange();
     error TruncatedTx();
@@ -37,19 +43,15 @@ library BitcoinTx {
     // ─── VarInt ────────────────────────────────────────────────────────
 
     /// @dev Read a Bitcoin VarInt at `offset`. Returns (value, bytesConsumed).
-    /// ⚠️ (E140) `private`, NOT `internal` — MEASURED, not assumed. §E140 expected a
-    /// "duplicated `BitcoinTx` surface" to delete once `TxParser` took over witness
-    /// parsing. Counting real callers says otherwise: **every other function here has at
-    /// least one live use**, so there is no dead surface to subtract. `readVarInt` was the
-    /// only one used purely INTERNALLY — **zero call sites outside this file**, which is the half
-    /// that justifies `private`; the in-file count is 15 today and is deliberately NOT pinned here,
-    /// because an absolute count in a comment rots on the next edit (it said 13). Re-derive with
-    /// `grep -c readVarInt`. **The claim that survives edits is the ZERO, not the 13.** So the
-    /// whole available subtraction is this visibility tightening.
-    /// ⇒ §E140 is CLOSED BY MEASUREMENT: the two parsers are not redundant. `TxParser`
-    /// reads witness-carrying txs (which `_assertLegacy` rejects outright), and §E140-r2
-    /// already established that outpoint logic must NOT move, because `TxParser`'s
-    /// `previousHash` is byte-REVERSED relative to our `txid`.
+    /// ⚠️ (E140) `private`, NOT `internal` — MEASURED, not assumed: **zero call sites outside
+    /// this file**, which is the half that justifies `private`. Every other function here has at
+    /// least one live use, so this visibility tightening is the whole available subtraction. The
+    /// in-file count is deliberately NOT pinned: an absolute count in a comment rots on the next
+    /// edit. Re-derive with `grep -rn readVarInt --include=*.sol`. **The claim that survives
+    /// edits is the ZERO.**
+    /// ⇒ The two parsers are not redundant. `TxParser` reads witness-carrying txs (which
+    /// `_assertLegacy` rejects outright), and §E140-r2 established that outpoint logic must
+    /// NOT move, because `TxParser`'s `previousHash` is byte-REVERSED relative to our `txid`.
     function readVarInt(bytes calldata raw, uint offset)
         private pure returns (uint value, uint consumed)
     {
@@ -242,8 +244,10 @@ library BitcoinTx {
     /// ⚠ LP-side footgun (not protocol-exploitable): if the funding tx accidentally
     ///    includes TWO outputs to the same `wsh(...)` scriptPubKey with values X and Y,
     ///    this returns (vout=0, satoshis=X) and the channel is credited X. The LP locked
-    ///    X+Y on Bitcoin but earns QUID/yield against only X; the extra Y is recoverable
-    ///    only via the LP-refund timelock branch (after `selfRefundTime`). The LP only
+    ///    X+Y on Bitcoin but earns QUID/yield against only X; the extra Y is recoverable only
+    ///    by a cooperative 2-of-2 key-path spend, because the funding output has an EMPTY merkle
+    ///    root — there is no CLTV-refund branch to fall back on unilaterally (`Types.BTCChannel`:
+    ///    recovery is an LDK force-close, not a bespoke EVM-anchored timelock). The LP only
     ///    hurts itself, but every off-chain funding-tx constructor MUST enforce "exactly
     ///    one output to the channel scriptPubKey" — the SPA's openChannel flow and any
     ///    BIP-380 descriptor wallet driving this MUST check.
@@ -276,14 +280,11 @@ library BitcoinTx {
     ///      `Q = lift_x(KeyAgg(KeySort(lp,hop))) + H_TapTweak(agg)·G` (empty merkle
     ///      root, BIP341 §158). `Q` is supplied and the funding output is byte-matched
     ///      against `0x5120||Q`. Consensus does the spend-time verification.
-    ///      🔑 **THE 2-of-2 GUARANTEE RESTS ON THE KeyAgg GATE, NOT ON AN LP SIGNATURE.**
-    ///      This said it "rests on the LP's lpAuth consent to Q" — **that is false since §E183
-    ///      item 1 deleted `lpEth`/`lpSig` from `OpenAuth`; the LP signs nothing on the EVM at
-    ///      open.** What binds Q is algebraic: `MuSig2Agg.isTwoOfTwoOutputKey` PROVES
-    ///      `Q == TapTweak(KeyAgg(lpPubkey, hopPubkey))` on-chain (§E129/§E142), so a supplied Q
-    ///      that is not the two-party aggregate is rejected without anyone having to have signed
-    ///      for it. `BTCChannels.sol:66-69` already carried this correction; these three files did
-    ///      not, which is how one true note and three false ones coexisted.
+    ///      🔑 **THE 2-of-2 GUARANTEE RESTS ON THE KeyAgg GATE, NOT ON AN LP SIGNATURE.** The LP
+    ///      signs nothing on the EVM at open. What binds Q is algebraic: `isTwoOfTwoOutputKey`
+    ///      (below) PROVES `Q == TapTweak(KeyAgg(lpPubkey, hopPubkey))` on-chain (§E129/§E142),
+    ///      so a supplied Q that is not the two-party aggregate is rejected without anyone having
+    ///      to have signed for it.
     ///      NOT an on-chain script reconstruction (key-path taproot reveals no script).
     ///      A key-path close carries only a 64-byte Schnorr sig (no witnessScript),
     ///      so the funding output can only ever be identified by this scriptPubKey,
@@ -300,41 +301,6 @@ library BitcoinTx {
     uint256 private constant SQRT_POWER =
         0x3FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFBFFFFF0C;
 
-    /// @notice (E130/E131) True iff `xOnly` is a REAL BIP-340 x-only public key — i.e.
-    ///         `lift_x` would succeed, so `0x5120||xOnly` is a SPENDABLE taproot output.
-    ///
-    ///         ⚠️ WHY THIS EXISTS. Nothing used to check this. `btcRecipientOf` was
-    ///         validated only as `!= 0`, and `swapperScript` only for its `0x51 0x20`
-    ///         prefix — so 32 arbitrary bytes became a payout script. An invalid key makes
-    ///         the output UNSPENDABLE and the funds paid to it are burned, unrecoverably,
-    ///         with nothing detecting it until a payout is attempted and already on-chain.
-    ///         **The base rate is not small: `x` is a valid coordinate only when `x³+7` is
-    ///         a quadratic residue mod p, and p ≡ 3 (mod 4) makes that a coin flip — about
-    ///         HALF of all 32-byte values are invalid.** A typo or a truncated hex string
-    ///         hits it half the time.
-    ///
-    ///         Method: reject `x == 0` and `x >= p`, then take the candidate root
-    ///         `y = (x³+7)^((p+1)/4)` via the `modexp` precompile and verify `y² == x³+7`.
-    ///         The verification step is what makes it a decision rather than a guess — for
-    ///         a non-residue the exponentiation still returns a value, it just does not
-    ///         square back.
-    /// @notice (E130/E131) True iff `xOnly` is a REAL BIP-340 x-only public key — i.e.
-    ///         `lift_x` would succeed, so `0x5120||xOnly` is a SPENDABLE taproot output.
-    ///
-    ///         ⚠️ WHY THIS EXISTS. Nothing used to check this. `btcRecipientOf` was validated
-    ///         only as `!= 0`, and `swapperScript` only for its `0x51 0x20` PREFIX — so 32
-    ///         arbitrary bytes became a payout script. An invalid key makes the output
-    ///         UNSPENDABLE and anything paid to it is burned, unrecoverably, with nothing
-    ///         detecting it until a payout is attempted and already on-chain.
-    ///         **The base rate is not small: `x` is a valid coordinate only when `x³+7` is a
-    ///         quadratic residue mod p, and p ≡ 3 (mod 4) makes that a coin flip — about HALF
-    ///         of all 32-byte values are invalid.** A typo or a truncated hex string hits it
-    ///         half the time. (Measured: 107 of 200 arbitrary samples accepted.)
-    ///
-    ///         Method: reject `x == 0` and `x >= p`, take the candidate root
-    ///         `y = (x³+7)^((p+1)/4)`, and verify `y² == x³+7`. The verification is what makes
-    ///         it a decision rather than a guess — for a non-residue the exponentiation still
-    ///         returns a value, it just does not square back.
     /// (§E183 item 1) THE EVM ADDRESS OF A 33-BYTE COMPRESSED secp256k1 KEY — DERIVED, NOT SUPPLIED.
     ///
     /// Bitcoin and Ethereum share secp256k1, so an LP's channel key already determines its EVM
@@ -367,6 +333,24 @@ library BitcoinTx {
         return address(uint160(uint256(keccak256(abi.encodePacked(x, y)))));
     }
 
+    /// @notice (E130/E131) True iff `xOnly` is a REAL BIP-340 x-only public key — i.e.
+    ///         `lift_x` would succeed, so `0x5120||xOnly` is a SPENDABLE taproot output.
+    ///
+    ///         ⚠️ WHY THIS EXISTS. Nothing used to check this. `btcRecipientOf` was validated
+    ///         only as `!= 0`, and `swapperScript` only for its `0x51 0x20` PREFIX — so 32
+    ///         arbitrary bytes became a payout script. An invalid key makes the output
+    ///         UNSPENDABLE and anything paid to it is burned, unrecoverably, with nothing
+    ///         detecting it until a payout is attempted and already on-chain.
+    ///         **The base rate is not small: `x` is a valid coordinate only when `x³+7` is a
+    ///         quadratic residue mod p, and p ≡ 3 (mod 4) makes that a coin flip — about HALF
+    ///         of all 32-byte values are invalid.** A typo or a truncated hex string hits it
+    ///         half the time. (Measured: 107 of 200 arbitrary samples accepted.)
+    ///
+    ///         Method: reject `x == 0` and `x >= p`, take the candidate root
+    ///         `y = (x³+7)^((p+1)/4)` via `_modExp` (square-and-multiply, NOT the `0x05`
+    ///         precompile — see its own note), and verify `y² == x³+7`. The verification is what
+    ///         makes it a decision rather than a guess — for a non-residue the exponentiation
+    ///         still returns a value, it just does not square back.
     function isValidXOnlyKey(bytes32 xOnly) public pure returns (bool) {
         uint256 x = uint256(xOnly);
         if (x == 0 || x >= FIELD_SIZE) return false;
@@ -378,20 +362,16 @@ library BitcoinTx {
     /// @dev `pure`: the square root is square-and-multiply in-EVM rather than the `modexp`
     ///      precompile (0x05). ~256 `mulmod`s, a few thousand gas, on a one-time registration.
     ///
-    ///      ⛔ **THE REASON THIS COMMENT USED TO GIVE IS REFUTED BY THIS REPO'S OWN TESTS, and
-    ///      is removed rather than softened (E144).** It said the precompile is unusable on a
-    ///      mainnet fork because the first touch of `0x…05` triggers an account fetch a public
-    ///      node 403s, and — flatly — that *"`vm.makePersistent` does not avoid the initial
-    ///      fetch"*. **It does, if it runs BEFORE `createFork`:** `test/utils/ForkPin.sol:42-43`
-    ///      does `vm.deal(address(5), 0)` + `vm.makePersistent(address(5))` in that order, and
-    ///      `ModexpOnFork.t.sol` asserts the precompile then works on a fork. The ORDERING was
-    ///      the trick; the comment recorded the state before that was found.
+    ///      ⛔ REACHABILITY IS NOT THE REASON (E144). The precompile DOES work on a mainnet fork,
+    ///      provided `vm.deal(address(5), 0)` + `vm.makePersistent(address(5))` run BEFORE
+    ///      `createFork` — `test/utils/ForkPin.sol:42-43` does exactly that, and
+    ///      `ModexpOnFork.t.sol` asserts it. The ORDERING is the whole trick.
     ///
     ///      ⚠️ **BUT DO NOT CONVERT THIS TO `Math.modExp` ON THAT BASIS ALONE.** The real
     ///      blocker is unexplained and still open: swapping it reproduces `NoBtcRecipient()`
     ///      **even with the precompile reachable** (E141). Nobody has chased why. Until someone
     ///      does, this stays — and note the asymmetry it leaves, which is REAL and UNEXPLAINED,
-    ///      not a style choice: `MuSig2Agg.decompress` computes the SAME square root via
+    ///      not a style choice: `decompress` (below, same file) computes the SAME square root via
     ///      `Math.modExp` and is green. **Two sibling paths, two methods, one unexplained
     ///      behavioural difference.** Whoever resolves `NoBtcRecipient()` should unify them.
     function _modExp(uint256 base, uint256 exponent) private pure returns (uint256 result) {
@@ -405,27 +385,16 @@ library BitcoinTx {
     }
 
 
-    /// @dev Bitcoin's HASH160: RIPEMD160(SHA256(data)). Standard pubkey
-    ///      hashing for P2WPKH outputs. Used by Aux.onChannelOpen to
-    ///      derive a deterministic BTC recipient from the channel's
-    ///      lpPubkey, so the swap-out hop request can settle to a
-    ///      P2WPKH output the LP controls without further on-chain
-    ///      registration.
+    // ─── secp256k1 / MuSig2 key aggregation ───────────────────────────
 
-    // ═══ §E312 — `MuSig2Agg` FOLDED IN; the file is deleted ═══
-    // Both are Bitcoin primitives and the dependency ran ONE WAY: `MuSig2Agg` used
-    // `BitcoinTx`, never the reverse (BitcoinTx named it only in comments), so folding
-    // dissolves the edge instead of creating a cycle. Its `BitcoinTx.` calls are now direct.
-    /// @title  MuSig2Agg — prove a taproot output key IS the 2-of-2 of two named pubkeys
-    /// @notice Closes the gap `BTCChannels.sol` has always admitted: *"The contract does NO
-    ///         secp256k1 EC, so it does NOT prove Q == KeyAgg(lpPubkey, hopPubkey)"*. Until now
-    ///         `lpPubkey`/`hopPubkey` were only LENGTH-validated (`ChannelLib.sol:601` on the open
-    ///         path, `:658` in `locateChannelOutput`, `:562` for the hop half on rekey — the
-    ///         citation here used to read `:494`, which drifted onto `_approveMax`'s
-    ///         `ret.length == 0` and reads as an unrelated ERC-20 guard) and the
-    ///         funding output was located purely by the caller-supplied `Q` — so a hop could
-    ///         open, or splice into, a `Q` it solely controls. In fleet mode the operator holds
-    ///         both halves and can do that alone (E129).
+    /// @notice Prove a taproot output key IS the 2-of-2 of two named pubkeys.
+    /// @dev     Without this gate, `lpPubkey`/`hopPubkey` are only LENGTH-validated
+    ///         (`ChannelLib.openChannelBody` on the open path, `ChannelLib.locateChannelOutput`
+    ///         on the locate path) and the funding output is found purely by the caller-supplied
+    ///         `Q` — so a hop could open, or splice into, a `Q` it solely controls. In fleet mode
+    ///         the operator holds both halves and can do that alone (E129). The EC proof below is
+    ///         what closes that; `BTCChannels.sol:63-69` records why the older "the contract does
+    ///         NO secp256k1 EC" note is false in both halves.
     ///
     ///         ⚠️ NO NEW DEPENDENCY, AND NO VENDORING. The solarity solidity-lib is already a
     ///         remapped dependency (it supplies `BlockHeader`/`TxMerkleProof` to the SPV
@@ -498,8 +467,9 @@ library BitcoinTx {
 
     /// @dev `public`, not `internal`, so this DEPLOYS AS A LINKED LIBRARY and is delegatecalled
     ///      rather than inlined. Inlined it added ~4.8 KB to `BTCChannels` and pushed it 1,344
-    ///      bytes OVER EIP-170 — which `forge test` does not enforce and only
-    ///      `forge build --sizes` reveals. Same pattern the codebase already uses for SwapLib
+    ///      bytes OVER EIP-170 — which NEITHER `forge test` NOR `forge build --sizes` reports
+    ///      (`BTCChannels` is library-linked, and `--sizes` omits any contract with unresolved
+    ///      `linkReferences`); only `tools/check-contract-sizes.py` sees it. Same pattern for SwapLib
     ///      and LevMath; the large external surface is deliberate, not accidental API.
     function isTwoOfTwoOutputKey(
         bytes memory pkA33,
@@ -637,7 +607,7 @@ library BitcoinTx {
 
         // ⚠️ THE ON-CURVE TEST MUST COME **BEFORE** `decompress`, WHICH REVERTS. I wrote this
         // the other way round — decompress, then `isOnCurve` — and the off-curve test failed with
-        // `MuSig2Agg: x is not on the curve` instead of returning false, making the check
+        // `BitcoinTx: x is not on the curve` instead of returning false, making the check
         // UNREACHABLE. BIP-340 classifies an unliftable x as an INVALID SIGNATURE, not an error.
         if (!isValidXOnlyKey(px)) return false;
         // lift_x: BIP-340 keys are x-only and always the EVEN-Y point.
@@ -671,23 +641,24 @@ library BitcoinTx {
     }
 
 
-    // ═══ §E318 — `ExitLib` FOLDED IN (one-way dep, 0 reverse refs). The cycle that blocked this
-    // earlier went through `MuSig2Agg`; §E312 removed that path by folding it into `BitcoinTx` first. ═══
-    /// @notice SECTION (was `ExitLib`'s title):  ExitLib — BIP-341 verification of PRE-SIGNED Bitcoin spends: the dead-man channel exit
-    ///         (§E128) and the on-chain swap-in deposit address (§E159).
-    ///
-    /// 🔴 WHY IT IS ITS OWN LIBRARY AND NOT PART OF `ChannelLib`. It was written into `ChannelLib` and
-    /// pushed it to **25,868 bytes — 1,292 OVER EIP-170**, i.e. undeployable, while every test stayed
-    /// green: `forge test` does not enforce the limit and `forge build --sizes` omits library-linked
-    /// contracts entirely, so only `tools/check-contract-sizes.py` could see it. The split is not a
-    /// size hack, though — the boundary is real. `ChannelLib` is the EVM-side channel/venue bookkeeping
-    /// (SPV open, Aave/Euler/Liquity bodies); this is pure Bitcoin consensus arithmetic with no storage
-    /// and no protocol state, exercised standalone by `ExitStructure` / `TapSighash` /
-    /// `DeadManExitVerify` / `SwapInDeposit`. Two linked libraries also mean two 24 KB budgets.
-    ///
-    /// Delegatecalled from `BTCChannels`, so the `external` surface is required, not incidental.
-    /// Kept as an external entrypoint: §E128's structural half is independently useful and is
-    /// what `ExitStructure.t.sol` pins.
+    // ─── BIP-341 verification of PRE-SIGNED Bitcoin spends ────────────
+    //     the dead-man channel exit (§E128) and the swap-in deposit address (§E159).
+    //
+    // 🔴 WHY THIS DOES NOT LIVE IN `ChannelLib`. Written there, it pushed `ChannelLib` to
+    // **25,868 bytes — 1,292 OVER EIP-170**, i.e. undeployable, while every test stayed green:
+    // `forge test` does not enforce the limit and `forge build --sizes` omits library-linked
+    // contracts entirely, so only `tools/check-contract-sizes.py` could see it. The boundary is
+    // real rather than a size hack: `ChannelLib` is the EVM-side channel/venue bookkeeping (SPV
+    // open, Aave/Euler/Liquity bodies); this is pure Bitcoin consensus arithmetic with no storage
+    // and no protocol state, exercised standalone by `evm/test/btc/ExitStructure.t.sol`,
+    // `TapSighash.t.sol`, `DeadManExitVerify.t.sol` and `SwapInDeposit.t.sol`. Keeping it here
+    // rather than in `ChannelLib` is what keeps the two 24 KB budgets apart.
+
+    /// @notice (E128) The STRUCTURAL half of the dead-man-exit check, as its own entrypoint.
+    /// @dev `external` because `BitcoinTx` deploys as a linked library that `BTCChannels`
+    ///      delegatecalls. Nothing under `evm/src` calls THIS function: it is kept because
+    ///      §E128's structural half is independently useful and is what `ExitStructure.t.sol`
+    ///      pins. `verifyDeadManExit` is the production path and runs this plus the signature.
     function verifyExitStructure(
         bytes calldata signedExitTx, bytes32 fundingTxId, uint32 fundingVout,
         bytes calldata lpPayoutScript, uint64 cltvDeadline

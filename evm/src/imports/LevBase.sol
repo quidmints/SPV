@@ -256,9 +256,6 @@ abstract contract LevBase {
         if (d == 0) d = DEFAULT_UNWIND_DEX;
     }
 
-    // §E358 — `TargetSet` DELETED with the per-LP cap it announced. An event nothing emits is
-    // API surface telling a reader this contract has a setting it does not have.
-
     /// @notice §E298 — the five events `LevManager` and `BtcLevManager` each declared separately.
     ///         Both inherit this contract, so one declaration here reaches both and an inherited
     ///         event still appears in each child's ABI. Three were already byte-identical at every
@@ -267,10 +264,10 @@ abstract contract LevBase {
     ///         (`ILevVenue(address(venue)).COLLATERAL()` decides vBTC vs WBTC mode), and
     ///         `VenueAllowed` lacked the `ok` flag, so a BTC de-authorisation was indistinguishable
     ///         from an authorisation in the log.
-    /// ⚠️ `Closed`'s two declarations shared a SELECTOR while meaning different things — the ETH
-    ///         one named `weethReturned`, the BTC one `vbtcReturned`. Identical topic0, different
-    ///         asset: an indexer reading both managers could not tell them apart. The parameter is
-    ///         now `assetReturned`, which is what it always was — the venue's own collateral token.
+    /// ⚠️ `Closed`'s parameter is `assetReturned` — the venue's OWN collateral token, weETH at the
+    ///         ETH instance and vBTC at the BTC one. DO NOT re-spell it per asset: one declaration
+    ///         means one topic0 across both instances, and a per-asset name would put the same
+    ///         topic0 on two different meanings, which an indexer reading both cannot tell apart.
     event Opened(address indexed lp, address venue, uint256 targetLtvBps);
     event Closed(address indexed lp, uint256 assetReturned);
     event VenueAllowed(address indexed venue, bool ok);
@@ -405,19 +402,14 @@ abstract contract LevBase {
         RangeLib.untrackOpen(_openLps, _lpIdx, lp);   // §FOLD-MEASURE
     }
 
-    // §E358 — **`setTargetLtv` AND `_requireTargetLtv` ARE DELETED, AND SO IS THE CHOICE THEY
-    // GUARDED.** IL-protect is a PROTOCOL-WIDE liability on behalf of all LPs, so no LP carries a
-    // debt-to-collateral ratio of its own to set, and a floor protecting a per-LP cap from being
-    // set below the band protects a setting that no longer exists.
-    //
-    // ⚠️ WHAT THE DELETED FLOOR WAS FOR, KEPT BECAUSE THE HAZARD IS NOT GONE, ONLY RELOCATED
-    // (§WSA-LEV-INERT): a cap at or below the band pins a position inside the deadband at EVERY
-    // price, so `venue.borrow` is never reached and the overlay silently does nothing rather than
-    // rejecting the setting. That failure is SILENT, which is what earned it a check under rule 3.
-    // The same arithmetic now applies to the PROTOCOL's single cap: `TARGET_LTV_CAP_BPS` must stay
-    // above the band, or the whole book is inert and says nothing about it. It is 7500 bps against
-    // a band measured in tens, so it holds by a wide margin today — but it is an invariant on a
-    // constant now, not a per-call check, and moving either number has to preserve it.
+    // ⚠️ §WSA-LEV-INERT — A LIVE INVARIANT ON `TARGET_LTV_CAP_BPS`, AND IT FAILS SILENTLY.
+    // A cap at or below the band pins a position inside the deadband at EVERY price, so
+    // `venue.borrow` is never reached and the overlay does nothing rather than saying so.
+    // IL-protect is a PROTOCOL-WIDE liability on behalf of all LPs — no LP carries a
+    // debt-to-collateral ratio of its own — so there is ONE cap for the whole book and it must stay
+    // above the band, or the whole book is inert. It is 7500 bps against a band measured in tens,
+    // so it holds by a wide margin today — but it is an invariant on a constant, not a per-call
+    // check, and moving either number has to preserve it.
 
     /// @notice Venue + stable + native amount for a swap-out-driven delever of `lp`.
     function swapOutDeleverAmt(address lp, uint256 maxUsd18)
@@ -428,26 +420,6 @@ abstract contract LevBase {
         stable = p.venue.stable();
         amtNative = LevMath._fromUsd(address(AUX), stable, maxUsd18);
     }
-
-    /// @notice Book-level deliverable dollars across every open LP.
-    ///         LIFTED from both managers — after ORACLE_KEY the two copies were BYTE-IDENTICAL.
-    ///         Safe over `_openLps` because _untrackOpen is called UNCONDITIONALLY on close
-    ///         (LevManager:659, BtcLevManager:529), including the ETH keepState branch that
-    ///         retains the Pos with open=false. So this never iterates a closed position.
-
-    /// @dev §POOL-VENUE — THE POOL EVERY LP SHARES. All open LPs sit in ONE venue position, so the
-    ///      first open LP's venue IS the pool's venue. Returns 0 when the book is empty.
-    /// ⚠️   This is the same assumption `SwapLib.deleverEthOnDelivery` makes after its loop collapse:
-    ///      one venue per range, frozen by `vetVenue` + the allowlist. If a second venue is ever
-    ///      admitted for one range, EVERY aggregate below silently reports only the first pool — so
-    ///      that admission must come WITH a per-venue walk, not after it.
-    /// 🔴 §MULTI-VENUE — `_pool()` IS DELETED, AND ITS DELETION IS THE POINT OF THE WALK.
-    ///    It existed so five aggregates could each ask "which ONE venue is this book?" — a question
-    ///    that stops having an answer the moment a second venue is admitted. All five now walk
-    ///    `poolVenues`, so nothing asks it and keeping it would leave a helper whose whole contract
-    ///    is the assumption the walk removes. `poolVenue` itself SURVIVES: it is the pool's identity
-    ///    (`poolVenues[0]`), still read by `SwapLib.deleverEthOnDelivery` and the delivery guard in
-    ///    `LevManager`, and it is what `_openPos` still pins against.
 
     /// @notice §POOL-VENUE — THE PINNED POOL. Set on the FIRST open and never cleared.
     /// ⛔ THIS REPLACES `pos[_openLps[0]].venue`, WHICH CARRIED A SILENT UNDER-REPORT. Reading the
@@ -488,21 +460,21 @@ abstract contract LevBase {
     /// @notice How many venues the book holds positions in. 0 before the first open.
     function poolVenueCount() external view returns (uint256) { return poolVenues.length; }
 
-    /// §POOL-VENUE — O(1), and the LAST of the four Sigma-loops. The pool is one position, so its
-    /// deliverable dollars are computed from the pool's own collateral, debt and liquidation
-    /// threshold — exactly the per-LP formula, evaluated once on the aggregate.
-    /// ⚠️ THIS IS NOT THE SAME NUMBER THE OLD SUM PRODUCED, AND THE DIFFERENCE IS THE POINT.
+    /// §POOL-VENUE — BOUNDED BY VENUE COUNT, NOT BY OPEN LPs. Each venue holds ONE pooled position,
+    /// so its deliverable dollars come from that pool's own collateral, debt and liquidation
+    /// threshold — exactly the per-LP formula, evaluated once per venue instead of once per LP.
+    /// ⚠️ THIS IS NOT THE SAME NUMBER A PER-LP SUM PRODUCES, AND THE DIFFERENCE IS THE POINT.
     /// `LevMath.deliverableDollars` is NON-LINEAR in LTV (it bounds the extraction so the position
     /// stays under its liquidation threshold), so a sum of per-LP results systematically DIFFERS
     /// from the aggregate — the same sum-of-floors error that made `totalNetEquity` over-count and
-    /// tripped `checkBacking`. One position means one evaluation, which is now the honest one.
+    /// tripped `checkBacking`. One pooled position means one evaluation of it, which is the honest one.
     function totalDeliverableDollars() external view returns (uint usd) {
         // §POSITION-IS-THE-LENDERS-OWN-VIEW — the POOL-level twin of `getCurrentLtvBps`, and it has
         // to move in the SAME commit: leaving this on `AUX` while the per-LP path reads the venue
         // would give the contract two disagreeing notions of the same pool's health, and they would
         // only diverge once the venue's oracle drifted from ours — i.e. in production.
-        // Deletes the TWAP read, `_collNativePool` and `_toUsd18` from this path: both sides share
-        // the venue's quote unit, so nothing needs converting.
+        // No TWAP read, no `_collNativePool`, no `_toUsd18` on this path: both sides share the
+        // venue's quote unit, so nothing needs converting.
         // 🔴 §MULTI-VENUE — AND THIS SUMS **PER VENUE**, WHICH IS THE OPPOSITE OF `totalNetEquity`.
         //    The two look like the same shape and the difference is the whole correctness question:
         //      · `totalNetEquity` asks *what is the book worth* — one number over pooled totals, so an
@@ -527,41 +499,27 @@ abstract contract LevBase {
     ///      A VALUE — a library cannot call a virtual on its caller. That constraint is why the
     ///      per-asset step is kept as narrow as possible: one `uint → uint` conversion is trivial to
     ///      pass by value, whereas a range that needed the venue or the LP would not be.
-    ///
-    ///      §FOLD-COLL removed a stale justification that stood here. It read: "it is a range rather
-    ///      than a shared helper because `_collToEth` CANNOT serve BTC: it tests
-    ///      `COLLATERAL() == WETH`, which is false for a vBTC venue, so sats would be routed through
-    ///      `getEETHByWeETH` and silently mis-converted." The `_collToEth` that existed when this was
-    ///      written did test the collateral token; the one that survived to be folded did NOT — its
-    ///      body was `units == 0 ? 0 : RATE.getEETHByWeETH(units)` with an UNNAMED venue parameter.
-    ///      So the stated reason for the range had already stopped being true, while the range itself
-    ///      remained correct for a different and simpler reason: the two sides convert differently
-    ///      (a rate lookup vs the identity), which is reason enough and needs no misvaluation story.
-    /// @notice §FOLD-COLL — **THE ONLY PER-ASSET PRIMITIVE IN THE VALUATION STACK.** Collateral
-    ///         UNITS as held by the venue → the instance's native base unit.
+    /// @notice §FOLD-COLL — **THE ONLY PER-ASSET PRIMITIVE IN THE VALUATION STACK** (`_collToBase`,
+    ///         declared above). Collateral UNITS as held by the venue → the instance's native base
+    ///         unit, and the two sides differ ONLY in whether there is a rate source:
     ///           • ETH: weETH → eETH/ETH via the ether.fi rate (`RATE.getEETHByWeETH`).
     ///           • BTC: IDENTITY — vBTC IS sats, and the WBTC price already carries the ×1e10 lift
     ///             that closes the 8↔18 decimal gap, so a second conversion here would double-count.
-    /// @dev    Takes UNITS, not `(venue, units)`. The ETH implementation's venue parameter was
-    ///         UNNAMED — i.e. declared and never read — so it was never a per-venue conversion, and
-    ///         carrying it would have made the shared signature wider than the work it does.
+    /// @dev    It takes UNITS, not `(venue, units)`: the conversion is a property of the INSTANCE
+    ///         (`RATE`), not of the venue, so a venue argument would widen the signature without
+    ///         being read.
 
-    /// @notice Collateral units → USD(1e18) at the instance's own oracle key. §FOLD-COLL: was
-    ///         `LevManager._collValueUsd(venue, units)` and `BtcLevManager.vBtcValueUsd(units)` —
-    ///         the SAME formula, `base · TWAP / 1e18`, differing only by the conversion now behind
-    ///         `_collToBase` and by the BTC one having no conversion to do.
-    /// @dev    `view`. The ETH copy was non-`view` for no reason: it called only `_collToEth` (view)
-    ///         and `getTWAPforAsset` (view, as the BTC copy being `public view` already proved).
-    ///         That was drift, and it propagated — `getCurrentLtvBps` and `ilLtvBps` were non-`view`
-    ///         on the ETH side and `view` on the BTC side purely because of it.
+    /// @notice Collateral units → USD(1e18) at the instance's own oracle key. §FOLD-COLL — one
+    ///         formula, `base · TWAP / 1e18`, for both instances: the only per-asset step is the
+    ///         `_collToBase` conversion, which is the identity on the BTC side.
     function collValueUsd(uint units) public view returns (uint) {
         if (units == 0) return 0;
         return (_collToBase(units) * AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW)) / 1e18;
     }
 
-    /// @notice Per-LP collateral in the native base unit. §FOLD-COLL — now CONCRETE and no longer
-    ///         `virtual`: both overrides were `_collToBase(v.collateralOf(lp))` once the conversion
-    ///         was named, the ETH one spelling it via `_collToEth` and the BTC one as the identity.
+    /// @notice Per-LP collateral in the native base unit. §FOLD-COLL — CONCRETE, not `virtual`: the
+    ///         venue reports raw collateral units on both sides and `_collToBase` carries the whole
+    ///         per-asset difference, so there is nothing left for an override to say.
     function _collNative(ILevVenue v, address lp) internal view returns (uint) {
         return _collToBase(v.collateralOf(lp));
     }
@@ -634,8 +592,7 @@ abstract contract LevBase {
     ///         AND THAT IS A DELETION OF DEAD CHECKS, NOT A WEAKENING — traced through every layer
     ///         before removing them: a closed position zeroes the struct, and
     ///         `LevMath.ltvBps` returns 0 when `collValue == 0`, `collValueUsd` returns 0 when
-    ///         `units == 0`, `ilTargetBps` returns 0 when `ilBasisPx == 0`, and
-    ///         `ilTargetLive`'s range branch is already gated on `syncKeyPx != 0`. So every path
+    ///         `units == 0`, and `ilTargetBps` returns 0 when `ilBasisPx == 0`. So every path
     ///         returns 0 for a closed position WITHOUT the guard. The BTC copies never had it and
     ///         were correct; the asymmetry was drift, and keeping it would have been a clamp that
     ///         cannot change an outcome (standing rule 3).
@@ -656,8 +613,8 @@ abstract contract LevBase {
         return LevMath.ltvBps(p.debt, p.collateral);
     }
 
-    /// @notice §POOL-VENUE — THE LTV THE VENUE ACTUALLY LIQUIDATES ON. Debt and collateral of the ONE
-    ///         pooled position, not of any LP.
+    /// @notice §POOL-VENUE — `poolLtvBps` (declared below) IS THE LTV THE VENUE ACTUALLY LIQUIDATES
+    ///         ON: debt and collateral of the pooled position, not of any LP.
     /// @dev 🔴 **`getCurrentLtvBps` IS NOT THIS NUMBER, AND THE KEEPER WAS WATCHING THAT ONE.** Since
     ///      the venue holds a single Morpho position (`address(this)` on every call), Morpho's health
     ///      check reads the AGGREGATE — so an LP can be individually comfortable while the pool sits
@@ -668,8 +625,9 @@ abstract contract LevBase {
     ///      ⚠️ The per-LP view is still correct FOR WHAT IT MEASURES and is still the right input for
     ///      choosing WHICH LP to de-lever — it is the contributor. This is the trigger; that is the
     ///      target. Both are needed and neither substitutes for the other.
-    ///      Reuses `LevMath.ltvBps` + `collValueUsd` — the same two bodies `getCurrentLtvBps` uses, so
-    ///      the aggregate and the per-LP reads cannot drift apart by a convention.
+    ///      Both read the VENUE (`position()` for the pool, `positionOf()` per LP) and both ratio
+    ///      through `LevMath.ltvBps`, so the aggregate and the per-LP reads cannot drift apart by a
+    ///      convention or by a quote unit.
     /// @dev The LTV that decides whether protection may fire: the WORSE of this LP's own ratio and
     ///      the POOL's. No `Math` import for one comparison — a ternary is the whole body.
     function _worstLtvBps(address lp) internal view returns (uint) {
@@ -711,17 +669,15 @@ abstract contract LevBase {
         return LevMath.ltvBps(debtUsd(lp), LevMath.entryEquityUsd(pos[lp].entryEquity, px));
     }
 
-    /// @notice The live IL target in bps. §FOLD-LTV.
-    /// ⚠️ THE NOTE HERE SAID *"NOT `view`: `_ilTargetLive` reaches the range's `soldFractionWad`"* —
-    ///    and it was ALREADY FALSE when written, because the function below is declared `public
-    ///    view`. §C22 then removed the reason as well: `_ilTargetLive` no longer touches the range
-    ///    at all, so there is no non-view call anywhere on this path.
+    /// @notice The live IL target in bps. §FOLD-LTV. `view` all the way down — `_ilTargetLive`
+    ///         reads only the position in memory and the TWAP, and touches the range not at all.
     function ilTargetLtvBps(address lp) public view returns (uint) {
         return _ilTargetLive(pos[lp], AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW));
     }
 
-    /// @notice Per-LP deliverable dollars at price `px`. LIFTED from both managers 2026-08-13 —
-    ///         identical once `_collNative` absorbed the collateral conversion.
+    /// @notice Per-LP deliverable dollars, taken from the VENUE's own view of this LP's slice.
+    ///         NO price argument and NO oracle read: `positionOf` reports debt and collateral in
+    ///         ONE quote unit, so the ratio is unitless and there is nothing left to price.
     function _deliverableDollarsAt(address lp) internal view returns (uint) {
         Types.Pos memory p = pos[lp];
         if (!p.open) return 0;
@@ -734,30 +690,25 @@ abstract contract LevBase {
         //    ⚠️ THIS IS EXACTLY THE MISTAKE §POSITION-LEAVES-THREE-LOOSE-ENDS WARNED ABOUT — *"they
         //    must be collapsed in ONE commit, not migrated caller-by-caller"* — written by me, then
         //    made by me, and caught by a suite I had not run rather than by the three I had.
-        //    ⭐ `px` is now unused on this path: both sides come from the venue in ONE quote unit, so
-        //    the ratio is unitless and there is nothing left to price.
+        //    ⇒ BOTH LEGS NOW READ THE VENUE. Do not re-introduce an AUX price on either one.
         VenuePosition memory vp = p.venue.positionOf(lp);
         uint netEq = vp.collateral > vp.debt ? vp.collateral - vp.debt : 0;
         return LevMath.deliverableDollars(netEq, vp.collateral,
                                           LevMath.ltvBps(vp.debt, vp.collateral), vp.liqThresholdBps);
     }
 
-    /// @notice Per-LP net equity in NATIVE units at price `px`. Same lift, same reason.
+    /// @notice Per-LP net equity in NATIVE units at price `px`. THIS one genuinely needs a price,
+    ///         unlike `_deliverableDollarsAt`: `netEquityBase` nets a USD debt against NATIVE
+    ///         collateral, so `px` is what puts the two in one unit. Floors at zero.
     function _netEquityAt(address lp, uint px) internal view returns (uint) {
         Types.Pos memory p = pos[lp];
         if (!p.open) return 0;
         return LevMath.netEquityBase(_collNative(p.venue, lp), debtUsd(lp), px);
     }
 
-    // §FOLD-LTV — the `virtual` declaration of `debtUsd` was HERE and is gone: it is implemented
-    // concretely above, because both managers overrode it with the same body. "Per-asset only in
-    // which stable the venue names" was true and was never a reason to make it abstract — the venue
-    // names its own stable, so one body reads it on both sides.
-
     /// @notice Per-LP net-of-debt equity in the instance's OWN native unit — 1e18 ETH on the ETH side,
     ///         8-dec sats on the BTC side. The unit differs; the MEANING does not, which is why one
-    ///         name serves both. (Was `netEquityEth`/`netEquityBtc`; those two names were the last
-    ///         per-asset difference in `_reanchorIfReseated`.)
+    ///         name serves both, and why `_reanchorIfReseated` needs no per-asset branch.
     function netEquity(address lp) public view returns (uint256) {
         return _netEquityAt(lp, AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW));
     }
@@ -768,21 +719,13 @@ abstract contract LevBase {
     // spelling `uint` vs `uint256`. Every symbol they touch already lives HERE -- `AUX`,
     // `ORACLE_KEY`, `TWAP_WINDOW`, `_openLps`, `pos`, `_netEquityAt`, `_deliverableDollarsAt`,
     // `debtUsd` -- so neither copy was ever expressing a per-asset difference; the base simply had
-    // not been given them. `netEquity` above was the same case one step further along: declared
-    // `virtual` here and overridden with the identical body on both sides.
+    // not been given them. `netEquity` above was the same case one step further along.
     //
-    // ⚠️ WHAT IS DELIBERATELY *NOT* FOLDED, and the discriminator is a real one. The suffixed
-    // accessors -- `totalNetEquity`/`totalNetEquity`, `grossCollateral`/`grossCollateral`,
-    // `totalGrossCollateral`/`totalGrossCollateral` -- stay as they are, because
-    // `ILevEquity` and `ILevEquityBtc` are two interfaces over two DIFFERENT manager contracts.
-    // Distinct selectors mean `ILevEquity(btcManager).totalNetEquity()` REVERTS rather than
-    // silently returning the wrong range's book, and this repo has already shipped three
-    // address-confusion bugs of exactly that shape in one session (an `ethVenue` passed into a
-    // parameter named `btc`, among them). Note the discriminator: the members below all take
-    // an LP ADDRESS or none and read THIS instance's own book, so a wrong-manager call yields 0 or
-    // this manager's own total -- whereas a no-arg `totalNetEquity()` on the wrong handle would
-    // hand back a different range's number that looks perfectly valid. Standing rule 3: a guard
-    // earns its place when the failure it prevents would otherwise be silent.
+    // ⚠️ ONE `ILevEquity` NOW SERVES BOTH INSTANCES, so a handle pointed at the wrong manager no
+    // longer reverts on a missing selector — it answers, with the other range's book. What stops
+    // that is the ROOT gate, not a name: `Shares.setLevManager` refuses any manager whose
+    // `ORACLE_KEY` is not this range's own asset (`Shares.sol:91`), so a lev manager cannot be
+    // pinned to the wrong range at all. See the note above `grossCollateral` below.
 
     /// @notice Deliverable dollars for `lp` — oracle read ONCE.
     function deliverableDollars(address lp) public view returns (uint256) {
@@ -825,21 +768,18 @@ abstract contract LevBase {
 
     // ─── §LEV-FOLD-2 — the last three per-asset accessors, folded through `_collNative` ────────
     //
-    // `grossCollateral`/`grossCollateral` looked like a REAL per-asset difference and were
-    // not: ETH ran `_collToEth(v, v.collateralOf(lp))` (weETH -> ETH via the ether.fi rate) while
-    // BTC ran `v.collateralOf(lp)` raw, because vBTC IS sats. That difference is ALREADY isolated
-    // in `_collNative`, the range each manager overrides -- the note on `_deliverableDollarsAt`
-    // above records the same discovery ("identical once `_collNative` absorbed the collateral
-    // conversion"). So the conversion was never in these bodies; it was one call down.
+    // These three looked like a REAL per-asset difference and were not: the ETH side converted
+    // weETH -> ETH via the ether.fi rate while BTC took `v.collateralOf(lp)` raw, because vBTC IS
+    // sats. That difference is isolated ONE CALL DOWN, in `_collToBase` behind `_collNative`, so
+    // it was never in these bodies at all.
     //
-    // ⚠️ AND THE SUFFIX WAS LOAD-BEARING UNTIL THIS COMMIT, so it is not simply deleted. Distinct
-    // selectors were what made `ILevEquity(btcManager).totalNetEquity()` REVERT instead of
-    // silently returning the wrong range's book -- a real guard against a bug class this tree has
-    // shipped three times. Removing it without replacement would trade a loud failure for a quiet
-    // one. It is replaced at the ROOT: `setLevManager` now refuses a manager whose `ORACLE_KEY` is
-    // not this range's own asset, so a lev manager CANNOT be pinned to the wrong range at all.
-    // Standing rule 17 -- a clamp detects the bad state per call, the root fix makes it
-    // unconstructible, and the clamp is then deletable rather than merely redundant.
+    // ⛔ THE WRONG-MANAGER GUARD IS `Shares.setLevManager`, AND IT MUST STAY. One `ILevEquity`
+    // serves both instances, so `ILevEquity(btcManager).totalNetEquity()` no longer reverts on a
+    // missing selector -- it returns the OTHER range's book, which looks perfectly valid. This
+    // tree has shipped that bug class three times (an `ethVenue` passed into a parameter named
+    // `btc`, among them). What makes it unconstructible is the pin refusing any manager whose
+    // `ORACLE_KEY` is not this range's own asset (`Shares.sol:91`) -- standing rule 17: the root
+    // fix, not a per-call clamp. Delete that check and the quiet failure comes back.
 
     /// @notice This LP's GROSS collateral in the range's native unit (1e18 ETH / 8-dec sats).
     function grossCollateral(address lp) public view returns (uint256) {

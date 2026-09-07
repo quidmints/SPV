@@ -10,18 +10,15 @@ import {FixedPointMathLib} from "solmate/src/utils/FixedPointMathLib.sol";
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {SwapLib} from "./SwapLib.sol";
 import {LevMath} from "./LevMath.sol";
-// §A.52: the SHARED WETH view (was a file-local `IWETH_VG` restating the same members).
 import {IWETH9} from "./Interfaces.sol";
-// §A.52: ONE canonical Quid view (was two file-local variants, `IQuid_VG` + `IQuidView_VG`).
 import {ICore} from "./Interfaces.sol";
 import {Types} from "./Types.sol";
 import {RangeLib} from "./RangeLib.sol";
 import {ILevEquity} from "./Interfaces.sol";
 import {IEthVenue} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
-// §VAULTLIB-FOLD — imports carried in with the merged bodies
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
-import {IEtherFiLiquidityPool} from "./Interfaces.sol";   // §E57: the shared OfframpCfg shape (declared there;  still uses it)
+import {IEtherFiLiquidityPool} from "./Interfaces.sol";   // the wait-NFT rung's `requestWithdraw`
 import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {IWeETH} from "./Interfaces.sol";
 import {ICurvePool} from "./Interfaces.sol";
@@ -29,26 +26,20 @@ import {IDepositAdapter} from "./Interfaces.sol";
 
 // ── Minimal external surfaces the extracted Quid bodies touch. The library is
 //    DELEGATECALL'd (public fns), so `address(this)` is Quid: every immutable
-//    Quid reads (V4/AUX/WETH/QUID/EV) is passed in via a cfg struct or an
-//    interface handle; reference-type state (LP Deposit + the levPooled/
-//    levBufferUsd/ethfiBacked/aaveBacked mappings) is passed by STORAGE REF so
-//    writes land on Quid's slots. Value-type state (lpShares) is mutated by
-//    RETURNING the delta, applied by the thin Quid forwarder. ─────────────────
+//    Quid reads (CORE/AUX/WETH plus the ETH-venue addresses) is passed in via a
+//    cfg struct or an interface handle; reference-type state (the autoManaged
+//    Deposit + the levPooled/levBufferUsd/levBuf/venueBm mappings) is passed by
+//    STORAGE REF so writes land on Quid's slots. Value-type state (lpShares) is
+//    mutated by RETURNING the delta, applied by the thin Quid forwarder. ──────
 /// @title  QuidLib — sizeable Quid bodies extracted to free bytecode under the
 ///         EIP-170 limit. DELEGATECALL'd by Quid (public fns): inside each,
 ///         `address(this)`/`msg.sender`/`msg.value` are Quid's, so token custody
 ///         and external calls leave from Quid exactly as the former in-Quid
 ///         bodies did. Byte-for-byte semantics; only the home moved.
-// §VAULTLIB-FOLD — file-level interface carried across with the merged bodies. My first pass
-// extracted only the lines BETWEEN `library VaultLib {` and its closing brace, so a declaration
-// living OUTSIDE the library block was invisible to it — the merge compiled everywhere except
-// the one body that used this, three files from where the mistake was made.
-
-
 library QuidLib {
 
-    /// A chosen venue placed 0 — paused / unwired / de-allowlisted. We do NOT silently redirect to a
-    /// fallback venue: no venue can be assumed always-live. Fail loud — the depositor picks a live one.
+    /// The ether.fi placement returned 0 — paused or unwired. There is ONE destination and so no
+    /// fallback to redirect to: fail loud rather than leave the deposit sitting here as idle WETH.
     error VenueUnavailable();
 
     /// @dev DIRECT weETH, always: it earns the full ether.fi staking rate.
@@ -68,10 +59,6 @@ library QuidLib {
     //  ref; the value-type lpShares delta is returned as (added, burned) and the
     //  Quid forwarder applies `lpShares += added - burned`.
     // ════════════════════════════════════════════════════════════════════
-
-    /// @dev Quid immutables the levered-range bodies touch.
-    // §RANGE-MERGE — the local `LevCfg`/`LevP` moved to `Types.RangeCfg`/`Types.RangeP`, shared with the BTC
-    // side. They were the same structs; only the asset field's name and `lm` vs `mgr` differed.
 
     function levManager(address aux) public view returns (address) {
         address host = aux == address(0) ? address(0) : IAux(aux).ethVenue();
@@ -99,26 +86,11 @@ library QuidLib {
             (addedNet, bufAdded) = RangeLib.levAddGross(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
     }
 
-    /// @dev Burn `lp`'s ENTIRE levered slice tokenlessly (no delivery). Burns the GROSS depth
-    ///      (net leg `levPooled` + buffer `levBuf`) from V4; the net leg leaves `pooled`/`lpShares`,
-    ///      the buffer leaves `totalBuffer` (via the bufBurned return) — a liquidation leaves the
-    ///      basket intact.
-
-    /// @dev Add `lp`'s full-2x slice as TWO legs: net-equity (goes into pooled/lpShares) + the
-    ///      debt-funded buffer (goes into levBuf/totalBuffer, NOT equity). Returns (addedNet, bufAdded).
-
-    /// @dev NET-equity leg — basket-surplus USD. Grows pooled/lpShares (equity) + levPooled (the
-    ///      unwind-only net slice) + V4 depth.
-
-    /// @dev BUFFER leg — the debt-funded half. It is fee-earning V4 DEPTH but NOT equity, so it grows
-    ///      levBuf (fee weight + totalBuffer via the return) and the V4 position, but NOT pooled/lpShares.
-    ///      USD = buffer collateral at range price, CAPPED at the LP's OWN debt (debt-backed; folds into POOLED_USD).
-
     // ════════════════════════════════════════════════════════════════════
-    //  ETH-venue deposit routing (body of Quid._depositETH). DELEGATECALL'd:
-    //  msg.value/address(this) are Quid's, so the WETH wrap + venue placement
-    //  leave from Quid. The per-LP wall attribution (ethfiBacked/aaveBacked) is
-    //  written via STORAGE REF. Byte-identical to the former in-Quid body.
+    //  ETH deposit placement (body of Quid._depositETH). DELEGATECALL'd:
+    //  msg.value/address(this) are Quid's, so the WETH wrap + the ether.fi
+    //  placement leave from Quid. NO storage refs and NO per-LP attribution:
+    //  this writes no state, and `pledge` is not recorded anywhere.
     // ════════════════════════════════════════════════════════════════════
     function depositETH(
         address weth, address aux, address ev,
@@ -147,18 +119,11 @@ library QuidLib {
     }
 
     // ════════════════════════════════════════════════════════════════════
-    //  θ / LVR / realized-vol math (bodies of Quid._kLvrWad, realizedAlphaWad,
-    //  realizedVarianceWad, derivedThetaWad). Pure range-geometry + oracle-ring
-    //  math extracted for EIP-170 headroom; view fns (no state written), the
-    //  live range ticks arrive as params. Byte-identical to the in-Quid bodies.
+    //  θ / LVR math (kLvrWad, realizedAlphaWad, derivedThetaWad). Pure
+    //  range geometry, extracted for EIP-170 headroom; view fns (no state
+    //  written) and the live range bounds arrive as PRICES (§DE-TICK).
+    //  Realized variance is NOT computed here — it is read off Core.
     // ════════════════════════════════════════════════════════════════════
-    // THETA_N (8 windows → a 40-min horizon) DELETED 2026-08-15: zero references anywhere, code or
-    // comment. It described the OLD estimator's window count — `OracleLib:220` names that estimator in
-    // the past tense ("the previous estimator sampled `observe` every THETA_STEP seconds") — and E61
-    // deleted the round trip that consumed it. A constant nobody reads is a horizon nobody computes.
-    // ⚠️ `THETA_STEP` STAYS even though no CODE reads it either: `SwapLib:713` cites it by name to
-    //    explain the live variance conversion (tickVar·(SECS_PER_YEAR/THETA_STEP)·1e10). Deleting it
-    //    would orphan that explanation and leave 300 as a magic number.
     /// @notice The LVR coefficient K (WAD), derived LIVE from range geometry.
     /// §DE-TICK — same quantity, computed from PRICE bounds. The body only ever used RATIOS of the
     /// roots (`s/√Pb` and `√Pa/s`), and a ratio of roots is the root of the ratio:

@@ -10,21 +10,17 @@ import {BasketLib} from "./BasketLib.sol";
 
 /// @title  RangeLib — the ONE implementation of each range-manager body, for both ranges.
 ///
-/// @notice §RANGE-MERGE. `QuidLib` (ETH, 633 lines) and `BtcLib` (BTC, 623) are the ETH/BTC
-///         pair of one logic. With `Types.RangeCfg`/`RangeP` shared, the pairs differ ONLY in their
-///         bodies, and diffing them showed FOUR kinds of difference of which THREE are drift:
+/// @notice §RANGE-MERGE. ETH (`QuidLib`) and BTC (`BtcLib`) run the SAME range-manager logic over
+///         the shared `Types.RangeCfg`/`RangeP`, so each body below is written once and called from
+///         both. One shape for both sides: price is READ once per operation (`levAddGross`) and
+///         passed down the legs, `ICore.modLP` is called directly, and the bookmark refresh is
+///         carried on every leg unconditionally.
 ///
-///           • price passed as a parameter (ETH) vs read internally (BTC)
-///           • `ICore.modLP` called directly (ETH) vs through a one-line extracted wrapper (BTC)
-///           • `ILevEquity` vs `ILevEquityBtc` for the SAME `netEquity` member
-///           • bookmark refresh at end-of-operation (ETH `_onExit`) vs inline per leg (BTC)
-///
-///         Only the fourth needed an argument rather than a decision, and it has one: within ONE
-///         transaction `feesPerShare` cannot move (it advances only on a swap/repack), and
-///         `refreshBookmarks` ASSIGNS `fees_tok = weight · accum` rather than accumulating. So an
-///         extra intermediate refresh is a NO-OP, and the merged body can carry the refresh
-///         unconditionally: BTC keeps the one it depends on, ETH gets a harmless second write that
-///         its own `_onExit` then overwrites at the final weight.
+///         THE UNCONDITIONAL REFRESH IS THE ONE CHOICE THAT NEEDED AN ARGUMENT, AND IT HAS ONE:
+///         within ONE transaction `feesPerShare` cannot move (it advances only on a swap/repack),
+///         and `refreshBookmarks` ASSIGNS `fees_tok = weight · accum` rather than accumulating. So
+///         an intermediate refresh is a NO-OP — BTC keeps the one it depends on, and ETH gets a
+///         harmless second write that `Quid._onExit` then overwrites at the final weight.
 ///
 /// @dev    `public`, not `internal`, ON PURPOSE. These bodies are delegatecalled, so one DEPLOYED
 ///         copy serves both ranges — which is the whole size argument. An `internal` shared function
@@ -34,10 +30,6 @@ library RangeLib {
     /// @notice Burn an LP's ENTIRE levered slice — both legs. Net equity leaves `pooled` (and so
     ///         the share count); the debt-funded buffer leaves the fee weight but was never equity.
     ///
-    /// @dev    THE MERGED PAIR: `QuidLib.levBurnAll` ∥ `BtcLib.levBurnAllBtc` were line-for-
-    ///         line identical apart from (a) BTC routing `modLP` through `_burnLpBtc`, a one-line
-    ///         wrapper whose `p` argument was UNUSED, and (b) BTC's trailing refresh. Both resolved
-    ///         above, so this is one body rather than a parameterised compromise.
     /// @dev    The `netRem > LP.pooled` clamp is NOT defensive padding: the net leg lives INSIDE
     ///         `pooled`, and burning past the position would take equity that is not levered.
     function levBurnAll(
@@ -103,12 +95,9 @@ library RangeLib {
     }
 
     /// @notice NET-EQUITY leg. Grows `pooled` (and so the share count) and the levered net slice.
-    /// @dev    MERGED PAIR. The only genuine difference was the SIZING CALL -- `ICore(this).addLiq`
-    ///         on ETH versus the library-local `addLiqChannel` on BTC -- and that is now one method
-    ///         on the range face (`ICore.addLiq`), because routing is exactly what belongs in the
-    ///         range. The other three differences were drift: price passed vs read (read here,
-    ///         once), `modLP` direct vs wrapped (direct), and the refresh placement (carried, see
-    ///         `levBurnAll`).
+    /// @dev    The sizing call is ONE method on the range face, `ICore.addLiq`, because routing the
+    ///         deposit to the venue (pool on ETH, channel on BTC) is exactly what belongs in the
+    ///         range rather than in this body. `price` is passed in, read once by the caller.
     function levAddNet(
         Types.RangeCfg memory c, Types.Deposit storage LP,
         mapping(address => uint) storage levPooled,
@@ -126,9 +115,8 @@ library RangeLib {
 
     /// @notice BUFFER leg — the DEBT-FUNDED half. Fee-earning depth, never equity: it grows the fee
     ///         weight and the range position but NOT `pooled`/shares.
-    /// @dev    USD is the buffer collateral at range price CAPPED AT THE LP'S OWN DEBT. Both sides
-    ///         already used `LevMath.capBufferUsd` for that -- BTC reached it through `_bufUsdBtc`,
-    ///         a wrapper that read the price itself. One body, price passed in.
+    /// @dev    USD is the buffer collateral at range price CAPPED AT THE LP'S OWN DEBT, which is
+    ///         what `LevMath.capBufferUsd` does. `price` is passed in, read once by the caller.
     function levAddBuf(
         Types.RangeCfg memory c, Types.Deposit storage LP,
         mapping(address => uint) storage levBufferUsd,
@@ -143,9 +131,8 @@ library RangeLib {
         return bufTok;
     }
 
-    /// @notice Add the LP's full-2x slice as BOTH legs.
-    /// @dev    `ILevEquity` and `ILevEquityBtc` both declare `netEquity(address)`; the two bodies
-    ///         differed only in which interface they cast through, for the same member.
+    /// @notice Add the LP's full-2x slice as BOTH legs. This is where the range price is READ, once
+    ///         per operation, and handed to both legs so they cannot disagree about it.
     function levAddGross(
         Types.RangeCfg memory c, Types.Deposit storage LP,
         mapping(address => uint) storage levPooled,
@@ -162,92 +149,18 @@ library RangeLib {
             bufAdded = levAddBuf(c, LP, levBufferUsd, levBuf, lp, p.gross - netEq, price, p);
     }
 
-    // ═══════════════════ §OOR-BOOK-DELETED (2026-08-29) ═══════════════════
-    // The out-of-range BOOK lived here — `pull`, `openOor`, `sweepOor`, `pokeOor`, `fillOne`,
-    // `deindexOor`, `oorKey`, `oorTrigger` and the packed-key constants. It is gone, and the
-    // resting order it served is now a signed intent with ZERO on-chain footprint until it fills:
-    // `SwapLib.fillIntentBody` + `Quid.fillIntent` (§OOR-AS-INTENT, `abb685c4`).
+    // ═══════════════════════════════ §OOR-AS-INTENT ═══════════════════════════════
+    // A resting out-of-range order has NO at-rest footprint here or anywhere else: it is a SIGNED
+    // INTENT, and the only storage it ever touches is `Quid.intentUsed[owner][nonce]`, written AT
+    // THE FILL by `Quid.fillIntent` → `SwapLib.fillIntentBody`.
     //
-    // ⭐ WHAT THE BOOK WAS AND WHY IT COULD NOT BE FIXED IN PLACE. §E258 built it because the v4
-    //   cut removed the PoolManager and with it the tick crossing that used to fill a boundary
-    //   order inside any swap through its range — *"a capability regression leaves no broken symbol
-    //   to find"*. But `sweepOor` was only an EMULATION of that crossing: capped at four fills per
-    //   swap, needing an unincentivised permissionless poke for the remainder, and — because
-    //   `book.lastSweptPx` advanced UNCONDITIONALLY, before the first fill was attempted — dropping
-    //   every order the cap or a short pool skipped out of all future sweeps
-    //   (§OOR-WATERMARK-DROPS-ORDERS). It was paying for a fill guarantee it did not keep, in
-    //   storage per resting order, in a public per-address link to intentions that might never
-    //   fill, and in capital parked OUTSIDE the fee-earning share base the whole time it waited.
-    // ⛔ DO NOT RESTORE IT. The property it emulated left with §V4-CUT, not with this deletion.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    /// @notice A resting order executed. `limitPx` is the price it settled at — its own, not the
-    ///         range's — which is what makes the accrual question above measurable from logs.
-
-
-
-
-    /// 🔴 §AUDIT-OPENLPS-DOS — THE CEILING ON THE OPEN-POSITION BOOK, AND WHY IT SITS AT THE PUSH.
-    ///
-    /// `_openLps` was UNBOUNDED and ATTACKER-GROWABLE, and it is walked in full by
-    /// `totalDeliverableDollars`, `totalNetEquity`, `totalDebtUsd`, `totalGrossCollateral`,
-    /// `LevManager.sweepDelever` and `SwapLib.deleverEthOnDelivery` — several of them on the money
-    /// path of every deposit, withdraw and swap. Grow the book past what fits in a block and those
-    /// stop being expensive and start being IMPOSSIBLE: the range halts for everyone.
-    ///
-    /// ⚠️ **THE BOUND CANNOT GO ON THE LOOPS, AND THAT IS THE WHOLE REASON IT IS HERE.** Truncating
-    /// `totalNetEquity` or `totalDeliverableDollars` at N would not bound a cost — it would return
-    /// a WRONG SMALLER NUMBER for the book's equity and deliverable dollars, silently, on the
-    /// backing math. A gas clamp that under-reports backing is worse than the DoS it prevents.
-    /// The only place a bound is both effective and truthful is the one write that makes the loops
-    /// longer.
-    ///
-    /// ⚠️ **AND IT TRADES ONE DENIAL FOR A SMALLER ONE — SAY SO PLAINLY.** At the cap, a new LP
-    /// cannot open until someone closes. An attacker can reach the cap for `MAX_OPEN_LPS ×
-    /// MIN_OPEN_WEETH` (~6.4 weETH) of REAL collateral, at risk, in levered positions it must keep
-    /// solvent. That buys "no new levered opens". Without the cap the same spend, continued, buys
-    /// "no deposits, no withdrawals, no swaps, for anyone, permanently". The second is the one
-    /// worth refusing. `MIN_OPEN_WEETH` is the dial that prices the first.
-    ///
-    /// ⛔ **THIS IS A CLAMP (standing rule 17) AND IT IS MEANT TO BE DELETED.** The root fix is to
-    /// stop keeping one venue position PER LP at all — pool the venue exposure and hold per-LP
-    /// SHARES of it, after which there is no book to walk, no cap to hit, and this whole seam
-    /// (`_openLps`, `_lpIdx`, `trackOpen`, `untrackOpen`, four Σ-loops) goes away. Until that
-    /// lands the range must not be haltable by a stranger with 7 ETH. When it lands, delete this.
-    ///
-    /// @dev 128 is chosen from the WORST loop, not the cheapest: `deleverEthOnDelivery` does
-    ///      several external calls per LP (~50k gas) and, when nothing delivers, does them for
-    ///      every entry — 128 × ~50k ≈ 6.4M, which fits a block with room for the swap that
-    ///      triggered it. The Σ-views cost ~6k per entry (~0.8M). Raising this is a GAS
-    ///      measurement, not a preference.
-    // ✅ §AUDIT-OPENLPS-DOS — `MAX_OPEN_LPS = 128`, `error BookFull()` and `_requireRoom` are DELETED
-    //    (2026-08-24), and this is standing rule 17 completing rather than a guard being dropped.
-    //    The block that stood here said so itself: *"THIS IS A CLAMP AND IT IS MEANT TO BE DELETED.
-    //    The root fix is to stop keeping one venue position PER LP at all — pool the venue exposure
-    //    and hold per-LP SHARES of it, after which there is no book to walk, no cap to hit."*
-    //    §POOL-VENUE did exactly that, so the condition the clamp named is met.
-    // ⚠️ THE DELETION WAS GATED ON A MEASUREMENT, NOT ON THE COMMENT MATCHING. Checked first, and it
-    //    was NOT safe on the first attempt: `LevManager.deleverBook` still walked the whole book on a
-    //    state-changing path. Only after that and all four `LevBase` Sigma-loops became O(1) pool
-    //    reads did `grep '_openLps.length'` return nothing but length checks, a push, a swap-and-pop
-    //    and `openLevCount`. **A guard whose reason is still live must not be removed because its
-    //    description matches.**
-    // ⇒ WHAT THIS GIVES BACK: the cap traded one denial for a smaller one — at 128 open positions a
-    //    new LP could not open until someone closed, and an attacker could reach that for ~6.4 weETH
-    //    of real collateral. That griefing surface is gone with the loops it was protecting.
+    // ⛔ DO NOT BUILD AN ON-CHAIN OUT-OF-RANGE BOOK HERE. The property such a book would emulate —
+    //   the tick crossing that used to fill a boundary order inside any swap through its range —
+    //   left with §V4-CUT (the PoolManager removed with it), and an emulation does not bring it
+    //   back: it pays in storage per resting order, in a public per-address link to intentions that
+    //   may never fill, and in capital parked OUTSIDE the fee-earning share base for the whole wait,
+    //   while still needing an unincentivised permissionless poke for whatever a per-swap fill cap
+    //   skipped — and a watermark that advances past skipped orders drops them silently.
 
     /// @notice Remove `lp` from the book by SWAP-AND-POP, keeping the 1-based index consistent.
     /// @dev    The moved element's index must be rewritten BEFORE the pop, and `lpIdx[lp] = 0` after,

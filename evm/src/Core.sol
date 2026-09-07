@@ -22,61 +22,56 @@ import {IERC20Min} from "./imports/Interfaces.sol";
 import {Types, BtcVaultPinned} from "./imports/Types.sol";  // §E299: file-level errors
 
 
-/// @dev Live total leverage debt (USD 1e18) of a pinned LevManager — the debt-funded buffer that
-///      `committedUsd18` subtracts from in-range USD to recover the pure equity claim (buffer == debt).
+/// @dev Live total leverage debt (USD 1e18) of a pinned LevManager, read through
+///      `ILevEquity.totalDebtUsd` — the debt-funded buffer that `committedUsd18` subtracts from
+///      in-range USD to recover the pure equity claim (buffer == debt).
 
 /// @dev Live total GROSS levered collateral in NATIVE units — the LOCKED-INVENTORY basis for the well skew's
-///      scarcity term. POOLED_{ETH,BTC} already carries the full 2× gross buffer as tokenless range depth, so the
+///      scarcity term. `POOLED` already carries the full 2× gross buffer as tokenless range depth, so the
 ///      deliverable native reservoir = poolVol − gross (subtracting DEBT, ~1×, would leave one equity leg of
-///      phantom inventory in the scarcity signal). Names differ per manager, hence two interfaces.
+///      phantom inventory in the scarcity signal). Read through `ICore.levGrossNative`, so whatever the
+///      per-manager spelling is stays behind the range interface.
 
-/// @notice Two V4 pools (ETH/USD and BTC/USD) with INDEPENDENT USD
-/// accounting. A swap in the ETH pool that inflates the ETH-side dollar
-/// balance does NOT affect the BTC pool's dollars (and vice-versa). The
-/// per-pool USD slice is bounded by a single safety invariant —
-/// POOLED_USD + POOLED_USD ≤ current basket TVL — enforced
-/// inline in _handleDelta on every USD add. BTC's share of the total is
-/// demand-driven within that ≤TVL invariant (no separate allocation cap).
-/// mockUSD_ETH and mockUSD_BTC stay as separate mocks because each pool
-/// can have its own out-of-range positions (limit orders) — those are
-/// not in POOLED_USD_{ETH,BTC} (which is the active in-range slice).
+/// @notice ONE range per instance, with INDEPENDENT USD accounting. Two instances are deployed —
+/// an ETH/USD one and a BTC/USD one (`DeployLib`) — and neither can see the other's dollars: a swap
+/// that inflates this instance's `POOLED_USD` does not touch the sibling's. The only shared bound is
+/// the SUM: each instance PUSHES its own equity to `Aux` (`_reportEquity`) and every in-range USD add
+/// then requires `committedUsd18() <= haircutTvl`, enforced in `_poolUsdInRange`'s mint arm. BTC's
+/// share of that total is demand-driven within the ≤TVL invariant (no separate allocation cap).
+/// Resting boundary orders are deliberately NOT in `POOLED_USD` until they fill — see `settleOor`.
 contract Core {
 
     /// This instance's oracle ring — the engine lives in OracleLib (delegatecall), so the structs
-    /// come from there. Neither field is read externally; only the POOLED_* getters (kept) are.
-    /// ⚠️ THE PARAGRAPH THAT STOOD HERE DESCRIBED THE PRE-SPLIT SHAPE IN THE PRESENT TENSE — *"the
-    /// scalar trio is grouped per pool so the helpers take one `ObsState storage` ref (IS_BTC-
-    /// dispatched via `_obsState`)"* — and was contradicted by the §ISBTC-SPLIT note immediately
-    /// below it, which records that those helpers were DELETED. Removed rather than corrected: the
-    /// note below already carries the history, and two accounts of one fact is how the wrong one
-    /// gets believed.
-    /// §ISBTC-SPLIT — ONE RING PER INSTANCE, AND THE SELECTORS ARE GONE WITH THE SECOND COPY.
-    /// This held BOTH ranges' rings and picked between them on every access, so each deployed
-    /// instance reserved TWO `Observation[65535]` arrays and used exactly one. The `obsState` /
-    /// `observations` helpers existed only to make that choice; with one of each there is nothing to
-    /// choose, so the fields are read directly.
+    /// come from there. Neither field is read externally; only the pooled getters (kept) are.
+    /// §ISBTC-SPLIT — ONE RING PER INSTANCE, so there is nothing to select. A single contract
+    /// holding BOTH ranges' rings reserved two `Observation[RING]` arrays per deployment and used
+    /// exactly one, and needed a pair of accessors to pick between them. With one of each, both
+    /// fields are read directly and no accessor stands between a caller and the ring.
     OracleLib.ObsState internal obsState;
     OracleLib.Observation[RING] internal observations;
 
 
 
-    /// @notice In-range USD slice held against the ETH/USD pool. Sum of
-    /// this plus POOLED_USD is the total in-range USD; out-of-range
-    /// USD lives in mockUSD_ETH/mockUSD_BTC respectively.
-    /// @notice §#12 — BASKET-SUPPLIED quoting depth (6-dec, shared across both ranges). The split
-    ///         #12 is named for: `POOLED_USD_*` track what is IN each CURVE (they move on every
-    ///         swap); this tracks what the BASKET actually CONTRIBUTED (it moves ONLY when the
-    ///         basket adds or removes depth via `addLiq`/burn — never on a swap).
-    ///         `committedUsd18` is derived from THIS, so the backing gate stops counting an LP's
-    ///         sale proceeds as a basket commitment.
-    /// §ISBTC-SPLIT — one instance, one asset. Was basketUsd/basketUsd.
+    /// @notice §#12 — BASKET-SUPPLIED quoting depth for THIS range (6-dec). The split #12 is named
+    ///         for: `POOLED_USD` tracks what is IN the curve and moves on every swap; this tracks
+    ///         what the BASKET owns of it. `committedUsd18` is derived from THIS, so the backing
+    ///         gate stops counting an LP's sale proceeds as a basket commitment.
+    ///         ⚠️ IT IS NOT SWAP-INVARIANT, and reading it as "basket adds and burns only" is the
+    ///         mistake §E230-PHANTOM cost. `_poolUsdInRange` credits it on the MINT arm only when
+    ///         `basketLeg` is set (a swapper's dollars are not basket-owned), but DEBITS it on the
+    ///         burn arm unconditionally — a burn cannot choose which dollars leave. `absorbPaidUsd`
+    ///         re-anchors it outright.
+    /// §ISBTC-SPLIT — one instance, one asset.
     uint public basketUsd;
+    /// @notice This range's in-range USD slice (6-dec). `POOLED_USD - basketUsd` is the LP-owned
+    ///         increment the venue prices as LP backing.
     uint public POOLED_USD;
-    /// @notice In-range USD slice held against the BTC/USD pool.
+    /// @notice This range's in-range VOLATILE inventory in NATIVE units (wei for ETH, sats for BTC)
+    ///         — the token leg `_handleDelta` moves, and what `poolStats` reports as `liquidity`.
     uint public POOLED;
 
     /// @notice Committed BASKET USD (both pools, 18-dec) — the single `committed ≤ TVL` term + LP surplus sizing.
-    /// The full-2× range holds the LP's equity AND a debt-funded buffer in ONE `POOLED_USD_*` slice (no separate
+    /// The full-2× range holds the LP's equity AND a debt-funded buffer in ONE `POOLED_USD` slice (no separate
     /// counter). The buffer's USD equals the LP's OWN debt exactly (gross−net = debt/px ⇒ bufUsd = debt), so the
     /// pure equity claim is `in-range USD − leverage debt`, with the debt read LIVE from the pinned LevManagers.
     /// Live (not a stale segregation counter) so accrued borrow interest shrinks committed the instant it accrues —
@@ -85,7 +80,9 @@ contract Core {
     /// "committed == in-range USD − live debt" fold identity drift-free BY CONSTRUCTION (no counter to desync —
     /// see BufferSwapDrain.t.sol). Floored PER RANGE so ETH debt never eats BTC equity. Centralized ×1e12 scale.
     /// §#12: committed is the BASKET's contribution net of live leverage debt — NOT the curve
-    /// inventory. A swap moves `POOLED_USD_*` but not `basketUsd`, so it no longer moves committed.
+    /// inventory. A swap that ADDS dollars moves `POOLED_USD` and leaves `basketUsd` alone
+    /// (`basketLeg` is false), so it cannot inflate committed; a swap that REMOVES them debits the
+    /// basket's share too, because a burn cannot choose which dollars leave (§E230-PHANTOM).
     /// §ISBTC-SPLIT — THE SUM MOVED TO THE SHARED ACCOUNTANT, AND IT HAD TO.
     /// This was `_rangeEquityUsd18(false) + _rangeEquityUsd18(true)` — one contract adding up both
     /// ranges because one contract WAS both ranges. With two instances neither can see the other, and
@@ -103,20 +100,10 @@ contract Core {
     ///         intermediary contract holding two numbers on their behalf.
     function _reportEquity() internal { AUX.report(_rangeEquityUsd18()); }
 
-    /// @dev One pool's equity USD (18-dec): its in-range USD less that pool's live leverage debt, floored at 0.
+    /// @dev THIS range's equity USD (18-dec): the BASKET's contribution less this range's live
+    ///      leverage debt, floored at 0. ⚠️ The basis is `basketUsd`, NOT `POOLED_USD` — the LP-owned
+    ///      increment sitting in the curve is not a basket commitment and must not be gated as one.
     function _rangeEquityUsd18() internal view returns (uint) {
-        // §E60 — COUNT OUT MOCK THAT HAS LEFT THE ALLOWED HOLDER SET. Once the v4 protocol fee is
-        // targeted at our key AND collected, the cut is transferred to a recipient outside
-        // {poolManager, Core}: MEASURED $120 of mockUSD on $120,000 of volume, up to 10 bps of
-        // throughput indefinitely. Those dollars are gone from the range but `basketUsd*` still
-        // claims them, so every LP claim and the backing gate would price against backing that is
-        // no longer there. Subtracting the dust is what makes "committed" mean committed.
-        // §E253-mock — THE DUST SUBTRACTION IS DELETED, AND IT HAD BEEN A NO-OP SINCE THE v4 CUT.
-        // It subtracted `mockUSD.totalSupply() - balanceOf(Core)`: value stranded IN THE POOLMANAGER
-        // during a v4 swap. There is no PoolManager, nothing ever mints the mocks (their `mint` is
-        // gated to Core and Core never calls it), so `totalSupply` is permanently 0 and the term was
-        // `base6 - 0` on every call. The comment above it described a REAL measurement ($120 of
-        // mockUSD on $120,000 of volume) of a mechanism that no longer exists.
         uint pooled18 = basketUsd * 1e12;   // §#12: BASKET contribution
         uint debt18 = _levDebtUsd18();
         return pooled18 > debt18 ? pooled18 - debt18 : 0;
@@ -129,9 +116,10 @@ contract Core {
     ///         about the denominator, which two independent computations eventually would.
     function rangeEquityUsd18() external view returns (uint) { return _rangeEquityUsd18(); }
 
-    /// @dev That pool's total leverage debt (18-dec), read live from the pinned LevManager (0 if unset). The
-    ///      The BTC manager (`LEV_MANAGER`) lives on the Vault; the ETH one lives on the ETH-VENUE
-    ///      contract, reached via `RANGE.EV()` — the same indirection `QuidLib` uses.
+    /// @dev THIS range's total leverage debt (18-dec), read live from the pinned LevManager (0 if
+    ///      unset, and 0 before the Vault pin lands). ONE indirection for both instances:
+    ///      `RANGE.levManager()` — the BTC range answers it with the Vault's `LEV_MANAGER`, the ETH
+    ///      range with `QuidLib.levManager(aux)`. Core never learns which is which.
     ///      FAIL-SAFE: `totalDebtUsd` iterates the open-LP book (external venue reads); a revert there must NOT
     ///      brick `committedUsd18` (the backing gate on every swap/mint/redeem). On failure we subtract 0 debt,
     ///      which only RAISES committed ⇒ a STRICTER gate + LOWER redeemable — conservative, never over-issue.
@@ -144,9 +132,6 @@ contract Core {
     }
 
 
-    /// @notice Net BTC the pool has delivered to swap-out buyers, in sats —
-    /// `+= sats` on a USD→BTC swap (BTC sold out), `−= sats` on a BTC→USD
-    /// swap-in (refill), `−= delivered` when an LP closes (settled out). The
     /// @notice Sum of UNDELIVERED on-chain swap-out obligations, in 6-dec USD.
     /// `+= usd` at requestSwapOutOnchain (the swapper's payment, owed to whichever
     /// LP delivers), `-= usd` at deliverSwapOutOnchain (paid exact to that LP) or
@@ -154,9 +139,11 @@ contract Core {
     /// proceeds-side counter: per-channel exit P&L settles EXACTLY at delivery
     /// (the recorded per-obligation usd), so there is no global delivered/proceeds
     /// pool, no rate, and no clamp — and thus no cross-channel proceeds race.
-    /// It exists solely as the swap-in solvency-gate denominator: a swap-in may
-    /// draw at most the FREE reserve `POOLED_USD − pendingSwapOutUsd`, so
-    /// undelivered proceeds owed to LPs can never be drained out from under them.
+    /// It exists solely as the swap-in solvency gate, and that gate lives in
+    /// `SwapLib` (`POOLED_USD() < pendingSwapOutUsd()` ⇒ `SwapInDrainsProceeds`),
+    /// not here: a swap-in may draw at most the FREE reserve
+    /// `POOLED_USD − pendingSwapOutUsd`, so undelivered proceeds owed to LPs
+    /// can never be drained out from under them.
     /// INVARIANT: every `+= x` is matched by a `-= x` on BOTH the deliver and the
     /// reverse path, and `x` never exceeds the USD actually pulled into the pool.
     uint public pendingSwapOutUsd;
@@ -169,34 +156,17 @@ contract Core {
     // oracle-only pricing killed alongside toxic LVR (a swap must never price off the oracle alone:
     // that is a free option to the taker and the LVR it feeds is exactly what the range fee exists to price).
     // Its adaptive TARGET = "the buffer needed to serve normal flow" is an EWMA of
-    // two-sided swap volume — decayed exactly like the Aux.BaseRate register (same
-    // FeeLib.decPow half-life), NO governance constant, the market's own volume sets
-    // it. Bumped by every swap's USD notional in _handleSwap (range + well both route
-    // through it). Read DECAYED via flowEwmaUsd(). One register per pool.
+    // two-sided swap volume — decayed by `FeeLib.decPow` over `FLOW_DECAY` (48h half-life),
+    // NO governance constant, the market's own volume sets it. Bumped by every swap's USD
+    // notional in `swap` (range + well both route through it). Read DECAYED via
+    // flowEwmaUsd(). One register per instance.
     struct Flow { uint128 vol; uint64 ts; }   // vol: 6-dec USD EWMA · ts: last touch
     Flow internal _flow;   // §ISBTC-SPLIT: one per instance
-    /// §SLOP — A 30-LINE DOC BLOCK STOOD HERE FOR STATE THAT NO LONGER EXISTS, and its last four
-    /// lines were attached to the WRONG CONSTANT. Removed, with what it actually said recorded once:
-    ///   • `§E55 — the SLOW half of the adaptive flow estimate`: described `_flowSlowBTC`/
-    ///     `_flowSlowETH`. Both are DELETED, and so is `FLOW_SLOW_N`, the ratio constant the text
-    ///     names (zero live references, verified comments-stripped).
-    ///   • `DEAD SLOTS, DELIBERATELY RETAINED` (twice): the slow-leg and realized-LVR padding, kept
-    ///     because `Core`'s state ORDER IS LOAD-BEARING. That retention was RECLAIMED 2026-08-16
-    ///     once both absolute readers were shown gone -- so the block argued for keeping something
-    ///     that had already been removed, in the same breath as recording its removal.
-    ///   • `@dev The slow register's half-life as a MULTIPLE of the fast one (48h x 7 ~ 14 days)`,
-    ///     sitting DIRECTLY ABOVE `FLOW_DECAY`. It documented `FLOW_SLOW_N`, so a reader took it as
-    ///     `FLOW_DECAY`'s doc and would conclude the 48h constant is a 14-day one.
-    ///   • `flowEwmaUsd` takes the MIN of the two` -- FALSE. `flowEwmaUsd()` returns
-    ///     `_decayed(_flow)`; there is no second leg to take a min against.
-    /// WHY THIS MATTERED BEYOND TIDINESS: `DrainAtomicity._flowTs` called slot 263 "formerly
-    /// `_flowSlow*`" ON THE STRENGTH OF THIS BLOCK. It is `_prem`, the premium EWMA. A stale
-    /// declaration doc propagated into a test's belief about which register it was pinning, and a
-    /// raw-slot read that names the wrong variable still passes.
-    /// ⇒ §E55's REAL conclusion, which IS worth keeping: the `min(fast, slow)` could never bind.
-    /// `_bumpFlow` added the full notional to BOTH legs and these are decaying SUMS, so a slower
-    /// decay retains MORE ⇒ `slow >= fast` at every ratio ⇒ the min was identically the fast leg.
-    /// That is why one register is correct, and why no third decay constant is needed.
+    /// ⛔ §E55 — ONE FLOW REGISTER, AND A SECOND "SLOW" LEG MUST NOT BE RE-ADDED. A fast/slow pair
+    /// read as `min(fast, slow)` cannot bind: both legs are fed the FULL notional and both are
+    /// decaying SUMS, so a slower decay retains MORE ⇒ `slow >= fast` at every ratio ⇒ the min is
+    /// identically the fast leg. One register is therefore the whole estimator, and no second decay
+    /// constant is needed to make it adaptive.
     uint internal constant FLOW_DECAY   = 999759352855809024; // per-min → 48h half-life (0.5^(1/2880)). The well's flow-EWMA / inventory-skew target wants a wide, manipulation-resistant memory. (The Aux redeem-fee `baseRate`, a separate 12h register, was REMOVED — QU!D has no peg-arb loop; this 48h flow decay is unrelated and stays.)
     uint internal constant FLOW_MAX_MIN = 525600000;          // decay-exponent cap (Liquity)
 
@@ -204,19 +174,20 @@ contract Core {
     ///         θ NUMERATOR source (#107/D3). Deliberately the SAME `Flow` struct, the SAME
     ///         `FLOW_DECAY` (48h) and the SAME read/bump helpers as the swap-volume register:
     ///         premium accrues on exactly the same swap events and wants exactly the same memory,
-    ///         so a THIRD decay constant would be an unjustified magic number. (This does NOT
-    ///         re-tie the 48h flow window to the 12h `BR_DECAY` — those stay un-tied by design;
-    ///         this is a SECOND consumer of the 48h window, not a merge of two windows.)
+    ///         so a THIRD decay constant would be an unjustified magic number. This is a SECOND
+    ///         consumer of the ONE 48h window, not a merge of two windows.
     Flow internal _prem;   // §ISBTC-SPLIT: one per instance
 
-    /// @dev ONE decay implementation, shared by both EWMA registers (was duplicated between
-    ///      `_bumpFlow` and `flowEwmaUsd`). Decay the stored value over elapsed whole minutes.
+    /// @dev ONE decay implementation, shared by EVERY `Flow` register here (`_flow`, `_prem`,
+    ///      `_redeemFlow`). Decay the stored value over elapsed whole minutes.
     function _decayed(Flow storage f) internal view returns (uint) {
         return _decayedBy(f, 1);
     }
 
     /// @dev `slowN`-fold slower decay: the SAME curve evaluated over `mins/slowN`, so the half-life
     ///      is `slowN ×` the fast one. One decay implementation, one constant, an integer ratio.
+    ///      ⚠️ Every live caller passes `slowN = 1` (through `_decayed`); there is no slow leg. The
+    ///      ratio form is what makes that a stated choice rather than a hidden assumption.
     function _decayedBy(Flow storage f, uint slowN) internal view returns (uint) {
         if (f.ts == 0) return f.vol;
         uint mins = (block.timestamp - f.ts) / 60 / slowN;
@@ -230,12 +201,13 @@ contract Core {
         f.ts  = uint64(block.timestamp);
     }
 
-    /// @notice Fold USD notional into this pool's flow EWMA.
-    /// 🔴 **§SESS-18 — "Called only from `_handleSwap`" WAS THE DEFECT, NOT JUST A STALE COMMENT.**
-    ///    `flowEwmaUsd` is `skewWad`'s `target` — *"scarcity is inventory against the flow we shed
-    ///    into"* — and a REDEMPTION sheds range inventory exactly as a swap does. It reached this
-    ///    register through no path at all, because `unwindForRedeem` is a BURN and only swaps route
-    ///    through `_handleSwap`. ⇒ `target` systematically under-counted the demand the range serves.
+    /// @notice Fold a SWAP's USD notional into this pool's flow EWMA. ONE call site, in `swap`.
+    /// 🔴 **§SESS-18 — SWAPS ARE NOT THE ONLY FLOW, AND THAT IS WHY THIS IS NOT THE ONLY REGISTER.**
+    ///    The skew's `target` is *"scarcity is inventory against the flow we shed into"*, and a
+    ///    REDEMPTION sheds range inventory exactly as a swap does. `unwindForRedeem` is a BURN, so it
+    ///    reaches no swap seam and can never arrive here; it feeds `_redeemFlow` through
+    ///    `bumpRedeemFlow`, and `skewTargetUsd()` sums the two. Reading `flowEwmaUsd()` alone as the
+    ///    target is what systematically under-counted the demand the range serves.
     /// 📊 **MEASURED (§SESS-16, `evm/test/SkewTollCurve.t.sol`):** at live inputs `inv/target` read
     ///    **4.54** — the pool looked 4.5x over-stocked — and the drain toll was **0 bps at 1/5/10/25%
     ///    depletion, 1 bps at 50%**, only reaching 96 bps at 90%. Holding inventory and drain fixed and
@@ -297,14 +269,11 @@ contract Core {
     /// @notice This pool's decayed swap-flow EWMA (6-dec USD) — the adaptive
     ///         normal-flow buffer the skew target is built on. Pure decay of the stored
     ///         register to now; NO governance constant.
-    /// §E55 — ADAPTIVE, AND THE ADAPTIVITY IS IN THE `min`, NOT IN A TUNED DECAY. A single fitted
-    /// half-life is a guess: too fast and the estimator tracks the noise it was built to resist, too
-    /// slow and it misses a regime change. Taking the MIN of a fast and a slow register is
-    /// self-correcting in the direction that matters — when flow COLLAPSES the fast leg drops at
-    /// once and we price the scarcity immediately (conservative); when flow SPIKES the slow leg
-    /// lags, so **a transient burst is never mistaken for durable shed capacity** until it persists.
-    /// It is also manipulation-resistant by construction: lifting this number requires sustaining
-    /// fake flow across the SLOW window, not one block. (Same shape as `min-of-two-prices`.)
+    /// §E55 — ADAPTIVE BECAUSE THE MARKET WRITES IT, NOT BECAUSE THE DECAY IS TUNED. There is ONE
+    /// register and ONE half-life (`FLOW_DECAY`, 48h): the window is wide enough that lifting this
+    /// number takes sustained fake volume rather than one block, and a decaying SUM of real notional
+    /// needs no fitted parameter to track a regime change. See the declaration for why a second,
+    /// slower leg read as a `min` could never bind.
     function flowEwmaUsd() public view returns (uint) {
         return _decayed(_flow);
     }
@@ -329,64 +298,55 @@ contract Core {
         return _levDebtUsd18() / 1e12;
     }
 
-    /// @notice This pool's aggregate levered GROSS collateral in NATIVE units (wei for ETH, sats for BTC), read
-    ///         live from the pinned LevManager (0 if unset). The well skew's LOCKED-INVENTORY basis: POOLED_{ETH,
-    ///         BTC} already pairs in the full 2× gross buffer as tokenless range depth, so the true deliverable
-    ///         reservoir is `poolVol − gross`. Kept NATIVE (not USD) so SwapLib converts it with the SAME
-    ///         `base`/1e30 scale it already applies to poolVol — one price, one unit. DISTINCT from the debt basis
-    ///         (`levClaimUsd6`, ~1×), which stays on the demand/target side of the skew (the net-equity leg
-    ///         self-heals via bounded de-lever, so only the debt leg is an uncovered forward claim on the reservoir).
-    ///         FAIL-SAFE: a revert in the venue-iterating read must not brick the swap; on failure returns 0 (the
-    ///         skew merely relaxes toward the base oracle curve — the pricing signal, not a hard backing gate).
     /// @notice This range's risk profile for the skew cap: the settlement-window fraction of a year
     ///         and the on-chain splice floor. Returned as a PAIR so `SwapLib` needs no asset flag.
     function riskParams() external view returns (uint confFracWad, uint spliceFloor) {
         return (CONF_FRAC, SPLICE);
     }
 
+    /// @notice This range's aggregate levered GROSS collateral in NATIVE units (wei for ETH, sats for BTC), read
+    ///         live from the range manager (0 before the Vault pin lands). The well skew's LOCKED-INVENTORY
+    ///         basis: `POOLED` already pairs in the full 2× gross buffer as tokenless range depth, so the true
+    ///         deliverable reservoir is `poolVol − gross`. Kept NATIVE (not USD) so SwapLib converts it with the
+    ///         SAME `base`/1e30 scale it already applies to poolVol — one price, one unit. DISTINCT from the debt
+    ///         basis (`levClaimUsd6`, ~1×), which stays on the demand/target side of the skew (the net-equity leg
+    ///         self-heals via bounded de-lever, so only the debt leg is an uncovered forward claim on the reservoir).
+    ///         FAIL-SAFE: a revert in the venue-iterating read must not brick the swap; the range manager's own
+    ///         read returns 0 on failure (the skew merely relaxes toward the base oracle curve — this is the
+    ///         pricing signal, not a hard backing gate).
     function levGrossNative() public view returns (uint) {
         if (address(BTC) == address(0)) return 0;
         return RANGE.levGrossNative();
     }
 
-    /// @notice Annualized realized variance (WAD) of this pool's oracle — the well
-    ///         skew's live-vol steepness input (steeper premium in higher vol, matching a
-    ///         native-BTC MM's real cost). Thin pass to QuidLib (identical to Quid's own
-    ///         `realizedVarianceWad`); exposed here so the skew reads ONE source for both
-    ///         pools regardless of which range contract drives the swap. Fails-open to 0
-    ///         (insufficient history) ⇒ no steepening, base convex curve still applies.
-    /// @notice §E59/§E345 — annualized realized variance (WAD), the **MAX of two legs**: the
-    ///         observation ring and the Chainlink anchor. ⚠️ THIS SAID *"read DIRECTLY from the
-    ///         observation ring"*, WHICH §E345 MADE FALSE AND WHICH IS THE EXACT SENTENCE THE
-    ///         §E346-ZERO NOTE IN THE BODY COMPLAINS ABOUT `SwapLib` STILL CARRYING — it was here
-    ///         too, one frame closer to the change. The ring leg alone was the pre-§E345 shape.
-    ///         §E59's original point survives and is why the ring is read from storage rather than
-    ///         through `observe`: the old estimator was a round trip (Core → QuidLib → back into
-    ///         Core) sampling `observe` on a wall-clock grid, and that grid was the bug — `observe`
-    ///         INTERPOLATES between stored points and linear interpolation has zero second
-    ///         derivative, so any stretch quieter than the sample interval measured EXACTLY 0
-    ///         however far price moved.
+    /// @notice §E59/§E345 — annualized realized variance (WAD) for THIS range, the **MAX of two
+    ///         legs**: the observation ring and the Chainlink anchor. The well skew's live-vol
+    ///         steepness input (steeper premium in higher vol, matching a native-BTC MM's real
+    ///         cost), and θ's denominator.
+    ///         §E59 is why the ring leg is read from STORAGE rather than through `observe`: the old
+    ///         estimator was a round trip (Core → QuidLib → back into Core) sampling `observe` on a
+    ///         wall-clock grid, and that grid was the bug — `observe` INTERPOLATES between stored
+    ///         points and linear interpolation has zero second derivative, so any stretch quieter
+    ///         than the sample interval measured EXACTLY 0 however far price moved.
     ///         **0 means UNKNOWN, NEVER "calm"** — `SwapLib._maxWellSkew` charges the ceiling on it
-    ///         and theta fails open, and both readers agree on that. ⚠️ The gloss *"(too few real
-    ///         updates)"* was dropped: it named the ring's shortfall as the only way to reach 0, and
-    ///         since §E345 the anchor leg reaches it a different way (`_varDt.vol == 0`, never
-    ///         sampled). 0 now means BOTH legs are unmeasured, which is stricter than the old
-    ///         reading, not looser — see the enumeration in the body.
+    ///         and theta fails open, and both readers agree on that. ⚠️ 0 requires BOTH legs to be
+    ///         unmeasured, and they reach it differently: the ring by having too little history, the
+    ///         anchor by `_varDt.vol == 0` (never sampled). Do not gloss it as "too few ring
+    ///         updates" — see the enumeration in the body.
     function realizedVarianceWad() external view returns (uint) {
-        // 9 ring points → 8 intervals → **7** returns. ⚠️ THIS SAID "8 returns" AND IT IS OFF BY ONE,
-        // WHICH MATTERS BECAUSE THE COUNT IS WHAT DECIDES WHETHER THE ESTIMATE EXISTS AT ALL. A
-        // return is the ratio of two CONSECUTIVE INTERVAL RATES, so `n` points give `n-1` intervals
-        // and `n-2` returns — `ringVariance` says exactly that (`uint m = n - 2; // returns =
-        // intervals − 1`) and refuses below `m < 2`. Reading "8 returns" off this line makes the
-        // `card >= 4` threshold §E345 measured look like `card >= 3`, i.e. it under-states by one
-        // the ring depth needed before σ² can be non-zero — the same one-short arithmetic that made
-        // the deleted `cardinality >= 2` sentinel report "measured, and calm" for a ring that had
-        // measured nothing.
+        // 9 ring points → 8 intervals → **7** returns, and the count is what decides whether the
+        // estimate exists at all. A return is the ratio of two CONSECUTIVE INTERVAL RATES, so `n`
+        // points give `n-1` intervals and `n-2` returns — `ringVariance` says exactly that
+        // (`uint m = n - 2; // returns = intervals − 1`) and refuses below `m < 2`. ⚠️ Reading this
+        // as "8 returns" makes the `card >= 4` threshold §E345 measured look like `card >= 3`, i.e.
+        // under-states by one the ring depth needed before σ² can be non-zero — the same one-short
+        // arithmetic that made the deleted `cardinality >= 2` sentinel report "measured, and calm"
+        // for a ring that had measured nothing.
         // §TICK-REMOVAL — THE 1e10 WENT WITH THE TICKS, AND THE UNITS ARE UNCHANGED. It was never
         // a tuning constant: a tick is 1 bp, so tick²→relative² is 1e-8 and WAD is 1e18, giving
         // exactly 1e-8 × 1e18 = 1e10. `ringVariance` now returns (WAD relative return)² per second,
         // i.e. relative²·1e36, so ONE division by 1e18 lands on WAD relative variance — same
-        // magnitude, same meaning ⇒ Γ (`MAX_WELL_SKEW`) needs NO recalibration.
+        // magnitude, same meaning ⇒ Γ (`SwapLib.GAMMA_WAD`) needs NO recalibration.
         uint v = Math.mulDiv(OracleLib.ringVariance(observations, obsState, 9),
                             31536000, 1e18);          // per-sec → annualized
         // §E88 — ZERO IS NOW RESERVED FOR "UNMEASURED", AND ONLY THAT.
@@ -410,9 +370,9 @@ contract Core {
         // with `n = min(9, card)`. So for `cardinality` ∈ {2,3} this returned 1 — *"measured, and
         // genuinely calm"* — for a ring that had measured NOTHING. That is exactly the sentinel error
         // §E59 named (a value meaning "no data" consumed as if it meant "none of the thing"),
-        // reintroduced inside the function whose job is to resolve it. ⚠️ AND IT IS REACHABLE
-        // WITHOUT PERMISSION: `pushObservation` is permissionless, `seedRing` leaves `cardinality`
-        // at 1, so TWO honest pushes in distinct blocks land in the window — at which point
+        // reintroduced inside the function whose job is to resolve it. ⚠️ AND NO ATTACKER WAS NEEDED
+        // TO REACH IT: `seedRing` leaves `cardinality` at 1 and `_observeIfSourced` writes once per
+        // swap, so TWO ordinary swaps in distinct blocks land in the window — at which point
         // `skewWad`'s `if (sigmaSqWad == 0) return UNKNOWN_VARIANCE_SKEW` stops firing and the flat
         // 3% unknown-variance charge on a drain silently becomes the §E216 depletion term alone.
         //   ⭐ THE FIX IS NOT `>= 4`. Re-tuning the threshold leaves TWO functions that must agree
@@ -423,14 +383,17 @@ contract Core {
         //
         // ⭐ MAX, NOT RING-PREFERRED, AND THE MONOTONICITY IS THE POINT. Both consumers move
         // CONSERVATIVELY as σ² rises — `skewWad` charges a wider spread, and `QuidLib.derivedThetaWad`
-        // (Merton `avgYield/(K·σ²)`) deploys LESS depth. Taking the max therefore leaves the ring's
-        // permissionless writer able to move σ² only UPWARD, i.e. only in the direction that costs
-        // him. Preferring the ring whenever it is non-zero would hand him the profitable direction
-        // back: he could not suppress to 0 any more, but he could still pin a low non-zero reading
-        // UNDER the anchor's, which is the same drain-for-cheap trade with one extra step.
-        // ⚠️ Residual, named rather than implied: he can still INFLATE σ² and widen the spread other
-        // traders pay. That grief predates this change and is bounded by the ±50 bps push range; it
-        // is not made worse here, and it is the direction an attacker pays for rather than profits by.
+        // (Merton `avgYield/(K·σ²)`) deploys LESS depth. Taking the max therefore leaves whoever
+        // feeds the ring able to move σ² only UPWARD, i.e. only in the direction that costs them.
+        // Today that is the Chainlink anchor itself (`observationSource` is unset), but the guard is
+        // written for the pinned-source case: preferring the ring whenever it is non-zero would hand
+        // a source the profitable direction back — it could not suppress to 0 any more, but it could
+        // still pin a low non-zero reading UNDER the anchor's, which is the same drain-for-cheap
+        // trade with one extra step.
+        // ⚠️ Residual, named rather than implied: a pinned source can still INFLATE σ² and widen the
+        // spread other traders pay. ⛔ Do not read `OBS_PUSH_MAX_BPS` as bounding that — it does not
+        // (see its declaration). What bounds it is that inflation is the direction an attacker pays
+        // for rather than profits by.
         //
         // 0 from BOTH still means UNMEASURED and still charges the ceiling — the fail-conservative
         // default is unchanged, and it is now the ONLY thing 0 can mean.
@@ -443,11 +406,12 @@ contract Core {
         //     survives to this line — a fix that looks landed and changes nothing. (The anchor leg's
         //     floor works precisely because it is applied AFTER its own scaling, not before.)
         //   • AND IT WOULD BE UNSAFE. `ringVariance` genuinely computes 0 on a FLAT ring (constant
-        //     price ⇒ every interval rate identical ⇒ every return 0), and `pushObservation` is
-        //     PERMISSIONLESS within ±50 bps of the anchor, so a constant series is cheap to
-        //     construct. Flooring it would restore the §E345 attack through a new door: σ² reads
+        //     price ⇒ every interval rate identical ⇒ every return 0), and a flat ring is the
+        //     ORDINARY state here rather than an adversarial one: `_observeIfSourced` writes the
+        //     Chainlink anchor, which is flat BETWEEN rounds, so every swap inside one round writes
+        //     the same price. Flooring it would restore the §E345 attack through a new door: σ² reads
         //     "measured, calm", `skewWad`'s `sigmaSqWad == 0` guard stops firing, and the 3%
-        //     unknown-variance drain charge switches off.
+        //     unknown-variance drain charge switches off — off an unmoved feed, for free.
         // ⇒ The `max` below is what actually resolves it: the ring's honest zero and its
         //   could-not-estimate zero contribute IDENTICALLY (nothing), so the distinction is not
         //   observable here BY CONSTRUCTION. Full seven-exit enumeration at `OracleLib.ringVariance`.
@@ -468,7 +432,7 @@ contract Core {
     ///         relative return, so its unit is a WAD squared-return; `_varDt` accumulates plain
     ///         seconds. The ratio is WAD variance PER SECOND — precisely what `ringVariance` returns
     ///         after its own `/1e18` — and one multiplication by 31,536,000 annualizes it. Γ
-    ///         (`MAX_WELL_SKEW`) needs no recalibration for the same reason §TICK-REMOVAL did not.
+    ///         (`SwapLib.GAMMA_WAD`) needs no recalibration for the same reason §TICK-REMOVAL did not.
     function anchorVarianceWad() public view returns (uint) {
         uint dt = _varDt.vol;
         if (dt == 0) return 0;                        // never sampled ⇒ UNMEASURED, charge the ceiling
@@ -487,19 +451,21 @@ contract Core {
     ///      site's own comment warns about one line up. The extra read is the price of that not
     ///      happening.
     ///
-    /// @dev THE GATE IS "THE ANCHOR MOVED", AND IT IS WHAT MAKES THIS ESTIMATOR HONEST RATHER THAN
-    ///      MERELY CHEAP. §E343 measured Chainlink ETH/USD at 57.3 updates/day with a 20.5-min median
-    ///      gap, and its central finding was that the series must be read PER ROUND: *"read on a
-    ///      fixed grid, the gaps ARE flat and σ² collapses; read per round, every sample is a move
-    ///      that already cleared the 0.5% deviation trigger."* Swaps arrive far faster than rounds,
-    ///      so sampling every swap IS a fixed grid in the only sense that matters — it would pad the
-    ///      series with zero returns and drive the estimate toward the flat-line collapse §E343
-    ///      predicts. Skipping an unmoved anchor rebuilds the per-round series exactly, and the
-    ///      elapsed quiet time still enters through `Δt`, so the denominator is not flattered either.
-    ///      A round that repeats the previous price contributes `r = 0` and is correctly skipped.
+    /// @dev THE NUMERATOR IS PER-ROUND WHILE THE DENOMINATOR IS PER-SWAP, AND THAT SPLIT IS WHAT
+    ///      MAKES THIS ESTIMATOR HONEST RATHER THAN MERELY CHEAP. §E343 measured Chainlink ETH/USD at
+    ///      57.3 updates/day with a 20.5-min median gap, and its central finding was that the series
+    ///      must be read PER ROUND: *"read on a fixed grid, the gaps ARE flat and σ² collapses; read
+    ///      per round, every sample is a move that already cleared the 0.5% deviation trigger."*
+    ///      Swaps arrive far faster than rounds, so `Σr²` must not be padded with a zero for every
+    ///      swap that observes the SAME round — and it is not: `r` is differenced against `_varPx`,
+    ///      which advances only when the anchor MOVES, so a repeated price adds nothing to the
+    ///      numerator however many swaps see it. Its quiet seconds DO reach `Σdt`, which is correct —
+    ///      a market that did not move is information, not an absence of it.
+    ///      ⛔ Do not "restore" an early return on `px == prev` ABOVE the `dt` computation: that is
+    ///      the shape §E345-ANCHOR removed, and the note in the body says what it broke.
     ///
-    /// @dev EVERY FAILURE DEGRADES TO UNMEASURED, NONE REVERTS — the same rule `pushObservation` and
-    ///      `_observeIfSourced` state: a dead or stale feed makes `twapResolve` return 0 here, the
+    /// @dev EVERY FAILURE DEGRADES TO UNMEASURED, NONE REVERTS — the same rule `_observeIfSourced`
+    ///      states one function down: a dead or stale feed makes `twapResolve` return 0 here, the
     ///      registers stand still, and the ceiling sentinel prices the ignorance. THE READ MUST NOT
     ///      BE ABLE TO HALT THE RANGE.
     function _sampleAnchorVariance() internal {
@@ -607,9 +573,10 @@ contract Core {
     uint public skewPremium;
     event SkewPremiumRetained(uint256 premiumUsd, uint256 cumulative);
 
-    /// @notice Record a scarcity-premium retained on a swap-out. Called by the well swap
-    ///         bodies (SwapLib.creditSwapOutBody in the Vault context, swapToBody in Aux) — same
-    ///         onlyUs seam as Core.swap. No-op on a flush pool (premium == 0).
+    /// @notice Record a scarcity-premium retained on a swap-out. ONE direct caller,
+    ///         `SwapLib.retainSkewPremium` — which is the whole LP fee lane, reached from
+    ///         `swapToBody` (Aux) and `creditSwapOutBody` (Vault). Same onlyUs seam as `Core.swap`.
+    ///         No-op on a flush pool (premium == 0).
     function recordSkewPremium(uint256 premiumUsd) external onlyUs {
         if (premiumUsd == 0) return;
         uint256 cum;
@@ -629,7 +596,8 @@ contract Core {
         // mirror rose only 2,993.999901 — the 6.000099 gap was the premium, quoted as QU!D
         // redeemability while owed to LPs. Folding it in closes the gap AT SOURCE, so redeemable
         // needs no premium-specific subtraction and no claimed/unclaimed counter to keep in sync:
-        // the mirror already falls as LPs draw. Symmetric across both ranges via IS_BTC.
+        // the mirror already falls as LPs draw. Each instance does this for its own range, so the
+        // two are symmetric without either knowing which asset it is.
         POOLED_USD += premiumUsd;
         // Also fold it into the decaying RATE register (#107/D3). The cumulative counters above
         // are monotonic totals — useless as a yield; θ needs a rate, which is what this provides.
@@ -647,18 +615,16 @@ contract Core {
         if (amount != 0 && to != address(0)) AUX.take(to, amount, token, 0);
     }
 
-    // §ISBTC-SPLIT — ONE PAIR PER INSTANCE. Four mocks existed because one contract hosted two
-    // pools; an instance hosts one range, so it needs one volatile mock and one USD mock.
-
-    /// §ISBTC-SPLIT — WHAT THIS INSTANCE IS. Not a parameter threaded through every call: an
-    /// IMMUTABLE the contract holds about itself. That distinction is the point of the split — a
-    /// runtime boolean selecting between two behaviours IS the hand-rolled polymorphism being
-    /// removed, whereas an instance knowing its own asset is what having instances MEANS.
-    /// Use it ONLY where the asymmetry is REAL (ETH pays out ether; BTC settles via a Lightning
-    /// cooperative close), never to pick between two paths that should have been one.
-    /// §ISBTC-SPLIT — the volatile side's decimals (18 ether / 8 sats), fixed per instance. Held as
-    /// a NUMBER because that is what actually differs; the mock deployer takes it directly instead
-    /// of re-deciding from a flag.
+    /// §ISBTC-SPLIT — WHAT THIS INSTANCE IS, held as FACTS rather than as a flag. Each of the four
+    /// fields below is something the contract knows about ITSELF, resolved once; none of them is a
+    /// parameter threaded through calls. That distinction is the point of the split — a runtime
+    /// boolean selecting between two behaviours IS the hand-rolled polymorphism being removed,
+    /// whereas an instance knowing its own asset is what having instances MEANS.
+    /// ⛔ Let a REAL asymmetry differ (ETH pays out ether; BTC settles via a Lightning cooperative
+    /// close), and never reintroduce a selector to pick between two paths that should have been one.
+    /// §ISBTC-SPLIT — the volatile side's decimals (18 ether / 8 sats), READ FROM THE ASSET in the
+    /// constructor because the token already knows. Held as a NUMBER because that is what actually
+    /// differs; `VOL_DECIMALS != 18` is what tells `twapResolve` to apply WBTC's ×1e10 lift.
     uint8 public immutable VOL_DECIMALS;
     /// §ISBTC-SPLIT — THIS RANGE'S RISK PROFILE, resolved once at construction. `SwapLib` used to
     /// take a `bool isBTC` solely to choose between two constants; the instance owns which pair
@@ -666,12 +632,14 @@ contract Core {
     /// pays an on-chain splice fee; ETH settles in ~one block with neither.
     uint public immutable CONF_FRAC;
     uint public immutable SPLICE;
-    /// §ISBTC-SPLIT — THIS INSTANCE'S VOLATILE ASSET, resolved ONCE at setup. Three money-path
-    /// sites read `IS_BTC ? address(AUX.WBTC()) : address(AUX.WETH())`, so each priced swap made an
-    /// EXTERNAL CALL into Aux to look up a constant, then chose between two constants with a
-    /// branch. Not immutable only because `AUX` is wired in `setup`, not in the constructor.
+    /// §ISBTC-SPLIT — THIS INSTANCE'S VOLATILE ASSET, passed to the constructor and never chosen at
+    /// runtime. The money-path sites that price against it (`getTWAPforAsset`, `assetPriceFeed`)
+    /// read this slot, instead of making an EXTERNAL CALL into Aux to fetch WBTC-or-WETH and then
+    /// branching between two constants.
     address public ASSET;
-    /// §ISBTC-SPLIT — THIS INSTANCE'S RANGE MANAGER, through `ICore`. Every money-path `IS_BTC`
+    /// §ISBTC-SPLIT — THIS INSTANCE'S RANGE MANAGER, held as ONE `ICore` handle: `Quid` on the ETH
+    /// instance, `Vault` on the BTC one. Every money-path hand-off to the range (`deliverVolatile`,
+    /// `creditSkewPremium`, `levManager`, `onShortfall`, …) goes through it with no asset test.
     ICore public RANGE;
 
     /// §V4-CUT — THE RANGE'S RANGE, now OURS to store. It used to live inside the v4 position, which
@@ -688,16 +656,6 @@ contract Core {
     /// Deriving is CHEAPER than storing: two `mulDiv`s beat a cold SLOAD, and a repack writes one
     /// slot instead of two.
     uint public RANGE_ANCHOR;
-
-
-
-    // ─── IS_BTC storage-ref selectors (EIP-170 dedup) ─────────────────
-    // Each picks the per-pool slot/array so the swap/repack/delta/observation
-    // bodies run ONE IS_BTC-parameterized path instead of mirrored ETH/BTC
-    // branches. Value types can't be returned by storage ref, so the scalar
-    // observation state is grouped in `_obsState` (ABI-preserving: the old
-    // public obs getters were unread externally; only the array getters and
-    // POOLED_* getters, which stay, are read by tests).
 
 
 
@@ -718,11 +676,11 @@ contract Core {
 
     Aux AUX; Basket BASKET; Vault BTC;
 
-    /// @notice BtcVault — the BTC LP/swap side, regrouped out of Quid/Aux.
-    /// Pinned once (post-deploy, like Quid's btcChannels) since BtcVault is
-    /// deployed after Core. Read for `totalShares()` (the BTC
-    /// shortfall trigger) and admitted to `onlyUs` so it can drive the BTC
-    /// pool (modLP / repack / collectFees / draw / dec / swap).
+    /// @notice The BTC Vault, pinned on BOTH instances (post-deploy, like Quid's btcChannels) since
+    /// the Vault is deployed after Core. Three uses, all of them here: it is admitted to `onlyUs` so
+    /// it can drive this engine (modLP / repack / settleOor / swap), `btcThetaBacking` reads its
+    /// `totalShares()`+`totalBuffer()`, and a zero pin is the "not wired yet" test the leverage reads
+    /// short-circuit on. It is NOT how this instance learns which asset it is — that is `ASSET`.
     
     
     // BTC is pinned in its OWN setter, not setup(), because Vault is deployed AFTER Core
@@ -748,17 +706,19 @@ contract Core {
     ///         not the point; being CUMULATIVE is. A decayed EWMA cannot tell a DEAD pool from a NEW
     ///         one (both read 0), and `sellSkew`'s refusal must treat those oppositely. A pool that
     ///         has never traded cannot have accrued any premium, so this disambiguates them.
-    /// @dev    Dispatched HERE rather than read as two public getters from `SwapLib`: the two-branch
-    ///         read cost SwapLib 87 bytes it does not have (measured, -87 over EIP-170), and Core has
-    ///         the margin. Same trade as E32 — put the code where the room is.
+    /// @dev    ONE consumer: `SwapLib`'s `skewPremiumCum() > 0` shed-path test. It is an accessor
+    ///         rather than a direct read of the public `skewPremium` getter because the caller asks a
+    ///         question ("has this range ever traded?") that must keep its answer if the counter is
+    ///         ever restructured. Same trade as E32 — put the code where the room is.
     function skewPremiumCum() external view returns (uint) {
         return skewPremium;
     }
 
     /// @notice BTC range theta-numerator: the native IL-bearing backing = aggregate locked sats (lpShares,
     ///         net) + gross debt-funded buffer (totalBuffer). The BTC analogue of (rangeETH + totalBuffer)
-    ///         on ETH. ONE source of truth for BOTH the LP-add clamp (BtcLib._thetaClampBtc) and the
-    ///         reseat clamp (QuidLib.addLiq IS_BTC) so they throttle on the SAME real capital -- NEVER the
+    ///         on ETH. ONE source of truth for the BTC θ clamp — `BtcLib.addLiqChannel` reads it (plus
+    ///         THIS add's sats) and hands it to the shared `SwapLib.addLiqBody`, so an add and a reseat
+    ///         throttle on the SAME real capital -- NEVER the
     ///         disjoint WBTC-donation `rangeBTC` pool (that mis-base collapsed the range whenever donations were
     ///         thin, the opposite of what scarcity should do). 0 if no BTC vault wired.
     function btcThetaBacking() external view returns (uint) {
@@ -766,8 +726,9 @@ contract Core {
     }
 
     /// @dev §CORE-ONLYUS — THE CHECK IS A `private view`; THE MODIFIER STAYS THE GATE. A modifier
-    ///      body is INLINED AT EVERY USE SITE (18 here), so three SLOADs + a revert string inline
-    ///      cost 18 copies. One routine + 18 calls instead: **907 bytes** (24,472 → 23,565), taking
+    ///      body is INLINED AT EVERY USE SITE (11 today; 18 when the figures below were taken), so
+    ///      three SLOADs + a revert string inline cost one copy each. One routine + N calls
+    ///      instead, measured at the time as **907 bytes** (24,472 → 23,565), taking
     ///      `Core`'s EIP-170 margin from 104 to **1,011** — it sat at 28 and was FROZEN for
     ///      additions, which is why §E42's premium fix had to route via `Aux.ethVenue()`.
     ///      Semantics identical: the check still runs before every guarded body, at every site.
@@ -797,16 +758,14 @@ contract Core {
     ///         `onlyUs` member (Core isn't Ownable; this is the immutable analog of the owner-gate the
     ///         siblings Basket.setBtcVault / Aux.setEthVenue already carry).
     address immutable DEPLOYER;
-    /// §ISBTC-SPLIT — `isBtc` is instance identity and is set ONCE, here. Two instances are
-    /// deployed: one ETH, one BTC. Nothing downstream may change it, which is why it is immutable
-    /// rather than a settable flag — a settable one would reintroduce the runtime selector.
-    /// §ISBTC-ZERO — THE FLAG IS GONE. `bool isBtc` was never the thing this contract needed; it
-    /// was a proxy the constructor immediately expanded into four facts. Those facts are now passed
-    /// DIRECTLY, so there is nothing left to select at runtime and nothing to get wrong at a call
-    /// site. `VOL_DECIMALS` is READ FROM THE ASSET rather than passed, because the token already
-    /// knows (WETH 18, WBTC 8) -- one fewer number a deployer can mistype.
-    /// @dev §RISK-IS-ONE-PROFILE — `confFrac_` and `splice_` were TWO loose numbers and are now one
-    ///      `SwapLib.Risk`. They are not independent: every deploy passes either
+    /// §ISBTC-ZERO — THE INSTANCE IS DESCRIBED BY FACTS, NOT BY A FLAG, AND NO FLAG MAY COME BACK.
+    /// Two instances are deployed, one ETH and one BTC, and each is told directly what it is: the
+    /// ASSET, and the risk profile that goes with it. There is nothing left to select at runtime and
+    /// nothing to get wrong at a call site. `VOL_DECIMALS` is not even passed — it is READ FROM THE
+    /// ASSET, because the token already knows (WETH 18, WBTC 8), one fewer number a deployer can
+    /// mistype. ⛔ A settable identity flag would reintroduce the runtime selector this removed.
+    /// @dev §RISK-IS-ONE-PROFILE — THE TWO RISK NUMBERS TRAVEL AS ONE `SwapLib.Risk`, never as two
+    ///      loose parameters. They are not independent: every deploy passes either
     ///      `(ETH_CONF_FRAC_WAD, 0)` or `(CONF_FRAC_WAD, SPLICE_FLOOR)`, and `SwapLib` already
     ///      declares exactly those two pairings as `ethRisk()` / `btcRisk()`. Two parameters that
     ///      always co-vary are one parameter wearing a disguise, and the disguise is what lets a
@@ -824,18 +783,20 @@ contract Core {
         SPLICE       = risk.spliceFloor;
     }
 
+    /// @param _range            this instance's range manager (`Quid` on ETH). ZERO on the BTC
+    ///                          instance, which pins the Vault later in `setBtcVault`.
     /// @param _aux              Aux (settlement adapter)
     /// @param _basket           Basket (settlement target)
     /// @param seedPrice         This range's reference price at deploy (WAD USD per unit volatile),
-    ///                          read from the REAL on-chain pool by the DEPLOYER and passed in.
+    ///                          read from CHAINLINK by the DEPLOYER (`OracleLib.seedPrices`) and
+    ///                          passed in — it seeds the ring, and nothing else reads it.
     function setup(address _range, address _aux, address _basket, uint seedPrice)
         external { require(msg.sender == DEPLOYER, "403");   
         // auth-wiring pin (deployer only) anti-frontrun
-        require(address(AUX) == address(0), "!");   // §DEDUP-RANGE: was `RANGE`, which is gone
+        require(address(AUX) == address(0), "!");   // §DEDUP-RANGE: the once-only pin is gated on
+        // `AUX`, not on `RANGE` — `_range` is legitimately zero on the BTC instance, so a zero
+        // `RANGE` cannot mean "not set up yet".
 
-        // §E253-mock — the two `mock` ERC20s are no longer deployed. They were the v4 pool's two
-        // currencies; with no PoolManager nothing mints, holds or moves them.
-        
         AUX = Aux(payable(_aux));
         // §ISBTC-ZERO: the RANGE is whatever the deployer pins here. The ETH range (Quid) exists by
         // now; the BTC range (Vault) is deployed AFTER Core and pins later via `setBtcVault`, so a
@@ -843,22 +804,14 @@ contract Core {
         if (_range != address(0)) RANGE = ICore(_range);
         BASKET = Basket(_basket);
 
-        // §V4-CUT — THE REFERENCE READ MOVED OUT OF CORE. `prepRefs` was a read of pools we do NOT
-        // own, and its result is needed exactly ONCE, to seed the ring. Keeping it here forced Core
-        // to hold an `IPoolManager` and two `PoolKey`s for a deploy-time lookup -- which is why this
-        // contract still looked "responsive to the PoolManager" long after it stopped trading on it.
-        // ⚠️ `prepRefs` NO LONGER EXISTS AND ITS SUCCESSOR IS NOT A POOL READ. `DeployLib:183` calls
-        // `OracleLib.seedPrices(ethFeed, btcFeed)`, which reads CHAINLINK and passes the price in as
-        // `seedPrice`. The paragraph that stood above this one still described the deleted version in
-        // the present tense — "both reference pools' live ticks are read in ONE library call … and the
-        // four mock approvals ride along" — naming three things (`prepRefs`, the ref-pool direction
-        // probes, the mock approvals) that are all gone, in the tense that says they are current.
-        // The ONGOING v3/v4-vs-Chainlink cross-check lives where the GUARD lives, not in the range engine.
-
-        // §V4-CUT — ONE INSTANCE, ONE RING, ONE LINE. `_initPool` is gone: it existed to assemble a
-        // lex-sorted PoolKey, initialise a v4 pool and record its id, and none of that happens any
-        // more. `VANILLA_*`, `POOL_ID_VANILLA_*` and the ordering flag were write-only vestigia of a
-        // pool that is never created. Seeding the ring from the reference price is the whole job.
+        // §V4-CUT — ONE INSTANCE, ONE RING, ONE LINE, AND THE REFERENCE READ IS NOT CORE'S JOB.
+        // ⛔ Do not move a price read back in here. The seed is needed exactly ONCE and the caller
+        // already has it: `DeployLib` calls `OracleLib.seedPrices(ethFeed, btcFeed)` — CHAINLINK, not
+        // a pool — and passes the result as `seedPrice`. Reading it here would force Core to hold
+        // venue handles for a deploy-time lookup, which is what made this contract keep LOOKING like
+        // it traded on a pool long after it stopped. The ongoing venue-vs-Chainlink cross-check lives
+        // where the GUARD lives, not in the range engine.
+        // There is no pool to initialise either: seeding the ring is the whole job.
         OracleLib.seedRing(obsState, observations, seedPrice);
     }
 
@@ -898,25 +851,21 @@ contract Core {
         pendingSwapOutUsd -= usd6;
     }
 
-    // ─── External entrypoints — same surface as before, parallel BTC ──
-    /// @notice Fused modLP — IS_BTC selects which pool. `delta` is the
-    /// volatile-side change (ETH amount for ETH pool, BTC sats for BTC).
-    /// @notice full-2× range op. The debt-funded buffer leg folds into POOLED_USD_* like any in-range USD;
-    ///         committedUsd18 recovers equity by subtracting min(live debt, pooled buffer). No separate buffer
-    ///         param — the old `levUsd` slot was a no-op post-fold and has been removed.
-    /// §V4-CUT — the range TAKES WHAT IT IS GIVEN. `_modLP` computed a liquidity amount for a tick
-    /// range and handed it to `poolManager.modifyLiquidity`, which decides how much of each leg that
-    /// range can absorb at the current price — so a caller could get back an unplaceable remainder.
-    /// Inventory has no range to fit: both legs enter in full.
-    /// ⚠️ BEHAVIOUR CHANGE, STATED RATHER THAN SLIPPED IN. `sent` was the REFUND of what the range
-    /// could not place; it is now always 0 because nothing is refused. A caller that credits the
+    // ─── External entrypoints ─────────────────────────────────────────
+    /// @notice This range's in-range LP move, BOTH LEGS. `delta` is the volatile side in the
+    /// instance's native unit (wei on ETH, sats on BTC); `deltaUSD` is the USD side, 6-dec.
+    /// @notice full-2× range op. The debt-funded buffer leg folds into `POOLED_USD` like any in-range USD;
+    ///         `committedUsd18` recovers equity by subtracting live leverage debt. There is no separate
+    ///         buffer parameter, and no separate buffer counter.
+    /// §V4-CUT — the range TAKES WHAT IT IS GIVEN, because inventory has no range to fit. A curve
+    /// decides how much of each leg it can absorb at the current price and hands back an unplaceable
+    /// remainder; holding inventory directly, both legs enter in full.
+    /// ⚠️ `sent` IS THEREFORE ALWAYS 0, and it is a refund, not a status. A caller that credits the
     /// refund back is consistent (there is nothing to credit), but one that reads a zero refund as
     /// "the add failed" would be wrong — that is the line to check when wiring callers.
-    /// ⚠️ `spotPrice` and the tick bounds are unused; they stay only until the callers are
-    /// updated in this same cut.
-    /// §DE-TICK — the price and tick arguments are GONE, not ignored. They described where in a v4
-    /// range the liquidity had to land; inventory has no range to fit, so carrying them would cost
-    /// calldata on every call to describe a placement that no longer happens.
+    /// §DE-TICK — there is no price or bounds argument: those described WHERE in a curve the
+    /// liquidity had to land, and carrying them would cost calldata on every call to describe a
+    /// placement that no longer happens.
     /// 🔴 §E231-MODLP-DIRECTION — THE ARGUMENTS ARE SIGNED, AND THAT IS THE FIX.
     ///
     /// This took `uint delta, uint deltaUSD` and built `Delta(-int256(deltaUSD), -int256(delta))`:
@@ -936,27 +885,22 @@ contract Core {
     /// **positive LEAVES the pool, negative ENTERS it**. That is this file's own stated rule
     /// ("SIGN CARRIES DIRECTION … one value, one meaning — no companion flag that can disagree with
     /// it"), and following it deletes the negation here rather than adding a boolean beside it.
-    /// @dev 🔴 §MODLP-PAIRS-BOTH-LEGS — A LEAVING MOVE WITH NO USD LEG NOW DERIVES ONE, BECAUSE
-    ///      FORGETTING IT WAS SILENT AND HAPPENED TWICE. `levBurnAll` and `burnInRange` both passed
-    ///      `0`, so the burn removed volatile depth and released NO dollars: `_settleUsdSide` no-ops
-    ///      on a zero delta, `basketUsd` never fell, and `committedUsd18()` ratcheted upward forever,
-    ///      tightening the backing gate permanently. Two site patches for one class is the signal
-    ///      standing rule 17 names — so the state is made UNCONSTRUCTIBLE here instead.
+    /// @dev 🔴 §BURN-RELEASES-NO-USD — A LEAVING MOVE THAT PASSES `deltaUSD = 0` RELEASES NO DOLLARS,
+    ///      AND THIS IS AN OPEN DEFECT, NOT A CONVENTION. `_settleUsdSide` no-ops on a zero delta, so
+    ///      `basketUsd` never falls and `committedUsd18()` ratchets upward, tightening the backing
+    ///      gate permanently. Callers must pass BOTH legs on a burn; `levBurnAll` passes the RECORDED
+    ///      `levBufferUsd[lp]`, which is exact by construction, and that is the shape to copy.
+    ///      ⛔ The obvious fix — DERIVING the USD leg here from the volatile one — was built and
+    ///      REVERTED; the body says what it broke. Read that before rebuilding it.
     ///
-    /// ⭐ WHY `0` LOOKED DELIBERATE, which is the part worth keeping: it was ALSO the `keep` flag.
-    ///   `_handleDelta`'s third argument was `deltaUSD == 0`, and `keep` gates only
-    ///   `if (!keep && token != address(0))` — while this function hardcodes `token = address(0)`.
-    ///   **`keep` could never do anything here.** A zero carried phantom meaning, so passing it read
-    ///   as a choice rather than an omission. The overload is removed: `keep` is now plainly `false`.
+    /// ⚠️ `keep` IS `deltaUSD == 0` HERE, AND IT IS INERT — SAY SO RATHER THAN READ MEANING INTO IT.
+    ///   `keep` gates only `if (!keep && token != address(0))`, and this function hardcodes
+    ///   `token = address(0)`, so neither value of it can change what happens. A zero `deltaUSD`
+    ///   therefore carries no second meaning: it is an omission wearing the look of a choice.
     ///
-    /// ⚠️ SAFE BECAUSE `modLP` IS THE IN-RANGE PATH ONLY, AND AN IN-RANGE POSITION IS TWO-LEGGED BY
-    ///   CONSTRUCTION. Single-sided moves go through `outOfRange`, which calls `_handleDelta` with
-    ///   `inRange = false` and never reaches here. So a zero USD leg on an in-range move is ALWAYS an
-    ///   omission, never a legitimate volatile-only burn.
-    /// ⚠️ AN EXPLICIT FIGURE STILL WINS. `levBurnAll` passes the RECORDED `levBufferUsd[lp]`, which is
-    ///   exact by construction and NOT the proportional share; the derivation fills in only when the
-    ///   caller supplied nothing. Entering moves (`delta < 0`) are untouched — they must supply both
-    ///   legs because they are depositing both.
+    /// ⚠️ THIS IS THE IN-RANGE PATH, and today it is the ONLY kind there is: every `_handleDelta`
+    ///   call site in this file passes `inRange = true`, so the `false` arm is currently unreached.
+    ///   Entering moves (`delta < 0`) must supply both legs because they are depositing both.
     function modLP(int256 delta, int256 deltaUSD, address sender)
         public onlyUs returns (uint sent) {
         // 🔴 §MODLP-DERIVE REVERTED 2026-08-25 — IT MADE AN LP RESIDUAL UNCOLLECTABLE.

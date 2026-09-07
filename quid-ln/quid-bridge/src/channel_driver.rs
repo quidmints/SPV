@@ -212,8 +212,9 @@ fn select_reconcile_action(
 pub(crate) struct ChannelState {
     pub(crate) amount_sats: u128,
     pub(crate) status: u8,
-    /// The LP's EVM address (`channels().lpEth`) — the fee-owed key + the account
-    /// requestDeposit credits. Needed hop-side to look up `btcFeesOwedSats`.
+    /// The LP's EVM address (`channels().lpEth`) — the account `requestDeposit`
+    /// credits, and the key hop-side reads pass to `btcRecipientOf(address)` to
+    /// resolve the LP's committed payout key.
     pub(crate) lp_eth: Address,
 }
 
@@ -674,18 +675,15 @@ pub async fn drive_open<R: JsonRpc + Send + Sync + 'static>(
         format!("funding pubkeys not available for {funding_txid}:{funding_vout} (channel not ready?)")
     })?;
 
-    // 1b. Derive the LP's BTC payout hash from its LDK-committed upfront shutdown
+    // 1b. Derive the LP's BTC payout key from its LDK-committed upfront shutdown
     //     script (QU!D accessor; pinned at open by `commit_upfront_shutdown_pubkey`,
-    //     enforced unchanged at close). This is recorded on-chain as the LP's
-    //     btcRecipientOf AS PART OF THE OPEN — no separate registration tx — so the
-    //     EVM attributes the LP's cooperative-close balance to exactly where LDK
-    //     pays it. We require a clean P2WPKH (`0x00 0x14 || HASH160`, 22 bytes);
-    //     anything else (or no upfront commitment) means we can't guarantee
-    //     attribution, so we refuse to register the channel (openChannel is
-    //     hop-gated → an unregistered channel can never feed recordClose).
+    //     enforced unchanged at close), so the EVM's view of where the LP is paid
+    //     matches where LDK actually pays it. We require a key-path P2TR
+    //     (`0x51 0x20 || 32-byte x-only key`, 34 bytes) — the same shape the contract's
+    //     `btcRecipientOf` / `_lpPayoutScript` use; anything else (or no upfront
+    //     commitment) means we can't guarantee attribution, so we refuse to open.
     // (B) Retained as a defensive cross-check source (the LP's committed shutdown) but no
-    // longer passed to openChannel. ⚠️ The clause here said `btcRecipientOf` *"is pinned at
-    // registerDelegation"* — that function is deleted. It is pinned by the BIP-340
+    // longer passed to openChannel: on-chain, `btcRecipientOf` is pinned by the BIP-340
     // `btcRecipientPoP` inside `OpenAuth`, at the open itself.
     let _lp_btc_payout_hash = {
         let spk = quid_hop::node::channel_counterparty_shutdown_script(
@@ -743,14 +741,8 @@ pub async fn drive_open<R: JsonRpc + Send + Sync + 'static>(
     //    THAT LP's on-chain BTC deposit (funding_outpoint → lpEth, bound at
     //    create_channel), so there is NO lpAuth round-trip: the LP runs nothing.
     //
-    //    ⚠️ **THIS LOOKUP IS BOOKKEEPING, NOT AUTHORIZATION** — the two sentences that stood here
-    //    said otherwise and named state that no longer exists. They read *"authorization is
-    //    on-chain (`delegatedAuthority[lpEth] == msg.sender`), and `btcRecipientOf` was pinned at
-    //    `registerDelegation`"*; §E157 deleted `registerDelegation` and §E183 deleted the whole
-    //    delegation surface, so `delegatedHop`, `delegationVersion` and `delegatedAuthority` are at
-    //    zero live references in `evm/src`. A comment describing a deleted gate as the live one is
-    //    the failure mode this contract calls out elsewhere — a reader auditing who may open a
-    //    channel would have audited nothing.
+    //    ⚠️ **THIS LOOKUP IS BOOKKEEPING, NOT AUTHORIZATION.** Do not read the registry hit as
+    //    a permission check — nothing on this side gates the open.
     //
     //    WHAT ACTUALLY AUTHORIZES AN OPEN, as of §E166-3/§E183:
     //      * WHO may submit — `openChannel` calls `_onlyHop()` like every other hop entrypoint.
@@ -769,10 +761,11 @@ pub async fn drive_open<R: JsonRpc + Send + Sync + 'static>(
 
     // 7. (E166-3) RELAY the LP's consent — the fleet cannot manufacture it.
     //
-    // `openChannel` needs an `OpenAuth` (the LP's signature over `openAuthDigest` plus the
-    // §E138 proof-of-possession) and a non-empty §E165 `ExitArming` ladder. Both are spends
-    // or signatures requiring the LP funding half, which after §E175 lives on the LP's own
-    // box — so the fleet RELAYS consent and never synthesises it.
+    // `openChannel` needs an `OpenAuth` — whose only signature is the §E138 BIP-340
+    // proof-of-possession over `btcRecipientPoPDigest(lpEth)`; the LP signs nothing on the
+    // EVM — and a non-empty §E165 `ExitArming` ladder. Both are spends or signatures
+    // requiring the LP funding half, which after §E175 lives on the LP's own box — so the
+    // fleet RELAYS consent and never synthesises it.
     //
     // ⚠️ ABSENT CONSENT IS DORMANCY, NOT FAILURE. This used to `bail!`, which turned an
     // ordinary "the LP has not signed yet" into a loud error on every reconciler tick. It
@@ -944,27 +937,11 @@ pub async fn drive_splice<R: JsonRpc + Send + Sync + 'static>(
         .with_context(|| format!("gateway never reached splice-block confs for {splice_txid}"))?;
 
     // (B) No lpAuth round-trip — the LP runs nothing. `splice` is authorized on-chain by
-    // the channel's HOP GATE (channel.hop, fixed at open to a delegated hop), so we just
-    // build + submit.
+    // `_whenOpen(channelId)` + `_onlyHop()` (`msg.sender` must be one of the two immutable
+    // hop addresses), so we just build + submit.
     //
-    // (§E191 follow-on) The `let lp_eth = state.lp_eth;` binding that stood here is deleted: it
-    // was read ONLY by the `fee_settle_sats` computation §E191 removed, so it had been dead
-    // since — surfacing as a compiler warning that named the leftover exactly.
-
-    // FEE-INTO-CHANNEL: on a GROW, opportunistically flush this LP's accrued
-    // BTC-leg fees (`Vault.btcFeesOwedSats`) INTO the position instead of paying them out
-    // via a separate settler tx. The hop funds `grew_by` real sats into the splice; up to
-    // that much is marked `fee_settle_sats`, which the contract clamps to the real owed
-    // (BtcLib) and clears — the fees COMPOUND into `LP.pooled` via requestDeposit
-    // (which already grew pooled by the full delta), and a bigger POOLED share grows the
-    // LP's coop-close payout to btcRecipientOf, so `delivered` stays invariant with NO
-    // LN-balance leg (under B the LP has no LN node — the old keysend is obsolete). A
-    // shrink grows nothing → settle 0.
-    // ⛔ (E191) THE `fee_settle_sats` COMPUTATION IS DELETED — it was a per-splice RPC
-    // round-trip to a function that no longer exists. It read `Vault.btcFeesOwedSats(address)`,
-    // which §E145 DELETED (`Vault.sol:210`), swallowed the resulting revert with
-    // `.unwrap_or(0)`, and passed the zero to a `splice` parameter the contract explicitly
-    // ignored. Both halves failed quietly, so the waste was invisible from either side.
+    // There is no fee leg on this call: the BTC fee leg COMPOUNDS into `LP.pooled` inside the
+    // splice mirror's `requestDeposit`, so `encode_splice` carries no owed/settle amount.
     // 6. Build + submit splice (channelId is the STABLE original). No lpAuth (B).
     //
     // (§E233-ladder) THE FRESH EXIT LADDER FOR THE ROTATED OUTPOINT, and it is MANDATORY on-chain. A
