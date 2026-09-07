@@ -494,7 +494,15 @@ pub struct OpenParams {
 /// `btcRecipientPoPDigest(lpEth)` — §E138 added it because registration proved the payout
 /// key was ON THE CURVE but never that the LP CONTROLLED it, and close, splice-out and the
 /// dead-man exit all pin to it, so a wrong key loses every escape at once.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// §CONSENT-WIRE-FORMAT — `Serialize`/`Deserialize` are LOAD-BEARING, not convenience. The LP's box
+/// makes this half and RELAYS it (§E175); with no wire format there was no way for an LP to supply
+/// one at all, which is why `NO CHANNEL CAN BE OPENED IN THE DEFAULT DEPLOYMENT` listed *wire
+/// format, producer, intake* as three separate missing pieces. This is the first.
+/// ⚠️ Every field is plain data (byte arrays and integers), so the derive is total — there is no
+///    custom representation to keep in sync with `tokens()`. `tokens()` remains the ABI encoding
+///    for the CONTRACT; serde is the transport between the LP's box and the fleet. Two encodings,
+///    two audiences, and neither is derived from the other.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct OpenAuth {
     pub btc_recipient: [u8; 32],
     pub btc_recipient_pop: Vec<u8>,
@@ -541,7 +549,15 @@ impl OpenAuth {
 /// `signed_exit_tx`, in input order: BIP-341 `Prevouts::All` commits to them and they live
 /// in EARLIER transactions, so the chain cannot read them from this one. The contract
 /// OVERWRITES the funding entry with what it already knows.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// §CONSENT-WIRE-FORMAT — `Serialize`/`Deserialize` are LOAD-BEARING, not convenience. The LP's box
+/// makes this half and RELAYS it (§E175); with no wire format there was no way for an LP to supply
+/// one at all, which is why `NO CHANNEL CAN BE OPENED IN THE DEFAULT DEPLOYMENT` listed *wire
+/// format, producer, intake* as three separate missing pieces. This is the first.
+/// ⚠️ Every field is plain data (byte arrays and integers), so the derive is total — there is no
+///    custom representation to keep in sync with `tokens()`. `tokens()` remains the ABI encoding
+///    for the CONTRACT; serde is the transport between the LP's box and the fleet. Two encodings,
+///    two audiences, and neither is derived from the other.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ExitArming {
     pub prev_values: Vec<u64>,
     pub prev_scripts: Vec<Vec<u8>>,

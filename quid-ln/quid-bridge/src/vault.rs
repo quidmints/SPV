@@ -227,7 +227,9 @@ pub async fn spawn_p2p_listener(
 /// there and relayed: `auth.btc_recipient_pop` is a BIP-340 proof-of-possession over
 /// `btcRecipientPoPDigest(lpEth)`, and each `exits` rung is a pre-signed spend of the
 /// 2-of-2. A fleet that could construct these would, by definition, still hold the LP half.
-#[derive(Clone, Debug, PartialEq)]
+/// §CONSENT-WIRE-FORMAT — see `OpenAuth`. Both members are now serde-derivable, so an LP box can
+/// SEND a consent and `bind_consent` can receive one over a wire rather than only in a test.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LpConsent {
     pub auth: quid_hop::evm_codec::OpenAuth,
     pub exits: Vec<quid_hop::evm_codec::ExitArming>,

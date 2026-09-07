@@ -15804,7 +15804,7 @@ in the crate that builds it.** That is the same conclusion the Solidity side rea
 ⚠️ **The row's own note already said "STEP ③ IS FALSIFIED"**; this closes the headline it left standing.
 
 ## (original headline, kept) ⏸️ **NO CHANNEL CAN BE OPENED IN THE DEFAULT DEPLOYMENT, SILENTLY**
-▶️ **RE-AUDIT TARGET (2026-08-24): `quid-bridge/src/swap_in_api.rs:196-207` AND `vault.rs:208`. STEP ③ IS FALSIFIED; ①②④ ARE NOT, SO THE ROW STAYS OPEN.** Re-run of ③'s own claim (*"`bind_consent` has only test callers; `LpConsent` appears in one file and in no route handler"*): **there is now a production caller** — `swap_in_api.rs:196` constructs `crate::vault::LpConsent { … }` and `:207` calls `registry.bind_consent(&txid, req.funding_vout, consent)`, and the file's own header notes it *"had zero production callers"* in the past tense. **④ still holds exactly as written:** `vault.rs:208` is still `#[derive(Clone, Debug, PartialEq)]` — **no serde on `LpConsent`**, so there is still no wire format for an LP to SUPPLY one. ⇒ **The chain is now "intake exists on the SWAP-IN rail, but the OPEN rail's producer and wire format do not"** — narrower than *"no intake"*, and unproven either way until this row's own acceptance test (**ONE CHANNEL OPENED END-TO-END FROM AN LP-SUPPLIED CONSENT**) runs. Re-read whether that binding reaches `drive_open` before re-quoting ③.
+▶️ **RE-AUDIT TARGET (2026-08-24): `quid-bridge/src/swap_in_api.rs:196-207` AND `vault.rs:208`. STEP ③ IS FALSIFIED; ①②④ ARE NOT, SO THE ROW STAYS OPEN.** Re-run of ③'s own claim (*"`bind_consent` has only test callers; `LpConsent` appears in one file and in no route handler"*): **there is now a production caller** — `swap_in_api.rs` constructs `crate::vault::LpConsent { … }` and calls `registry.bind_consent(&txid, req.funding_vout, consent)` at **`:286`** (re-measured 2026-09-07; the row said `:207` and line numbers rot fastest), and the file's own header notes it *"had zero production callers"* in the past tense. ~~**④ still holds exactly as written**~~ — ✅ **④ IS NOW CLOSED, see below.** `LpConsent` is at `vault.rs:231` (not `:208`) and now derives serde. ⇒ **The chain is now "intake exists on the SWAP-IN rail, but the OPEN rail's producer and wire format do not"** — narrower than *"no intake"*, and unproven either way until this row's own acceptance test (**ONE CHANNEL OPENED END-TO-END FROM AN LP-SUPPLIED CONSENT**) runs. Re-read whether that binding reaches `drive_open` before re-quoting ③.
 
 🔴🔴 **OPEN — found 2026-08-18 by reading `§SPRINT-B0`, `§SPRINT-B4` and the `bind_consent` gap
 TOGETHER.** Each row alone reads as low-drama; the severity exists only in the product.
@@ -15817,10 +15817,19 @@ so `openChannel` cannot succeed without a ≥2-rung, ≥2-deadline ladder.
 ③ `bind_consent` has only test callers; `LpConsent` appears in **one file** and in **no route
 handler**. ✅ **CONTROL:** the same search finds the routes that DO exist — `/lp/onboard`,
 `/lp/withdraw`, `/provision` — so it can see a route when there is one.
-④ **THE CONSENT TYPES HAVE NO WIRE FORMAT** (review 2026-08-18 — stronger than *"no route"*):
-`LpConsent` derives `(Clone, Debug, PartialEq)` (`vault.rs:208`), `OpenAuth`/`ExitArming` derive
-`(Clone, Debug, Default, PartialEq, Eq)`. **No serde anywhere in the family**, so nothing can carry
-one over a wire or to a file — and `bin/quid-lp-daemon.rs`, the box that should PRODUCE consent,
+④ ✅ **CLOSED 2026-09-07 — THE CONSENT TYPES NOW HAVE A WIRE FORMAT.** `OpenAuth`, `ExitArming`
+(`quid-hop/src/evm_codec.rs`) and `LpConsent` (`quid-bridge/src/vault.rs:231`) all derive
+`serde::Serialize, serde::Deserialize`. Every field is plain data (byte arrays, `Vec<u8>`, `u64`), so
+the derive is total and needs no custom representation — and `tokens()` is untouched, because the ABI
+encoding is for the CONTRACT while serde is the transport between the LP's box and the fleet: two
+encodings, two audiences, neither derived from the other. `cargo test -p quid-hop -p quid-bridge`:
+**166 passed / 0 failed** with the RPC env set.
+⚠️ **THIS CLOSES ONE OF THREE PIECES, NOT THE ROW.** The PRODUCER (an LP box that makes and sends a
+consent) and the row's own acceptance test (**ONE CHANNEL OPENED END-TO-END FROM AN LP-SUPPLIED
+CONSENT**) are still missing, so ① ② remain and the row stays OPEN.
+*(what ④ said before, now historical:)* `LpConsent` derived `(Clone, Debug, PartialEq)`,
+`OpenAuth`/`ExitArming` derived `(Clone, Debug, Default, PartialEq, Eq)`, **no serde anywhere in the
+family**, so nothing could carry one over a wire or to a file — and `bin/quid-lp-daemon.rs`, the box that should PRODUCE consent,
 mentions it only in doc comments. ⇒ **This is three pieces, not one: wire format, producer, intake.**
 ⛔ **CORRECTION, and it makes the row STRONGER:** an earlier version of this row put the heartbeat in
 this chain (*"the only non-test `ExitArming` constructor, made inert by `99fda5e9`"*). True, but its
@@ -57132,7 +57141,7 @@ in the crate that builds it.** That is the same conclusion the Solidity side rea
 ⚠️ **The row's own note already said "STEP ③ IS FALSIFIED"**; this closes the headline it left standing.
 
 ## (original headline, kept) ⏸️ **NO CHANNEL CAN BE OPENED IN THE DEFAULT DEPLOYMENT, SILENTLY**
-▶️ **RE-AUDIT TARGET (2026-08-24): `quid-bridge/src/swap_in_api.rs:196-207` AND `vault.rs:208`. STEP ③ IS FALSIFIED; ①②④ ARE NOT, SO THE ROW STAYS OPEN.** Re-run of ③'s own claim (*"`bind_consent` has only test callers; `LpConsent` appears in one file and in no route handler"*): **there is now a production caller** — `swap_in_api.rs:196` constructs `crate::vault::LpConsent { … }` and `:207` calls `registry.bind_consent(&txid, req.funding_vout, consent)`, and the file's own header notes it *"had zero production callers"* in the past tense. **④ still holds exactly as written:** `vault.rs:208` is still `#[derive(Clone, Debug, PartialEq)]` — **no serde on `LpConsent`**, so there is still no wire format for an LP to SUPPLY one. ⇒ **The chain is now "intake exists on the SWAP-IN rail, but the OPEN rail's producer and wire format do not"** — narrower than *"no intake"*, and unproven either way until this row's own acceptance test (**ONE CHANNEL OPENED END-TO-END FROM AN LP-SUPPLIED CONSENT**) runs. Re-read whether that binding reaches `drive_open` before re-quoting ③.
+▶️ **RE-AUDIT TARGET (2026-08-24): `quid-bridge/src/swap_in_api.rs:196-207` AND `vault.rs:208`. STEP ③ IS FALSIFIED; ①②④ ARE NOT, SO THE ROW STAYS OPEN.** Re-run of ③'s own claim (*"`bind_consent` has only test callers; `LpConsent` appears in one file and in no route handler"*): **there is now a production caller** — `swap_in_api.rs` constructs `crate::vault::LpConsent { … }` and calls `registry.bind_consent(&txid, req.funding_vout, consent)` at **`:286`** (re-measured 2026-09-07; the row said `:207` and line numbers rot fastest), and the file's own header notes it *"had zero production callers"* in the past tense. ~~**④ still holds exactly as written**~~ — ✅ **④ IS NOW CLOSED, see below.** `LpConsent` is at `vault.rs:231` (not `:208`) and now derives serde. ⇒ **The chain is now "intake exists on the SWAP-IN rail, but the OPEN rail's producer and wire format do not"** — narrower than *"no intake"*, and unproven either way until this row's own acceptance test (**ONE CHANNEL OPENED END-TO-END FROM AN LP-SUPPLIED CONSENT**) runs. Re-read whether that binding reaches `drive_open` before re-quoting ③.
 
 🔴🔴 **OPEN — found 2026-08-18 by reading `§SPRINT-B0`, `§SPRINT-B4` and the `bind_consent` gap
 TOGETHER.** Each row alone reads as low-drama; the severity exists only in the product.
@@ -97939,3 +97948,21 @@ built. The first makes the positional pairing loud instead of silent; the second
 ceiling loud — a 15th stable writes slot 14 and overwrites the TVL total `FeeLib.calcFeeL1` divides
 by, which is the exact "plausible-but-wrong output" shape standing rule 3 says a check EARNS its place
 against. Deploy-time only, so it costs no runtime bytes on any contract.
+
+## §LEV-KEEPER-E2E-IS-RED — 🔴 booked, PRE-EXISTING, and it was not booked anywhere before
+
+`cargo test -p quid-bridge --test lev_keeper_e2e` →
+`lev_keeper_live_round_trip_against_anvil` FAILS at `lev_keeper_e2e.rs:102`,
+`assert!(cascaded, "keeper's cascadeDelever tx did not land on-chain")`.
+✅ **CONTROL RUN, so it is not attributed to the change that found it:** the test fails IDENTICALLY
+with the §CONSENT-WIRE-FORMAT edit reverted (the two files restored from HEAD, same command, same
+assertion). ⇒ pre-existing, and unrelated to serde — which could not affect whether a tx lands.
+▶️ **NOT DIAGNOSED.** It reaches the assertion, so anvil is up and the keeper ticked; what did not
+happen is the `cascadeDelever` write landing. Booked rather than chased because it is off the current
+lane. ⚠️ The unit lane is green (**166 passed / 0 failed**), so this is one integration test, not the
+crate.
+📌 **AND NOTE HOW IT WAS NEARLY MISSED: the same command reported 5 OTHER failures that were purely
+`no ETH_RPC_URL / ANKR_RPC_URL`** — the fork tests refusing to run silently, exactly as they are
+written to. Exporting the env turned 5 of 6 green and left this one, which is the real signal. **A red
+count is not a finding until the environmental class is subtracted**, the same discipline the
+full-suite census needed.

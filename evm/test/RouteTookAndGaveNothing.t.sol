@@ -106,10 +106,8 @@ contract RouteTookAndGaveNothingTest is ForkPin {
         uint256 amt = 50_000e6;
         deal(USDC, address(this), amt);
         uint256 before = IERC20T(WETH).balanceOf(address(this));
-        LevMath.routedSwap(USDC, WETH, amt, 1, _rr(abi.encodeWithSelector(UNOSWAP_SELECTOR, uint256(0), uint256(0), uint256(0), uint256(1) << 253 | uint256(uint160(0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640)) | (uint256(1) << 247))));
+        LevMath.routedSwap(USDC, WETH, amt, 1, abi.encodeWithSelector(UNOSWAP_SELECTOR, uint256(0), uint256(0), uint256(0), uint256(1) << 253 | uint256(uint160(0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640)) | (uint256(1) << 247)));
         assertGt(IERC20T(WETH).balanceOf(address(this)) - before, 0,
             "CONTROL FAILED - the honest path no longer fills, so the guard is over-broad");
     }
-    function _rr(bytes memory b) internal pure returns (bytes[] memory o) { o = new bytes[](1); o[0] = b; }
-
 }

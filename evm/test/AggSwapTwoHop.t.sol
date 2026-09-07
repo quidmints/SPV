@@ -35,12 +35,12 @@ contract AggSwapTwoHopTest is Test {
         uint256 amt = 1_000_000e6;
 
         deal(USDC, address(this), amt);
-        uint256 twoHop = LevMath.routedSwap(USDC, WBTC, amt, 0, _rr(abi.encodeWithSelector(UNOSWAP2_SELECTOR, uint256(0), uint256(0), uint256(0), _word(USDC_WETH_005), _word(WETH_WBTC_005))));
+        uint256 twoHop = LevMath.routedSwap(USDC, WBTC, amt, 0, abi.encodeWithSelector(UNOSWAP2_SELECTOR, uint256(0), uint256(0), uint256(0), _word(USDC_WETH_005), _word(WETH_WBTC_005)));
         assertGt(twoHop, 0, "two-hop produced no WBTC");
         emit log_named_decimal_uint("USDC->WETH->WBTC", twoHop, 8);
 
         deal(USDC, address(this), amt);
-        uint256 oneHop = LevMath.routedSwap(USDC, WBTC, amt, 0, _rr(abi.encodeWithSelector(UNOSWAP_SELECTOR, uint256(0), uint256(0), uint256(0), _word(USDC_WBTC_030))));
+        uint256 oneHop = LevMath.routedSwap(USDC, WBTC, amt, 0, abi.encodeWithSelector(UNOSWAP_SELECTOR, uint256(0), uint256(0), uint256(0), _word(USDC_WBTC_030)));
         assertGt(oneHop, 0, "one-hop produced no WBTC");
         emit log_named_decimal_uint("USDC->WBTC direct  ", oneHop, 8);
 
@@ -80,13 +80,11 @@ contract AggSwapTwoHopTest is Test {
         //    Comparing two swaps requires they start from the same state.
         uint256 snap = vm.snapshotState();
         deal(USDC, address(this), amt);
-        uint256 clean = LevMath.routedSwap(USDC, WBTC, amt, 0, _rr(abi.encodeWithSelector(UNOSWAP2_SELECTOR, uint256(0), uint256(0), uint256(0), _word(USDC_WETH_005), _word(WETH_WBTC_005))));
+        uint256 clean = LevMath.routedSwap(USDC, WBTC, amt, 0, abi.encodeWithSelector(UNOSWAP2_SELECTOR, uint256(0), uint256(0), uint256(0), _word(USDC_WETH_005), _word(WETH_WBTC_005)));
         vm.revertToState(snap);
         deal(USDC, address(this), amt);
-        uint256 lied = LevMath.routedSwap(USDC, WBTC, amt, 0, _rr(abi.encodeWithSelector(UNOSWAP2_SELECTOR, uint256(0), uint256(0), uint256(0), _word(USDC_WETH_005) | ZERO_FOR_ONE, _word(WETH_WBTC_005) | ZERO_FOR_ONE)));
+        uint256 lied = LevMath.routedSwap(USDC, WBTC, amt, 0, abi.encodeWithSelector(UNOSWAP2_SELECTOR, uint256(0), uint256(0), uint256(0), _word(USDC_WETH_005) | ZERO_FOR_ONE, _word(WETH_WBTC_005) | ZERO_FOR_ONE));
         assertEq(clean, lied, "a keeper-supplied direction bit must not change the outcome");
         assertGt(clean, 0, "control: a zero result would make the equality vacuous");
     }
-    function _rr(bytes memory b) internal pure returns (bytes[] memory o) { o = new bytes[](1); o[0] = b; }
-
 }
