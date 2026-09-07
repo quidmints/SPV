@@ -697,11 +697,21 @@ attacker enclave.
 sufficient *alone* — once the seed is held, Bitcoin transactions are signed directly and on-chain hop
 status is never needed. That Safe, not the attestation registry, is where custody actually concentrates.
 
-Two current limitations worth knowing. The enclave verifies against a **sealed-config snapshot** of the
-Safe's owners rather than the live on-chain set, so an owner removed on-chain remains trusted until the
-config is refreshed; the target design verifies the live set by state proof and the function already
-takes the owner-set as a parameter. And `AttestedHopRegistry` is **governance-armed**: `_requireAttested`
-is a no-op until the registry is pinned, falling back to an owns-an-open-channel gate.
+Two current limitations worth knowing, and both are wider than earlier versions of this document said.
+
+The enclave verifies migrations against a **sealed snapshot of the operator owner set**, not the live
+on-chain one, so an owner removed after the snapshot stays trusted until a new build ships. There is no
+Gnosis Safe involved. The operators are a plain k-of-n multisig, and reading the live set by state proof
+was considered and **withdrawn**, because a plain multisig exposes no owner-set storage to prove
+against. The snapshot is the design rather than a stopgap, and its cost is that the set cannot change
+without a new enclave build.
+
+Hop authorization is **two immutable addresses**. Every hop entrypoint, including channel opening,
+requires the caller to be one of them. There is no attestation registry and no per-channel authority:
+either address may act on any channel, which was a deliberate choice so that a fallback operator can
+serve channels it did not open. The capability is the point. It also means the two addresses are not a
+partition of authority, and anyone reasoning about blast radius should treat them as one trust
+boundary.
 
 ### On "trusted"
 
