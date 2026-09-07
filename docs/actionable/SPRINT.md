@@ -54193,3 +54193,47 @@ The gate is: the changed-lines diff contains no code line, and the file's brace 
 `HOLDER-FORK.md`), and its "dead symbols" (`register_identity`, `icao_root`, `sk_identity`) are
 CIRCUIT SIGNAL names, not deleted Solidity. Editing its comments buys nothing and costs merge
 friction with upstream.
+
+## §SESS-COMMENTS-2 — **THE PASS FOUND A LIVE ENCODER DEFECT AND THREE DORMANT ACCUMULATORS.** (2026-09-07)
+
+🔴 **`encode_request_swap_out_onchain` ENCODES FIVE ARGUMENTS FOR A FOUR-ARGUMENT ENTRYPOINT, AND
+IT DOES NOT REVERT.** Both sides measured 2026-09-07:
+  · `quid-ln/quid-hop/src/evm_codec.rs:894-911` emits five `Tok::` values — `Address`, `Uint`,
+    `Uint`, `FixedBytes32`, **`Bytes(swapper_script)`**.
+  · `evm/src/BTCChannels.sol:2226` is `requestSwapOutOnchain(address token, uint usdAmount,
+    uint minSats, bytes32 swapId)` — **four**, and the encoder's own selector constant
+    `SIG_REQUEST_SWAP_OUT_ONCHAIN` agrees with the contract.
+⚠️ **THE FAILURE MODE IS SILENCE, WHICH IS WHY IT SURVIVED.** The selector is right and all four
+declared params are STATIC, so Solidity's decoder reads the four head words and ignores the trailing
+one. No revert, no event, no log — `swapper_script` is simply discarded. §E184 removed the supplied
+destination and the contract now derives the payout script itself (`_lpPayoutScript`,
+`BTCChannels.sol:738`), so discarding it is currently harmless; **the defect is that the caller
+believes it is sending something that is being thrown away.**
+📌 The test cannot catch it: `evm_codec.rs:1397` asserts only the selector and `len % 32 == 4`, and
+five static-ish words satisfy both. ▶️ **FIX:** delete the parameter from
+`encode_request_swap_out_onchain` and from its caller (`quid-ln/quid-bridge/tests/driver_e2e.rs:479`),
+and make the test assert the exact word count, not `len % 32`.
+
+🔴 **THE BTC SATS-SIDE FEE ACCUMULATOR HAS NO LIVE SOURCE.** `BtcLib.rebalanceBody` never writes
+`o.feesPerShareInc` / `o.usdFeesInc`, and `Vault:400` is the only writer of `feesPerShare`. ⇒ the
+§E145 sats compounding leg (`tokR`) is **dormant**; only `USD_FEES` is fed, via `creditSkewPremium`.
+`feeDenom` is a now-unused parameter on `rebalanceBody`. ⚠️ Decide whether the leg is meant to be
+live before deleting the parameter — deleting it makes the dormancy unconstructible OR permanent,
+and those are opposite outcomes.
+
+📌 **`ResizeOut.owed` IS INERT** — no assignment anywhere, no reader. Same call: wire or delete.
+
+📌 **TWO FILES NAME `BtcLib` MEMBERS THAT DO NOT EXIST** — `Core.sol:724` cites
+`BtcLib._thetaClampBtc` and `Quid.sol:738` cites `BtcLib.pullBtc`. Both are comment-only, both are
+outside the file whose pass found them.
+
+⚠️ **CENSUS SCOPE, RECORDED SO THE NEXT PASS DOES NOT REPEAT IT.** `tools/dead-comment-census.py`
+builds its liveness corpus from `evm/src`, `evm/script`, `evm/test` and `quid-ln`. Two false
+positives got through anyway and BOTH were caught by agents checking rather than trusting:
+  · `ChopIsBenign` — the tokenizer matches WHOLE identifiers, so a backticked word that is only a
+    SUFFIX of a live name (`test_RunSim_IL_Baseline_ChopIsBenign`, `Alles.t.sol:3533`) has no token
+    of its own. Fixed in the script, and the fix then produced the INVERSE error: `trackOpen` was
+    suppressed because `untrackOpen` contains it. **Neither rule is right on its own — treat a
+    substring hit as "check by hand", never as an answer.**
+  · `openparams_abi_ground_truth` — live as `test_openparams_abi_ground_truth` at
+    `evm/test/BTCChannelsAuth.t.sol:107`.
