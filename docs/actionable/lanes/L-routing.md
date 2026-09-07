@@ -343,3 +343,53 @@ proof it was evaluated — `direct 400.114 · via-USDT 399.944 · chosen 400.114
 $1M DAI→WETH returns **339.4** against the ~400 USDC and USDT both get — **~15% down on EVERY route**,
 direct and both hubs. The oracle floor would reject such a fill (correct), but it means **DAI is not
 usable at $1M** and a venue denominated in it would stall rather than trade. **Booked, not diagnosed.**
+
+---
+
+## 🔴🔴 §SESS-59 — **A SECOND UNAUTHENTICATED WITHDRAWAL, FOUND BY SWEEPING FOR THE FIRST ONE'S SHAPE**
+
+`project-a1` found `Quid.rangeOp` ungated (an `external` library body, delegatecalled, ending in
+`weth.transfer(msg.sender, …)` behind a wrapper with no modifier). **Confirmed independently before
+acting on it** — the mechanism is exactly as reported and their wrapper-level `NotSelf` gate is the
+right fix, because a delegatecalled library cannot distinguish an internal re-entry from an external
+call.
+
+▶️ **THE SWEEP THAT MATTERED: `external`/`public` library functions that read `msg.sender`, reached
+through an ungated wrapper.** Six candidates, four clean, **one second live defect.**
+
+### `Quid.offrampEtherFi(uint amount, address recipient) public` — NO GATE
+`QuidLib.offrampBody` ends `IERC20(c.weth).transfer(recipient, got);` and **`recipient` is caller-
+supplied.** So: sell the contract's weETH on Curve and deliver the WETH wherever the caller says,
+bounded only by the contract's weETH balance and 90% of the Curve pool — **nothing about the caller.**
+⛔ **ARGUABLY WORSE THAN `rangeOp`.** The legitimate path (`Quid.sol:795`) bounds the amount by the
+caller's OWN position (`Math.min(amount, SwapLib.plainNet(LP.pooled, levPooled[msg.sender]))`) and then
+BURNS what was served. **Calling the public entrypoint directly skips both** — no position check, no
+burn. The WETH leaves and the accounting never moves.
+
+⚠️ **`NotSelf` WOULD BREAK IT, AND THIS IS THE TRAP.** `Quid.sol:795` is a PLAIN INTERNAL call, so
+`msg.sender` there is the original external redeemer, not `address(this)`. `rangeOp`'s gate is correct
+only because BOTH its callers re-enter through `address(this)`. **The same fix applied twice would
+have broken the redemption path** — the shapes look identical and the remedies are not.
+▶️ **THE FIX IS VISIBILITY, NOT A GATE — unconstructible beats detectable (rule 17): `public` →
+`internal`.** Measured before proposing: declared in **no interface**, **zero** external call sites
+(`grep -rn "\.offrampEtherFi(" src/ test/ script/` is empty), **zero** references in `quid-ln`, and
+exactly **one** caller in the tree — the internal one. The external surface is used by nothing.
+📌 Handed to `project-a1` to land with the `rangeOp` gate: they are mid-edit in `Quid.sol` and it is
+their lane. **Not fixed by me.**
+
+### ✅ THE FOUR THAT ARE CLEAN, so nobody re-checks them
+`SwapLib.sweepBody` (every `msg.sender` is inside `///`, no code use) · `SwapLib.auxSwapBody`
+(`allowance`/`safeTransferFrom` **from** the caller — you can only take from someone who approved) ·
+`SwapLib.swapToBody` (credits the caller's own deposit) · `ChannelLib.depositBody` (`msg.sender ==
+quid` as an authorisation, and only Quid can be msg.sender there).
+
+### 🔑 THE METHOD LESSON, WHICH IS THE REUSABLE PART
+**Neither defect was findable by a test, and both were findable by a grep for a SHAPE.** `rangeOpBody`'s
+docblock asserted *"Wrapper enforces `msg.sender == V4` BEFORE delegating"* and **no such wrapper ever
+existed** — auditors read a gate that was never there (standing rule 20, arriving as a security bug).
+⇒ **When one instance of a class is found, sweep for the class before fixing the instance.** Fixing
+`rangeOp` alone would have left the larger hole open, and its docblock would have made the file look
+audited.
+⚠️ **AND THE SWEEP'S OWN FALSE-POSITIVE CLASS IS NAMED ABOVE (4 of 6)**, per the sweep rule: `msg.sender`
+in a delegatecalled library is only a defect when it is a PAYOUT TARGET or an AUTHORISATION. Pulling
+from it, or crediting it, is correct.
