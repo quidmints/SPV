@@ -594,7 +594,26 @@ Deepest pool to USDC, UniV3 (4 tiers) + Curve registry, stable-side holdings:
 |---|---|
 | USDT 47.9M · DAI 56.4M · RLUSD 27.9M · AUSD 17.5M · PYUSD 15.0M · crvUSD 13.7M · USDG 8.5M · BOLD 5.7M · USDe 1.25M | **USDS 10,928 · GHO 8,179 · CUSD NONE · FRXUSD NONE** |
 
-🔑 **AND THE GAP IS NOT A MISSING ROW — IT IS A MISSING *KIND OF ROUTE*.** Those four are not
+🔴 **CORRECTED 2026-09-07 (§SESS-72) — THE PARAGRAPH BELOW PROPOSES MACHINERY THAT ALREADY EXISTS,
+WHICH IS STANDING RULE 23's FAILURE FOR THE SECOND TIME IN ONE DAY.** Owner: *"you can redeem from the
+4626 vault before converting. there is no need to convert the staked tokens."*
+**Measured: `Aux._withdraw` → `ChannelLib.withdrawBody(token, amount, to, _supplyCfg(), vaults,
+vaultsOf, sp)` ALREADY unwinds the 4626 venues**, and `protectExec` calls `IAux(aux).redeem(pull)`
+BEFORE `_consolidateTo`, which then reads `IERC20Min(s).balanceOf(address(this))`. ⇒ **by the time
+anything is converted, the manager holds BASE tokens; the staked share was already redeemed.**
+⛔ **SO "ADD A 4626 ROUTE KIND TO THE SWAP TABLE" WAS INVENTING A SECOND REDEMPTION LAYER.** Redemption
+is not a ROUTE — it is a separate, already-built step that runs first. I asked "what kind of route is
+missing" when the question was "which layer is this?", and the answer was "a layer we already have".
+⭐ **AND IT SHRINKS THE GAP RATHER THAN RESHAPING IT.** What is left for cUSD/frxUSD is only the
+question of whether the BASE dollar can be swapped to the venue's loan token — and when it cannot,
+`_consolidateTo` already REFUNDS the slice to the LP rather than stranding it. **That is fail-safe and
+deliberate, not a hole.** So of the "4 of 13", the redemption half was never missing and the conversion
+half is bounded by an existing refund path. ⇒ **the honest residual is: an LP whose slice is in an
+unconvertible dollar gets that dollar back instead of debt repayment. Worth knowing; not a gap.**
+📌 The GHO/USDS half of the row still stands on its own terms — those DO have thin AMM pools rather
+than no market — but the conclusion drawn from all four was overstated.
+
+(original, kept for the record:) 🔑 **AND THE GAP IS NOT A MISSING ROW — IT IS A MISSING *KIND OF ROUTE*.** Those four are not
 AMM-routed assets: `DeployL1_s` already says so in its own comments — *"cUSD — Cap USD (**native
 stcUSD 4626 vault**)"*, *"frxUSD — **native sfrxUSD 4626 vault**"*, and GHO's depth lives on
 **Balancer**, USDS behind Sky's **1:1 DAI converter**. ⇒ **a table of POOLS cannot be gapless, because
