@@ -2132,14 +2132,15 @@ contract BTCChannels is Ownable {
 
     error NotAReversal();   // no pending swap-out for this id — nothing to refund
 
-    // ⛔ (M1#1) `settleSwapIn` IS DELETED — the phantom swap-in is gone from the contract.
+    // 🔴 `settleSwapInProven` IS THE ONLY CREDIT PATH, AND THAT IS THE SECURITY PROPERTY.
     //
-    // It credited the shared POOLED_USD on the hop's WORD, so a malicious hop asserted sats
-    // that never arrived and the loss reached QU!D holders who opted into no enclave trust. It
-    // survived this long only because the LN rail had no provable form.
+    // Credit must never rest on the hop's WORD: a hop that could assert sats which never
+    // arrived would credit the shared POOLED_USD, and the loss would reach QU!D holders who
+    // opted into no enclave trust. So every credit here carries a proof.
+    // ⛔ Do not add a second credit entrypoint, and do not relax this one to an assertion.
     //
-    // REPLACED, not merely removed: `settleSwapInProven` is the only credit path now. Its OTHER
-    // role already lives under its own name — `reverseSwapOut` (T1-b/T1-d).
+    // The unrelated role that once shared this entry lives under its own name — `reverseSwapOut`
+    // (T1-b/T1-d).
 
     /// @notice A swapper recovers their committed USD if the hop never delivers
     ///         the on-chain swap-out (or never reverses it). Permissionless of the HOP —
