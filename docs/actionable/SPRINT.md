@@ -52978,6 +52978,45 @@ FOLDED citation is still stale** — the one bucket that is actionable. Per this
 with a binary result beats a disposition; and per the tooling-traps rule it fails loudly, exiting with
 a FATAL if the tree walk returns zero `.md` files rather than reporting a clean run.
 
+# ⚖️ §HOW-TO-ADJUDICATE-BOUND-VS-DELETE — **NOT BY AUTHORITY. BY THE SCOPE OF EACH OBJECTION, AND ONE ARITHMETIC TEST (2026-09-07)**
+
+**Owner asked: how do we know which decision was right?** The record has three layers and recency does
+not settle them: 2026-07-22 says **BOUND** the bonus (twice), the shipped batch says **REMOVAL** entire
+(`:675`), and §E6 then restates removal as the first-principles rule *"do not build a refill that earns
+a spread"*. ⛔ **§E6 IS LATER AND CANNOT SUPERSEDE, BECAUSE IT IS DERIVED FROM THE THING IN QUESTION** —
+a later record that inherits an earlier overshoot is not independent evidence of it. **Precedence is
+the wrong instrument here.**
+
+## ▶️ THE INSTRUMENT THAT WORKS: EVERY OBJECTION TO A BONUS IS SCOPED. CHECK WHETHER THE BOUNDED FORM IS INSIDE IT.
+
+| objection | its stated scope | does it reach `S_in < S_out`, funded from the retained premium? |
+|---|---|---|
+| **§UNIT-VENUE-CEILING** — the arber competes the whole premium away and the LP nets zero | the row says it **"bites only on a SYMMETRIC mirror"** — `S_in = S_out` | ⛔ **NO.** With `S_in` bounded strictly below, the arber's profit is capped at what the DRAINER paid and the LP keeps the margin |
+| **the removed `refillETH` cluster** — judged TOXIC | it **DREW THE SHARED SURPLUS**: *"the shared safety margin is what we owe back, not a reserve to compensate one party"* | ⛔ **NO.** A bonus paid out of the premium already retained for THAT imbalance spends nothing new — §E106 itself distinguishes them: *"different instruments, different objection"* |
+| **§E6** — *"do not build a refill that earns a spread"* | none stated; it is a generalisation | ⚠️ **inherits the overshoot it generalises from** |
+
+⇒ **Neither objection with a stated scope reaches the bounded self-funded form.** That is the argument
+for BOUND, and it is an argument about coverage rather than about who said what.
+
+## ✅ AND ONE FALSIFIABLE TEST THAT NEEDS NO FIXTURE AND NO BUILD
+
+**If `S_in ≤` the premium retained for that imbalance, a drain-then-refill round trip by one actor is
+STRICTLY NEGATIVE by arithmetic** — the refill can never return more than the drain paid in. ⇒ **the
+bounded form cannot be farmed, by construction rather than by calibration.** ⭐ **This is checkable
+today**, and it is the discriminator §UNIT-BOUND-NOT-DELETE already names (*"`f` derived, not fitted —
+never more than was collected"*). **A design that is safe by construction does not need the measurement
+that a fitted bound would.**
+
+## 🔴 BUT IT IS DOWNSTREAM OF A FORK THAT IS STILL OPEN, AND THAT IS THE REAL ANSWER
+
+**If composition is NOT to be repaired at all, bound-vs-delete is moot** — no bonus of any shape is
+wanted. That is exactly the live contradiction between **§E106** (*refill was built, judged toxic,
+removed; "IL is borne fairly via the share price"*) and **§UNIT-WHY-IT-MATTERS** (*the imbalance is an
+ACCOUNTING-CORRECTNESS defect: LP withdrawal, P&L attribution and the swap fee all read the distorted
+composition*).
+⇒ **Resolve that fork first. Bound-vs-delete is its consequence, not a separate question**, and
+answering it in isolation would settle the instrument before deciding whether any instrument is wanted.
+
 # 🔴 §THE-CODE-ENFORCES-THE-OVERSHOOT — **`SwapLib:679` MAKES `§UNIT-BOUND-NOT-DELETE` UNIMPLEMENTABLE BY THE NEXT EDITOR (2026-09-07)**
 
 **Found while sweeping tombstones, and it is why that sweep is not tidying.** `SwapLib.sol:679-684` is
