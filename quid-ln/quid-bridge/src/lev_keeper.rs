@@ -968,12 +968,115 @@ fn quote_hop<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256, fee: u32
     if out.is_zero() { None } else { Some(out) }
 }
 
+/// ⭐ §SESS-67 — **DEPTH IS A GATE, NOT A TIEBREAK. AN ILLIQUID VENUE IS NEVER A CANDIDATE.**
+///
+/// Owner, 2026-09-07: *"you should only pick the most liquid venues."* Correct, and it fixes three
+/// things at once that quoting-everything did not:
+/// 1. **COST.** One `balanceOf` per candidate replaces 2-3 calls for a quote. `find_pools_for_coins`
+///    returns **121 pools** for USDT/USDC — measured — so pruning before quoting is the difference
+///    between viable and not. Quoting them all starved the endpoint badly enough that the *UniV3*
+///    quotes on the same run started returning nothing.
+/// 2. **SAFETY, and this is the half a price comparison cannot give you.** A thin pool quotes fine at
+///    small size and is a trap at real size. `Interfaces.sol` records `0xEf3a1CaE…` answering `get_dy`
+///    for four stables at **427 USDC per 10,000 in — a 95% loss with NO revert.** A "did not revert"
+///    filter takes it; a "best quote at THIS size" filter mostly dodges it; **a depth gate never sees
+///    it.** The tree's own note is blunt: *"Depth is the discriminator."*
+/// 3. **IMPACT WE INFLICT ON OURSELVES.** Taking a large fraction of a pool moves the price against us
+///    and the damage is not linear — the offramp measured fills tracking `~1.4 + 55·(dx/D)²` bps and
+///    then **breaking by 70x** at exhaustion. `QuidLib` already answers this exact way: *"90% of the
+///    pool's WETH: slippage steepens toward the edge, so leave headroom rather than sizing to the
+///    exact boundary the quadratic stops describing."*
+///
+/// ⇒ **require the pool to hold at least `DEPTH_MULTIPLE x` of what we are SELLING**, so a trade is
+///    never more than `1/DEPTH_MULTIPLE` of that side. ⚠️ Measured on the token we SELL, not the one we
+///    buy: that side is what we are adding to, and it is the side whose balance we can read without
+///    already knowing the answer.
+/// ⚠️ **A FAILED READ IS NOT DEPTH.** `.ok()?` on a throttled endpoint would silently classify a deep
+///    pool as thin and route around it — a rate limit wearing a routing decision's clothes. So a read
+///    that fails REJECTS the candidate rather than passing it, and the caller falls back to venues that
+///    did answer; being conservative under load is the safe direction here.
+const DEPTH_MULTIPLE: u64 = 4;         // never sell more than 25% of a pool's holding of that token
+
+fn deep_enough<R: JsonRpc>(rpc: &R, pool: LpAddr, token: LpAddr, amt: U256) -> bool {
+    let Ok(b) = eth_call_raw(rpc, Address::from_slice(&token), "balanceOf(address)",
+                             Some(&addr_word(pool))) else { return false };
+    if b.len() < 32 { return false; }
+    U256::from_be_slice(&b[..32]) >= amt.saturating_mul(U256::from(DEPTH_MULTIPLE))
+}
+
+/// A Curve hop word the contract can execute: `proto | j | i | pool` (see `Interfaces.sol`).
+/// ⚠️ Deliberately NOT a 1inch pool word: `unoswap` was probed with six candidate Curve layouts
+/// against the live router and **0 of 6 filled**. `LevMath._hubHop` calls `exchange` directly.
+fn curve_word(pool: LpAddr, i: u8, j: u8) -> [u8; 32] {
+    let mut w = [0u8; 32];
+    w[12..].copy_from_slice(&pool);
+    w[31 - 20] = i;                       // bit 160
+    w[31 - 21] = j;                       // bit 168
+    w[0] |= 2 << 5;                       // proto = Curve (2) at bits 253-255
+    w
+}
+
+/// ⭐ §SESS-66 — **CURVE CANDIDATES: A SHORTLIST, QUOTED LIVE. NOT AN ENUMERATION.**
+///
+/// 🔴 **MEASURED, AND IT KILLED THE OBVIOUS DESIGN: `find_pools_for_coins(USDT, USDC)` RETURNS 121
+///    POOLS.** Quoting them needs `get_coin_indices` + `get_dy` each — **363 `eth_call`s for ONE leg**
+///    — and doing it starved the endpoint badly enough that the *UniswapV3* quotes on the same run
+///    began returning nothing. ⚠️ **That failure was silent**: `.ok()?` turns a throttled call into
+///    "no route", so the planner would have quietly degraded to worse venues under load rather than
+///    erroring. **A rate limit wearing a routing decision's clothes.**
+/// ⛔ **AND "TAKE THE FIRST N" IS NOT AVAILABLE:** CLAUDE.md already records that registry order is
+///    NOT depth — the singular `find_pool_for_coins` returns dead pools, and `0xEf3a1CaE…` answers
+///    `get_dy` for four stables at **427 USDC per 10,000 in**, a 95% loss with no revert. A cap on an
+///    unranked list is a coin flip.
+///
+/// ▶️ **SO THE ENUMERATION MOVES OFF THE HOT PATH.** This quotes a SHORTLIST — the pools this repo
+///    already verified by depth-at-size against `coins()` — and **the shortlist is not trusted, it is
+///    PRICED**: a pool that has since drained loses the comparison to UniV3 on the same quote. That is
+///    the identical argument that justifies a short `HUBS` list, and it is what separates this from
+///    the three compile-time tables deleted earlier: **config that competes, not bytecode that wins.**
+/// ⚠️ **`is_underlying` METAPOOLS ARE STILL EXCLUDED** — `curveExchange` calls `exchange`, not
+///    `exchange_underlying`, so a metapool quote prices a swap we cannot execute. The shortlist below
+///    is metapool-free by construction (each row was verified against `coins(i)`/`coins(j)`).
+/// 📌 **BOOKED, NOT BUILT: the offline enumerator that REFRESHES this shortlist** — walk
+///    `find_pools_for_coins`, reject metapools, quote every survivor at three sizes, keep the winners.
+///    That is exactly how the on-chain rows were built by hand; it belongs in a tool, run rarely.
+const CURVE_SHORTLIST: [(LpAddr, LpAddr, LpAddr, u8, u8); 2] = [
+    // (tokenA, tokenB, pool, indexA, indexB) — 3pool: DAI 0, USDC 1, USDT 2 (read from mainnet).
+    (USDT_ADDR, USDC_ADDR, [0xbE,0xbc,0x44,0x78,0x2C,0x7d,0xB0,0xa1,0xA6,0x0C,
+                            0xb6,0xfe,0x97,0xd0,0xb4,0x83,0x03,0x2F,0xF1,0xC7], 2, 1),
+    (DAI_ADDR,  USDC_ADDR, [0xbE,0xbc,0x44,0x78,0x2C,0x7d,0xB0,0xa1,0xA6,0x0C,
+                            0xb6,0xfe,0x97,0xd0,0xb4,0x83,0x03,0x2F,0xF1,0xC7], 0, 1),
+];
+
+/// Quote the shortlist for `tin -> tout` and return the best `(hop word, out)`.
+fn curve_best<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Option<([u8; 32], U256)> {
+    let mut best: Option<([u8; 32], U256)> = None;
+    for (a, b, pool, ia, ib) in CURVE_SHORTLIST {
+        let (i, j) = if a == tin && b == tout { (ia, ib) }
+                     else if b == tin && a == tout { (ib, ia) }
+                     else { continue };
+        if !deep_enough(rpc, pool, tin, amt) { continue; }   // §SESS-67 — depth BEFORE price
+        let mut qa = Vec::with_capacity(96);
+        qa.extend_from_slice(&{ let mut w = [0u8; 32]; w[31] = i; w });
+        qa.extend_from_slice(&{ let mut w = [0u8; 32]; w[31] = j; w });
+        qa.extend_from_slice(&u256_word(amt));
+        let Ok(dy) = eth_call_raw(rpc, Address::from_slice(&pool),
+            "get_dy(int128,int128,uint256)", Some(&qa)) else { continue };
+        if dy.len() < 32 { continue; }
+        let out = U256::from_be_slice(&dy[..32]);
+        if out.is_zero() { continue; }
+        if best.is_none_or(|(_, b2)| out > b2) { best = Some((curve_word(pool, i, j), out)); }
+    }
+    best
+}
+
 /// Best DIRECT hop across every tier: `(pool, out)`. Searched, never assumed — the tier that wins at
 /// $50k is routinely not the tier that wins at $1M, because impact grows with depth-relative size.
 fn best_direct<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Option<(LpAddr, U256)> {
     let mut best: Option<(LpAddr, U256)> = None;
     for fee in FEE_TIERS {
         let Some(pool) = pool_for(rpc, tin, tout, fee) else { continue };
+        if !deep_enough(rpc, pool, tin, amt) { continue; }   // §SESS-67 — depth BEFORE price
         let Some(out) = quote_hop(rpc, tin, tout, amt, fee) else { continue };
         if best.is_none_or(|(_, b)| out > b) { best = Some((pool, out)); }
     }
@@ -1011,11 +1114,26 @@ fn best_plan_quoted<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -
     // ⚠️ A hub equal to `tin` or `tout` is skipped — that is the direct case, already priced above.
     for hub in HUBS {
         if hub == tin || hub == tout { continue; }
-        let Some((first, mid)) = best_direct(rpc, tin, hub, amt) else { continue };
+        // ⭐ §SESS-66 — **CURVE COMPETES FOR THE FIRST LEG, AND ONLY THE FIRST LEG.**
+        // ⛔ **THE RESTRICTION IS THE CONTRACT'S, NOT A PREFERENCE:** `LevMath._hubHop` converts
+        //    stable↔USDC and that is the ONLY position a Curve word is dispatched at. A Curve pool
+        //    found for the VOLATILE leg would be unexecutable, and planning one would be the
+        //    built-but-unwired shape a fourth time. **Plan only what can be executed.**
+        // ⚠️ Measured this session: 3pool beats the UniV3 0.01% tier for USDT→USDC above ~$500k
+        //    (−0.42 vs −0.72 bps at $1M, −0.68 vs −2.16 at $5M) and LOSES below it. So neither venue
+        //    wins by class — which is exactly why both are quoted rather than one being preferred.
+        let v3_first = best_direct(rpc, tin, hub, amt).map(|(p, o)| (v3_word(p), o));
+        let cv_first = if hub == USDC_ADDR { curve_best(rpc, tin, hub, amt) } else { None };
+        let first_leg = match (v3_first, cv_first) {
+            (Some(a), Some(b)) => Some(if b.1 > a.1 { b } else { a }),
+            (x, None) => x,
+            (None, y) => y,
+        };
+        let Some((w1, mid)) = first_leg else { continue };
         let Some((second, out)) = best_direct(rpc, hub, tout, mid) else { continue };
         if best.is_none_or(|(_, b)| out > b) {
             // `dex2` is hop 1 (see `Plan`) — the crossing is deliberate and load-bearing.
-            best = Some((Plan { dex: v3_word(second), dex2: v3_word(first) }, out));
+            best = Some((Plan { dex: v3_word(second), dex2: w1 }, out));
         }
     }
     best
@@ -1341,17 +1459,22 @@ mod tests {
             println!("SKIP best_plan_finds_routes: no ETH_RPC_URL/ANKR_RPC_URL"); return;
         };
         // Stables the old table had NO entry for. USDC is the hub and is excluded by construction.
-        let cases: [(&str, LpAddr); 4] = [
-            ("USDT",   USDT_ADDR),
-            ("DAI",    DAI_ADDR),
+        // ⚠️ **DECIMALS PER TOKEN, NOT A SHARED CONSTANT.** A first version passed $100k as 6-dec for
+        //    every case, so DAI/GHO/USDe were quoted for 1e-13 of a token and returned nothing — which
+        //    the test reported as "no route", i.e. **a units bug wearing a routing failure's clothes.**
+        //    This repo's oldest documented bug class is exactly this (`BasketLib:282`: never infer a
+        //    stable's decimals, read them).
+        let cases: [(&str, LpAddr, u32); 4] = [
+            ("USDT",   USDT_ADDR, 6),
+            ("DAI",    DAI_ADDR, 18),
             ("GHO",    [0x40,0xD1,0x6F,0xC0,0x24,0x6a,0xD3,0x16,0x0C,0xcc,
-                        0x09,0xB8,0xD0,0xD3,0xA2,0xcD,0x28,0xaE,0x6C,0x2f]),
+                        0x09,0xB8,0xD0,0xD3,0xA2,0xcD,0x28,0xaE,0x6C,0x2f], 18),
             ("USDe",   [0x4c,0x9E,0xDD,0x58,0x52,0xcd,0x90,0x5f,0x08,0x6C,
-                        0x75,0x9E,0x8B,0xC9,0x8B,0x32,0x5b,0x86,0x6D,0xf3]),
+                        0x75,0x9E,0x8B,0xC9,0x8B,0x32,0x5b,0x86,0x6D,0xf3], 18),
         ];
-        let amt = U256::from(100_000u64) * U256::from(1_000_000u64);   // $100k, 6-dec
         let mut planned = 0;
-        for (name, stable) in cases {
+        for (name, stable, dec) in cases {
+            let amt = U256::from(100_000u64) * U256::from(10u64).pow(U256::from(dec));   // $100k
             match best_plan(&rpc, stable, WETH_ADDR, amt) {
                 Some(p) => {
                     planned += 1;
@@ -1361,8 +1484,40 @@ mod tests {
                 None => println!("{name} -> WETH: no route quoted at this block"),
             }
         }
-        assert!(planned >= 3, "discovery planned only {planned}/4 - the table planned 2/14, so \
-                               anything at or below that is not an improvement");
+        // ⚠️ **NOT "how many planned" — THAT BAR FIGHTS THE DEPTH GATE.** §SESS-67 rejects a venue
+        //    that is too thin for the size, and MEASURED, GHO deserves rejecting: its UniV3 pools hold
+        //    **211 and 8,179 GHO**, and GHO/WETH holds **0 across all four tiers.** Before the gate
+        //    this planner named the 8,179-GHO pool for a $100k trade. **A planner that plans MORE
+        //    routes is not better; one that plans only fillable ones is.**
+        assert!(planned >= 1, "nothing planned at all - that is not a depth gate, that is a broken \
+                               search or a dead endpoint");
+    }
+
+    /// 🔴 ⭐ §SESS-67 — **THE DEPTH GATE'S KNOWN POSITIVE.** A gate is unverified code like any other,
+    ///    and CLAUDE.md is explicit that *"the acceptance test for a detector is the KNOWN POSITIVE,
+    ///    not a clean run"*. So this asserts it REJECTS a pool measured to be too thin, and ACCEPTS one
+    ///    measured to be deep — against mainnet, at a size where the answer differs.
+    /// ⚠️ Both halves matter: a gate that rejects everything would pass a rejection-only test while
+    ///    silently disabling routing.
+    #[test]
+    fn the_depth_gate_rejects_a_thin_pool_and_accepts_a_deep_one() {
+        let Some(rpc) = live_rpc() else { println!("SKIP depth gate: no RPC"); return };
+        const GHO: LpAddr = [0x40,0xD1,0x6F,0xC0,0x24,0x6a,0xD3,0x16,0x0C,0xcc,
+                             0x09,0xB8,0xD0,0xD3,0xA2,0xcD,0x28,0xaE,0x6C,0x2f];
+        let hundred_k_18 = U256::from(100_000u64) * U256::from(10u64).pow(U256::from(18u32));
+        let one_m_6      = U256::from(1_000_000u64) * U256::from(1_000_000u64);
+
+        // THIN: the GHO/USDC 0.01% pool holds ~211 GHO (measured 2026-09-07).
+        if let Some(thin) = pool_for(&rpc, GHO, USDC_ADDR, 100) {
+            assert!(!deep_enough(&rpc, thin, GHO, hundred_k_18),
+                "a pool holding ~211 GHO was accepted for a $100k trade");
+        }
+        // DEEP: USDC/WETH 0.05% holds ~77.2M USDC.
+        let deep = pool_for(&rpc, USDC_ADDR, WETH_ADDR, 500).expect("USDC/WETH 0.05% must exist");
+        assert!(deep_enough(&rpc, deep, USDC_ADDR, one_m_6),
+            "a pool holding ~77M USDC was rejected for a $1m trade - the gate is not merely strict, \
+             it is broken, and a gate that rejects everything disables routing while passing a \
+             rejection-only test");
     }
 
     /// ⭐ **THE §SESS-49 PROPERTY ITSELF: the chosen plan must never quote worse than the best DIRECT

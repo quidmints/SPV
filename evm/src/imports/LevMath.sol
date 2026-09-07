@@ -8,7 +8,8 @@ import {WAD, VenueNotAllowed} from "./Types.sol";
 // §A.52: the canonical view lives in Interfaces.sol — imported, never re-declared file-local.
 import {ICore, IAux, IWeETH, IDepositAdapter, ILevVenue, TWAP_WINDOW_SECS} from "./Interfaces.sol";
 import {IERC20Min, IWETH9} from "../imports/Interfaces.sol";
-import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, UNOSWAP3_SELECTOR, PROTO_UNIV3, ZERO_FOR_ONE, IUniV3PoolMin, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN, CURVE_3POOL, USDT_TOKEN, CRV_USDT_IDX, CRV_USDT_USDC_IDX, DAI_TOKEN, CRV_DAI_IDX, CRV_DAI_USDC_IDX, USDG_TOKEN, CURVE_USDG_USDC, CRV_USDG_IDX, CRV_USDG_USDC_IDX, CRVUSD_TOKEN, CURVE_CRVUSD_USDC, CRV_CRVUSD_IDX, CRV_CRVUSD_USDC_IDX} from "./Interfaces.sol";
+import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, UNOSWAP3_SELECTOR, PROTO_UNIV3,
+        PROTO_CURVE, HOP_I_OFFSET, HOP_J_OFFSET, ZERO_FOR_ONE, IUniV3PoolMin, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN, CURVE_3POOL, USDT_TOKEN, CRV_USDT_IDX, CRV_USDT_USDC_IDX, DAI_TOKEN, CRV_DAI_IDX, CRV_DAI_USDC_IDX, USDG_TOKEN, CURVE_USDG_USDC, CRV_USDG_IDX, CRV_USDG_USDC_IDX, CRVUSD_TOKEN, CURVE_CRVUSD_USDC, CRV_CRVUSD_IDX, CRV_CRVUSD_USDC_IDX} from "./Interfaces.sol";
 
 // ether.fi weETH/WETH Curve pool (weETH is coin1, WETH coin0). Same address as Vault.ETHERFI_CURVE_POOL.
 address constant ETHERFI_CURVE_POOL = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;
@@ -1138,11 +1139,12 @@ library LevMath {
         //    a plain OVERRIDE WITH A DEFAULT, not a migration branch waiting to be deleted.
         // No keeper word ⇒ take the table's route. `minOut` 0 on the hub leg is correct: `floor_`
         // bounds the whole route on the final token.
-        if (stable != USDC && c.dex2 == 0)
-            return _aggSwap(USDC, c.weth, _hubHop(stable, stableAmt, true, 0), floor_, c.dex, 0);
+        uint256 hub = c.dex2;
+        if (stable != USDC && (hub == 0 || hub >> 253 == PROTO_CURVE))
+            return _aggSwap(USDC, c.weth, _hubHop(stable, stableAmt, true, 0, hub), floor_, c.dex, 0);
         // `c.dex2` is hop 1, `c.dex` hop 2. A USDC venue has `c.dex2 == 0` and `_aggSwap` compacts it
         // (§SESS-50) — which is what finally lets a USDC venue reach `c.route` at all.
-        return routedSwap(stable, c.weth, stableAmt, floor_, c.dex2, c.dex, c.route);
+        return routedSwap(stable, c.weth, stableAmt, floor_, hub, c.dex, c.route);
     }
 
 
@@ -1163,10 +1165,22 @@ library LevMath {
     /// ⚠️ **DIRECTION IS THE CALLER'S, NEVER THE TABLE'S** — same discipline as `_aggSwap` deriving
     ///    `ZERO_FOR_ONE` rather than trusting a keeper bit, so one row serves a lever-up and the
     ///    de-lever that unwinds it and the two cannot disagree about which way to cross a pool.
-    function _hubHop(address stable, uint256 amt, bool toUsdc, uint256 minOut) internal returns (uint256) {
+    /// @param word §SESS-66 — a caller-supplied **Curve** hop (`proto | j | i | pool`), or **0** to use
+    ///        the compile-time row. ⭐ **THE WORD IS A VENUE, NOT A PRICE:** whichever pool it names,
+    ///        `curveExchange` bounds the result on a MEASURED balance delta against `minOut`, so a
+    ///        wrong or hostile pool makes the hop FAIL and can never make it pay short. Same argument
+    ///        that lets the keeper name UniV3 pools, applied to the venue it could not reach — which
+    ///        is why widening DISCOVERY does not widen AUTHORITY.
+    function _hubHop(address stable, uint256 amt, bool toUsdc, uint256 minOut, uint256 word)
+        internal returns (uint256)
+    {
         if (amt == 0) return 0;
         if (stable == USDC) return amt;            // hub itself — nothing to convert, either direction
-        (address pool, int128 iS, int128 iU) = _hubRowOf(stable);
+        (address pool, int128 iS, int128 iU) = word >> 253 == PROTO_CURVE
+            ? (address(uint160(word)),
+               int128(uint128(uint8(word >> HOP_I_OFFSET))),
+               int128(uint128(uint8(word >> HOP_J_OFFSET))))
+            : _hubRowOf(stable);
         // fail closed — a silent 0 would leave the position unhedged, and a caller that sizes a hedge
         // from "converted nothing" is the failure this revert exists to make loud.
         if (pool == address(0)) revert NoStableRoute();
@@ -1294,9 +1308,10 @@ library LevMath {
     ///      the suite did.
     function _stableToWbtc(address stable, uint256 amt, uint256 minOut, address wbtc, uint256 volDex,
                            uint256 hubDex, bytes memory route) internal returns (uint256) {
-        if (stable != USDC && hubDex == 0)   // no keeper word ⇒ the table's route
-            return _aggSwap(USDC, wbtc, _hubHop(stable, amt, true, 0), minOut, volDex, 0);
-        return routedSwap(stable, wbtc, amt, minOut, hubDex, volDex, route);
+        uint256 hub = hubDex;   // §SESS-66 — a CURVE word takes this arm too; 1inch cannot carry one
+        if (stable != USDC && (hub == 0 || hub >> 253 == PROTO_CURVE))
+            return _aggSwap(USDC, wbtc, _hubHop(stable, amt, true, 0, hub), minOut, volDex, 0);
+        return routedSwap(stable, wbtc, amt, minOut, hub, volDex, route);
     }
 
     /// @dev Mirror of `_stableToWbtc`: volatile → USDC through the aggregator, stableswap hub back
@@ -1317,9 +1332,10 @@ library LevMath {
         //    with `minOut` enforced on a measured balance delta: `routedSwap` through `_aggSwap`, and
         //    the table arm through `_hubHop`, which carries the floor into `curveExchange`. Only the
         //    USDC intermediate is deliberately unbounded, because nothing leaves on it.
-        if (stable != USDC && hubDex == 0)   // no keeper word ⇒ the table's route
-            return _hubHop(stable, _aggSwap(vol, USDC, amt, 0, volDex, 0), false, minOut);
-        return routedSwap(vol, stable, amt, minOut, volDex, hubDex, route);
+        uint256 hub = hubDex;   // §SESS-66 — a CURVE word takes this arm too; 1inch cannot carry one
+        if (stable != USDC && (hub == 0 || hub >> 253 == PROTO_CURVE))
+            return _hubHop(stable, _aggSwap(vol, USDC, amt, 0, volDex, 0), false, minOut, hub);
+        return routedSwap(vol, stable, amt, minOut, volDex, hub, route);
     }
 
     /// @dev IDENTITY WHEN THE LOAN TOKEN IS ALREADY WETH — the close-side twin of the note on
@@ -1597,7 +1613,7 @@ library LevMath {
             //    ⇒ the pools come from `_hubRowOf`, which no caller can influence.
             if (_routableStable(s) && _routableStable(target)) {
                 // `floor` is enforced on the SECOND hop, so it bounds the pair on the measured delta.
-                _hubHop(target, _hubHop(s, bal, true, 0), false, floor);
+                _hubHop(target, _hubHop(s, bal, true, 0, 0), false, floor, 0);
             }
             // Whatever of this slice did not move — an unroutable stable, or a remainder — goes back to the LP.
             // Never strand the LP's own redeemed value in the manager (it only lowers `got`, which the

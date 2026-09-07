@@ -170,6 +170,19 @@ bytes4 constant UNOSWAP2_SELECTOR = 0x8770ba91;
 // beyond this line, because the route is no longer ENCODED here: it is supplied and RETARGETED
 // (`LevMath._retarget`). ⇒ hop count stops being an ABI shape and becomes a property of the calldata.
 bytes4 constant UNOSWAP3_SELECTOR = 0x19367472;
+
+// §SESS-66 — **A CURVE HOP WORD, EXECUTED BY US, NEVER HANDED TO 1inch.** ⚠️ I deleted this in
+// §SESS-52 as "capability nobody asked for" and that was right at the time: the roster route was the
+// only Curve we could reach and it needed no tag. It is back because the PLANNER can now discover
+// Curve pools, and a pool it finds is worthless unless the contract can be told to use it.
+// ⛔ Still not 1inch's encoding: six candidate layouts for a Curve pool word through `unoswap` were
+// executed against the live router and **0 of 6 filled**. We already speak `exchange` directly and
+// bound it on a measured delta (§SESS-46), so there is nothing to reverse-engineer.
+// Layout, low bits first: pool(160) | i(8) | j(8) | … | proto(3 @ 253). `i` is the NON-USDC coin's
+// index, `j` is USDC's. Direction is the caller's, never the word's — one word serves both ways.
+uint256 constant PROTO_CURVE   = 2;
+uint256 constant HOP_I_OFFSET  = 160;
+uint256 constant HOP_J_OFFSET  = 168;
 uint256 constant PROTO_UNIV3   = 1;             // `dex >> 253` for a UniswapV3 pool
 uint256 constant ZERO_FOR_ONE  = uint256(1) << 247;  // V3 direction flag, DERIVED by `_aggSwap`
 
