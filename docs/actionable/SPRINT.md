@@ -97495,15 +97495,71 @@ inventory PAST target is inventory-INCREASING ⇒ charge the same A-S premium th
 ⇒ **RESTORING IS EXACTLY FREE UP TO THE DEFICIT.** The mirror/flush exemption fires precisely as
 `SwapLib:430` designs it; the earlier −300 bps was the overshoot and nothing else.
 
-🔴 **AND THE SECOND FINDING IS SHARPER THAN THE FIRST: THE CHARGE IS A CLIFF, NOT A SLOPE.** Crossing
-target by 10% costs the SAME 300 bps as crossing it by 200%, and the premium applies to the **WHOLE
-TRADE**, not to the overshooting portion. 300 bps = **`GAMMA_WAD = 3e16`** exactly (ratio 1.000000).
-⚠️ **CONSEQUENCE:** a restorer who mis-sizes by one wei of overshoot pays 3% on their ENTIRE size.
-That is a discontinuity at exactly the point a restorer is aiming for, it punishes the honest error
-in the direction the pool WANTS, and it makes "sell slightly more than the gap" strictly worse than
-"sell slightly less". ▶️ **Decide deliberately whether that is intended.** The alternative — charging
-the premium only on the portion past target — is a different and continuous mechanism, and nothing
-in the code says the cliff was chosen over it rather than inherited.
+~~🔴 **AND THE SECOND FINDING IS SHARPER THAN THE FIRST: THE CHARGE IS A CLIFF, NOT A SLOPE.**~~
+🔴 **STRUCK 2026-09-07 — THE CLIFF WAS A MEASUREMENT ARTEFACT, AND THE "DECIDE DELIBERATELY WHETHER
+THAT IS INTENDED" ASK IS WITHDRAWN.** The row read that crossing target by 10% costs the SAME 300 bps
+as crossing by 200%, applied to the WHOLE trade, so a restorer mis-sizing by one wei pays 3% on their
+entire size. **That does not happen.** The flat 300 bps = `GAMMA_WAD = 3e16` was not the A-S curve
+saturating — it is `UNKNOWN_VARIANCE_SKEW`, the CONSTANT `sellSkew` returns when `sigmaSqWad == 0`,
+which bypasses `qBar` entirely. A constant looks like a cliff because a constant is flat.
+⭐ **RE-MEASURED WITH REAL VARIANCE (σ² ≈ 0.1006 wad, from replayed consecutive mainnet Chainlink
+rounds), the charge is EXACTLY LINEAR in the overshoot:**
+
+| overshoot | +1% | +5% | +10% | +50% | +200% |
+|---|---|---|---|---|---|
+| `sellSkew` (wad) | 1.5747e12 | 7.8535e12 | 1.5702e13 | 7.8491e13 | 3.1395e14 |
+| ratio vs +1% | 1.00× | **4.99×** | **9.97×** | **49.85×** | **199.4×** |
+
+⇒ **THERE IS NO DISCONTINUITY AND NO GRIEFING VECTOR.** At +1% overshoot the real charge is ~1.57e12
+wad ≈ **0.00016 bps** — proportional and negligible, not 3%. This is §E68b's midpoint integration
+(`qBar = (q0+q1)/2`, `q0 == 0` for a sell starting below target) working as designed, and §E54's
+"the abundant side is LINEAR" holding; the ~0.3% shortfall from exact ratios IS the `q0` term.
+⛔ **DO NOT RE-DERIVE THE CLIFF FROM A FLAT 300 bps READING.** A flat 300 means σ² is UNMEASURED in
+whatever fixture produced it — see §SKEW-COVERAGE-HOLE below, which is the larger finding.
+
+## 🔴 §SKEW-COVERAGE-HOLE — **EVERY SKEW TEST IN THE SUITE EXERCISES THE UNMEASURED-VARIANCE CEILING, NOT THE A-S CURVE** (2026-09-07)
+
+`sellSkew`/`skewWad` branch on `sigmaSqWad == 0`: zero returns the flat `UNKNOWN_VARIANCE_SKEW`
+sentinel (3e16) and **never evaluates `qBar`**. So a fixture that cannot produce variance tests the
+sentinel and never the pricing curve — while reporting green.
+
+**AND THE FIXTURES STRUCTURALLY CANNOT PRODUCE IT.** σ² is `max(ringVariance, anchorVarianceWad)`;
+the ring is deliberately dead (§E294), and `Core._sampleAnchorVariance` advances `_varPx` only when
+the anchor MOVES, with an explicit *"SAME BLOCK ⇒ RETURN WITHOUT ADVANCING"* guard and
+`dt = block.timestamp - _varSq.ts`. **Every skew test runs its swaps at ONE pinned block** — e.g.
+`test_REFILLSIZE_…` warps once in `_settle()` and never inside its 30-drain loop — so the first
+sample seeds `_varPx`, every later one returns early on `dt == 0`, and `anchorVarianceWad()` is 0.
+⇒ **The A-S curve has never been under test.** That is how §REFILL-SIZE's cliff got booked.
+
+✅ **A HARNESS THAT DOES PRODUCE IT NOW EXISTS** (`_warmVarianceFromRealRounds`,
+`RestoreProfitability.t.sol`): it reads REAL consecutive Chainlink rounds through the PROXY and
+replays them with their real inter-round gaps, on a clock running FORWARD from the fork instant.
+Measured σ² ≈ 0.1006–0.1617 wad (σ ≈ 32–40% annualised — the order §E343 measured at 95.5%).
+
+⚠️ **SIX WAYS THIS MEASUREMENT READ ZERO, NONE OF THEM THE PRICING CODE** — recorded because each
+one is re-walkable and every one presented as "the estimator does not work":
+1. **single pinned block** — one Chainlink round, forever.
+2. **`vm.rollFork`** — wipes the LINKED LIBRARIES (`SwapLib`, `LevMath`), which have no handles in a
+   test to `makePersistent`; every swap then dies `CheatcodeError: … not marked as persistent`.
+3. **reading the phase aggregator directly** — `AccessControlledOffchainAggregator` REFUSES CONTRACT
+   CALLERS. `cast call` works (it presents as an EOA); a test contract gets a revert that looks like
+   missing history. Read through the PROXY, phase-encoded roundId intact.
+4. **feeding the round's HISTORICAL timestamp** — `twapResolve` sees it stale, returns 0, and
+   `_sampleAnchorVariance` degrades to UNMEASURED, which is **indistinguishable from "the market did
+   not move"**. That degrade-never-revert rule is correct (a read must not halt the range) and it is
+   exactly what destroys diagnosability.
+5. **tracing the wrong swap direction** — `_sampleAnchorVariance` lives in `Core.swap`, whose only
+   `src` caller is `BasketLib.routeSwap:526`; the DRAIN leg reaches it (measured: `Core::swap` ×20
+   against `Aux::swap` ×20), a volatile-in SELL does not. A trace taken before switching direction
+   was carried forward as if it still applied.
+6. **warping BACKWARDS** — setting `block.timestamp` behind the fork underflows the swap path
+   (`Panic 0x4e487b71`), and a `try/catch` swallows it.
+⇒ **THE RULE:** log whether the sampler RAN separately from what it RECORDED. A single summary
+number cannot distinguish "ran and recorded nothing" from "never ran", and five of the six above are
+invisible without that split.
+
+▶️ **OPEN:** every other skew/IL/variance test in the suite still runs at one pinned block and is
+therefore testing the sentinel. This row does not fix them; it names the class.
 
 📌 **WHAT THIS SETTLES FOR E48/E70:** restoration is **value-NEUTRAL** (0 bps), not loss-making. But
 value-neutral still means **nothing pays anyone to do it** ⇒ **E48's async keeper fallback is
