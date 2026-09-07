@@ -94374,6 +94374,43 @@ SMALL trade today, and against which pool?** If it is genuinely ~37, the base is
 the measurement recorded next to it**, per this row's own *"sized from measurement, not taste"*. If the
 37 comes from a thin pool, the defect is routing and the base is fine.
 
+## ⚠️ CORRECTION 2026-09-07 — **I OVERSTATED THIS. THE TEST'S OWN FILE RECORDS THIS FALSE POSITIVE FIRING TWICE.**
+
+**I wrote that the finding *"does NOT depend on the A/B"*. That was too strong.** `FillerCallback.t.sol:231-236`
+says, in its own words:
+> *"…is not the market's cost, it is **OUR OWN SEARCH'S COST** — and it would make `_slipBps` look
+> insufficient for a shortfall that is really a **ROUTING FAILURE**. 🔴 **AND IT IS NOT A HYPOTHETICAL —
+> SEARCHING ONLY DIRECT POOLS MANUFACTURED A FALSE LIVENESS DEFECT, TWICE, AT TWO PINS.** Direct-only
+> put `need` at 51–52 bps against a 50 bps budget and reported the floor as unmeetable. **The 2-hop
+> through the USDT hub returns ~23 bps MORE.**"*
+
+⇒ **THIS FINDING MAY BE THE THIRD INSTANCE OF A FALSE POSITIVE THE FILE HAS ALREADY LOGGED TWICE.**
+`_quoteBestVenue` does search the hubs, so the mechanism should be closed — **but "should be" is what
+the previous two instances also had.** ✅ **WHAT SURVIVES UNCONDITIONALLY: the docblock contradiction.**
+`SLIP_BASE_BPS = 25` with a claim that the base sits ABOVE measured cost and that small-trade cost is
+*"a few bps"* cannot both be true against ANY measurement of 37. ⛔ **WHAT DOES NOT SURVIVE: my
+attribution of the 37 to the MARKET.** Whether it is the market's cost or the search's is precisely
+candidate (b), and it is unresolved.
+
+▶️ **THE DISCRIMINATOR IS RUNNING: `project-0c` is measuring 5 sizes × {direct-only, hub-routed, budget,
+shortfall, search gain} across 6 blocks spanning ~5 days.** If hub-routed `need` still exceeds budget
+at every block, candidate (a) — stale calibration — stands. If the hub route closes the gap, this was
+the search and `_slipBps` is innocent for the third time.
+
+⚠️ **AND A STRUCTURAL LIMIT OF THE ASSERTING TEST, WORTH KNOWING BEFORE READING ITS OUTPUT: it
+`assertGe`s inside the size loop, so it REVERTS AT THE FIRST FAILING SIZE.** The `\$50k` arm is the only
+one it can ever report; **the `\$1M` arm — where the docblock says 25 bps starts covering 44 — is never
+reached.** ⇒ **the failure is at SMALL size, which is exactly where "a few bps" is claimed**, and the
+test structurally cannot tell us whether the large end is fine.
+
+⭐ **AND THE METHOD LESSON FROM THE SAME EXCHANGE, WHICH IS WORTH MORE THAN EITHER RETRACTION: AN A/B
+WITH THE SAME DEFECT IN BOTH ARMS CONFIRMS THE DEFECT, NOT THE HYPOTHESIS.** `project-0c` ran a
+live-route suite with `FORK_BLOCK` pinned — the route is built against CURRENT mainnet by
+`fetch_1inch_route.py` while a pinned fork executes at an older block — manufacturing two failures,
+then A/B'd them **with both arms pinned**. The A/B "confirmed" they failed at HEAD too, which was true
+and useless. **Two of the seven reported failures were that; four were RPC 429s; 39 more across the
+wider run were a routing regression since fixed. One real finding survived: this one.**
+
 📌 **PROVENANCE, STATED BECAUSE IT IS NOT MINE:** run by `project-0c`, who flagged it as *"a genuine
 open finding rather than flake"* and handed it over rather than booking it, and who is running the A/B
 against HEAD now. ⚠️ **The A/B decides ATTRIBUTION (did an in-flight change cause it), not VALIDITY —
