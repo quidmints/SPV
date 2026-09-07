@@ -89,7 +89,7 @@ interface IAaveV4Spoke {
     function getUserSuppliedShares(uint256 reserveId, address user) external view returns (uint256);
     function getReserveSuppliedAssets(uint256 reserveId) external view returns (uint256);
     function getReserveTotalDebt(uint256 reserveId) external view returns (uint256);
-    // ⛔ NO BORROW SURFACE HERE, DELIBERATELY. `cbbc0993` ("Drop Euler v2 and Aave V4 borrowing")
+    // ⛔ NO BORROW SURFACE HERE, DELIBERATELY. `cbbc0993` dropped the borrowing venues
     // removed the FEATURE, not the protocol member: `setUsingAsCollateral` / `borrow` / `repay` /
     // `getUserDebt` still exist ON THE SPOKE. Do not declare them here to reach them — its own
     // message says why the rest of this interface stays: *"Aave V4 BORROWING is gone; Aave V4
@@ -511,7 +511,7 @@ interface IWETH9 is IERC20Min { function deposit() external payable; function wi
 ///         account / borrower); `LevManager` orchestrates the constant-LTV logic venue-agnostically
 ///         through this interface, so one LP's liquidation can never cascade into a shared pile. The
 ///         adapter owns the per-venue isolation mechanism (Morpho authorization, a per-LP Liquity Trove,
-///         Aave/Euler sub-account) and the HARD risk params (liq threshold, oracle) — those are NOT
+///         Aave sub-account) and the HARD risk params (liq threshold, oracle) — those are NOT
 ///         abstracted away. Collateral is weETH (ether.fi, staked not lent); the borrowed asset is `stable()`.
 ///
 ///         Custody convention: `LevManager` transfers the collateral/stable to the adapter before

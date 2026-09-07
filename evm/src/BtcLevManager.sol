@@ -28,7 +28,7 @@ import {LevMath} from "./imports/LevMath.sol";
 ///         that is the solvency count; `rangeBTC` is WBTC-only and is never credited the net-equity).
 ///
 ///         Reuses verbatim: `LevMath` (target `1−√(entry/now)`, net-equity, debt-delta), `ILevVenue` (the
-///         renamed collateral-agnostic `Euler/MorphoEscrowVenue`, deployed against a vBTC market). Acquisition
+///         renamed collateral-agnostic `MorphoEscrowVenue`, deployed against a vBTC market). Acquisition
 ///         is EXTERNAL (never the swap-out rail → the range is never traded → no encroachment on other LPs).
 contract BtcLevManager is LevBase {
     address public immutable WBTC;   // oracle key
@@ -223,7 +223,7 @@ contract BtcLevManager is LevBase {
     // ⛔ THE SOR IS NOT ON THIS PATH AND MUST NOT BE PUT BACK ON IT: `Aux`'s self-funded swap is the
     //    RANGE's AMM, not a leverage router. This leg trades against external venues only.
     // Venue-agnostic in shape (every leg is an `ILevVenue` call), but the BTC allowlist is exactly TWO
-    // venues — Morpho vBTC and AaveV3 WBTC. Euler and Aave-v4 borrowing were REMOVED.
+    // venues — Morpho vBTC and AaveV3 WBTC. Aave-v4 and the other borrowing venues were REMOVED.
 
     /// @notice Atomic rebalance toward the IL target for a WBTC-collateral position (native vBTC uses
     ///         the async legs). §FOLD-REBALANCE — the body is `LevBase._rebalance`, shared with the ETH range.

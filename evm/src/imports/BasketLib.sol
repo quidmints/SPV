@@ -913,7 +913,7 @@ library BasketLib {
     /// @notice Redemption-only DELIVERABILITY haircut. get_deposits values
     /// each 4626 leg at convertToAssets (PAR/solvency), which can exceed what the
     /// vault can actually pay out NOW (maxWithdraw) — e.g. a solvent-but-frozen
-    /// Morpho/Euler market. Without this, redeemSplit would `reserve` (and `turn`
+    /// Morpho market. Without this, redeemSplit would `reserve` (and `turn`
     /// would BURN) QU!D against backing that take() can't deliver, leaving the
     /// "under-delivery on user" (redeemAsBody:846) — QU!D destroyed for value not
     /// received. Subtracting Σ max(0, convertToAssets − maxWithdraw) caps the

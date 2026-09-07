@@ -47,7 +47,7 @@ import {Types, InsufficientAllowance} from "./imports/Types.sol";  // §E299: fi
 ///    ⛔ THE PRIVACY MOTIVE IS ALSO DEAD: `exposeBtcToLev` mints to the LevManager, not the LP, so
 ///    NOBODY EVER HOLDS vBTC (ibiza §2.4d) — there is no holder population to anonymise.
 ///
-///    ⇒ ONE BLOCKER FROM that paragraph is still live: an open Morpho/Euler market, where a
+///    ⇒ ONE BLOCKER FROM that paragraph is still live: an open Morpho market, where a
 ///    liquidator who seizes vBTC has no way to exit. Solve it on its own terms. Do NOT delete
 ///    `VBtc` on privacy grounds either — the mint-the-underlying reason above is independent.
 ///    Neither repo references the other, so this is SPV's only record of ibiza's verdict.

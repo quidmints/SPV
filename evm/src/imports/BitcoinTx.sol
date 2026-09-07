@@ -649,7 +649,7 @@ library BitcoinTx {
     // `forge test` does not enforce the limit and `forge build --sizes` omits library-linked
     // contracts entirely, so only `tools/check-contract-sizes.py` could see it. The boundary is
     // real rather than a size hack: `ChannelLib` is the EVM-side channel/venue bookkeeping (SPV
-    // open, Aave/Euler/Liquity bodies); this is pure Bitcoin consensus arithmetic with no storage
+    // open, Aave/Liquity bodies); this is pure Bitcoin consensus arithmetic with no storage
     // and no protocol state, exercised standalone by `evm/test/btc/ExitStructure.t.sol`,
     // `TapSighash.t.sol`, `DeadManExitVerify.t.sol` and `SwapInDeposit.t.sol`. Keeping it here
     // rather than in `ChannelLib` is what keeps the two 24 KB budgets apart.

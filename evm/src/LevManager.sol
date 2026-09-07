@@ -5,7 +5,7 @@ import {AlreadyOpen, NotFlash, VenueNotAllowed, Types} from "./imports/Types.sol
 import {ILevVenue, IERC20Min, ILevPooled, IWeETH, IMorphoBase as IMorphoFlash} from "./imports/Interfaces.sol";
 import {LevMath} from "./imports/LevMath.sol";
 import {LevBase} from "./imports/LevBase.sol";
-/// @notice The venue's collateral ERC20 — BOTH escrow adapters (Morpho/Euler) expose this public immutable,
+/// @notice The venue's collateral ERC20 — the escrow adapters expose this public immutable,
 ///         so the manager DERIVES the collateral type per position (weETH vs WETH) from the venue itself,
 ///         never storing it on `Pos` (the public struct ABI stays a stable 6-tuple).
 
@@ -28,11 +28,11 @@ import {LevBase} from "./imports/LevBase.sol";
 ///         freed collateral to sell — so the position's LTV only ever DROPS mid-operation. This DISSOLVES the
 ///         withdraw-before-repay hazard by construction (there is no health breach to clamp against), instead
 ///         of the old "withdraw only the health-safe slice and iterate" range-aid. One Morpho flash covers
-///         BOTH Euler and Morpho positions (Morpho lends from its global stable liquidity, independent of
+///         Morpho positions (Morpho lends from its global stable liquidity, independent of
 ///         where the position lives), so a single pinned provider serves every venue.
 
 /// @title  LevManager — the IL-protect: a per-LP, isolated, weETH-collateral leverage overlay
-/// @notice Each LP's leverage is an ISOLATED position on an external `ILevVenue` (real Euler EVK or Morpho
+/// @notice Each LP's leverage is an ISOLATED position on an external `ILevVenue` (a real Morpho market
 ///         Blue — see `MorphoEscrowVenue`). The COLLATERAL is **weETH** (staked, not lent ⇒
 ///         no rehypothecation; earns ether.fi yield while pledged). The loop borrows the venue stable, buys
 ///         weETH, supplies it, until LTV hits the live target = the range's SOLD FRACTION `1 − √(entry/now)`
@@ -86,7 +86,7 @@ contract LevManager is LevBase {
     /// @notice Governance — the ONLY party that can allow a venue. CRITICAL: a caller-supplied venue feeds
     ///         collateralOf/debtOf into `totalNetEquity → rangeETH`, so an UNVETTED (fake) venue could
     ///         inject arbitrary phantom ETH backing and drain real ETH-LP principal on redemption. Only the
-    ///         deployed Euler/Morpho adapters may ever be allowed. Pinned at construction.
+    ///         deployed Morpho adapters may ever be allowed. Pinned at construction.
     mapping(address => bool) public allowedVenue;
 
     /// PIN-ONCE via `init` (below), then frozen (not rotatable) — matches the renounce-everything posture.
@@ -505,7 +505,7 @@ contract LevManager is LevBase {
 
         // Repay ALL debt in ONE flash-repay-first shot (repay → withdraw the freed collateral → sell → return
         // the flash), then hand back the remaining collateral. Repaying FIRST means the withdraw never
-        // breaches health — dissolving the withdraw-before-repay bug the real-Euler close test surfaced,
+        // breaches health — dissolving the withdraw-before-repay bug the real-venue close test surfaced,
         // with no per-pass health-safe clamp or loop. A truly underwater position can't cover the flash, so
         // this reverts and the position falls to the venue's isolated liquidation (as it should).
         // §DUST-BLOCKS-THE-LAST-EXIT — ACCRUE BEFORE SIZING, not just before repaying. `debtUsd`

@@ -1533,7 +1533,7 @@ library LevMath {
     ///      ⚠️ THE `NoPrice` GUARD BELONGS HERE, NOT ON ONE CALLER, AND A ZERO PRICE MUST NEVER PANIC.
     ///      `Aux.getTWAPforAsset` deliberately NEVER reverts — that is what makes #101's degrade-to-
     ///      partial-fill work — so an unset or stale Chainlink anchor propagates `pxWeth == 0` straight
-    ///      into this divisor. MEASURED: `testReal_Morpho_OpenAndDelever` and `testReal_Euler_OpenAndDelever`
+    ///      into this divisor. MEASURED: `testReal_Morpho_OpenAndDelever`
     ///      both died on `panic: division or modulo by zero (0x12)` here, via `twapResolve(feed=0x0,
     ///      price=0)`. A panic burns all gas and is undiagnosable; a named revert is the correct failure
     ///      for an operation that genuinely cannot be sized without a price.

@@ -529,9 +529,9 @@ library QuidLib {
     ///         16 ETH sitting solvent in the vault and made EVERY ETH LP exit return 0 while the LP kept a
     ///         full pooled balance. So for a V2 vault the REPORTED position is the deliverable amount.
     ///
-    ///         Everything else (Euler, AAVE, MetaMorpho v1.1) has honest max-views — real Euler reports
+    ///         Everything else (AAVE, MetaMorpho v1.1) has honest max-views — a real venue reports
     ///         `maxWithdraw` equal to the full position — and keeps the conservative read. Both branches
-    ///         are try/catch'd: a venue whose view REVERTS (Euler's EVault calls `EVC.getControllers`
+    ///         are try/catch'd: a venue whose view REVERTS (some vaults consult an external controller registry
     ///         inside `maxWithdraw`; fork-traced) must value at 0 rather than brick every ETH withdraw.
     ///         `holder` is parameterised so the STABLE side (`BasketLib`, whose holder is `Aux`) shares
     ///         this ONE definition rather than keeping a second copy. 6 of our 8 registered stable
@@ -549,11 +549,11 @@ library QuidLib {
         } catch {}
         try IERC4626(vault).maxWithdraw(holder) returns (uint m) { return m; }
         catch {
-            // `maxWithdraw` REVERTED. Euler's EVault does this whenever the holder has no
+            // `maxWithdraw` REVERTED. Such a vault does this whenever the holder has no
             // controller enabled on the EVC (fork-traced: `liquidityAdapter()` is also absent on
             // the current implementation, so BOTH probes above miss and we land here). Returning 0
             // valued a real, fully-liquid position at NOTHING — which understated backing and made
-            // the venue unwithdrawable, so an LP whose ETH sat in Euler could redeem and receive 0.
+            // the venue unwithdrawable, so an LP whose ETH sat in such a venue could redeem and receive 0.
             //
             // Fall back to the share value, which is exactly what the `liquidityAdapter` branch
             // above uses for Morpho-V2. It is an UPPER bound on what the venue can pay if the vault

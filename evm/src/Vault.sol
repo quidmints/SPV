@@ -50,7 +50,7 @@ import {QuidLib} from "./imports/QuidLib.sol";
 // ════════════════════════════════════════════════════════════════════════
 
 /// BtcLevManager read surface: the leveraged book's collateral (vBTC, 8-dec sats). The collateral lives
-/// on external Euler/Morpho per-LP (the Vault never holds it). The book is counted at NET equity
+/// on external Morpho per-LP (the Vault never holds it). The book is counted at NET equity
 /// (gross − debt) in both `POOLED` and `lpShares`; the debt-funded buffer (gross − net) is EXCLUDED from
 /// equity and tracked separately as fee-earning range depth (`Quid.levBuf`/`Vault.levBuf` + `totalBuffer`),
 /// so it earns fees on the gross weight but never inflates the LP's redeemable claim. The buffer's debt is
@@ -459,7 +459,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
 
     // ═══════════════════════════ BTC IL-PROTECT: levered range slice ═══════════════════════════
     // Mirror of Quid.syncLev/_levAdd/_levBurn over the BTC range. The BtcLevManager holds the LP's
-    // vBTC collateral on external Euler/Morpho; its NET-of-debt equity (8-dec sats) is paired here as
+    // vBTC collateral on external Morpho; its NET-of-debt equity (8-dec sats) is paired here as
     // TOKENLESS range depth so the LP earns V4 fees on its IL-protected position, backed by rangeBTC.
 
     /// @notice Re-sync `lp`'s levered BTC range slice to the BtcLevManager's authoritative net-equity.

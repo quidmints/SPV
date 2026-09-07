@@ -885,7 +885,7 @@ contract Quid is Shares,
             if (amount > sent) { uint shortfall = amount - sent;
             { // Venue-share delivery — extracted to _deliverVenueShortfall (own frame, no via_ir).
               // `_venueBalance` is the PLAIN venue ETH (excludes the levered net-equity, backed
-              // EXTERNALLY on Euler/Morpho). `amount` (capped at pooled-levPooled above) <= plainDepth,
+              // EXTERNALLY on Morpho). `amount` (capped at pooled-levPooled above) <= plainDepth,
               // so the share never over-delivers.
                 uint excess = _deliverVenueShortfall(amount, shortfall, plainDepth, recipient);
                 sent += excess; shortfall -= excess;
