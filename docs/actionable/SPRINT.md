@@ -40342,7 +40342,7 @@ pre-change tree was 3847/0 green.
 
 | **E98** | ⛔⛔ **I FABRICATED `store.dispatched_swap_outs` AND BUILT A CONCLUSION ON IT. THE REAL MECHANISM IS THE OPPOSITE KIND (2026-08-06).** I told the owner twice that swap-out double-pay was guarded by *"a local durable marker"* making multi-daemon unsafe. **That symbol does not exist anywhere in `quid-ln/`.** ✅ **What actually exists (`quid-bridge/src/swap_out_onchain.rs:322-325`):** *"**No durable cursor**: `drive_swap_out_onchain` skips swaps already resolved on-chain (delivered or reversed), so a restart that re-scans from `start_block` is idempotent — **the on-chain state is the source of truth**, not a persisted cursor."* The session `handled: HashMap` (line ~348) is an optimisation; `swap_out_resolved` is the durable backstop. ⇒ **Dedup is SHARED state, not node-local, so my "multi-daemon double-pay" conclusion is WITHDRAWN.** 🔎 **THE REAL RESIDUAL IS NARROWER AND IS A CONSEQUENCE OF THE OWNER'S OBSERVATION:** swap-out obligations are **NOT channel-pegged** (`BTCChannels.sol:455-456`, `962-967`: *"pinned per-obligation (Core.pendingSwapOutUsd), so there is no cross-channel pool"*), so **every** daemon sees **every** `SwapOutRequestedOnchain` and all of them are eligible to deliver. Two daemons that both read "unresolved" can each drive a Bitcoin splice; the EVM accepts the first (`deliverSwapOutOnchain` deletes `pendingOnchainSwapOut[swapId]`, second reverts `NoSuchSwapOut`) — **so the loser has made a REAL on-chain BTC payment it cannot claim.** Not a double-pay to the swapper; a **burned splice for the losing LP**, bounded by confirmation time. ▶️ Fix = an on-chain delivery LEASE (see E99), not off-chain coordination. | ⛔ retracted + re-scoped  📌 **§SEQ-AUDIT: GATE 3 · lane L3. CONFIRMED LIVE: swap_out_onchain.rs:454 "No durable cursor"; no lease in BTCChannels - immutable surface, one attempt** |
 
-| **E99** | 🟠 **SWAP-OUT DELIVERY LEASE — the minimal fix for the multi-daemon splice race (design, 2026-08-06).** `PendingOnchainSwapOut` already carries `uint32 requestBlock` (`BTCChannels.sol:285`) and the struct has spare packing. **Proposal: add `address claimedBy` + treat `requestBlock` as the lease clock**; a hop calls a new `claimSwapOut(swapId)` gated by the same `_requireAttested`/`openChannelsOf` authority as delivery, which sets `claimedBy = msg.sender` iff unset or the lease has expired; `deliverSwapOutOnchain` additionally requires `claimedBy == msg.sender` while the lease is live. ✅ **PRO:** costs one storage word already in the struct's slot budget, reuses the existing authority gate, and expiry preserves liveness if the claiming hop dies. ⛔ **CON:** adds a round-trip before every delivery (one extra EVM tx per swap-out) and a griefing surface — an attested-but-idle hop can claim and sit until expiry. ⚠️ **Only worth building IF multi-daemon is actually adopted; with a single fleet daemon the race cannot occur.** ▶️ Decide multi-daemon first (E94), then this. | 🟠 design only — gated on multi-daemon  📌 **§SEQ-AUDIT: GATE 3 · lane L3. VERIFIED NOT BUILT: zero hits for claimSwapOut/claimedBy - new BTCChannels state, MUST land before deploy** |
+| **E99** | 🟠 **SWAP-OUT DELIVERY LEASE — the minimal fix for the multi-daemon splice race (design, 2026-08-06).** `PendingOnchainSwapOut` already carries `uint32 requestBlock` (`BTCChannels.sol:285`) and the struct has spare packing. **Proposal: add `address claimedBy` + treat `requestBlock` as the lease clock**; a hop calls a new `claimSwapOut(swapId)` gated by the same `_requireAttested`/`openChannelsOf` authority as delivery, which sets `claimedBy = msg.sender` iff unset or the lease has expired; `deliverSwapOutOnchain` additionally requires `claimedBy == msg.sender` while the lease is live. ✅ **PRO:** costs one storage word already in the struct's slot budget, reuses the existing authority gate, and expiry preserves liveness if the claiming hop dies. ⛔ **CON:** adds a round-trip before every delivery (one extra EVM tx per swap-out) and a griefing surface — an attested-but-idle hop can claim and sit until expiry. ⚠️ **Only worth building IF multi-daemon is actually adopted; with a single fleet daemon the race cannot occur.** ▶️ Decide multi-daemon first (E94), then this. | 🟠 design only — gated on multi-daemon  📌 **§SEQ-AUDIT: GATE 3 · lane L3. VERIFIED NOT BUILT: zero hits for claimSwapOut/claimedBy - new BTCChannels state, MUST land before deploy** 🔴 **SEE `§E99-IS-A-PRE-DEPLOY-GATE`: this verdict and the row body contradict, and reconciling them makes E94 a PRE-DEPLOY decision. Also: the struct has NO spare packing (three slots, all exactly full) and `_requireAttested` has zero references, so two of the proposal's three load-bearing claims are stale.** |
 
 | **E211-curve-depth-measured-not-assumed** | 🔴 **THE PREFERRED ROUTES DO NOT EXIST YET — MEASURED ON MAINNET, 2026-08-16. THE CONVERSION LANDS; THE ROSTER CANNOT YET GROW ON THIS EVIDENCE.** The plan was \"table first, then add sfrxUSD / USDe / the preferreds\". I queried the Curve **MetaRegistry** (`0xF98B45FA17DE75FB1aD0e7aFD971b0ca00e379fC`) for real pools and balances instead of assuming they were there. Result, every token identity confirmed by reading `symbol()` and `codesize` on-chain: • **USDe** `0x4c9E…68B3` (18-dec, verified) — deepest USDC pool `0x02950460E2b9529D0E00284A5fA2d7bDF3fA4d72`, **USDe idx 0 / USDC idx 1**, ~330,901 USDe vs ~335,565 USDC ⇒ **~\$330k a side. The only genuine candidate, and it is THIN.** • **sUSDe** `0x9D39…3497` (verified) — its only pool holds **361 USDC and 286 sUSDe: ~\$700 TOTAL. Unusable.** • **USDS** `0xdC03…384F` (verified) — deepest `0xac62B448aD749FDfc4D27a5218F521EceFEed278` at ~48,983 (18-dec) ⇒ **~\$49k. Marginal.** • **frxUSD** `0xCAcd…6E29` (verified real) — **NO registered Curve pool against USDC at all.** • **sfrxUSD — I COULD NOT VERIFY AN ADDRESS. The one I reached for (`0xcf62F305562626c7c2c6EF6224e88e58ADE5F7A8`) HAS `codesize == 0`: it is not a contract. I had fabricated it from recall.** It is therefore absent from this table and must NOT be added until an address is confirmed on-chain. 🔴 **METHODOLOGICAL FINDING, THE REUSABLE ONE: `find_pool_for_coins` (SINGULAR) RETURNS THE FIRST REGISTERED POOL, NOT THE DEEPEST — AND IT WAS EMPTY IN THREE OF FOUR CASES.** It handed back a USDS \"pool\" whose coins are USDT/USDC with **zero** balances, and a crvUSD \"pool\" of crvUSD/3CRV with **zero** balances. **Wiring routes from the singular call would have installed three dead pools that compile, deploy, and revert only when real money hits them.** Use `find_pools_for_coins` (PLURAL) and rank by `get_balances`. ⚠️ Also unresolved: the MetaRegistry may under-index newer **stableswap-ng factory** pools, so an absence here is NOT proof of absence on Curve (`never-assert-absence-from-a-grep` applies to on-chain reads too) — a depth check against the ng factory is the next measurement, not a conclusion. ⇒ **CONSEQUENCE FOR §V-R / 1inch: the hub-and-spoke table assumes a DIRECT pool against the USDC hub, and for the named preferreds that pool does not exist. So the \"1inch distributes the rest\" share is LARGER than the framing assumed, and a stable whose depth sits against crvUSD/USDT would need a MULTI-HOP entry the current table shape cannot express.** Decide that shape before adding a roster line. | 🔴 3 of 4 registry answers were empty pools  📌 **§SEQ-AUDIT: GATE 2 · lane L7. Roster empty for preferred pools - owner decides the table shape** |
 
@@ -52982,6 +52982,52 @@ against the live tree, prints the fold target for each FOLDED row, and **exits n
 FOLDED citation is still stale** — the one bucket that is actionable. Per this file's own rule, a gate
 with a binary result beats a disposition; and per the tooling-traps rule it fails loudly, exiting with
 a FATAL if the tree walk returns zero `.md` files rather than reporting a clean run.
+
+# 🔴 §E99-IS-A-PRE-DEPLOY-GATE — **ITS OWN VERDICT AND ITS OWN BODY CONTRADICT, AND RECONCILING THEM MOVES A DECISION EARLIER (2026-09-07)**
+
+**GATE 3, and the sharpest thing in it.** The row body says *"🟠 design only — gated on multi-daemon…
+Only worth building IF multi-daemon is actually adopted; with a single fleet daemon the race cannot
+occur. ▶️ **Decide multi-daemon first (E94), then this.**"* Its §SEQ-AUDIT verdict says *"new
+BTCChannels state, **MUST land before deploy**."* **Both are right, and together they say something
+neither says alone.**
+
+⇒ 🔴 **BECAUSE `BTCChannels` HAS NO UPGRADE PATH (§BTC-8d), THE STORAGE MUST EXIST AT DEPLOY EVEN IF
+THE FEATURE IS NEVER USED.** If multi-daemon is adopted later and `claimedBy` is not in the struct, it
+**cannot be added** — the fix is closing every channel and redeploying, each close needing its LP
+online. ⇒ **"Decide multi-daemon first" is not a sequencing preference, it is a DEPLOYMENT DEADLINE.
+E94 is a PRE-DEPLOY decision, and nothing in either row says so.** This is rule 3 exactly: *anything
+the immutable contract must be able to EXPRESS is a hard gate on deployment and cannot be sequenced
+after it.*
+
+## ⛔ AND TWO OF THE PROPOSAL'S THREE LOAD-BEARING CLAIMS ARE STALE
+
+**① *"the struct has spare packing… costs one storage word already in the struct's slot budget"* — FALSE.**
+Measured at `BTCChannels.sol:453`:
+```solidity
+struct PendingOnchainSwapOut {
+    address swapper; uint64 sats; uint32 requestBlock;   // 20 + 8 + 4 = 32 → slot FULL
+    bytes32 swapperBtc…;                                  //              → slot FULL
+    uint96 usd; address token;                            // 12 + 20 = 32 → slot FULL
+}
+```
+**Three slots, every one exactly full. There are ZERO spare bytes.** Adding `address claimedBy` (20 B)
+needs a **FOURTH SLOT** — a new `SSTORE` on a path taken by every swap-out, not a free field in an
+existing gap. ⇒ **the PRO that carried the proposal is wrong, and the cost is materially higher than
+stated.**
+
+**② *"gated by the same `_requireAttested`/`openChannelsOf` authority as delivery"* — `_requireAttested`
+has ZERO references.** It was deleted with the attested-hop registry; the live gate is `_onlyHop()`
+(`:802`), **`MAIN_HOP` or `FALLBACK_HOP`, two immutable addresses**. ⇒ **the proposed authority model
+does not exist**, and under the real one the griefing CON changes shape: an *"attested-but-idle hop"*
+cannot claim-and-sit, because only two pinned addresses can call at all.
+
+✅ **③ THE LEASE DESIGN ITSELF SURVIVES** — `requestBlock` is present and usable as the lease clock, and
+expiry-preserves-liveness still holds.
+
+▶️ **WHAT TO DO WITH IT: nothing is buildable until E94 is decided, and E94 must now be decided BEFORE
+DEPLOY rather than before this row.** ⚠️ **And if multi-daemon is declined, record that the decision is
+FORECLOSED at deploy** rather than merely deferred — otherwise the next thread reads "gated on E94" as
+something it can revisit later, which the immutability makes false.
 
 # ⚠️ §E106-PREMISE-IS-STALE — **ITS "ANY ATTESTED HOP" GATE NO LONGER EXISTS (2026-09-07)**
 
