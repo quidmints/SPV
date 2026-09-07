@@ -179,30 +179,25 @@ library RangeLib {
     }
 
     // ── §FOLD-MEASURE BATCH 2 ──────────────────────────────────────────────────────────────────
-    // MEASURED RATE FROM BATCH 1: moving `trackOpen`/`untrackOpen` (10 code lines) freed 212 bytes
+    // MEASURED RATE FROM BATCH 1: moving the book-enrolment bodies (10 code lines) freed 212 bytes
     // on `LevManager` and 213 on `BtcLevManager` -- ~106 bytes PER BODY, per manager. The seam is
     // cheaper than duplication even for 5-line bodies, which refuted the prediction that a
     // delegatecall stub would exceed a short inlined body. Everything below follows that result.
     //
     // ⚠️ WHAT CANNOT MOVE, AND WHY IT IS A HARD LIMIT RATHER THAN A CHOICE: a library body cannot
-    // read the caller's IMMUTABLES (`AUX`, `ORACLE_KEY` live in the caller's code, not its storage)
-    // and cannot call the caller's VIRTUALS (`_collToBase`). So every value derived from those must
-    // be computed by the caller and passed BY VALUE. That is exactly what `LevBase`'s own note
-    // predicted. It is why `_reanchorIfReseated` takes `base` instead of reading it.
-    // ⚠️ IT TOOK `px` TOO UNTIL §C19. That argument was `AUX.getTWAPforAsset(...)` -- a LIVE ORACLE
-    // READ ON EVERY RESEAT -- and its only use was `q.ilBasisPx = uint128(px)`, the write that made
-    // the levered book inert. Deleting the write deleted the reason to read the oracle here at all.
+    // read the caller's IMMUTABLES (`AUX`, `ORACLE_KEY` live in the caller's code, not its storage),
+    // and it cannot call back into the caller's own accessors over them (`netEquity`). So every value
+    // derived from those must be computed by the caller and passed BY VALUE. That is exactly what
+    // `LevBase`'s own note predicted, and it is why `reanchorIfReseated` takes `base` rather than
+    // reading it.
 
-    // §E358 — `TargetSet` DELETED with the per-LP cap it announced. An event nothing emits is
-    // API surface telling a reader this contract has a setting it does not have.
     event ReanchoredToRange(address indexed lp, uint syncKeyPx, uint256 entryEquity);
 
-
-    // §E358 — `setTargetLtv` DELETED: its only caller was `LevBase.setTargetLtv`, and an LP
-    // choosing its own debt-to-collateral ratio is the thing protocol-wide IL-protect removes.
-
     /// @notice Write a fresh position and enrol the LP, in one call.
-    /// @dev    `rangePx` is passed because `_rangePrice()` try/catches a call to the caller's `RANGE`.
+    /// @dev    `p.syncKeyPx` arrives already filled by the caller (`LevBase._openPos` reads it from
+    ///         `_rangePrice()`), which try/catches a call to the caller's `RANGE` immutable — not
+    ///         reachable from here. The whole `Types.Pos` comes in as one memory pointer so the seam
+    ///         carries a pointer rather than five scalars.
     function openPos(
         mapping(address => Types.Pos) storage pos,
         address[] storage openLps,
@@ -219,17 +214,18 @@ library RangeLib {
         // commit that opens the path — the defect is this assignment, not its caller. No blending is
         // added now because the branch would be unreachable (standing rule 1).
         pos[lp] = p;
-        // §AUDIT-OPENLPS-DOS is CLOSED, and by deletion on both sides: there is no longer an
-        // "other" push site (`trackOpen` was its own callerless duplicate and is gone), and no cap
-        // to evade (`_requireRoom`/`MAX_OPEN_LPS` went with the Sigma-loops — see the tombstone above).
-        // This is now the SOLE writer of the book.
+        // THE SOLE PUSH SITE. This line and `untrackOpen`'s swap-and-pop are the only two writers of
+        // `openLps`/`lpIdx` anywhere in the tree, and there is no cap on the length: the Sigma-loops
+        // that made a long book expensive are O(1) pool reads since §POOL-VENUE. The `lpIdx[lp] == 0`
+        // test is what makes the push idempotent for an LP already enrolled.
         if (lpIdx[lp] == 0) { openLps.push(lp); lpIdx[lp] = openLps.length; }
     }
 
     /// @notice Re-anchor a position to the range's current price if the range has reseated.
-    /// @dev    `px` and `base` are computed by the CALLER: `px` needs `AUX`/`ORACLE_KEY` (immutables)
-    ///         and `base` needs `netEquity`, which routes through the `_collToBase` VIRTUAL. Neither
-    ///         is reachable from here, and passing them is what lets the rest of the body be shared.
+    /// @dev    `base` is computed by the CALLER — it is `netEquity(lp)`, which reads the caller's
+    ///         `AUX`/`ORACLE_KEY` immutables and so is not reachable from here. Passing it by value
+    ///         is what lets the rest of the body be shared. No price is passed or read: the reseat
+    ///         re-bases the seat and the equity, never the entry price.
     ///         Returns whether it fired so the caller need not re-read to know.
     function reanchorIfReseated(
         mapping(address => Types.Pos) storage pos,
@@ -242,13 +238,15 @@ library RangeLib {
         (bool go, uint s) = LevMath.reanchorCompute(range, q.syncKeyPx);
         if (!go) return false;
         q.syncKeyPx    = s;
-        // 🔴 §C19 — `q.ilBasisPx = uint128(px)` WAS HERE AND IT MADE THE LEVERED BOOK INERT.
-        // `RANGE_ANCHOR = o.spotPrice` is unconditional (`Quid._rebalance`), so the range recenters on
-        // spot at every repack and this reseat fires on any drift past `RANGE_DELTA` (20 bps). Writing
-        // the CURRENT price into the IL basis then reset the very quantity the hedge measures: the
-        // most IL that could ever accumulate was one half-range, `1 - sqrt(1/1.002)` = **9.99 bps**,
-        // against `debtDelta`'s `RANGE_BPS` = **300 bps** deadband -- so `debtDelta` returned
-        // `(false, 0)` on EVERY path and `venue.borrow` was UNREACHABLE BY CONSTRUCTION.
+        // ⛔ §C19 — DO NOT WRITE `q.ilBasisPx` HERE. IT MAKES THE LEVERED BOOK INERT.
+        // `RANGE_ANCHOR = o.spotPrice` is unconditional (`Quid._rebalance:1481`), so the range recenters
+        // on spot at every repack and this reseat fires on any drift past `RANGE_DELTA` (20 bps).
+        // Re-basing the IL basis on each reseat resets the very quantity the hedge measures, capping
+        // the most IL that can ever accumulate at ONE HALF-RANGE, `1 - sqrt(1/1.002)` = **9.99 bps**.
+        // Any no-trade band wider than that then makes `debtDelta` return `(false, 0)` on EVERY path,
+        // and `venue.borrow` is UNREACHABLE BY CONSTRUCTION -- silently, because nothing reverts.
+        // (`debtDelta` takes its `rangeBps` as an argument now, sized per position by
+        // `LevBase._bandBps`, so the exact width is not fixed here -- but it is not 10 bps.)
         // ⚠️ THE INVARIANT THAT DEFENDS THIS RESEAT COVERS `entryEquity` ONLY. It reads: levering
         // moves collateral and debt by the SAME amount, so NET EQUITY is leverage-invariant -- true,
         // and it says nothing about a PRICE basis. A leverage-invariant equity base does not imply a
