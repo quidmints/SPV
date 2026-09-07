@@ -1208,18 +1208,6 @@ contract BTCChannels is Ownable {
         // line added "and the hop keysends the same sats onto the LP's LN balance off-chain" — that leg is
         // OBSOLETE under delegation, where the LP runs no LN node.) `<= grewBy` ⇒ it
         // can only settle fees it actually spliced in (no theft); the Vault clamps to the real owed (no over-settle).
-        // ⛔ (E191) `feeSettleSats` IS DELETED. It was accepted-and-ignored since §E145, kept
-        // only for ABI stability with the Rust driver — and the note here said the removal
-        // "must land in one commit with the Rust side", which this is.
-        //
-        // 🔴 IT WAS WORSE THAN DEAD WEIGHT: `channel_driver.rs` computed it by RPC-reading
-        // `Vault.btcFeesOwedSats(address)` on EVERY splice — a function §E145 DELETED
-        // (it stood at `Vault.sol:210` WHEN IT WAS DELETED; that line now holds an unrelated
-        // live guard, so do not follow the coordinate — grep the NAME, which is zero-hit).
-        // So each splice made a round-trip to a nonexistent selector,
-        // swallowed the revert with `.unwrap_or(0)`, and passed the zero to a parameter the
-        // contract discarded. A dead read feeding a dead argument, invisible because both
-        // halves failed quietly.
     }
 
     // ⛔ (§SPLICE-ROTATES-BOTH-FUNDING-KEYS, 2026-08-31) `rekey`, `_authorizeRekey`, `_finishRekey`
@@ -1249,18 +1237,17 @@ contract BTCChannels is Ownable {
     // regression was exactly a rotation that forgot to re-pin.
 
 
-    // ⛔ (T1-f-root) `settleSwapInSpliced` IS DELETED — M1#1 superseded it and it was one of the
-    // two ways POOL-OWNED SATS ENTERED AN LP'S CHANNEL.
+    // 🔴 (T1-f-root) POOL-OWNED SATS DO NOT ENTER AN LP'S CHANNEL — AND THAT IS UNCONSTRUCTIBLE,
+    //    NOT MERELY BOUNDED.
     //
-    // It spliced and credited in ONE call, which meant the sats it proved into custody landed in
-    // whatever channel the hop chose — commingling pool inventory with an LP's own balance in one
-    // UTXO. Every payout path then had to SUBTRACT to work out who owned what, and a clamp at
-    // every exit is the tell that the STATE is wrong rather than the exits.
-    //
-    // (§FLEET-FRONTS-THE-WINDOW) and there is no buffered credit at all any more: the pool only
-    // into a provable half and an instant half. Pool sats no longer enter channels AT ALL, so
-    // commingling is not bounded — it is unconstructible.
-    // It had no caller in quid-ln, the SPA or the scripts when it was removed.
+    // Splicing and crediting in ONE call would land proven sats in whatever channel the hop chose,
+    // commingling pool inventory with an LP's own balance in a single UTXO. Every payout path then
+    // has to SUBTRACT to work out who owns what, and a clamp at every exit is the tell that the
+    // STATE is wrong rather than the exits.
+    // ⇒ The swap-in is split into a provable half and an instant half (§FLEET-FRONTS-THE-WINDOW),
+    //   there is no buffered credit, and no path puts pool sats into a channel at all.
+    // ⛔ Do not reintroduce a combined splice-and-credit entrypoint: it rebuilds the commingling
+    //   this shape exists to make impossible, and every exit clamp would have to come back with it.
 
 
     /// (§T1-f-general) Sats sitting in a channel that the LP has NO claim to — inventory the
