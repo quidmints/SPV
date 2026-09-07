@@ -1732,9 +1732,30 @@ mod tests {
     ///    way this feature fails in production, and none of them is reachable from a fixture.**
     /// ⚠️ Skips (loudly) when no endpoint is configured, so the suite still runs offline. A skip is
     ///    announced rather than silent, because a quiet skip is indistinguishable from a pass.
+    /// 🔴 **AN ABSENT RPC USED TO MAKE FIVE ROUTING TESTS PASS HAVING CHECKED NOTHING.**
+    ///
+    /// Every test below is a fork test: with no endpoint it printed `SKIP …` and returned, and cargo
+    /// reported `ok`. ⛔ `println!` is CAPTURED unless `--nocapture`, so the whole routing lane could
+    /// go green on a machine with no network — the §VACUOUS-BOUNDS shape one level up, where the
+    /// missing thing is not a weak assertion but *no assertion at all*, wearing a pass.
+    /// ⇒ **absent config now FAILS LOUD.** Skipping is still available and still cheap, but it has
+    ///   to be ASKED FOR: `LEV_KEEPER_OFFLINE=1 cargo test`. The default cannot be silent, because
+    ///   the default is what CI and every `cargo test` actually runs.
+    /// ⚠️ Forge gets this right for free — `vm.skip(true)` renders as SKIPPED in the summary — and
+    ///   cargo has no equivalent, which is exactly why it needs saying here.
     fn live_rpc() -> Option<crate::transport::HttpJsonRpc> {
-        let url = std::env::var("ETH_RPC_URL").or_else(|_| std::env::var("ANKR_RPC_URL")).ok()?;
-        if url.is_empty() { return None; }
+        let url = std::env::var("ETH_RPC_URL")
+            .or_else(|_| std::env::var("ANKR_RPC_URL"))
+            .unwrap_or_default();
+        if url.is_empty() {
+            assert!(
+                std::env::var("LEV_KEEPER_OFFLINE").as_deref() == Ok("1"),
+                "no ETH_RPC_URL / ANKR_RPC_URL: this is a FORK test and there is nothing to test \
+                 against. It used to return green here. Set one, or say so out loud with \
+                 LEV_KEEPER_OFFLINE=1 to skip the routing lane deliberately."
+            );
+            return None;
+        }
         Some(crate::transport::HttpJsonRpc::new(url))
     }
 
@@ -1924,9 +1945,11 @@ mod tests {
             println!("SKIP best_plan_is_never_worse: no ETH_RPC_URL/ANKR_RPC_URL"); return;
         };
         let amt = U256::from(1_000_000u64) * U256::from(1_000_000u64);  // $1m, 6-dec — where it bit
-        let Some((_, direct_out)) = best_direct(&rpc, USDC_ADDR, WETH_ADDR, amt) else {
-            println!("SKIP: no direct USDC/WETH quote at this block"); return;
-        };
+        // ⚠️ NOT A SKIP. USDC/WETH is the deepest pair on the chain; if IT cannot be quoted, the
+        //    planner is broken or the endpoint is lying, and returning green on that is the failure
+        //    this whole audit is about.
+        let (_, direct_out) = best_direct(&rpc, USDC_ADDR, WETH_ADDR, amt)
+            .expect("no direct USDC/WETH quote - the deepest pair on the chain must always quote");
         let p = best_plan(&rpc, USDC_ADDR, WETH_ADDR, amt).expect("a route must exist for USDC/WETH");
         let (p2, chosen) = best_plan_quoted(&rpc, USDC_ADDR, WETH_ADDR, amt)
             .expect("the chosen plan must re-quote");

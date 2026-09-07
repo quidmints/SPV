@@ -59,18 +59,63 @@ contract RetargetedRouteTest is AllesFixture {
             "the POOL WORD must survive - the caller's venue choice is the one thing we keep");
     }
 
-    /// ⭐ ② **HOP COUNT IS NOW A PROPERTY OF THE CALLDATA, NOT OF THE ABI.** All three arities are
-    ///    accepted, which is what "no limit to how many hops" actually needed - `unoswap3` reaches
-    ///    three pools in one call and cost one constant, because nothing encodes the route any more.
-    function test_AllThreeAritiesAreAccepted() public {
+    /// ⭐ ② **HOP COUNT IS A PROPERTY OF THE CALLDATA, NOT OF THE ABI** — `unoswap3` reaches three
+    ///    pools in one call and cost one constant, because nothing on-chain encodes the route.
+    ///
+    /// 🔴 **THIS TEST USED TO BE THREE CALLS AND ZERO ASSERTIONS**, named `AllThreeAritiesAreAccepted`.
+    ///    "Accepted" meant only "did not revert" — and a revert is the one failure that does not
+    ///    matter here, because a rejected arity fails LOUD. ⛔ The failure that matters is the arity
+    ///    being accepted while the patch writes to the WRONG OFFSET: our amount landing in a pool
+    ///    word, or a pool word landing where `minReturn` goes. That is silent, it is exactly what the
+    ///    length check exists to prevent, and the old body could not have seen it.
+    /// ⇒ assert, per arity, that the three head fields are OURS and that **every pool word is still
+    ///   at its own offset** — which is the claim the name was making all along.
+    function test_EveryAritySurvivesWithItsVenueChoiceIntact() public {
         setUp2();
-        uint256 w = _word(P_USDC_WETH, address(USDC));
-        r.go(abi.encodeWithSelector(UNOSWAP_SELECTOR,  uint256(0), uint256(0), uint256(0), w),
-             address(USDC), 1e6);
-        r.go(abi.encodeWithSelector(UNOSWAP2_SELECTOR, uint256(0), uint256(0), uint256(0), w, w),
-             address(USDC), 1e6);
-        r.go(abi.encodeWithSelector(UNOSWAP3_SELECTOR, uint256(0), uint256(0), uint256(0), w, w, w),
-             address(USDC), 1e6);
+        uint256 w   = _word(P_USDC_WETH, address(USDC));   // the correctly-directed word
+        uint256 lie = w ^ ZERO_FOR_ONE;                    // supplied crossing the pool BACKWARDS
+
+        // ① unoswap — one word, at arg 3, derived from `tokenIn`.
+        bytes memory f = r.go(_route(UNOSWAP_SELECTOR, lie, 0, 0, 1), address(USDC), 50_000e6);
+        _head(f, "unoswap");
+        assertEq(f.length, 4 + 4 * 32, "unoswap: the length must come back exactly as it went in");
+        assertEq(_w(f, 3), w, "unoswap: the sole hop's direction is derived from tokenIn");
+
+        // ② unoswap2 — arg 3 from `tokenIn`, arg 4 from `tokenOut`. BOTH ends are ours to know.
+        f = r.go(_route(UNOSWAP2_SELECTOR, lie, lie, 0, 2), address(USDC), 50_000e6);
+        _head(f, "unoswap2");
+        assertEq(f.length, 4 + 5 * 32, "unoswap2: length unchanged");
+        assertEq(_w(f, 3), w, "unoswap2: first hop derived from tokenIn");
+        assertEq(_w(f, 4), w, "unoswap2: last hop derived from tokenOut");
+
+        // ③ unoswap3 — arg 3 and arg 5 derived; **arg 4 is the STATED GAP and must survive as sent.**
+        //    ⚠️ Asserted, not assumed: `_retarget`'s docblock records that chaining the middle bit
+        //    measured +425 bytes and put `LevMath` 203 over EIP-170, so the gap is a decision. A
+        //    decision nothing checks is a decision that gets silently reversed.
+        f = r.go(_route(UNOSWAP3_SELECTOR, lie, lie, lie, 3), address(USDC), 50_000e6);
+        _head(f, "unoswap3");
+        assertEq(f.length, 4 + 6 * 32, "unoswap3: length unchanged");
+        assertEq(_w(f, 3), w,   "unoswap3: first hop derived from tokenIn");
+        assertEq(_w(f, 4), lie, "unoswap3: the MIDDLE bit is a stated gap - it must survive untouched, "
+                                "and if this ever flips, chaining landed and the byte budget moved");
+        assertEq(_w(f, 5), w,   "unoswap3: last hop derived from tokenOut");
+    }
+
+    /// The three fields this frame owns, on every arity: a supplied route lies about all of them.
+    function _head(bytes memory f, string memory which) internal view {
+        assertEq(_w(f, 0), uint256(uint160(address(USDC))), string.concat(which, ": token must be OURS"));
+        assertEq(_w(f, 1), 50_000e6, string.concat(which, ": amount must be OURS - the staleness fix"));
+        assertEq(_w(f, 2), 0, string.concat(which, ": minReturn zeroed; the delta floor is the bound"));
+    }
+
+    function _route(bytes4 sel, uint256 a, uint256 b, uint256 c, uint256 n)
+        internal pure returns (bytes memory)
+    {
+        // Head deliberately wrong on all three of our fields, so an unpatched word is visible.
+        uint256 STALE = 123456789;
+        if (n == 1) return abi.encodeWithSelector(sel, uint256(uint160(address(0xBAD))), STALE, type(uint256).max, a);
+        if (n == 2) return abi.encodeWithSelector(sel, uint256(uint160(address(0xBAD))), STALE, type(uint256).max, a, b);
+        return abi.encodeWithSelector(sel, uint256(uint160(address(0xBAD))), STALE, type(uint256).max, a, b, c);
     }
 
     /// 🔴 ③ **AN UNRECOGNISED SELECTOR IS REFUSED, NOT PATCHED.** The offsets are only meaningful for a

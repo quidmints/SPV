@@ -6,9 +6,14 @@ import {LevMath} from "../src/imports/LevMath.sol";
 import {PROTO_UNIV3, ZERO_FOR_ONE, IERC20Min} from "../src/imports/Interfaces.sol";
 import {UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR} from "../src/imports/Interfaces.sol";
 
-/// @notice §CURVE-ALONE-CANNOT-DO-IT — `_aggSwap` gained a second pool word. Two claims are tested
-///         against LIVE pools: that the two-hop route EXECUTES, and that it is CHEAPER than the one
-///         hop it replaces on the BTC leg (measured 0.67% vs 0.92% at $1M).
+/// @notice §CURVE-ALONE-CANNOT-DO-IT — the route encoder gained a second pool word. ONE claim is
+///         tested against LIVE pools: that a two-hop route EXECUTES and lands within a spread's
+///         distance of the one hop it replaces.
+/// ⛔ **IT DOES NOT CLAIM THE TWO-HOP IS CHEAPER, AND THE OLD HEADER DID.** §SESS-71 reshaped the
+///    assertion to proximity after superiority failed at three blocks on identical bytecode; this
+///    header kept asserting the "0.67% vs 0.92%" reading for a session after that stopped being what
+///    the body checked. A stale docblock is a misleading test even when every assertion is sound —
+///    the reader takes the claim from the prose, not from the `assertLt`.
 contract AggSwapTwoHopTest is Test {
     address constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
@@ -26,7 +31,7 @@ contract AggSwapTwoHopTest is Test {
         return uint256(uint160(pool)) | (uint256(PROTO_UNIV3) << 253);
     }
 
-    function test_TwoHopExecutesAndBeatsTheDirectPool() public {
+    function test_TwoHopExecutesAndLandsWithinASpreadOfTheDirectPool() public {
         uint256 amt = 1_000_000e6;
 
         deal(USDC, address(this), amt);

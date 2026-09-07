@@ -30,14 +30,12 @@ contract V4HopTest is Test {
         deal(USDC, address(this), amt);
         uint256 out = V4Lib.v4Swap(USDC, WETH, amt, 0, 500, 10);
         emit log_named_decimal_uint("USDC -> WETH via UniV4", out, 18);
-        assertGt(out, 0, "the v4 encoding did not fill - build-don't-patch produced a shape the router "
-                         "does not accept, and no amount of unit-testing the bytes would have said so");
         assertEq(IERC20(USDC).balanceOf(address(this)), 0, "the input must have been spent");
         // 🔴 **AND THE FILL IS TERRIBLE, WHICH IS THE POINT OF RECORDING IT.** 50,000 USDC returned
         //    15.44 WETH — roughly $38.5k of $50k, a **~23% loss** — because this v4 tier is thin.
-        //    ⚠️ `assertGt(out, 0)` PASSES on that, which is the §VACUOUS-BOUNDS shape in a test I
-        //    wrote myself: the defect drives the value toward the asserted side. The encoding is
-        //    proven by the fill EXISTING; the venue is condemned by its size.
+        //    ⚠️ This test SHIPPED with `assertGt(out, 0)` and a comment admitting it was the
+        //    §VACUOUS-BOUNDS shape. Documenting a weak bound does not strengthen it: the docblock
+        //    said the encoding was proven, and a zero-bound proves it against nothing.
         // ⇒ **the oracle floor would reject this fill, so it is liveness-safe — but the KEEPER must
         //   never select it**, which is why depth gates candidacy before price (§SESS-67).
         // expected WETH at a ~$2,490 mark, 18-dec: amt(6-dec) * 1e18 / (2490 * 1e6)
@@ -45,18 +43,33 @@ contract V4HopTest is Test {
         emit log_named_decimal_uint("expected at a ~$2,490 mark", expected, 18);
         emit log_named_uint("shortfall vs that mark (bps)",
             expected > out ? (expected - out) * 10_000 / expected : 0);
+        // ⇒ **SO BOUND IT AT HALF THE MARK INSTEAD OF AT ZERO.** The thin tier costs ~23%, which no
+        //   par bound survives — but a crossed direction bit or a pool holding neither token does not
+        //   cost 23%, it costs everything. Half is loose enough to never fail on this venue's real
+        //   slippage and tight enough that the catastrophic shape cannot pass. `assertGt(out, 0)`
+        //   could not tell those two apart, and its message claimed it could.
+        assertGt(out, expected / 2, "the v4 leg returned less than half the mark - that is not this "
+            "tier's slippage, it is a shape the router mis-executed: wrong currency order, wrong "
+            "tickSpacing, or a settle/take pair that did not balance");
     }
 
     /// 🔴 **THE ROUTE THIS WHOLE ARM EXISTS FOR.** GHO's UniV3 pools hold 8,179 and its V3/WETH pools
-    ///    hold zero, so GHO is unroutable today. Its hookless v4 pool at fee 500 holds 2.0e21.
-    function test_GhoIsRoutableOnV4AndOnlyThere() public {
+    ///    hold zero, so GHO is unroutable without v4. Its hookless v4 pool at fee 500 holds 2.0e21.
+    /// ⛔ **THE NAME USED TO SAY "AND ONLY THERE" AND NOTHING BELOW CHECKED IT.** Exclusivity is a
+    ///    fact about every OTHER venue on one afternoon — the §POINT-IN-TIME-IS-NOT-AN-INVARIANT
+    ///    shape — so it stays an observation in this comment and is out of the name. What the body
+    ///    proves is the half that is ours: the v4 leg fills, at par.
+    function test_GhoFillsOnV4AtPar() public {
         uint256 amt = 10_000e18;
         deal(GHO, address(this), amt);
         uint256 out = V4Lib.v4Swap(GHO, USDC, amt, 0, 500, 10);
         emit log_named_decimal_uint("GHO -> USDC via UniV4", out, 6);
-        assertGt(out, 0, "GHO did not fill on v4 - the one venue measured to have its liquidity");
         // Stables are ~1:1, so a fill this far from par means the wrong pool or the wrong direction.
-        assertGt(out, amt / 1e12 * 90 / 100, "GHO->USDC filled >10% off par: wrong pool or direction");
+        // ⚠️ ONE BOUND, NOT TWO: an `assertGt(out, 0)` above this line asserted nothing the par bound
+        //    does not already assert, and its message named a claim (`the one venue`) that no line
+        //    checked. A redundant bound reads as extra coverage and is not.
+        assertGt(out, amt / 1e12 * 90 / 100, "GHO->USDC filled >10% off par (or not at all): wrong "
+                                             "pool, wrong direction, or the v4 leg did not fill");
     }
 
     /// ⚠️ **AN EMPTY TIER MUST FAIL LOUDLY, NOT SILENTLY RETURN LITTLE.** A hacked keeper's entire
