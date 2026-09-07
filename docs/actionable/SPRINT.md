@@ -53050,7 +53050,17 @@ slices became real swaps.
 🔑 **THE TWO PURPOSES HAVE DIFFERENT BARS.** A quote row only has to PRICE; an execution row has to be
 somewhere we would TRADE. ⇒ `_quoteOf` is now a **superset** that falls through to `_routeOf` first, so
 every executable route is automatically quotable and the shared rows exist in exactly one place.
-⭐ **AND THE SPLIT SURVIVES `_routeOf`'s SCHEDULED DELETION** (*"DELETE THIS BRANCH … once the keepers
+✅ **CLOSED 2026-09-07 (§SESS-52): `_routeOf` IS DELETED, AND THE SPLIT DID *NOT* SURVIVE IT — THE
+OPPOSITE OF WHAT THIS PARAGRAPH PREDICTED.** `_quoteOf` (since renamed **`_hubRowOf`**) absorbed the
+two execution rows and is now read by BOTH the floor (`_selfServableQuote`) and the execution path
+(`_hubHop`, `_routableStable`). There is no second table and no settable one. ⚠️ **§SESS-24's
+justification for the split no longer holds at this tree state**: making the four quote-only stables
+executable was measured as breaking `test_ProtectFromQuid_HostileOperatorNetsZero`, and that test now
+PASSES (verified it ran: `[PASS]`, gas 12,356,436). `LevMath` went 23,846 → **23,726** across the whole
+change — smaller, with the table gone.
+⛔ The trust argument SURVIVES and now points the other way: the table stays **compile-time** because a
+floor whose reference is settable by the same key that sets the route is not a floor.
+(original paragraph, kept for the record:) ⭐ **AND THE SPLIT SURVIVES `_routeOf`'s SCHEDULED DELETION** (*"DELETE THIS BRANCH … once the keepers
 supply `hubDex` for every venue stable in use"*). A quote table that merely extended the execution table
 would have died with it — which is the strongest argument for the split and was not the reason I found it.
 
@@ -54458,3 +54468,45 @@ inverts the outcome is impossible; if two runs of a changed contract report the 
 reading a cached artifact. **Only `forge build --force` produced runs that matched the source.**
 ⇒ On any security-relevant verification, `--force` first, and compare gas between runs before
 believing either.
+
+---
+
+## ✅ §SESS-63 — **SESSION CLOSE-OUT: WHAT LANDED, WHAT DID NOT, AND WHERE THE SPECS CAME FROM** (2026-09-07)
+
+Owner: *"when we complete tasks you must mark them as such in sprint.md."* Detail lives in
+`docs/actionable/lanes/L-routing.md` (§SESS-46…62); this is the status column.
+
+### ✅ CLOSED BY MEASUREMENT
+| item | closed by |
+|---|---|
+| `_routeOf`'s scheduled deletion | §SESS-52 — deleted; `_hubRowOf` is the ONE table. `LevMath` 23,846 → **23,726** |
+| §SESS-45 blocker #2 *"USDT unborrowable"* | §SESS-47 — **misdiagnosed as on-chain.** The keeper discarded a hub word it had already planned |
+| `curveExchange` trusts the pool's return (§SESS-2) | §SESS-46 — measures the delta; approval zeroed on BOTH paths |
+| §SESS-41/43 *"liveness defect"* | §SESS-48 — an artifact of measuring against a route worse than the protocol can take. Budget covers need at both sizes (14/25 bps at $50k, 30/50 at $1M) |
+| `test_E2_IncumbentLossDoesNotScale…` | §SESS-57 — asserts loss-per-dollar FALLS; passes at all three pins that disagreed |
+| the keeper's 4-entry pool table | §SESS-49/58 — deleted; factory discovery + QuoterV2 across all tiers and hubs |
+
+### 🔴 STILL OPEN — AND TWO ARE *BUILT-BUT-UNWIRED*, THE SESSION'S MOST REPEATED SHAPE
+1. **`Core.netFlowUsd()` HAS ZERO READERS IN `src`.** The wash-trade discriminator is built, tested
+   (`SignedNetFlow.t.sol`: buy⇒negative, sell⇒positive, gross cannot tell them apart, round-trip
+   returns toward zero) and **nothing consumes it.** ⚠️ Its sibling `skewTargetUsd()` IS wired
+   (`SwapLib:1816`, `:1875`), so the redeem-flow half is live and this half is not.
+2. **The 1inch `bytes route` arm has NO PRODUCER** (§SESS-60) — keeper sends literal empty routes at
+   three sites; nothing in `quid-ln` fetches 1inch calldata.
+3. **`src` emits `unoswap`/`unoswap2` ONLY** — no `unoswap3`, no `swap()` descriptor. **The hop count
+   is baked into the ABI as two distinct words**, which is the owner's objection and is §SESS-64.
+4. **The USDC hub is structural on-chain and never measured** (§SESS-61).
+5. `CONSOL_SLIP_BPS` flat 100 · `LevVenueBase.STABLE` immutable · §POOL-VENUE pin · §SESS-55 (a USDT
+   venue needs a DEPLOY change; `venuesFrozen` makes it untestable) · §SESS-62 (`Quid`'s payable
+   fallback — owner's call) · UNITB q0 control (unchecked).
+
+### ⚠️ PROVENANCE, ASKED DIRECTLY: WHERE THE SKEW / REDEEM-FLOW SPECS CAME FROM
+**From the owner's own instruction and from rows in this file — not derived, and not validated as best.**
+The net-wash pair came from *"keep gross but add a net check against wash trading"*, scope-corrected by
+§E326 (`_bumpFlow` has ONE call site, so `netFlowUsd` measures SWAP travel, not issuance). The
+redeem-flow shape came from §S-rows here: one composition point (`skewTargetUsd = flow + redeem`) so a
+re-weighting is one function rather than two money-path sites that can drift.
+⇒ **What IS established: internal consistency, a single composition point, and tests for the property
+each exists for.** ⇒ **What is NOT: that this is the best design.** Nobody compared it against
+alternatives, and the sharpest evidence that it is unfinished is item 1 above — **a discriminator
+nothing reads is not yet a design decision, it is a measurement.**
