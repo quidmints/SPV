@@ -52813,6 +52813,54 @@ floors would let a keeper pass the aggregate by over-delivering one leg and stea
 
 ---
 
+# 🎯 §END-RUN-MANIFEST-2026-09-07 — **WHAT THE ONE VERIFICATION RUN MUST COVER, DECIDED BEFORE IT IS STARTED**
+
+**Owner direction, 2026-09-07: complete the open rows WITHOUT building, then run ONE build+test at the
+end to see what needs fixing.** ⇒ that run is the sweep's only gate, so **it is designed here rather
+than discovered afterwards** — a run nobody scoped reports whatever it happens to touch.
+
+**Of 159 doable rows, 33 name a measurement, a re-run or an assertion.** By lane:
+`L6` **19** · `L7` 8 · `L5` 4 · `L4` 1 · `L2` 1. By gate: `G0` 16 · `G8` 9 · the rest scattered.
+⚠️ **The 8 `L7` rows are almost certainly false positives** — `L7` is read-only by definition, so a
+verdict containing the word *"measured"* is describing a read that already happened. **Treat 25 as the
+real population and confirm each before the run**, per the sweep rule that a raw count is not a finding.
+
+## ⛔ THREE THINGS THE RUN CANNOT TELL US, STATED FIRST SO A GREEN RESULT IS NOT OVERREAD
+
+1. 🔴 **THE SUITE ENCODES SUPERSEDED INTERPRETATIONS FOR THE PRICING CLUSTER.** **25 of 155 `.t.sol`
+   files assert on the σ²/skew model** — `GammaRederived`, `KappaIsTodayAtOne`, `SkewCalibration`,
+   `SkewAsymmetry`, `SkewLearningsAreLive`, `SkewUnmeasuredVariance`, `AnchorSkewSensitivity`,
+   `VarPrecision`, `SkewLivePathReachesKernel`, `RestoreProfitability` and others.
+   §SKEW-DESIGN-VERDICT records that **Γ was never derived** (it is `MAX_WELL_SKEW` under a second
+   name) and **ρ is 1 with dead code above it** — so those files pin constants the verdict calls
+   artifacts. ⇒ **a red there is a disagreement, not a defect** (rule 8d), and a green there is not
+   evidence either.
+2. ⚠️ **RULE 10's ATTRIBUTION IS DELIBERATELY SPENT.** One money-path change per run exists so a
+   failure can be attributed; batching a sweep into one run forfeits that **by the owner's explicit
+   decision**, on the ground that a test whose premise is dead cannot falsify the change anyway. ⇒
+   **the cost lands on the ~130 model-INDEPENDENT files** (channel shapes, decimals seams, deposit
+   paths, identity), where attribution would still have worked. **A failure there needs bisecting, and
+   that is the known price.**
+3. ⚠️ **FIXTURES ARE UNAUDITED.** `GATE 0a` is still open and is *"upstream of the evidence itself"*,
+   and its scope as written (*"audit the mock fixtures against §V4-CUT"*) is **narrower than the
+   problem** — §V4-CUT is one superseded interpretation and σ² is another. **Any number this run
+   produces inside a fixture inherits that.**
+
+## ✅ WHAT THE RUN IS ACTUALLY FOR
+
+▶️ **Compile integrity and the model-independent suites.** After a sweep of this size the question the
+run answers well is *"does the tree still build, and did anything outside the pricing cluster
+break?"* — not *"is the pricing right"*, which no current test can answer.
+📌 **Recipe, per the handoff block — the pin must be computed AFTER the build and is valid ~21½ min:**
+```bash
+cd evm && forge build                       # let it finish; ONE build, a second OOMs the box
+PIN=$(( $(cast block-number --rpc-url https://ethereum-rpc.publicnode.com) - 20 ))
+FORK_BLOCK=$PIN ETH_RPC_URL=https://ethereum-rpc.publicnode.com forge test -j 4
+```
+⚠️ **Then check all three contamination tells before quoting any total** — `setUp` failures,
+RPC/env noise, and a runtime far below normal. **A late-run `403 Archive requests require a personal
+token` is an EXPIRED PIN, not a finding.**
+
 # 📐 §CITATION-ROT-2026-09-07 — **2,331 `file:line` CITATIONS, AND NO TOOL CAN FIND THE DANGEROUS ROT**
 
 **Measured after four consecutive coordinate failures in one sweep** — `C1r` cited `SwapLib:499` and
