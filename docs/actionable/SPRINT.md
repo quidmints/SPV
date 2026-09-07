@@ -94409,6 +94409,37 @@ registry that does not.**
 
 ---
 
+# 🔐 §UNGATED-VALUE-MOVE-SWEEP — **EVERY EXTERNAL VALUE-MOVING ENTRYPOINT ACCOUNTED FOR. ZERO OPEN (2026-09-07)**
+
+**Primary goal, and the shape that found today's two unauthenticated withdrawals (`53fe1e84`): an
+`external`/`public` state-changing function that moves value and has no access gate.** Swept
+`evm/src` (excluding `Interfaces.sol`, which is declarations, and the deferred identity tree).
+
+**177 ungated state-changing entrypoints → 20 that also MOVE VALUE → 0 genuinely open.** Every one
+resolves, and the resolutions fall into four classes:
+
+| class | count | why it is correct |
+|---|---|---|
+| **`msg.sender` IS the key** | 3 | `BtcLevManager.leverBorrow` / `leverSupply` / `deleverWithdraw` each pass `msg.sender` into the body as the position key — `pos[msg.sender]`. **You cannot reach another LP's position because there is no argument that names one** |
+| **self-service on own balance** | 3 | `Basket.bridgeToSolana` burns via `_transferHelper(msg.sender, …)`; `BtcLevManager.openBtcLev` writes `pos[msg.sender]`; `Aux.deposit` deposits the caller's own funds |
+| **canonical destination, no caller choice** | 1 | `Aux.sweep` — *"unknown tokens revert; sweep is not a free transfer surface"*, and it moves value **IN** to the basket, never out |
+| **library body, gated at the wrapper** | 13 | delegatecalled bodies must be `public`/`external`; the gate lives on the frame that knows who may call. Verified per-body, not assumed |
+
+## ⭐ THE FALSE-POSITIVE CLASS, NAMED SO THIS SWEEP IS RE-RUNNABLE
+
+🔴 **A `require(msg.sender == X)` IS NOT THE ONLY GATE, AND THE OTHER KIND IS STRONGER.** My detector
+looked for an explicit check and flagged the three `BtcLevManager` entrypoints as ungated. **They are
+gated by STRUCTURE: `msg.sender` is the mapping key, so touching someone else's position is
+unconstructible rather than forbidden** — rule 17's preferred form. ⇒ **any re-run of this sweep must
+treat *"`msg.sender` appears as a subscript or is passed as the subject"* as a gate**, or it will chase
+these four again.
+
+✅ **CONCLUSION: after `53fe1e84` closed `Quid.rangeOp` and `offrampEtherFi`, the external value-moving
+surface has no unauthenticated hole.** ⚠️ **Scope stated: this covers ACCESS, not correctness** — a
+correctly-gated function can still compute the wrong amount, and it says nothing about the manipulation
+surface `§A6` confirmed (`solvent` pushable in-block via venue utilisation), which is reachable through
+*legitimate* calls and is therefore invisible to this sweep entirely.
+
 # ⚡ §REPEATED-EXTERNAL-CALL-SWEEP — **7 CANDIDATES, 1 REAL FOLD, AND TWO THAT MUST NOT BE FOLDED (2026-09-07)**
 
 **Primary goal: efficiency and security. This is the shape that just produced a real fix in
