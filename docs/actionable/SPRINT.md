@@ -53081,6 +53081,49 @@ registry that does not.**
 
 ---
 
+# 🧭 §WHY-A-13-MONTH-WINDOW-EXISTS-AT-ALL — **IT IS THE PRODUCT, NOT AN IMPLEMENTATION CHOICE (2026-09-07)**
+
+**Owner asked the question one level up from the loop: why is there a 13-element window at all?**
+**Answer: because QU!D's liability is DATED, and a monthly grid is what makes a dated liability
+computable on-chain with no keeper.** Remove the window and you remove the term structure, which is the
+product.
+
+## THE CHAIN, EACH LINK IN CODE
+
+| | |
+|---|---|
+| the product is a **bond curve** | `calcMintYield` = `principal × (1 + avgYield × t/12)` — it needs `t`, a TERM |
+| a term needs a **maturity date** | tenor is rationed by live over-collateralisation: buffer ≥5%→12mo, ≥3%→6mo, ≥1.5%→3mo, else 1mo |
+| dates are **discretised to months** | ERC-6909 ids ARE months; `_mint(to, month, …)` at `Basket.sol:224`/`:474`, and the seed at `nextMonth + 1` (`:333`, `BasketLib:565`) |
+| so live buckets are **`[cm+1, cm+13]`** | stated in the code at `Basket.sol:129`. **13 = the 12-month maximum tenor + the seed's `+1`** |
+| and the redemption mark needs the split | `perShare = min($1, solvent / matureSupply)` — a SCALAR denominator, so matured vs unmatured must be separable |
+
+⭐ **THE DISCRETISATION IS THE MECHANISM, AND THIS IS THE PART WORTH KEEPING.** Maturity is a function
+of wall-clock, so **every maturity is an event with no transaction attached.** Continuous per-position
+maturity would make `matureSupply` either an unbounded walk over positions, or a rate accumulator
+`A + B·t` whose `B` must be decremented when each position fully vests — **which is the same
+transaction-less event, back again.** ⇒ **bucketing by month converts an unbounded set of
+transaction-less maturity events into AT MOST 13 LIVE BUCKETS**, which is exactly what makes the whole
+thing computable by a `view` with no keeper and no drift.
+
+⇒ **THE WINDOW IS NOT OVERHEAD ON THE DESIGN; IT IS THE DESIGN'S ONLY BOUNDED FORM.** The loop over it
+(`§THE-13-LOOP-IS-NECESSARY`) is then the cheap half — 13 `SLOAD`s against an unbounded alternative.
+
+## ⛔ WHAT WOULD ACTUALLY REMOVE IT, so the option is stated rather than implied
+
+**Only removing dated maturities entirely** — i.e. QU!D stops being a term instrument and becomes
+demand-only. That deletes `calcMintYield`, the tenor rationing, the mature/immature split and the
+redemption mark's denominator together. **It is a product decision, not a refactor**, and it is
+upstream of `§E2` (mint-at-par vs redeem-at-mark), `§E154` (the weETH-denominated bond), and the
+`trancheTotal` seniority machinery — **all of which presuppose that a claim has a date.**
+
+📌 **AND NOTE WHAT THE 13 IS NOT: it is not a tuning parameter.** It is `max tenor + 1`, so it moves
+only if the product's maximum term moves. **Shrinking it to save gas would silently truncate the
+longest vintages out of `immatureSupply`, making them read as MATURE and inflating the redemption
+denominator — a mispricing, not a saving.**
+
+---
+
 # ✅ §THE-13-LOOP-IS-NECESSARY — **AND IT IS ALREADY THE OPTIMISATION, NOT THE THING TO OPTIMISE (2026-09-07)**
 
 **Owner asked whether something more elegant exists. Three alternatives examined; all are worse, and
