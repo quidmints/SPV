@@ -78,6 +78,27 @@ environment actually is*. Every line below was verified in-repo, not recalled.
     waits. If you must remove a file early, use `rm` (leaves it unstaged) and `git rm` only in the
     same breath as the commit. **`git status --short` showing no `D ` rows does NOT mean your
     deletion is safe — it can mean someone already committed it for you.** Check `git log -- <path>`.
+14c. 🔴 **STAGE-BY-NAME DOES NOT PROTECT A *SHARED FILE*. TWO THREADS IN ONE FILE DEFEATS RULE 14
+    ENTIRELY** (measured 2026-09-07, and I did it while actively trying not to). Rule 14 says stage
+    your own files by name so you do not sweep someone else's work in. **That protects against picking
+    up their FILES. It says nothing about their EDITS TO YOURS.** A comment-pass agent was rewriting
+    `LevMath.sol` while I was changing its signatures; `git add evm/src/imports/LevMath.sol` — exactly
+    what the rule prescribes — took **both**. `cab7b86b` shows **48 insertions / 64 deletions** in that
+    file: a NET DELETION, which is prose-pruning and cannot be my change.
+    ⇒ **Nothing was lost, and that is not the damage.** The damage is that the history now attributes
+    another agent's work to a commit message describing mine, which is rule 14b's failure arriving from
+    the opposite direction — there a deletion of mine landed in *their* commit; here their edits landed
+    in *mine*. **Both are silent, and neither is caught by staging discipline alone.**
+    ▶️ **THE CHECK, AND IT IS THE SAME ONE THE SQUASH SECTION ALREADY DEMANDS, APPLIED TO CONTENT
+    RATHER THAN PATHS: `git diff --cached --stat` BEFORE EVERY COMMIT, AND ASK WHETHER THE SHAPE MATCHES
+    WHAT YOU DID.** A refactor that adds a capability should not be a net deletion; a two-line fix
+    should not touch 112 lines. **The insertion/deletion counts are printed for free and I read past
+    them**, which is the same failure as reading past the staged path list in the squash example above.
+    ⚠️ **AND THE REAL FIX IS UPSTREAM: ASK WHO ELSE IS IN THE FILE BEFORE YOU START.** `ListAgents` shows
+    live sessions and `SendMessage` reaches them; one message established the collision domain in a
+    single round trip and would have cost nothing before the work rather than after. **A lane partition
+    that nobody announced is not a partition.**
+
 15. **Never commit an unverified change on a money or proof path.** A plausible-but-wrong constraint
     is worse than a documented open hole, because it looks fixed. One was committed on 2026-08-02
     and broke `main`. If the verification run has not finished, say it is in flight and wait.
