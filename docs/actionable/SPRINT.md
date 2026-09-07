@@ -42699,7 +42699,7 @@ loaded, and `grep USD_PX` returning empty is the completion test.
 ⏸️ **The two WETH-loan venues STILL must not ship.** The `debtUsd` fix alone does not make them safe; the
 borrow-sizing and slippage-floor sites do.
 
-| **UNIT-REPEG-CADENCE** | ✅✅✅ **THE THRESHOLD TABLE, FROM REAL HISTORY — AND TIGHTENING THE DEADZONE MAKES US **LESS** MANIPULABLE, NOT MORE (2026-08-06).** 📊 **`test_UNIT_RepegCadenceByThreshold`, 119 rounds / 106 h / 118 origins: **25 bps → 112 cross (95%), ~3 h stale · 50 bps → 76 (64%), ~3 h · 100 bps → 62 (53%), ~13 h · 200 bps → 21 (18%), ~9 h · 500 bps (CURRENT) → 0, NEVER.**** ✅ **⇒ AT 25–50 bps THE POOL RE-PEGS EVERY ~3 HOURS — enough to keep the ring POPULATED and σ² LIVE. At the current 500 it never re-pegs, which is §UNIT-DEADZONE-NEVER-OPENS' zero-variance regime.** ⚠️ **ARTIFACT FLAGGED, NOT READ PAST: the mean-hours column is **NON-MONOTONIC** (13 h at 100 bps vs 9 h at 200 bps). That is **SURVIVORSHIP BIAS** — at higher thresholds only the FAST-MOVING origins ever cross and the slow ones are excluded from the average. **This is §E83's Kaplan–Meier warning appearing in MY OWN DATA** (*"a weighted average of REALIZED durations includes only imbalances that DID settle… biased LOW"*). **Treat the hours as INDICATIVE; the correct treatment is censored survival analysis, and §E83 already said so about the duration input three other decisions need.**** 🔑 **AND THE MEV INTUITION INVERTS — worth stating because it is counter-intuitive: the deadzone exists to DISTRUST A MANIPULATED POOL TWAP (above it we fall back to Chainlink). **TIGHTENING to 50 bps means we distrust the pool SOONER and lean on Chainlink MORE ⇒ STRICTLY LESS MANIPULABLE.** The real costs are (a) GAS from more frequent re-pegs and (b) more frequent auto-heal moves of the pool spot (`resolvedTwap`'s *"move the pool spot onto `price` only in this dislocation regime"*) — **not attack surface.**** ▶️ **REMAINING BEFORE A NUMBER IS CHOSEN: (1) gas cost per re-peg × the implied cadence (~3 h at 50 bps) — is it self-funding from the premium it unlocks? (2) does a re-peg actually populate the ring, or only move the spot? (§UNIT-DEADZONE-NEVER-OPENS step 2, still unmeasured) (3) the LP cost of the CURRENT 4% staleness vs the ~21 bps cushion — the size of the hole being closed.** | ✅✅✅ 25–50 bps re-pegs every ~3h; 500 never; tightening REDUCES manipulability; hours are survivorship-biased  📌 **§SEQ-AUDIT: GATE 6 · lane L5. VERIFIED LIVE: TWAP_MAX_DEVIATION_BPS still 500 at Aux:220; the 25-50bps retune unmade** |
+| **UNIT-REPEG-CADENCE** | ✅✅✅ **THE THRESHOLD TABLE, FROM REAL HISTORY — AND TIGHTENING THE DEADZONE MAKES US **LESS** MANIPULABLE, NOT MORE (2026-08-06).** 📊 **`test_UNIT_RepegCadenceByThreshold`, 119 rounds / 106 h / 118 origins: **25 bps → 112 cross (95%), ~3 h stale · 50 bps → 76 (64%), ~3 h · 100 bps → 62 (53%), ~13 h · 200 bps → 21 (18%), ~9 h · 500 bps (CURRENT) → 0, NEVER.**** ✅ **⇒ AT 25–50 bps THE POOL RE-PEGS EVERY ~3 HOURS — enough to keep the ring POPULATED and σ² LIVE. At the current 500 it never re-pegs, which is §UNIT-DEADZONE-NEVER-OPENS' zero-variance regime.** ⚠️ **ARTIFACT FLAGGED, NOT READ PAST: the mean-hours column is **NON-MONOTONIC** (13 h at 100 bps vs 9 h at 200 bps). That is **SURVIVORSHIP BIAS** — at higher thresholds only the FAST-MOVING origins ever cross and the slow ones are excluded from the average. **This is §E83's Kaplan–Meier warning appearing in MY OWN DATA** (*"a weighted average of REALIZED durations includes only imbalances that DID settle… biased LOW"*). **Treat the hours as INDICATIVE; the correct treatment is censored survival analysis, and §E83 already said so about the duration input three other decisions need.**** 🔑 **AND THE MEV INTUITION INVERTS — worth stating because it is counter-intuitive: the deadzone exists to DISTRUST A MANIPULATED POOL TWAP (above it we fall back to Chainlink). **TIGHTENING to 50 bps means we distrust the pool SOONER and lean on Chainlink MORE ⇒ STRICTLY LESS MANIPULABLE.** The real costs are (a) GAS from more frequent re-pegs and (b) more frequent auto-heal moves of the pool spot (`resolvedTwap`'s *"move the pool spot onto `price` only in this dislocation regime"*) — **not attack surface.**** ▶️ **REMAINING BEFORE A NUMBER IS CHOSEN: (1) gas cost per re-peg × the implied cadence (~3 h at 50 bps) — is it self-funding from the premium it unlocks? (2) does a re-peg actually populate the ring, or only move the spot? (§UNIT-DEADZONE-NEVER-OPENS step 2, still unmeasured) (3) the LP cost of the CURRENT 4% staleness vs the ~21 bps cushion — the size of the hole being closed.** | ✅✅✅ 25–50 bps re-pegs every ~3h; 500 never; tightening REDUCES manipulability; hours are survivorship-biased  📌 **§SEQ-AUDIT: GATE 6 · lane L5. VERIFIED LIVE: TWAP_MAX_DEVIATION_BPS still 500 at Aux:220; the 25-50bps retune unmade** ✅ **RE-VERIFIED 2026-09-07 AND THE COORDINATE CORRECTED — `:223`, NOT `:220`.** `Aux.sol:223` reads `uint public constant TWAP_MAX_DEVIATION_BPS = 500; // 5% = manipulation territory`, unchanged. ⇒ **still genuinely open**, and it is one of the eleven UNIT rows that survive the owner's *"everything labeled UNIT is done"* — see `§UNIT-CENSUS-2026-09-07`. |
 
 ### 🔴 `instant` IS A DEAD PARAMETER — and the 4626 path's documented contract is now BROKEN
 
@@ -52812,6 +52812,51 @@ floors would let a keeper pass the aggregate by over-delivering one leg and stea
 ---
 
 ---
+
+# 🧾 §UNIT-CENSUS-2026-09-07 — **"EVERYTHING LABELED UNIT IS DONE" IS RIGHT FOR 106 OF 140. HERE ARE THE ELEVEN IT IS NOT.**
+
+**Owner, 2026-09-07: *"to my understanding everything labeled UNIT is done."*** Counted rather than
+assumed, because rule 16 says close only what is axiomatic and an owner's recollection is not a
+measurement — it is a strong prior that still has to meet the file.
+
+| state | rows |
+|---|---|
+| ✅ closed | **75** |
+| ⏹ superseded → `§ALL-27-AUDITED` | **31** |
+| other / evidence-only | 26 |
+| 📌 **still carrying a `GATE n · lane Lx` marker** | 🔴 **11** |
+| | **140 total** |
+
+⇒ **106 of 140 are done or superseded, so the recollection is correct in the main.** The eleven below
+are what it does not cover, and they split three ways:
+
+**① STILL LIVE, MEASURED TODAY — these are not done:**
+- 🔴 **`UNIT-REPEG-CADENCE` (`:42702`) — `TWAP_MAX_DEVIATION_BPS` IS STILL `500`.** Verified at
+  **`Aux.sol:223`** (`uint public constant TWAP_MAX_DEVIATION_BPS = 500; // 5% = manipulation
+  territory`) — **the row cites `:220`, off by three: line rot again.** The row's own measured table
+  says 500 means the pool **NEVER re-pegs** (0 of 118 origins cross), which is
+  §UNIT-DEADZONE-NEVER-OPENS' zero-variance regime, while 25–50 bps re-pegs every ~3h. **The 25–50 bps
+  retune is unmade and the constant is untouched.**
+- ⚠️ **`UNIT-RPC-POLICY` (`:42791`)** — its actionable half is a CREDENTIAL rotation. ✅ **Checked: no
+  bare 64-hex string exists in any committed doc** — `SPRINT.md`, `TODO.md`, `CLAUDE.md` and
+  `foundry.toml` are all **zero**. ⛔ **But that closes the tree, not the exposure:** CLAUDE.md's own
+  rule is *"treat any key that ever reaches a committed file as DISCLOSED and rotate it"*, and this
+  repo has shipped that once already (`foundry.toml`'s Ankr token, `0af7f6d`). **Rotation is an
+  owner/ops action and cannot be verified from here.**
+
+**② THE DECISION CLUSTER — open because they are the owner's, not because work remains:**
+`UNIT-CURVE-CORR` (`:41726`) · `UNIT-WHY-IT-MATTERS` (`:41732`) · `UNIT-BOUND-NOT-DELETE` (`:41736`).
+All three are in the decision docket; none is a task.
+
+**③ MEASUREMENT ROWS whose verdicts say "VERIFIED LIVE" or "LIVE RESIDUAL", i.e. someone checked
+recently and found them still open:** `UNIT-B` (`:41626`) · `UNIT-VENUE-CEILING` (`:41730`) ·
+`UNIT-LP-EXIT` (`:41734`) · `UNIT-B-STALE-RETRACT` (`:41740`) · `UNIT-SKEW-STATUS` (`:42878`) ·
+`UNIT-RESEAT-CONFIRMED` (`:43014`).
+
+📌 **AND THE REASON THE RECOLLECTION DRIFTED IS STRUCTURAL, NOT CARELESS:** 31 of the 140 read
+**⏹ SUPERSEDED — see `§ALL-27-AUDITED` (the markers are stale; the body below is evidence)**. **A row
+that says its own markers are stale reads as finished**, and at a glance the whole family does. That is
+this file's *"a status confession is not a status"* rule arriving through a supersession notice.
 
 # 🗂️ §MD-CITATIONS-2026-09-07 — **52 OF THE 84 `.md` FILES THIS DOC CITES DO NOT EXIST. HALF OF THOSE CITATIONS POINT AT LIVE CONTENT.**
 
