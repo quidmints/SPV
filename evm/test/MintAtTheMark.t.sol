@@ -335,24 +335,74 @@ contract MintAtTheMark is AllesFixture {
 
     /// 🔴 §SESS-29 — **THE CONTROL THAT MAKES THE BOUND ABOVE SAFE.** A tolerance can hide a small
     ///    dilution; it cannot hide dilution's SIGNATURE, which is that the loss grows with the mint
-    ///    that causes it. This mints **100x** more and asserts the incumbent's loss does not grow
-    ///    proportionally. If issuance ever starts genuinely diluting incumbents, this fails even
-    ///    though the assertion above would still pass.
+    ///    that causes it.
+    ///
+    /// ⭐ **§SESS-57 — RESHAPED. IT ASSERTED TWO MARKET-DEPENDENT MAGNITUDES AND FAILED THREE
+    ///    DIFFERENT WAYS AT THREE BLOCKS, ON IDENTICAL BYTECODE:**
+    ///    · `25919850` → PASS
+    ///    · `25920058` → FAIL *"the loss SCALES with the mint"* (`667916670000 >= 419039500000`)
+    ///    · `25924632` → FAIL *"PREMISE: there must be a measurable loss"* (`0 <= 0`)
+    ///    Gas was **identical (16,888,417)** at two of those, so no code path moved — 208 blocks did.
+    ///    ⛔ **`assertGt(small, 0)` WAS THE WORSE OF THE TWO: it made a market reading a PREMISE**, so
+    ///    a block where integer division happens to round the incumbent's way — the BEST case — was
+    ///    reported as the control being broken. **An assertion that fails on good news is not a
+    ///    control.** This is `VenueBorrowRate.t.sol`'s §POINT-IN-TIME-IS-NOT-AN-INVARIANT, which
+    ///    already prescribes the fix: *"what is invariant is the SHAPE"*.
+    ///
+    /// ▶️ **WHAT IS ACTUALLY CLAIMED, AND IT IS TRUE AT EVERY BLOCK: a mint does not dilute an
+    ///    incumbent.** Two assertions carry it, and neither reads a second market quantity:
+    ///    1. **ABSOLUTE** — the loss from a **$5M** mint must be negligible against the incumbent's OWN
+    ///       redemption, a fixture constant. Dilution is a PER-UNIT transfer, so real dilution by a $5M
+    ///       mint would be percent-scale; measured is ~3e-11 relative, five orders inside the bound.
+    ///       ⚠️ **This is why 0 is a PASS and not a vacuum** (cf. §VACUOUS-BOUNDS): the defect drives
+    ///       the value UP, so the asserted side is the one a bug cannot reach. Zero loss is the claim
+    ///       holding perfectly, not the test failing to look.
+    ///    2. **SHAPE — LOSS PER DOLLAR MINTED MUST *FALL* AS THE MINT GROWS.** This is dilution's
+    ///       actual discriminator and it needs no tuned constant at all: **dilution is LINEAR in the
+    ///       diluting mint, so its per-dollar cost is CONSTANT; integer truncation is bounded per
+    ///       operation, so its per-dollar cost FALLS.** Skipped, loudly, when the loss is zero,
+    ///       because a ratio needs a denominator — safe only because assertion 1 never skips.
+    ///       ⛔ **THIS REPLACES `assertLt(big, small * 10)`, WHICH WAS STILL A MAGNITUDE GUESS.** At
+    ///       `25920058` the loss grew **16x for a 100x mint** — plainly sub-linear, therefore NOT
+    ///       dilution — and the `10x` bound failed it anyway, because 10 was calibrated to a block
+    ///       where the ratio happened to be ~1. Per-dollar removes the calibration: 16x growth on a
+    ///       100x mint is a **6.3x FALL** per dollar, and real dilution cannot fall at all.
     function test_E2_IncumbentLossDoesNotScaleWithTheMint() public {
         uint small = _incumbentLoss(50_000  * USDC_PRECISION);
         uint big   = _incumbentLoss(5_000_000 * USDC_PRECISION);
         emit log_named_uint("incumbent loss, 50k mint  ", small);
         emit log_named_uint("incumbent loss, 5m  mint  ", big);
-        assertGt(small, 0, "PREMISE: there must be a measurable loss, else this control proves nothing");
-        assertLt(big, small * 10,
-            "the loss SCALES with the mint - that is dilution, not rounding, and the bound in "
-            "test_E2_IncumbentIsNotHarmedByANewMint is now hiding it");
+
+        // ① ABSOLUTE. `REDEEM_AMT` is the incumbent's own burn — a fixture constant, not market state.
+        //    1e-6 relative: loose enough to survive any rounding this arithmetic can produce, tight
+        //    enough that a dilution worth caring about cannot fit under it.
+        assertLt(big, REDEEM_AMT / 1_000_000,
+            "a $5m mint cost the incumbent a MATERIAL fraction of its own redemption - that is "
+            "dilution, and the bound in test_E2_IncumbentIsNotHarmedByANewMint is now hiding it");
+
+        // ② SHAPE, where there is something to take a ratio of.
+        if (small == 0) {
+            emit log("no measurable loss at this block - the scaling check has no denominator; "
+                     "assertion (1) above still carries the claim");
+        } else {
+            // Per-dollar-minted cost, scaled by 1e12 so integer division keeps resolution.
+            uint perDollarSmall = small * 1e12 / (50_000  * USDC_PRECISION);
+            uint perDollarBig   = big   * 1e12 / (5_000_000 * USDC_PRECISION);
+            emit log_named_uint("loss per $ minted, 50k mint (x1e12)", perDollarSmall);
+            emit log_named_uint("loss per $ minted, 5m  mint (x1e12)", perDollarBig);
+            assertLt(perDollarBig, perDollarSmall,
+                "cost per dollar minted did NOT fall as the mint grew - dilution is linear in the "
+                "mint and so has a CONSTANT per-dollar cost; truncation is bounded per operation and "
+                "so has a falling one. A flat or rising per-dollar cost is the dilution signature.");
+        }
     }
 
     /// @dev One A/B on a fresh fixture: what the incumbent loses when a mint of `mintUsdc` lands.
+    uint constant REDEEM_AMT = 10_000e18;   // the incumbent's own burn; assertion (1) is relative to it
+
     function _incumbentLoss(uint mintUsdc) internal returns (uint) {
         _seedBasket(); _openShortfall();
-        uint amt = 10_000e18;
+        uint amt = REDEEM_AMT;
         uint snap = vm.snapshotState();
         (uint alone,) = _redeemValue(User01, amt);
         vm.revertToState(snap);

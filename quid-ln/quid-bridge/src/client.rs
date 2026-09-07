@@ -391,8 +391,20 @@ impl<R: JsonRpc, S: TxSigner> JsonRpcEvmClient<R, S> {
         Ok(self.submit(to, &data, gas_limit)?.success)
     }
 
+    /// §SESS-49 — **THE RPC HANDLE, SO A READ-ONLY LAYER NEED NOT HOLD A SIGNER.** The route planner
+    /// quotes pools and never signs anything; taking the whole client would force every quoting helper
+    /// to be generic over `TxSigner` and force a test to build a 31-field `BridgeConfig` and a signer
+    /// to ask a pool a question. ⚠️ Added under standing rule 23 with its answer stated: nothing here
+    /// already exposes the handle (`eth_read` exposes the CALL, not the HANDLE), and it narrows a
+    /// dependency rather than widening one — `eth_call_raw` is already `pub` and already takes `&R`.
+    pub fn rpc(&self) -> &R { &self.rpc }
+
     /// Public read passthrough so off-chain loops (e.g. the lev keeper) can `eth_call` a view/selector
     /// without exposing the private `rpc`. Returns the raw return-data word(s); the caller decodes.
+    /// ⚠️ **`arg32` IS APPENDED VERBATIM AND MAY BE MORE THAN ONE WORD** — the name and the sentence
+    /// below predate any multi-word caller. §SESS-49 passes a 3-word `getPool` and a 5-word
+    /// `quoteExactInputSingle` argument through it. Kept rather than renamed: the shape is right, the
+    /// name is narrow.
     pub fn eth_read(&self, to: Address, selector_sig: &str, arg32: Option<&[u8]>) -> anyhow::Result<Vec<u8>> {
         eth_call_raw(&self.rpc, to, selector_sig, arg32)
     }

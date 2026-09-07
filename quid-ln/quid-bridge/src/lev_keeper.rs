@@ -459,7 +459,7 @@ pub async fn run_lev_keeper<E: LevKeeperEvm + CompoundEvm>(evm: E, cfg: LevKeepe
 
 // ════════════════════════════ concrete EVM binding (the live keeper arm) ════════════════════════════
 use crate::abi::{addr_word, selector4, u64_word, word_to_lpaddr, word_to_uint};
-use crate::client::{JsonRpcEvmClient, TxSigner};
+use crate::client::{eth_call_raw, JsonRpcEvmClient, TxSigner};
 use crate::transport::JsonRpc;
 use alloy_primitives::{Address, U256};
 use std::sync::Arc;
@@ -890,10 +890,6 @@ pub const USDT_ADDR:   LpAddr = [0xdA,0xC1,0x7F,0x95,0x8D,0x2e,0xe5,0x23,0xa2,0x
 pub const DAI_ADDR:    LpAddr = [0x6B,0x17,0x54,0x74,0xE8,0x90,0x94,0xC4,0x4D,0xa9,0x8b,0x95,0x4E,0xed,0xeA,0xC4,0x95,0x27,0x1d,0x0F];
 
 // Uniswap V3 pools. `proto = 1` is the ONLY protocol id measured to fill.
-const P_USDC_WETH_005: LpAddr = [0x88,0xe6,0xA0,0xc2,0xdD,0xD2,0x6F,0xEE,0xb6,0x4F,0x03,0x9a,0x2c,0x41,0x29,0x6F,0xcB,0x3f,0x56,0x40];
-const P_WBTC_USDC_030: LpAddr = [0x99,0xac,0x8c,0xA7,0x08,0x7f,0xA4,0xA2,0xA1,0xFB,0x63,0x57,0x26,0x99,0x65,0xA2,0x01,0x4A,0xBc,0x35];
-const P_USDT_USDC_001: LpAddr = [0x34,0x16,0xcF,0x6C,0x70,0x8D,0xa4,0x4D,0xB2,0x62,0x4D,0x63,0xea,0x0A,0xAe,0xf7,0x11,0x35,0x27,0xC6];
-const P_DAI_USDC_001:  LpAddr = [0x57,0x77,0xd9,0x2f,0x20,0x86,0x79,0xDB,0x4b,0x97,0x78,0x59,0x0F,0xa3,0xCA,0xB3,0xaC,0x9e,0x21,0x68];
 
 /// A planned route. `dex2 == 0` means ONE hop.
 /// ⚠️ **THE FIELD ORDER MIRRORS `SellCtx`, WHICH IS NOT THE HOP ORDER.** `_stableToWethSor` calls
@@ -912,28 +908,107 @@ fn v3_word(pool: LpAddr) -> [u8; 32] {
 }
 
 /// A pool holding exactly this unordered pair, or `None`.
-fn direct_pool(a: LpAddr, b: LpAddr) -> Option<LpAddr> {
-    let pair = |x: LpAddr, y: LpAddr| (a == x && b == y) || (a == y && b == x);
-    if pair(USDC_ADDR, WETH_ADDR) { return Some(P_USDC_WETH_005); }
-    if pair(USDC_ADDR, WBTC_ADDR) { return Some(P_WBTC_USDC_030); }
-    if pair(USDC_ADDR, USDT_ADDR) { return Some(P_USDT_USDC_001); }
-    if pair(USDC_ADDR, DAI_ADDR)  { return Some(P_DAI_USDC_001); }
-    None
+/// Uniswap V3 factory and QuoterV2 — the two addresses that replace a hardcoded pool table.
+const UNIV3_FACTORY: LpAddr = [0x1F,0x98,0x43,0x1c,0x8a,0xD9,0x85,0x23,0x63,0x1A,
+                               0xE4,0xa5,0x9f,0x26,0x73,0x46,0xea,0x31,0xF9,0x84];
+const QUOTER_V2:     LpAddr = [0x61,0xfF,0xE0,0x14,0xbA,0x17,0x98,0x9E,0x74,0x3c,
+                               0x5F,0x6c,0xB2,0x1b,0xF9,0x69,0x75,0x30,0xB2,0x1e];
+/// Every V3 fee tier. Which one is deepest is a fact about the pair AND THE SIZE, not a constant.
+const FEE_TIERS: [u32; 4] = [100, 500, 3000, 10000];
+
+/// A 32-byte ABI word for a `uint256`.
+fn u256_word(v: U256) -> [u8; 32] { v.to_be_bytes::<32>() }
+
+/// ⭐ §SESS-49 — **ASK THE FACTORY. DO NOT KEEP A POOL TABLE.**
+///
+/// 🔴 **THIS REPLACES `direct_pool`, A FOUR-ENTRY HARDCODED TABLE, AND THE FOUR `P_*` POOL CONSTANTS
+///    WITH IT.** The basket has **FOURTEEN** stables (`DeployL1_s:240-250`); that table could plan
+///    exactly **two** of them (USDT, DAI). ⛔ **THREE TIMES IN ONE SESSION I "FIXED" ROUTING BY ADDING
+///    A ROW TO A SMALL TABLE** — `_routeOf` +USDT/+DAI, then `Aux.hubHopOf`, then very nearly a
+///    two-candidate quote over this one. The owner stopped each: *"we have 15 stables."*
+/// ⇒ **The keeper HAS an RPC connection, so a pool is a QUESTION, not a constant.** `getPool` answers
+///    it for any pair and any tier, including tokens nobody has thought about yet.
+/// ✅ **AND IT COSTS NO NEW TRUST: the keeper still names only POOLS.** Whatever it discovers is
+///    bounded on-chain by the oracle floor on a measured balance delta, so a wrong or hostile
+///    discovery can make a leg FAIL and can never make it pay out short. **Widening discovery widens
+///    liveness, never authority** — which is exactly why this belongs off-chain and nothing on-chain
+///    had to change for it.
+fn pool_for<R: JsonRpc>(rpc: &R, a: LpAddr, b: LpAddr, fee: u32) -> Option<LpAddr> {
+    let mut arg = Vec::with_capacity(96);
+    arg.extend_from_slice(&addr_word(a));
+    arg.extend_from_slice(&addr_word(b));
+    arg.extend_from_slice(&u64_word(fee as u64));
+    let r = eth_call_raw(rpc, Address::from_slice(&UNIV3_FACTORY), "getPool(address,address,uint24)", Some(&arg)).ok()?;
+    let p = word_to_lpaddr(&r).ok()?;
+    if p == [0u8; 20] { None } else { Some(p) }
 }
 
-/// ⭐ **THE PLANNER.** Direct pool if one exists; otherwise two hops through the USDC hub.
-/// `None` means *"no route I can express"* — the caller then sends `dex2 = 0` and the contract falls
-/// back to its own Curve hub hop, which is the ladder's keyless arm and must stay reachable.
-pub fn plan_route(token_in: LpAddr, token_out: LpAddr) -> Option<Plan> {
-    if token_in == token_out { return None; }
-    if let Some(p) = direct_pool(token_in, token_out) {
-        return Some(Plan { dex: v3_word(p), dex2: [0u8; 32] });
-    }
-    // Two hops: token_in → USDC → token_out. `dex2` carries the FIRST hop (see `Plan`).
-    let first  = direct_pool(token_in, USDC_ADDR)?;
-    let second = direct_pool(USDC_ADDR, token_out)?;
-    Some(Plan { dex: v3_word(second), dex2: v3_word(first) })
+/// Simulate one hop through `pool`. `None` = the tier has no pool, or it cannot fill this size.
+/// ⚠️ **`QuoterV2` is not `view` — it SIMULATES the swap and reverts internally to report.** That is
+///    fine over `eth_call` and is the standard way to price a V3 hop; it also means the number
+///    includes fee AND impact at the size asked, which is the whole reason a table cannot answer this.
+fn quote_hop<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256, fee: u32) -> Option<U256> {
+    let mut arg = Vec::with_capacity(160);
+    arg.extend_from_slice(&addr_word(tin));
+    arg.extend_from_slice(&addr_word(tout));
+    arg.extend_from_slice(&u256_word(amt));
+    arg.extend_from_slice(&u64_word(fee as u64));
+    arg.extend_from_slice(&[0u8; 32]);                      // sqrtPriceLimitX96 = 0 (no limit)
+    let r = eth_call_raw(rpc, Address::from_slice(&QUOTER_V2),
+        "quoteExactInputSingle((address,address,uint256,uint24,uint160))", Some(&arg)).ok()?;
+    if r.len() < 32 { return None; }
+    let out = U256::from_be_slice(&r[..32]);
+    if out.is_zero() { None } else { Some(out) }
 }
+
+/// Best DIRECT hop across every tier: `(pool, out)`. Searched, never assumed — the tier that wins at
+/// $50k is routinely not the tier that wins at $1M, because impact grows with depth-relative size.
+fn best_direct<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Option<(LpAddr, U256)> {
+    let mut best: Option<(LpAddr, U256)> = None;
+    for fee in FEE_TIERS {
+        let Some(pool) = pool_for(rpc, tin, tout, fee) else { continue };
+        let Some(out) = quote_hop(rpc, tin, tout, amt, fee) else { continue };
+        if best.is_none_or(|(_, b)| out > b) { best = Some((pool, out)); }
+    }
+    best
+}
+
+/// ⭐ **THE PLANNER: quote every shape we can execute, take the best.** Direct across all tiers, and
+///    two hops through the USDC hub across all tier pairs.
+/// 🔴 **A DIRECT POOL NO LONGER SHORT-CIRCUITS, AND THAT WAS A REAL COST.** `plan_route` returned the
+///    direct pool whenever one existed and never priced the alternative. **Measured at block 25919955,
+///    USDC→WETH at $1M: direct best `399.365` vs hub 2-hop `400.282` — ~23 bps left on the table**, on
+///    the exact pair a USDC-denominated venue uses. At $50k direct wins, so this is SIZE-DEPENDENT and
+///    cannot be fixed by reordering a table; it needs a quote.
+/// @return `None` when nothing quotes — the caller then leaves `dex2 = 0` and the contract uses its
+///         own `_hubRowOf` row, which is a correct default rather than a guess.
+fn best_plan<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Option<Plan> {
+    best_plan_quoted(rpc, tin, tout, amt).map(|(p, _)| p)
+}
+
+/// The same search, keeping the winning QUOTE. ⭐ Not a second implementation: `best_plan` is one
+/// `.map` over this. The quote already existed inside the search and was being discarded, so a caller
+/// that wants to check "is the chosen route at least as good as the direct one" needs no new work
+/// (standing rule 23 — the declaration returns something already computed).
+fn best_plan_quoted<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Option<(Plan, U256)> {
+    let mut best: Option<(Plan, U256)> = None;
+    if let Some((pool, out)) = best_direct(rpc, tin, tout, amt) {
+        best = Some((Plan { dex: v3_word(pool), dex2: [0u8; 32] }, out));
+    }
+    // Two hops through the hub. Skipped when either end IS the hub — that is the direct case.
+    if tin != USDC_ADDR && tout != USDC_ADDR {
+        if let Some((first, mid)) = best_direct(rpc, tin, USDC_ADDR, amt) {
+            if let Some((second, out)) = best_direct(rpc, USDC_ADDR, tout, mid) {
+                if best.is_none_or(|(_, b)| out > b) {
+                    // `dex2` is hop 1 (see `Plan`) — the crossing is deliberate and load-bearing.
+                    best = Some((Plan { dex: v3_word(second), dex2: v3_word(first) }, out));
+                }
+            }
+        }
+    }
+    best
+}
+
 
 /// §SESS-47 — **THIS LP'S VENUE STABLE. The one read that was missing.**
 ///
@@ -974,9 +1049,36 @@ fn venue_stable_of<R: JsonRpc, S: TxSigner>(
 fn plan_for_lp<R: JsonRpc, S: TxSigner>(
     evm: &JsonRpcEvmClient<R, S>, lm: Address, lp: LpAddr, volatile: LpAddr,
 ) -> Plan {
-    venue_stable_of(evm, lm, lp)
-        .and_then(|stable| plan_route(stable, volatile))
-        .unwrap_or(Plan { dex: dex_word(), dex2: [0u8; 32] })
+    let planned = venue_stable_of(evm, lm, lp).and_then(|stable| {
+        let amt = ranking_size(evm, lm, lp, stable)?;
+        best_plan(evm.rpc(), stable, volatile, amt)
+    });
+    planned.unwrap_or(Plan { dex: dex_word(), dex2: [0u8; 32] })
+}
+
+/// §SESS-49 — **THE SIZE TO RANK AT, IN THE STABLE'S OWN UNITS.**
+///
+/// ⭐ **THE AMOUNT IS NEEDED FOR THE DECISION, NOT FOR THE CALLDATA — WHICH IS WHY THIS IS SAFE TO
+///    APPROXIMATE AND WHY IT DOES NOT REOPEN THE STALENESS PROBLEM.** A pool WORD carries no amount;
+///    the contract sizes the trade itself from a borrow return it computes on-chain. So this number
+///    only has to be close enough to RANK two routes, and the ranking is flat over a wide band —
+///    measured, direct wins at $50k and the 2-hop wins at $1M, so an estimate anywhere inside an
+///    order of magnitude picks the same winner. **That is the whole reason route choice can be
+///    off-chain while route EXECUTION stays bounded on-chain.**
+/// ⚠️ `netEquityUsd` is 1e18-USD and stables are 6- or 18-dec, so the conversion is per-stable and
+///    read from the token — never inferred from a slot index, which is this repo's oldest decimal bug.
+fn ranking_size<R: JsonRpc, S: TxSigner>(
+    evm: &JsonRpcEvmClient<R, S>, lm: Address, lp: LpAddr, stable: LpAddr,
+) -> Option<U256> {
+    let eq = evm.eth_read(lm, "netEquityUsd(address)", Some(&addr_word(lp))).ok()?;
+    if eq.len() < 32 { return None; }
+    let usd18 = U256::from_be_slice(&eq[..32]);
+    if usd18.is_zero() { return None; }                 // nothing to size ⇒ nothing to rank
+    let d = evm.eth_read(Address::from_slice(&stable), "decimals()", None).ok()?;
+    if d.len() < 32 { return None; }
+    let dec: u32 = word_to_uint::<u64>(&d, "decimals").ok()?.try_into().ok()?;
+    if dec > 18 { return None; }
+    Some(usd18 / U256::from(10u64).pow(U256::from(18u32 - dec)))
 }
 
 fn hex_lit_pool() -> [u8; 20] {
@@ -1180,85 +1282,100 @@ mod tests {
 
     /// §SESS-25 — the planner emits a word whose PROTOCOL bits and ADDRESS are where the contract
     /// looks for them. `_aggSwap` reads `dex >> 253` and `uint160(dex)`; a word that packs either
-    /// elsewhere routes to a garbage pool that 1inch would fail on, which reads as a dead venue.
+    /// The word layout the contract decodes: pool in the low 160 bits, protocol = UniswapV3 at
+    /// bits 253-255. §SESS-49 deleted the pool TABLE, so this now tests `v3_word` directly — the
+    /// encoding survived; only where the pool comes from changed.
     #[test]
-    fn planner_word_layout_matches_what_the_contract_decodes() {
-        let p = plan_route(USDC_ADDR, WETH_ADDR).expect("USDC/WETH must plan");
-        assert_eq!(p.dex[0] >> 5, 1, "protocol id must be 1 (UniswapV3) at bits 253-255");
-        assert_eq!(&p.dex[12..], &P_USDC_WETH_005[..], "pool must sit in the low 160 bits");
-        assert_eq!(p.dex2, [0u8; 32], "a direct pair must be ONE hop");
+    fn word_layout_matches_what_the_contract_decodes() {
+        let pool: LpAddr = [0x88,0xe6,0xA0,0xc2,0xdD,0xD2,0x6F,0xEE,0xb6,0x4F,
+                            0x03,0x9a,0x2c,0x41,0x29,0x6F,0xcB,0x3f,0x56,0x40];
+        let w = v3_word(pool);
+        assert_eq!(&w[12..], &pool[..], "pool must sit in the low 160 bits");
+        assert_eq!(w[0] >> 5, 1, "protocol nibble must be UniswapV3 (1) at bits 253-255");
     }
 
-    /// ⭐ §SESS-25 — the two-hop the `dex2` plumbing exists for, and the FIELD ORDER that trips people.
-    /// `_stableToWethSor` passes `c.dex2` as the FIRST pool ("hub hop FIRST"), so `dex2` must carry
-    /// USDT/USDC and `dex` the USDC/WETH leg. Swapping them sends USDT at a pool that does not hold it.
-    #[test]
-    fn planner_two_hop_puts_the_hub_leg_in_dex2() {
-        let p = plan_route(USDT_ADDR, WETH_ADDR).expect("USDT->WETH must plan via the hub");
-        assert_eq!(&p.dex2[12..], &P_USDT_USDC_001[..], "dex2 must be the FIRST hop (USDT->USDC)");
-        assert_eq!(&p.dex[12..],  &P_USDC_WETH_005[..], "dex must be the SECOND hop (USDC->WETH)");
-    }
-
-    /// 🔴 §SESS-25 — **NO DIRECTION BIT.** `_aggSwap` derives `zeroForOne` from `tokenIn` and discards
-    /// whatever the keeper set. Emitting one would be dead data a reader could mistake for load-bearing,
-    /// and it would differ per direction for the SAME pool — the thing pool words exist to avoid.
+    /// 🔴 **THE KEEPER NAMES POOLS, NEVER DIRECTIONS.** `_aggSwap` derives `ZERO_FOR_ONE` from
+    /// `tokenIn`/`tokenOut` and DISCARDS whatever the keeper set, so one word must serve a lever-up
+    /// and the de-lever that unwinds it. A word that carried a direction would let the two disagree.
     #[test]
     fn planner_never_sets_the_direction_bit() {
-        let fwd = plan_route(USDC_ADDR, WETH_ADDR).unwrap();
-        let rev = plan_route(WETH_ADDR, USDC_ADDR).unwrap();
-        assert_eq!(fwd.dex, rev.dex, "the SAME pool word must serve both directions");
-        // bit 247 lives in byte 31 - (247/8) = byte 0 ... it is byte index 1, mask 0x80.
-        assert_eq!(fwd.dex[1] & 0x80, 0, "ZERO_FOR_ONE must not be set by the planner");
+        let pool: LpAddr = [0x11; 20];
+        let w = v3_word(pool);
+        assert_eq!(w[1] & 0x80, 0, "bit 247 (ZERO_FOR_ONE) must be left clear for the contract");
     }
 
-    /// 🔴 §SESS-25 — an unknown pair returns None rather than a WRONG pool. That is the whole reason
-    /// this replaces `dex_word()`, which returned the WETH/USDC word for every pair and so needed a
-    /// hand-written `dex_word_wbtc()` twin to avoid sending a token the pool does not hold.
-    #[test]
-    fn planner_returns_none_rather_than_a_wrong_pool() {
-        let unknown: LpAddr = [0xAB; 20];
-        assert!(plan_route(unknown, WETH_ADDR).is_none(), "unknown pair must not resolve");
-        assert!(plan_route(WETH_ADDR, unknown).is_none(), "unknown pair must not resolve");
-        assert!(plan_route(WETH_ADDR, WETH_ADDR).is_none(), "identity is not a route");
-        // and the pair the old single word would have mis-served:
-        let wbtc = plan_route(USDC_ADDR, WBTC_ADDR).expect("USDC/WBTC must plan");
-        assert_ne!(&wbtc.dex[12..], &P_USDC_WETH_005[..],
-            "USDC/WBTC resolved to the WETH pool - exactly the bug dex_word_wbtc existed to dodge");
+    /// ⭐ §SESS-49 — **AGAINST MAINNET, NOT A MOCK.** CLAUDE.md standing rule 5 is *"don't mock, use
+    ///    real addresses"*, and a mocked quoter would assert only that my own canned numbers compare
+    ///    correctly — it could not catch a wrong factory address, a wrong `getPool` signature, a wrong
+    ///    tuple encoding, or a QuoterV2 that reverts on the tier we ask for. **Every one of those is a
+    ///    way this feature fails in production, and none of them is reachable from a fixture.**
+    /// ⚠️ Skips (loudly) when no endpoint is configured, so the suite still runs offline. A skip is
+    ///    announced rather than silent, because a quiet skip is indistinguishable from a pass.
+    fn live_rpc() -> Option<crate::transport::HttpJsonRpc> {
+        let url = std::env::var("ETH_RPC_URL").or_else(|_| std::env::var("ANKR_RPC_URL")).ok()?;
+        if url.is_empty() { return None; }
+        Some(crate::transport::HttpJsonRpc::new(url))
     }
 
-    /// §SESS-47 — 🔴 **THE REGRESSION WAS THAT NOBODY CONSUMED `plan_route`, SO PIN THE CONSUMPTION,
-    /// NOT THE PLANNER.** Every planner test above passed for months while all three send sites wrote
-    /// `dex2 = 0` — a green planner is exactly what a discarded plan produces, which is the
-    /// built-but-unwired shape `check-orphans.py` catches on the Solidity side and nothing catches here.
+    /// 🔴 **THE CLAIM THE DELETED TABLE COULD NOT MAKE: FOURTEEN STABLES, NOT TWO.**
     ///
-    /// Two properties:
-    ///   1. **a stable the venue can borrow must yield a NON-ZERO hub word** — `dex2 == 0` is the
-    ///      value that hands the hub leg back to the contract's own `_hubHop` table and, on that
-    ///      arm, bypasses `routedSwap` (and therefore `route`) entirely;
-    ///   2. **an unplannable stable must degrade to today's EXACT bytes**, so a failed `stable()` read
-    ///      or an unlisted venue changes nothing rather than naming a pool we did not verify.
-    /// ⚠️ Asserts the fallback against `dex_word()` itself rather than a literal, so an operator's
-    ///    `QUID_LEV_DEX_WORD` override cannot make this test disagree with the code it guards.
+    /// `direct_pool` was a four-entry table and could plan exactly **USDT and DAI** of the basket's
+    /// **fourteen** (`DeployL1_s:240-250`). Asking the factory covers whatever exists, including
+    /// tokens nobody has written down. ⚠️ **This asserts COVERAGE, not a price** — how many bps a
+    /// route costs is market state and belongs in a log, per §POINT-IN-TIME-IS-NOT-AN-INVARIANT.
     #[test]
-    fn planned_hub_word_is_non_zero_and_the_fallback_is_byte_identical_to_the_old_call() {
-        for (name, stable) in [("USDT", USDT_ADDR), ("DAI", DAI_ADDR)] {
-            let p = plan_route(stable, WETH_ADDR)
-                .unwrap_or_else(|| panic!("{name} must plan: it is why the lever could not borrow it"));
-            assert_ne!(p.dex2, [0u8; 32],
-                "{name} planned a ZERO hub word - that is the value that falls back to _routeOf");
-            assert_ne!(p.dex, [0u8; 32], "{name} planned no volatile hop");
+    fn best_plan_finds_routes_the_deleted_table_never_could() {
+        let Some(rpc) = live_rpc() else {
+            println!("SKIP best_plan_finds_routes: no ETH_RPC_URL/ANKR_RPC_URL"); return;
+        };
+        // Stables the old table had NO entry for. USDC is the hub and is excluded by construction.
+        let cases: [(&str, LpAddr); 4] = [
+            ("USDT",   USDT_ADDR),
+            ("DAI",    DAI_ADDR),
+            ("GHO",    [0x40,0xD1,0x6F,0xC0,0x24,0x6a,0xD3,0x16,0x0C,0xcc,
+                        0x09,0xB8,0xD0,0xD3,0xA2,0xcD,0x28,0xaE,0x6C,0x2f]),
+            ("USDe",   [0x4c,0x9E,0xDD,0x58,0x52,0xcd,0x90,0x5f,0x08,0x6C,
+                        0x75,0x9E,0x8B,0xC9,0x8B,0x32,0x5b,0x86,0x6D,0xf3]),
+        ];
+        let amt = U256::from(100_000u64) * U256::from(1_000_000u64);   // $100k, 6-dec
+        let mut planned = 0;
+        for (name, stable) in cases {
+            match best_plan(&rpc, stable, WETH_ADDR, amt) {
+                Some(p) => {
+                    planned += 1;
+                    assert_ne!(p.dex, [0u8; 32], "{name}: planned a ZERO volatile hop");
+                    println!("{name} -> WETH planned, two-hop={}", p.dex2 != [0u8; 32]);
+                }
+                None => println!("{name} -> WETH: no route quoted at this block"),
+            }
         }
-        // USDC is the hub, so a zero `dex2` is CORRECT for it and must not be read as the defect:
-        // `_hubHop` returns `amt` unchanged when `stable == USDC`.
-        let usdc = plan_route(USDC_ADDR, WETH_ADDR).expect("USDC must plan");
-        assert_eq!(usdc.dex2, [0u8; 32], "USDC is the hub; a second hop would be a pool we do not need");
+        assert!(planned >= 3, "discovery planned only {planned}/4 - the table planned 2/14, so \
+                               anything at or below that is not an improvement");
+    }
 
-        // Property 2 — the degrade path `plan_for_lp` takes when the venue/stable cannot be resolved.
-        let unplannable: LpAddr = [0xAB; 20];
-        assert!(plan_route(unplannable, WETH_ADDR).is_none());
-        let fallback = Plan { dex: dex_word(), dex2: [0u8; 32] };
-        assert_eq!(fallback.dex, dex_word(), "degrade must reuse the live venue word, not a literal");
-        assert_eq!(fallback.dex2, [0u8; 32], "degrade must leave the hub word zero = legacy Curve arm");
+    /// ⭐ **THE §SESS-49 PROPERTY ITSELF: the chosen plan must never quote worse than the best DIRECT
+    ///    pool.** That is exactly the regression the old planner had — it returned the direct pool
+    ///    whenever one existed and never priced the hub route, leaving ~23 bps at $1M on USDC→WETH.
+    /// ⚠️ **NOT "the two-hop always wins" — that is false and block-dependent** (at $50k direct wins).
+    ///    The invariant is that taking the max cannot be worse than one of its arguments, which is a
+    ///    SHAPE and holds at every block. A planner that preferred the 2-hop unconditionally, or one
+    ///    that short-circuited on direct, both fail this.
+    #[test]
+    fn best_plan_is_never_worse_than_the_best_direct_pool() {
+        let Some(rpc) = live_rpc() else {
+            println!("SKIP best_plan_is_never_worse: no ETH_RPC_URL/ANKR_RPC_URL"); return;
+        };
+        let amt = U256::from(1_000_000u64) * U256::from(1_000_000u64);  // $1m, 6-dec — where it bit
+        let Some((_, direct_out)) = best_direct(&rpc, USDC_ADDR, WETH_ADDR, amt) else {
+            println!("SKIP: no direct USDC/WETH quote at this block"); return;
+        };
+        let p = best_plan(&rpc, USDC_ADDR, WETH_ADDR, amt).expect("a route must exist for USDC/WETH");
+        let (p2, chosen) = best_plan_quoted(&rpc, USDC_ADDR, WETH_ADDR, amt)
+            .expect("the chosen plan must re-quote");
+        assert_eq!(p2.dex, p.dex, "the two entrypoints must agree on the plan");
+        println!("direct {direct_out} vs chosen {chosen} (two-hop={})", p.dex2 != [0u8; 32]);
+        assert!(chosen >= direct_out,
+            "the planner chose a route quoting WORSE than the best direct pool: {chosen} < {direct_out}");
     }
 
     /// §SESS-21 — the SAME encoder now serves `cascadeDelever`, so its selector gets its own pin.
