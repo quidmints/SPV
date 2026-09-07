@@ -90,11 +90,13 @@ library QuidLib {
     //  ETH deposit placement (body of Quid._depositETH). DELEGATECALL'd:
     //  msg.value/address(this) are Quid's, so the WETH wrap + the ether.fi
     //  placement leave from Quid. NO storage refs and NO per-LP attribution:
-    //  this writes no state, and `pledge` is not recorded anywhere.
+    //  this writes no state, and it takes no LP identity — the caller keeps
+    //  every per-LP effect. ⛔ Do not re-add a `pledge`/LP parameter here: one
+    //  existed, was read into a local, discarded, and recorded nowhere.
     // ════════════════════════════════════════════════════════════════════
     function depositETH(
         address weth, address aux, address ev,
-        address sender, address pledge, uint amount
+        address sender, uint amount
     ) public returns (uint sent) {
         if (msg.value > 0) {
             IWETH9(weth).deposit{value: msg.value}();
@@ -111,10 +113,8 @@ library QuidLib {
             // ONE DESTINATION: every ETH deposit becomes weETH. No venue choice, no default, no dispatch.
             uint toDeposit = IWETH9(weth).balanceOf(address(this));
             IWETH9(weth).approve(aux, toDeposit);
-            bool attrib = pledge != address(0);
             uint placed = _supplyEtherFi(ev, toDeposit);
             if (placed == 0) revert VenueUnavailable();   // chosen venue placed nothing ⇒ paused/unwired ⇒ NO fallback
-            attrib;
         }
     }
 

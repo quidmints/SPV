@@ -52983,6 +52983,42 @@ FOLDED citation is still stale** — the one bucket that is actionable. Per this
 with a binary result beats a disposition; and per the tooling-traps rule it fails loudly, exiting with
 a FATAL if the tree walk returns zero `.md` files rather than reporting a clean run.
 
+# 🧹 §DEAD-PLEDGE-PARAM — **RULE 23 APPLIED TO CODE: A PARAMETER THREADED THROUGH TWO FUNCTIONS TO BE DISCARDED (2026-09-07)**
+
+**First no-op removal of the sweep, and it is the shape rule 23 describes exactly** (*"a declaration
+that deletes nothing is a declaration on trial"*).
+
+`QuidLib.depositETH` took `address pledge` and its ONLY use was:
+```solidity
+bool attrib = pledge != address(0);   // computed
+…
+attrib;                               // and discarded, to silence the unused warning
+```
+⇒ **a local that exists to consume a parameter that exists to be consumed.** `Quid._depositETH` is
+`internal` and did nothing but forward it. **Removed from both, plus the call site.**
+
+✅ **ANGLES CHECKED BEFORE CUTTING, because `pledge` is NOT dead everywhere:**
+- **It is load-bearing in `Quid`** — `autoManaged[pledge]`, `lastDepositBlock[pledge]`,
+  `_settlePending(LP, pledge, …)`, `_refreshBookmarks(pledge, …)`, `_modLpEth(…, pledge)`. **Only the
+  `QuidLib.depositETH` leg discarded it.** Cutting the parameter at the top would have been wrong.
+- **No interface declaration** — `depositETH` is absent from `Interfaces.sol`, so the change is
+  confined and needs no §COMPILE-COUPLING announcement.
+- **Not client-facing** — the two SPA/app hits name `Aux._depositETH`, a different symbol, in comments.
+- **`git log -S`** shows no deliberate-marker history (`f825a6e4` is a comment pass).
+
+📌 **AND IT WAS MASKING A FALSE COMMENT, which is why the no-op mattered.** `Quid.sol:1046` read
+*"venue attribution happens inside `_depositETH`"*. **It does not and cannot** — there is ONE
+destination (every ETH deposit becomes weETH), and the only thing resembling attribution was the
+discarded local. **Rewritten to say why there is nothing to attribute.** ⇒ *a no-op is not inert: it
+had a comment describing what it would have done, and that comment read as behaviour.*
+
+⛔ **A `⛔ do not re-add` constraint now sits at the declaration**, because the next reader seeing an
+LP-less deposit helper will want to thread the LP back in.
+
+⚠️ **NOT BUILT — this is a real code change made under the no-build sweep and it is the one to look at
+first in the single end run.** Two signature changes (`QuidLib.depositETH`, `Quid._depositETH`), both
+`internal`/library-local, one call site.
+
 # 🌡️ §SKEW-CLUSTER-IS-ONE-DECISION — **51 OPEN ROWS. 44 OF THEM HANG ON THE FLOW-VS-STOCK RULING (2026-09-07)**
 
 **Counted after the owner flagged the skew work.** `§SEQ-AUDIT` markers mentioning skew, σ², variance,

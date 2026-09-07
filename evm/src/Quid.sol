@@ -1033,7 +1033,7 @@ contract Quid is Shares,
 
         // _depositETH pulls WETH from msg.sender (payer), routes it to the
         // per-deposit chosen venue, and attributes the slice (hard-wall)...
-        amount = _depositETH(msg.sender, pledge, amount);
+        amount = _depositETH(msg.sender, amount);
 
         // Guard: if nothing was pulled, no bookmark update is needed.
         // Without this early-return, _settlePending would compound pending
@@ -1043,9 +1043,10 @@ contract Quid is Shares,
         // since the bookmark would lag pooled by exactly that delta.
         // (BTC side gets the same guard in the channel-lock LP path.)
         if (amount == 0) return;
-        // (venue attribution happens inside _depositETH, consistent with where
-        // the WETH was actually placed. The yield bookmark is reset to the
-        // REALIZED aggregate venue balance at the end of this function — see note.)
+        // (No per-venue attribution happens: there is ONE destination — every ETH
+        // deposit becomes weETH — so there is nothing to attribute between venues.
+        // The yield bookmark is reset to the REALIZED aggregate venue balance at the
+        // end of this function — see note.)
 
         // _rebalance (above) already accrued CORE fees + venue yield into
         // feesPerShare/USD_FEES, and neither _settlePending nor addLiq writes them
@@ -1350,10 +1351,10 @@ contract Quid is Shares,
     /// @dev Thin forwarder: the venue-routing body lives in QuidLib (EIP-170
     ///      headroom). Delegatecall preserves msg.value/address(this), so the WETH
     ///      wrap + venue placement + per-LP wall attribution behave identically.
-    function _depositETH(address sender, address pledge,
+    function _depositETH(address sender,
         uint amount) internal returns (uint sent) {
         return QuidLib.depositETH(address(WETH), address(AUX), address(this),
-            sender, pledge, amount);
+            sender, amount);
     }
 
 
