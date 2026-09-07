@@ -68,14 +68,14 @@ library DeployLib {
         address wbtc;
         address gho;
         address usdg;
-        // §DEAD-FIELDS — the other ten stables and every source vault reach the deploy through
-        // `stables`/`vaults` below, which are POSITIONALLY PAIRED (index i of one is the venue for
-        // index i of the other). Naming a handful of them a second time here duplicated the array
-        // and nothing read the copies.
         // ── AAVE ETH ──
         address aaveSpoke;
         address aaveHub;
-        // ── basket set (order load-bearing: BOLD LAST) ──
+        // ── basket set ──
+        // 🔴 POSITIONALLY PAIRED AND ORDER IS LOAD-BEARING: `vaults[i]` is the venue for
+        //    `stables[i]`, and BOLD MUST BE LAST (Aux routes the final slot through the Liquity SP).
+        //    Every stable and every source vault reaches the deploy through these two arrays and
+        //    nowhere else, so an insertion re-points every venue after it.
         address[] stables;
         address[] vaults;
         // ── native BTC channel infra ──

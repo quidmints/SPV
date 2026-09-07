@@ -97680,3 +97680,67 @@ understatement straddling the bound. Under-stating commitment makes the gate MOR
 direction is unfavourable; whether any reachable state crosses the bound is a separate question and
 is NOT claimed here. ▶️ That is the next measurement, and it is now a bounded one: drive basket TVL
 down (or commitment up) until `haircutTvl` falls between the two figures above.
+
+## §NO-VBTC-MORPHO-MARKET-2026-09-07 — ⛔ STANDING RULING, CLOSED BY DELETION
+
+**Owner, 2026-09-07:** *"idk if IL protect should be doable by using our lightning bitcoin as
+collateral to borrow dollars and sell dollars for more lightning bitcoin because this is toxic.
+remove entirely creation of morpho market for our lightning bitcoin. remove all mention of euler"*
+— then, when asked whether the historical records should stand: ***"remove it all."***
+
+✅ **DONE, `3440c742`.** `DeployL1_s` no longer creates a vBTC market at all: the `mvB` / `vbOracle`
+/ `MarketParams mpB` (`collateralToken: ETH.VBTC()`) / `createMarket(mpB)` / `MorphoEscrowVenue`
+block is deleted, `vsB` went 2 → 1 (`wbtcV` only), and a ⛔ ruling comment sits where it was so a
+future editor cannot re-add it as an oversight. Euler is gone from `evm/src` (20 sites), the deploy
+script, `LevVenueBase`, the three Rust keeper files and six test files.
+⭐ **AND THE DELETION FOUND DEAD CODE THE GREP ALONE WOULD NOT HAVE:** `LevYbReal.t.sol` still
+carried `RealRateEulerOracle`, `ZeroRateIRM`, `IVault4626T`, `IGenericFactory`, `IEVaultGov`,
+`IEVCLiq`, `IEVaultLiq` and `IWeethSubId` — **every one occurring exactly once, at its own
+declaration.** They survived the 2026-08-13 Euler removal because a tombstone comment NAMED them,
+which is rule 19's *"a stale answers the question"* keeping a corpse warm.
+⚠️ **WHAT IS NOT EULER AND MUST NOT BE SWEPT:** `SmartWalletLp.t.sol:127` (Euler's criterion, a
+quadratic-residue test) and ~15 sites in `svm/…/backtest.rs` (Euler's homogeneous-function theorem,
+the capital allocation). Both are the mathematician. A future `grep -i euler` returns them; they stay.
+
+## §DEAD-FIELDS-2026-09-07 — the sweep, and the four classes that are NOT dead
+
+**Owner:** *"remove all dead fields everywhere"*. Every struct in `evm/src`/`script`/`test` was
+crossed against a `.field` read table built over the Solidity, Rust, TypeScript and Python trees.
+
+✅ **REMOVED (`3661836e`):** eleven `StackConfig` fields (`usdc/usdt/dai/usde/usds`, the three
+`morpho*Vault`s, `sdai`, `susde`, `hopOperator`) — `deployQuidStack` reads NONE of them and every
+one already arrives through `stables`/`vaults`; `BtcLib.ResizeOut.owed`, whose own docblock said
+*"inert: no body writes it and no caller reads it"*; and all four fields of `SwapLib.Quote`, the
+last artifact of the `quoteFill`/`quoteDrain` surface `9bf33b9f` deleted by decision.
+
+🔴 **THE FOUR KEEP CLASSES, because "unread" is not "dead" and three of them look identical to a grep:**
+1. **AN EXTERNAL-ABI MIRROR** — Aave `CalcRatesParams`, Morpho `Market`, the Uniswap quoter params,
+   CreateX `Values`. An unread field still holds a **wire position**; deleting one shifts the encode.
+2. **A POSITIONAL `abi.decode` SLOT** — `BtcSelfManaged.Bundle.paymentHash` is index 15 of a payload
+   the Rust harness produces. Same mechanism, different direction.
+3. **THE SUBSTANCE OF A PUBLIC VIEW** — `ISPVGateway.BlockInfo.mainBlockData` has no in-repo reader,
+   and `getBlockInfo` would return only cumulative work without it. Off-chain SPV clients are not in
+   this repo, which is rule 19's *"external entry points' callers are not here and never will be"*.
+4. **GENERATED CODE** — `evm/src/identity/**` Honk verifiers. Not hand-written, and identity is deferred.
+
+⚠️ **THE DETECTOR'S LIMIT, STATED SO THE NEXT SWEEP DOES NOT RE-TRUST IT:** it matches on field
+NAME, so a field sharing a name with any other member anywhere reads as live. **This pass is SOUND
+(no false deletions) and NOT EXHAUSTIVE.** A name-collision-proof version needs type resolution.
+
+## §POSITIONAL-PIN-ROT — a removal two arrays away broke a fixture, and the count assertion caught it
+
+🔴 **`VaultDonationClassify.t.sol` had `funders[13] = MORPHO_BLUE`, an INDEX onto `vs`.** Removing
+`eulerUsdc`/`eulerUsdt` shifted `morphoAusd` from 13 to 11, so the funder landed on sDAI; aUSD is
+ERC-7201 namespaced storage where `deal` cannot find the balance slot, its probe reverted, and the
+sweep reported *"every basket 4626 leg must be classifiable: 14 != 15"*.
+⭐ **THE SHAPE TO SWEEP FOR: A LITERAL INDEX INTO AN ARRAY DECLARED ELSEWHERE.** It compiles, it
+reads as deliberate, and it rots the moment anything is inserted or removed above it — and the
+edit that breaks it is not in the same file, so no reviewer of that edit sees it.
+✅ **FIXED (`f73c958a`) BY DELETING THE COUPLING, NOT BY CORRECTING THE INDEX:** the whole
+`address[N] memory funders` array is gone and the funder is derived per venue from the address
+(`vs[i] == morphoAusd ? MORPHO_BLUE : address(0)`). Rule 17 — the bad state is now unconstructible
+rather than merely detectable.
+▶️ **STILL OPEN:** `DeployL1_s`'s `STABLECOINS`/`VAULTS` are the same shape at production scale
+(index i of one is the venue for index i of the other, BOLD pinned last, `uint[15]` layout exactly
+full at 14 stables). The invariant is now stated at `DeployLib.StackConfig`; **no assertion enforces
+it.** A deploy-time `require(stables.length == vaults.length)` is one line and is NOT yet written.
