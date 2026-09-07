@@ -418,7 +418,7 @@ contract OorIntentTest is AllesFixture {
     /// onto shared backing). Only `Vault` routes a shortfall anywhere, and it routes to the hop.
     /// ⇒ **The maker signs a consent that changes nothing on ETH**, while the field is load-bearing
     ///    for SIGNATURE VALIDITY — flip it and the digest, and therefore the signature, is different.
-    /// 📌 **AND 1inch IS NOT ON THIS PATH AT ALL.** `ONEINCH_ROUTER`/`_aggSwap` appear only in
+    /// 📌 **AND 1inch IS NOT ON THIS PATH AT ALL.** `ONEINCH_ROUTER`/`routedSwap` appear only in
     ///    `LevMath.sol` (the levered unwind). Nothing `settleOor` reaches touches an aggregator.
     ///    Asserted here so a future reader does not go looking for routing that was never wired.
     function test_LoadBalanceConsentIsInertOnTheEthRange() public {

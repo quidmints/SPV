@@ -26,7 +26,7 @@ contract AggSwapTwoHopTest is Test {
     function setUp() public { vm.createSelectFork(vm.envString("ETH_RPC_URL")); }
 
     /// Pool word: low 160 bits the pool, protocol in 253-255. The direction bit is deliberately left
-    /// UNSET — `_aggSwap` must derive it, and if it did not this swap would cross the pool backwards.
+    /// UNSET — `routedSwap` must derive it, and if it did not this swap would cross the pool backwards.
     function _word(address pool) internal pure returns (uint256) {
         return uint256(uint160(pool)) | (uint256(PROTO_UNIV3) << 253);
     }
@@ -53,7 +53,7 @@ contract AggSwapTwoHopTest is Test {
         //    and $1M, and LOSES on USDC→WETH at $1M. **Neither route wins by class**, which is exactly
         //    why §SESS-49 made the planner QUOTE both instead of preferring one.
         // ⛔ **AND SUPERIORITY WAS NEVER THE PROPERTY THIS TEST GUARDS.** What can actually break here
-        //    is `_aggSwap` deriving a direction bit wrongly or naming a pool that does not hold the
+        //    is `routedSwap` deriving a direction bit wrongly or naming a pool that does not hold the
         //    token — and that produces a CATASTROPHIC difference, not a five-basis-point one. A 5 bps
         //    gap does not mean the routing is broken; a 90% gap does. §VACUOUS-BOUNDS' discriminator
         //    is whether the extreme value MEANS the thing the message says, and here it did not.
@@ -70,7 +70,7 @@ contract AggSwapTwoHopTest is Test {
     }
 
     /// The direction bit is DERIVED, never trusted: passing it set the WRONG way must not corrupt the
-    /// swap, because `_aggSwap` clears it and recomputes from tokenIn / tokenOut.
+    /// swap, because `routedSwap` clears it and recomputes from tokenIn / tokenOut.
     function test_ADeliberatelyWrongDirectionBitIsIgnored() public {
         uint256 amt = 100_000e6;
         // ⚠️ THE SNAPSHOT IS LOAD-BEARING, AND WITHOUT IT THIS TEST FAILS FOR A REASON THAT IS NOT THE

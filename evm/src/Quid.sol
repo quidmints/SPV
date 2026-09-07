@@ -38,13 +38,10 @@ import {Aux} from "./Aux.sol";
 contract Quid is Shares,
     Ownable {
     error WrongQuid();
-    error Dust();
     error NoPosition();
     error InsufficientBalance();
     error AllowanceFlow();
     error ZeroTwap();
-    error NotOwner();
-    error BadPercent();
 
     // ════════════════════════════════════════════════════════════════════════════════════════
     //  §E347b — THE REENTRANCY GUARD IS DECLARED HERE, NOT INHERITED, FOR ONE REASON: SOLMATE'S

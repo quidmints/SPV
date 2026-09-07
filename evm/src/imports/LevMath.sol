@@ -36,8 +36,8 @@ import {IMorphoBase as IMorphoFlash} from "../imports/Interfaces.sol";
 ///         funcs run in the MANAGER's context (`address(this)`==manager); immutables the manager owns (AUX/volatile)
 ///         come in via the cfg structs. Routing is SPLIT BY LEG TYPE and no longer "all Curve":
 ///         the STABLE hops (stable↔USDC) are Curve stableswap, and every VOLATILE hop
-///         (USDC↔WETH, USDC↔WBTC) goes through `_aggSwap` against the pinned 1inch router.
-///         §V-R1-MIN's keeper discipline survives the aggregator: `_aggSwap` takes a POOL WORD, so
+///         (USDC↔WETH, USDC↔WBTC) goes through `routedSwap` against the pinned 1inch router.
+///         §V-R1-MIN's keeper discipline survives the aggregator: `routedSwap` takes a POOL WORD, so
 ///         the keeper names a VENUE and never a rate — the amount, the floor and the callee are ours.
 ///         The USDC<->volatile Curve leg is GONE from this file — only weETH→WETH (`ETHERFI_CURVE_POOL`) remains
 ///         Curve-on-a-volatile-pair, and that is a dedicated LST pool, not a router.
@@ -452,7 +452,6 @@ library LevMath {
     /// §SESS-22 — a route CONSUMED an input leg and delivered NOTHING to `outToken`.
     error RouteTookAndGaveNothing();
     error BadRoute();   // §SESS-65 — a supplied route whose selector or length we do not recognise
-    error NoVolatileRoute();
     error NotNearLiq();
     error NoDebt();
     /// Protect only a position within PROTECT_MARGIN_BPS (LTV) of its venue liquidation threshold — anti-grief
@@ -559,7 +558,7 @@ library LevMath {
     /// in `SellCtx` because that struct is already threaded `_sellAndPay → sellColl → sellWeeth →
     /// _wethToStableDex`: one memory pointer, so it costs no extra stack in a no-via_ir build.
     /// EMPTY means "no route supplied": `routedSwap` then encodes the keeper's POOL WORDS through
-    /// `_aggSwap` instead, against the same floor — see `_wethToStableDex`.
+    /// `routedSwap` instead, against the same floor — see `_wethToStableDex`.
     struct SellCtx { address weth; address weeth; address aux; address keeper; uint256 reserveIn; uint256 dex; uint256 dex2; bytes route; }
 
     /// @notice Sell `pulled` collateral → `stable` at the anti-MEV oracle floor, peeling the keeper's gas (native ETH)
@@ -621,7 +620,7 @@ library LevMath {
     ///         (Fluid, Balancer, Maverick, the `lite-psm`/`dai-usds` par converters, SPLIT routes).
     ///         **The deletion was correct on the information available and is reversed by new
     ///         information, not by a change of mind — recovered from `c3f98ff8` rather than rewritten.**
-    /// @dev 🔴 **THE POOL-WORD PATH (`_aggSwap`) MUST SURVIVE AS A FALLBACK, AND THAT IS NOT
+    /// @dev 🔴 **THE POOL-WORD PATH (`routedSwap`) MUST SURVIVE AS A FALLBACK, AND THAT IS NOT
     ///      CONSERVATISM.** A key makes route-building depend on 1inch's API being *up and not
     ///      rate-limiting*, on a path that is PERMISSIONLESS and whose whole purpose is to fire when
     ///      positions are stressed. An outage would mean signed orders and levered positions silently
@@ -647,7 +646,7 @@ library LevMath {
     ///      what gives the split across venues that do not compete for the same liquidity, and a
     ///      pro-rata bundle supplies that spread **by construction** with nobody choosing it
     ///      (§PRO-RATA-IN-ONE-TOKEN-OUT).
-    /// @dev 🔒 **THE SECURITY MODEL IS UNCHANGED FROM `_aggSwap`, AND THAT IS THE POINT — the caller
+    /// @dev 🔒 **THE SECURITY MODEL IS UNCHANGED FROM `routedSwap`, AND THAT IS THE POINT — the caller
     ///      proposes a path, the contract verifies an OUTCOME:**
     ///        1. the callee is the PINNED router; a route naming anything else cannot be reached;
     ///        2. each approval is EXACT and ZEROED on both paths, so a failed leg leaves no standing
@@ -730,7 +729,7 @@ library LevMath {
     ///    `dstReceiver` and a nested struct, so its amount is NOT at a fixed offset and its payout
     ///    target is caller-chosen — the exact shape `RouteTookAndGaveNothing` exists to catch. It
     ///    cannot be made safe by patching, so it is not admitted at all.
-    /// ⚠️ **EMPTY IS LEGAL AND MEANS "NO SUPPLIED ROUTE"** — `_aggSwap` encodes one from pool words
+    /// ⚠️ **EMPTY IS LEGAL AND MEANS "NO SUPPLIED ROUTE"** — `routedSwap` encodes one from pool words
     ///    instead. Both arms end in the same executor and the same floor.
     /// 📌 Memory layout: `route` data begins at `route + 0x20`; the 4-byte selector sits there, so
     ///    word 0 (`token`) is at `+0x24`, word 1 (`amount`) at `+0x44`, word 2 (`minReturn`) at `+0x64`.
@@ -756,7 +755,7 @@ library LevMath {
                 mstore(add(route, 0x44), amountIn)             // word 1 — how much, computed on-chain
                 mstore(add(route, 0x64), 0)                    // word 2 — the aggregate floor decides
             }
-            // ⭐ §SESS-84 — **DERIVE THE DIRECTION BITS HERE, FOR BOTH ARMS.** This was `_aggSwap`'s
+            // ⭐ §SESS-84 — **DERIVE THE DIRECTION BITS HERE, FOR BOTH ARMS.** This was `routedSwap`'s
             //    real job — *"the keeper names a POOL; which way we cross it is a fact about
             //    `tokenIn`, which this frame owns … removes the last thing a keeper could get
             //    wrong"* — and it is the half that had to STAY when the encoder left. Whatever bit
@@ -842,7 +841,7 @@ library LevMath {
             _retarget(routes[k], inTokens[k], outToken, amt);
             // 🔴 **`forceApprove`, NOT `approve` — AND THIS WAS A LATENT BUG, NOT A NEW NEED.**
             //    `IERC20Min.approve` declares `returns (bool)`, and **USDT RETURNS NOTHING**, so the
-            //    ABI decoder reverts on empty returndata. `_aggSwap` has always called it this way,
+            //    ABI decoder reverts on empty returndata. `routedSwap` has always called it this way,
             //    which means **USDT could never have been `tokenIn` on the lever path** — a stable
             //    with $252M borrowable on Aave v3 and a 1.7 bps 3pool route. Found by executing a
             //    real USDT route, not by review.
@@ -870,7 +869,7 @@ library LevMath {
             //    ⇒ The skip still earns its place, on the honest argument: with M inputs, one
             //    unlucky leg should not void a conversion the other legs completed, and `minOut` on
             //    the TOTAL is the bound that matters. **The 1-input case is unchanged** — a failed
-            //    single leg yields `got == 0`, below any non-zero floor, so `_aggSwap` reverts
+            //    single leg yields `got == 0`, below any non-zero floor, so `routedSwap` reverts
             //    exactly as it always did.
             if (!ok) continue;
             // 🔴 **§SESS-22 — A LEG THAT TOOK OUR TOKENS MUST HAVE GIVEN US TOKENS.**
@@ -881,7 +880,7 @@ library LevMath {
             //    the floor's own slack walks out per call, and `convertShortfall` runs ONE LEG PER
             //    STABLE, which is precisely a supply of small legs to divert.
             //    ⇒ `spent > 0 ⇒ delivered > 0` per leg makes that **UNCONSTRUCTIBLE** (standing rule 17)
-            //    rather than bounded — the same move `_aggSwap` made against staleness: do not guard the
+            //    rather than bounded — the same move `routedSwap` made against staleness: do not guard the
             //    bad outcome, remove the shape that produces it. **This is what lets the calldata arm
             //    reach ANY venue safely**, which is the whole point of the ladder.
             //    ⚠️ **A REVERT, NOT A `continue`.** The `continue` above is for legs that FAILED, which
@@ -1083,7 +1082,7 @@ library LevMath {
         //    invisible had the other not sent every non-USDC stable through here. Per standing rule 13
         //    a dismissal is a conclusion — so note that this fix is kept on its OWN merits (`_hubHop`
         //    runs EVERY hub hop through this body), not as the USDT fix.
-        // ⭐ **MEASURE THE DELTA INSTEAD — the discipline `_aggSwap` already states:** *"`minOut` IS
+        // ⭐ **MEASURE THE DELTA INSTEAD — the discipline `routedSwap` already states:** *"`minOut` IS
         //    ENFORCED ON THE BALANCE DELTA, NEVER ON THE ROUTER'S RETURN VALUE … a hostile or merely
         //    mis-encoded pool cannot fake our own balance."* The same argument applies to a pool.
         // ✅ **AND IT CLOSES §SESS-2's SECOND HAZARD IN THE SAME CHANGE:** the approval was zeroed only
@@ -1152,7 +1151,7 @@ library LevMath {
     ///      removes both legs by itself.
     /// @dev Borrowed stable → WETH. Two hops, because the deep dollar markets are RLUSD/PYUSD
     ///      while the volatile book is reached through the aggregator:
-    ///          stable →(Curve stableswap, int128)→ USDC →(1inch, `_aggSwap`)→ WETH
+    ///          stable →(Curve stableswap, int128)→ USDC →(1inch, `routedSwap`)→ WETH
     ///      The caller mints the result straight into weETH; WETH never rests as collateral.
     /// ⚠️ THE FLOOR IS ORACLE-DERIVED AND APPLIED TO THE WHOLE ROUTE, not per hop. A per-hop floor
     ///      would let the pair of hops lose more than the stated slippage between them. This is the
@@ -1221,7 +1220,7 @@ library LevMath {
         //    open/close asymmetry is what identified it: one direction derives an oracle floor at
         //    `SELL_SLIP_BPS`, the other trusted the keeper's route outright.
         // §SESS-50 — **THE COMPAT ARM IS NOW EXACTLY WHAT IT IS FOR: A NON-HUB STABLE THE KEEPER
-        //    COULD NOT PLAN.** USDC has no hub hop BY NATURE, not by omission, and `_aggSwap` now
+        //    COULD NOT PLAN.** USDC has no hub hop BY NATURE, not by omission, and `routedSwap` now
         //    compacts that zero — so a USDC venue takes the routed path like everything else, and in
         //    doing so **reaches `c.route` for the first time.** The old guard sent it down a branch
         //    that drops `route`, which is how the full-venue arm came to be unreachable for the most
@@ -1257,7 +1256,7 @@ library LevMath {
     ///    of `0` and leaning on a downstream floor to catch the final output leaves the intermediate
     ///    hop unbounded — the hazard this file flags on the mirror leg. `curveExchange` enforces the
     ///    floor it is given on the measured delta.
-    /// ⚠️ **DIRECTION IS THE CALLER'S, NEVER THE TABLE'S** — same discipline as `_aggSwap` deriving
+    /// ⚠️ **DIRECTION IS THE CALLER'S, NEVER THE TABLE'S** — same discipline as `routedSwap` deriving
     ///    `ZERO_FOR_ONE` rather than trusting a keeper bit, so one row serves a lever-up and the
     ///    de-lever that unwinds it and the two cannot disagree about which way to cross a pool.
     /// ⛔ §SESS-91 — **CONSOLIDATE-ONLY NOW, AND THE `word` PARAMETER IS GONE WITH THE LEVERED ARMS.**
@@ -1416,7 +1415,7 @@ library LevMath {
     ///      addressable pool is borrowable** and no compile-time table has to be extended for it.
     ///      ⭐ THE SAFETY ARGUMENT IS UNCHANGED AND STRICTLY STRONGER: the keeper names only pools,
     ///      and the ORACLE FLOOR bounds the WHOLE route on a measured balance delta.
-    /// 🔴 **ARGUMENT ORDER IS A TRAP HERE AND IS DELIBERATE. `_aggSwap` takes (hop1, hop2); the
+    /// 🔴 **ARGUMENT ORDER IS A TRAP HERE AND IS DELIBERATE. `routedSwap` takes (hop1, hop2); the
     ///    keeper's LONG-STANDING `dex` MEANS THE VOLATILE POOL, WHICH IS HOP **2**.** The new `dex2`
     ///    carries the stable→USDC hub hop, i.e. hop **1**. Passing them in declaration order would
     ///    silently redefine what the third argument of every live entrypoint means — the keeper would
@@ -1425,7 +1424,7 @@ library LevMath {
     /// @dev ⚠️ **`hubDex == 0` IS AN OVERRIDE WITH A DEFAULT, NOT A COMPATIBILITY SHIM.** No keeper
     ///      word for the hub leg ⇒ take the table's route (`_hubHop` → `_hubRowOf`), which is available
     ///      for every stable on the table and needs no keeper to be up. `stable == USDC` skips the guard
-    ///      because USDC IS the hub — there is no hub leg to route, and `_aggSwap` compacts the
+    ///      because USDC IS the hub — there is no hub leg to route, and `routedSwap` compacts the
     ///      resulting zero hop (§SESS-50) so a USDC venue reaches `route` like every other venue.
     ///      ⛔ **NOT A "BRIDGE".** In this repo `quid-bridge` is the DAEMON — `channel_driver.rs`,
     ///      `deadman_exit.rs` and `lp_seed.rs` (Lightning) live in the same crate as `lev_keeper.rs`
@@ -1437,7 +1436,7 @@ library LevMath {
     ///      "keeper is hacked and replaced with malicious code" constraint spans both roles at once,
     ///      and why an API key placed there is leaked alongside the Lightning material.
     ///      🔴 **THE `stable != USDC` HALF OF THE GUARD IS LOAD-BEARING AND ONLY WORKS BECAUSE
-    ///      `_aggSwap` COMPACTS A ZERO HOP.** Without that compaction it sends a USDC venue — which
+    ///      `routedSwap` COMPACTS A ZERO HOP.** Without that compaction it sends a USDC venue — which
     ///      legitimately has `hubDex == 0` — onto the two-hop path with a ZERO first pool word, and
     ///      **17 tests fail with `NoVolatileRoute()`**. ⚠️ The compiler cannot see this; only running
     ///      the suite did.
@@ -1452,7 +1451,7 @@ library LevMath {
     ///      ONE body for BOTH volatiles — the WBTC and WETH down-legs differ only in `vol`, and
     ///      `internal` in a library is copied into every caller, so collapsing two bodies to one
     ///      multiplies by the caller count.
-    /// @dev ⚠️ NO ROUTE **AND** NO POOL WORD ⇒ `_aggSwap` REVERTS `NoVolatileRoute()`. That is
+    /// @dev ⚠️ NO ROUTE **AND** NO POOL WORD ⇒ `routedSwap` REVERTS `NoVolatileRoute()`. That is
     ///      deliberate: a caller that names neither venue CANNOT trade, and the revert is the honest
     ///      surface — a silent 0 would reappear as a slippage failure frames away.
     /// 🔴 SAME CROSSED ORDER as `_stableToWbtc`, and MIRRORED because this leg runs the other way:
@@ -1461,7 +1460,7 @@ library LevMath {
                           bytes memory route) internal returns (uint256) {
         // ⭐ THE FLOOR RIDES THE ROUTE ITSELF — ⛔ do not re-express it as an unbounded hop plus an
         //    `if (out < minOut) revert Slippage()` a frame later. Both arms end on the FINAL token
-        //    with `minOut` enforced on a measured balance delta: `routedSwap` through `_aggSwap`, and
+        //    with `minOut` enforced on a measured balance delta: `routedSwap` through `routedSwap`, and
         //    the table arm through `_hubHop`, which carries the floor into `curveExchange`. Only the
         //    USDC intermediate is deliberately unbounded, because nothing leaves on it.
         return routedSwap(vol, stable, amt, minOut, route);    // §SESS-91 — the route is the whole path

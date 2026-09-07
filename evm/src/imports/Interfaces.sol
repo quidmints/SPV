@@ -154,8 +154,8 @@ uint32 constant TWAP_WINDOW_SECS = 1800;
 //   • bit 247 (V3) — `zeroForOne`: SET when selling the pool's `token0` for its `token1`
 //   • low 160 bits — the pool address
 // ⛔ The V2 candidate (`proto=0`, bare pool) returned **`ok` with ZERO tokens moved**, which is why
-// `_aggSwap` bounds on the BALANCE DELTA and not on the router's own `minReturn` — see the note
-// there. Pinning the selector is what lets the contract build its own calldata; see `_aggSwap`'s
+// `routedSwap` bounds on the BALANCE DELTA and not on the router's own `minReturn` — see the note
+// there. Pinning the selector is what lets the contract build its own calldata; see `routedSwap`'s
 // header for why keeper-supplied calldata could not work on this money path at all.
 bytes4 constant UNOSWAP_SELECTOR = 0x83800a8e;
 // 1inch V6 `unoswap2(uint256 token, uint256 amount, uint256 minReturn, uint256 dex, uint256 dex2)`.
@@ -232,11 +232,11 @@ uint256 constant PROTO_CURVE   = 2;
 uint256 constant HOP_I_OFFSET  = 160;
 uint256 constant HOP_J_OFFSET  = 168;
 uint256 constant PROTO_UNIV3   = 1;             // `dex >> 253` for a UniswapV3 pool
-uint256 constant ZERO_FOR_ONE  = uint256(1) << 247;  // V3 direction flag, DERIVED by `_aggSwap`
+uint256 constant ZERO_FOR_ONE  = uint256(1) << 247;  // V3 direction flag, DERIVED by `routedSwap`
 
 // §RANGE-UNWIND — the venue the RANGE falls back to when it force-closes a lever with no keeper to
 // name one (see `LevBase._unwindDex`). Uniswap V3 WETH/USDC 0.05%, the deepest ETH/USDC pool on
-// mainnet; `_aggSwap` derives the direction, so ONE word serves both legs.
+// mainnet; `routedSwap` derives the direction, so ONE word serves both legs.
 // ⛔ NOT OVERRIDABLE — this said "GOV-overridable" and there was no GOV path to override it with.
 // This system has no governance knobs; repointing it is a code change and a redeploy.
 uint256 constant DEFAULT_UNWIND_DEX =
@@ -254,7 +254,7 @@ uint256 constant DEFAULT_WBTC_DEX =
     (PROTO_UNIV3 << 253) | uint256(uint160(0x99ac8cA7087fA4A2A1FB6357269965A2014ABc35));
 address constant WBTC_TOKEN = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
 
-/// @dev The one V3 accessor `_aggSwap` needs: which token a pool calls `token0`, so the direction
+/// @dev The one V3 accessor `routedSwap` needs: which token a pool calls `token0`, so the direction
 ///      flag is computed from `tokenIn` instead of taken on trust from a keeper.
 // §SESS-92 — `token1()` joins `token0()`: `LevMath._poolToken` reads EITHER through one shared
 // staticcall, so deriving a direction bit still costs exactly one call and the new

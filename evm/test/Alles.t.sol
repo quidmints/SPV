@@ -117,12 +117,83 @@ interface IAngelF8N {
 ///
 /// ⚠️ NOT A DELETION -- every test still runs, exactly once, in `Alles` below. Dropping tests to make
 /// a suite fast is how coverage disappears; separating the fixture from the tests costs nothing.
+interface IAggProxy { function latestRoundData() external view returns (uint80,int256,uint256,uint256,uint80); }
+
+// REAL mainnet Chainlink ETH/USD proxy — the history source for `warmVarianceFromRealRounds`.
+// ⛔ Plain `//`, not `///`: a doc tag on a file-level variable is a COMPILE ERROR (6546).
+address constant REAL_CL_ETH_USD = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
+
 contract AllesFixture is ForkPin, ExitFixture {
-    /// §C2.1 — THE POOL WORDS THE KEEPER SUPPLIES. `_aggSwap` takes ONE `uint256` naming a venue
+    // ── §SKEW-COVERAGE-HOLE FIX ────────────────────────────────────────────────────────────────
+    // Real mainnet Chainlink history, replayed, so σ² is NON-ZERO and a skew test exercises the
+    // A-S CURVE instead of the `UNKNOWN_VARIANCE_SKEW` sentinel.
+    //
+    // 🔴 WHY EVERY SKEW TEST NEEDS THIS. `sellSkew`/`skewWad` branch on `sigmaSqWad == 0` and return
+    //    the flat sentinel WITHOUT evaluating `qBar`. σ² is `max(ringVariance, anchorVarianceWad)`;
+    //    the ring is deliberately dead (§E294), and `Core._sampleAnchorVariance` advances `_varPx`
+    //    only when the anchor MOVES, guarded by `dt = block.timestamp - _varSq.ts` and an explicit
+    //    "SAME BLOCK ⇒ RETURN WITHOUT ADVANCING". A suite that runs its swaps at ONE pinned block
+    //    therefore tests the sentinel and never the curve — and reports green either way.
+    //
+    // ⛔ FOUR THINGS THAT LOOK LIKE THE OBVIOUS WAY AND ARE NOT — each returned σ² == 0 for a reason
+    //    that has nothing to do with the estimator, and each cost a run to find:
+    //    · `vm.rollFork` — wipes the LINKED LIBRARIES (SwapLib, LevMath); they have no handles in a
+    //      test to `makePersistent`, so every swap dies `CheatcodeError: … not marked as persistent`.
+    //    · reading the PHASE AGGREGATOR directly — `AccessControlledOffchainAggregator` REFUSES
+    //      contract callers. `cast call` works (it presents as an EOA); a test contract does not.
+    //      Read through the PROXY, and keep the roundId PHASE-ENCODED (~1.29e20; only a 64-bit shell
+    //      overflows on it, `uint80` is fine).
+    //    · feeding the round's HISTORICAL timestamp — `twapResolve` sees it stale, returns 0, and the
+    //      sampler degrades to UNMEASURED, which is indistinguishable from "the market did not move".
+    //    · warping BACKWARDS to that timestamp — `block.timestamp` behind the fork underflows the
+    //      swap path (Panic 0x4e487b71). Warp FORWARD by the real GAP instead.
+    //
+    /// @param nRounds how many consecutive real rounds to replay (12 is ample; σ² ≈ 0.10–0.16 wad).
+    /// @return sigma  `CORE.realizedVarianceWad()` after the walk — 0 means the warm-up FAILED.
+    function warmVarianceFromRealRounds(uint256 nRounds) public returns (uint256 sigma) {
+        // ⛔ DO NOT PIN THE FEED HERE — `_setAssetFeed` IS PIN-ONCE (`FeedPinned()`), so claiming it
+        //    steals the pin from a fixture that sets its own later (`DerivedTheta` via `_moveEth`).
+        //    Use whatever is ALREADY pinned as the sampler's feed, and read HISTORY from the real
+        //    Chainlink proxy regardless — the two need not be the same address. `_sampleAnchorVariance`
+        //    reads `AUX.assetPriceFeed(ASSET)`, so mocking THAT is what moves the anchor; the real
+        //    proxy is only the source of a genuine price series.
+        address feed = AUX.assetPriceFeed(address(WETH));
+        if (feed == address(0)) { feed = REAL_CL_ETH_USD; _auxSetAssetFeed(address(WETH), feed); }
+        address hist = REAL_CL_ETH_USD;                              // history source, always readable
+        address warmer = makeAddr("varianceWarmer");
+        address[] memory sts = AUX.getStables();
+        address stable = sts[sts.length - 1];
+        (, , , , uint80 latest) = IAggProxy(hist).latestRoundData();
+        uint256 prevTs;
+        for (uint256 i = nRounds; i > 0; --i) {
+            (bool ok, bytes memory ret) = hist.staticcall(
+                abi.encodeWithSignature("getRoundData(uint80)", latest - uint80(i)));
+            if (!ok) continue;
+            (, int256 px, , uint256 ts, ) = abi.decode(ret, (uint80, int256, uint256, uint256, uint80));
+            if (px <= 0 || ts == 0) continue;
+            if (prevTs != 0 && ts > prevTs) vm.warp(block.timestamp + (ts - prevTs));  // REAL gap, forward
+            prevTs = ts;
+            vm.mockCall(feed, abi.encodeWithSignature("decimals()"), abi.encode(uint8(8)));
+            vm.mockCall(feed, abi.encodeWithSignature("latestRoundData()"),
+                abi.encode(latest - uint80(i), px, uint256(0), block.timestamp, latest - uint80(i)));
+            uint256 amt = 25_000 * 1e18;
+            deal(stable, warmer, amt);
+            vm.startPrank(warmer);
+            IERC20(stable).approve(address(AUX), amt);
+            // USD-IN, deliberately: `_sampleAnchorVariance` lives in `Core.swap`, whose only src
+            // caller is `BasketLib.routeSwap` — the DRAIN leg reaches it, a volatile-in sell does not.
+            try AUX.swap(stable, address(WETH), true, amt, 0, true) {} catch {}
+            vm.stopPrank();
+        }
+        sigma = CORE.realizedVarianceWad();
+    }
+
+
+    /// §C2.1 — THE POOL WORDS THE KEEPER SUPPLIES. `routedSwap` takes ONE `uint256` naming a venue
     /// (protocol in bits 253-255, pool in the low 160) and builds the router calldata itself, so a
     /// test supplies the same thing a keeper would and nothing else. **Both are MEASURED, not
     /// documented** — see `UNOSWAP_SELECTOR`'s header in `Interfaces.sol` for the fork probe.
-    /// ⚠️ THE DIRECTION FLAG IS DELIBERATELY ABSENT: `_aggSwap` derives `zeroForOne` from `tokenIn`
+    /// ⚠️ THE DIRECTION FLAG IS DELIBERATELY ABSENT: `routedSwap` derives `zeroForOne` from `tokenIn`
     /// against the pool's own `token0()`, so ONE word covers the lever-up and the de-lever that
     /// unwinds it. A test that had to pick a direction would be encoding a contract-internal
     /// decision it cannot see.

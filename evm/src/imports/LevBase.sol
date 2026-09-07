@@ -61,9 +61,12 @@ abstract contract LevBase {
     ///         both move underneath it.
     /// @dev    🔴 **RE-MEASURE ONLY ON A PATH THAT ACTUALLY TRADES.** The figure is a WHOLE
     ///         rebalance with the venue leg executing (§C2.1 pool word): **1,248,673** on a mainnet
-    ///         fork — borrow + Curve hub hop + Uniswap V3 + supply. A run that reverts
-    ///         `NoVolatileRoute()` before the swap prices the Morpho borrow and nothing downstream
-    ///         of it, and that number is roughly 3× too small.
+    ///         fork — borrow + Curve hub hop + Uniswap V3 + supply. A run whose volatile leg never
+    ///         executes prices the Morpho borrow and nothing downstream of it, and that number is
+    ///         roughly 3× too small. ⚠️ **That used to be a REVERT (`NoVolatileRoute()`), which made
+    ///         the under-priced run impossible to mistake for a real one. §SESS-91 removed it, so an
+    ///         unrouted run now COMPLETES and returns a small, plausible gas figure** — measure `g`
+    ///         only from a run whose swap actually filled (§EMPTY-ROUTE-IS-SILENT).
     ///         ⚠️ **UNDER-PRICING `g` IS THE DANGEROUS DIRECTION AND IT DOES NOT ANNOUNCE ITSELF.**
     ///         It makes the band TIGHTER (`h = ∛(g/(C·K))`), so the book rebalances more often than
     ///         the fees can cover — a slow bleed, not a revert.
@@ -318,12 +321,16 @@ abstract contract LevBase {
     ///      `_reanchorIfReseated` already early-returns on a closed position.
     /// @param dex AggregationRouter calldata for the volatile leg, computed OFF-CHAIN and passed
     ///        in. §E357 — **BOTH DIRECTIONS NEED ONE**, which is why it lives here and not on the
-    ///        de-lever alone: `_leverUp` reaches `_stableToWethSor` → `_aggSwap` (stable→WETH) and
+    ///        de-lever alone: `_leverUp` reaches `_stableToWethSor` → `routedSwap` (stable→WETH) and
     ///        `_delever` reaches the sell twin, so a rebalance that levers UP was equally unable to
-    ///        execute. Every keeper entrypoint previously passed nothing at all and `_aggSwap`
-    ///        refuses an empty route, so **the whole keeper path reverted `NoVolatileRoute()`
+    ///        execute. Every keeper entrypoint previously passed nothing at all, and the router then
+    ///        REFUSED an empty route, so **the whole keeper path reverted `NoVolatileRoute()`
     ///        regardless of any API key** — the volatile-route hole that has now been re-opened
     ///        three times (`Interfaces.sol:303`).
+    /// ⚠️ **HISTORICAL: THAT REVERT IS GONE AND THE FAILURE IS NOW SILENT.** §SESS-91 made
+    ///        `LevMath.routedSwap` synthesise a zero-filled `UNOSWAP` word for an empty route rather
+    ///        than reverting, and `error NoVolatileRoute` is deleted (it had zero raise sites). An
+    ///        unrouted leg no longer announces itself — it returns nothing. See §EMPTY-ROUTE-IS-SILENT.
     /// ⛔ **THE CONTRACT DOES NOT DISCOVER A ROUTE AND MUST NOT LEARN TO.** Under v4 a pool is
     ///        `(currency0, currency1, fee, tickSpacing, hooks)` rather than an address, so liquidity
     ///        is fragmented across pools by hook and no pinned address can even NAME the deepest

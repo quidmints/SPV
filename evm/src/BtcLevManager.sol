@@ -238,8 +238,14 @@ contract BtcLevManager is LevBase {
     /// @notice Atomic rebalance toward the IL target for a WBTC-collateral position (native vBTC uses
     ///         the async legs). §FOLD-REBALANCE — the body is `LevBase._rebalance`, shared with the ETH range.
     /// @param route the volatile leg's 1inch calldata — §E357. It must be THREADED to every
-    ///        `LevMath.WbtcCfg` this path builds: `_aggSwap` refuses an empty route, so a hardcoded
-    ///        `""` at the struct kills the leg silently no matter what the entrypoint was passed.
+    ///        `LevMath.WbtcCfg` this path builds, or the leg does nothing.
+    /// 🔴 **AND IT NOW FAILS SILENTLY RATHER THAN LOUDLY — THE OLD NOTE HERE SAID THE OPPOSITE.** It
+    ///        read *"`routedSwap` refuses an empty route"*, which was true and is not: `routedSwap` no
+    ///        longer exists, and its successor `LevMath.routedSwap` SYNTHESISES a zero-filled
+    ///        `UNOSWAP` word when `route.length == 0` (§SESS-91) instead of reverting. That call then
+    ///        fails inside `convertTo` and is SKIPPED, so a hardcoded `""` yields a leg that
+    ///        contributes nothing and says nothing. ⇒ **Thread the route; nothing will tell you if
+    ///        you do not.** See §EMPTY-ROUTE-IS-SILENT.
     function rebalanceWbtc(address lp, uint minOut, uint256 dex, uint256 dex2, bytes calldata route)
         external nonReentrant { _rebalance(lp, minOut, dex, dex2, route); }
 

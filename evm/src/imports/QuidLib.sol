@@ -49,9 +49,6 @@ library QuidLib {
 
     // Mirror Quid's selectors (name-derived) for the delegatecalled bodies.
     error InsufficientBalance();
-    error NotOwner();
-    error BadPercent();
-    error Dust();
 
     // ════════════════════════════════════════════════════════════════════
     //  IL-protect: ETH levered range slice (full-2x fee lane). Bodies of

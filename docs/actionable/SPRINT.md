@@ -98272,3 +98272,58 @@ TIGHT — the system rebalances more often than it needs to, never less. **⚠�
 CONTINGENT ON FINDING 1:** at the shipped `K` the series clamp barely binds, but it binds hard if `K`
 is corrected. ⇒ **These two are ONE item, not two — do not fix `K` without fixing the basis.**
 📌 Both live one line from B8's files and neither is on this session's lane; booked, not started.
+
+## §EMPTY-ROUTE-IS-SILENT-2026-09-07 — 🔴 the alarm was deleted and five docblocks still promised it
+
+**"Kill the slop" (owner, 2026-09-07) produced one finding worth more than the deletions.**
+`error NoVolatileRoute` had **ZERO raise sites** and is deleted here. It is dead because §SESS-91
+changed the behaviour it announced: `LevMath.routedSwap` (`:931`) now reads
+```
+if (route.length == 0) route = abi.encodeWithSelector(UNOSWAP_SELECTOR, 0, 0, 0, …);
+```
+— it **SYNTHESISES a zero-filled route instead of reverting.** That call then fails inside `convertTo`
+and is SKIPPED, so an unrouted leg **succeeds having moved nothing.**
+⛔ **AND FIVE DOCBLOCKS STILL PROMISED THE REVERT**, in three contracts, all corrected here:
+`BtcLevManager` (*"`_aggSwap` refuses an empty route"*), `LevBase:65` and `:324`, `LevManager:277`
+and `:432` (*"an EMPTY route … is `NoVolatileRoute()`. ⇒ One entrypoint, and it fails closed"*).
+**It does not fail closed. It fails quiet.** Rule 19's worst shape: a confident sentence asserting a
+safety property the code gave up.
+⭐ **THIS IS THE MECHANISM BEHIND THE TWO UNEXPLAINED `ConvertToRouted` FAILURES** (§FULL-SUITE, and
+project-bc's measurement that the leg contributes nothing even with real calldata in hand): an empty
+or unusable route is skipped, so the test reads `0 <= 0` instead of reverting. **project-bc separately
+found the test-side twin — `ConvertToRouted:55` is `vm.skip(true)` with no `return`, and `vm.skip`
+does not halt execution** — so the harness ALSO falls through into its assertions. Two independent
+silences on the same path, which is why it read as a routing defect for two sessions.
+▶️ **THE OPEN QUESTION, NOT DECIDED HERE:** whether the zero-route synthesis should be restored to a
+revert. §SESS-91 removed it for a stated reason (*"no route" stopped meaning "names no venue"* once
+pool words were deleted, and `test_MEV_OracleFloorRejectsSandwich` reverted on routing before the
+sandwich). ⚠️ **Do not simply re-add the revert** — read §SESS-91 first; the fix may belong at the
+CALLER, which knows whether an empty route is legitimate.
+
+## §K-IS-LOAD-BEARING-FOR-θ — project-2d's backtest, folded into §K-AND-HEADROOM
+
+project-2d (cross-session, 2026-09-07) measured the coefficient the repacking range ACTUALLY realises,
+against the one the geometry predicts. **Re-derived here, not taken on trust** — the arithmetic below
+is mine against `QuidLib.derivedThetaWad:224-236`.
+| window | bars | ann. vol | repacks | `K_eff` |
+|---|---|---|---|---|
+| COVID 5m (Feb–Apr 2020) | 13,000 | 168% | 6,283 = 139/day | **0.40** |
+| Mar-12-2020 crash 1m | 3,000 | 431% | 1,250 = 600/day | **5.06** |
+mean `K_eff ≈ 2.7`, against IL-CERT's measured **0.71** and the geometric **125**.
+⭐ **THE MECHANISM IS WHY THE GEOMETRY IS WRONG, AND IT IS SIMPLE: a repacking range is pushed out of
+a 20 bps band and RECENTRES, so its loss per excursion is bounded by the band WIDTH, not by the
+curvature at the centre.** `kLvrWad` assumes it stays in-range and fully exposed, which it never is.
+🔴 **AND THE CONSEQUENCE IS BIGGER THAN BAND SIZING — `kLvrWad` IS θ'S DENOMINATOR.** ✅ **VERIFIED
+AGAINST THE CODE:** `derivedThetaWad` returns `rangeFeeYield · 1e18 / (kWad · σ²)` (`:236`). So at
+`K = 125`, `σ = 80%` (σ² = 0.64) and a 5%/yr realised fee yield: **θ = 0.05 / 80 = 0.000625.**
+`SwapLib.applyTheta` caps pooled at `θ · backing` ⇒ **the range holds ~0.06% of backing — the throttle
+switches the AMM off.** At `K = 0.71` the same inputs give **θ = 0.11**. project-2d's backtest: mean θ
+`0.001 → 0.022`, LP mean annual edge **+4.86% → +5.54%** over 204 rolling 365-day windows.
+⇒ **The K correction is not a band-sizing detail; it decides whether the range has depth at all.**
+⚠️ **CAVEAT, STATED BY ITS AUTHOR AND KEPT:** the daily-resolution sections of that harness use a √p
+benchmark, not the ±0.2% geometry, because daily bars cannot resolve a 20 bps band (the model has the
+range eating a 40% gap in one bite, which a 139-repacks/day range never does). **Only the 5m/1m
+figures above are physical.**
+📌 ⇒ **§K-AND-HEADROOM's two halves plus this make ONE item with an order:** fix `K`, and the
+LevBase:102 basis error stops being fail-safe the moment you do — so the basis must move in the same
+change. **Neither is started.**

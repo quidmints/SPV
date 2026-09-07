@@ -135,7 +135,7 @@ contract RetargetedRouteTest is AllesFixture {
              address(USDC), 1e6);
     }
 
-    /// ⚠️ EMPTY IS LEGAL: it means "no supplied route", and `_aggSwap` encodes one from pool words.
+    /// ⚠️ EMPTY IS LEGAL: it means "no supplied route", and `routedSwap` encodes one from pool words.
     function test_AnEmptyRouteIsLeftAlone() public {
         setUp2();
         assertEq(r.go("", address(USDC), 1e6).length, 0, "empty must stay empty, not revert");

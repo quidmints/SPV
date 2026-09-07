@@ -10,7 +10,7 @@ interface IERC20V { function balanceOf(address) external view returns (uint256);
 
 /// @notice §SESS-22 — **CAN THE POOL-WORD VOCABULARY REACH WHAT WE NEED, WITHOUT KEEPER CALLDATA?**
 ///
-/// This is the decisive measurement for the keeper-planner design. `_aggSwap`'s own header states the
+/// This is the decisive measurement for the keeper-planner design. `routedSwap`'s own header states the
 /// security position and it is rule 17, not a guard: *"The keeper could not have supplied a working
 /// route, only a route that happened to work. ⇒ Taking the POOL and building the calldata here makes
 /// that class UNCONSTRUCTIBLE … the keeper owns only the venue choice."* And `UNOSWAP2_SELECTOR`'s note
@@ -35,7 +35,7 @@ contract PoolWordVocabulary is ForkPin {
     }
 
     /// @dev One `unoswap` attempt. Returns tokens actually received — never the router's own claim,
-    ///      because a V2 word was measured returning `ok` with ZERO moved (`_aggSwap` note 2).
+    ///      because a V2 word was measured returning `ok` with ZERO moved (`routedSwap` note 2).
     function _try(address tokenIn, address tokenOut, uint256 amt, uint256 dex) internal returns (uint256 got) {
         deal(tokenIn, address(this), amt);
         IERC20V(tokenIn).approve(ONEINCH_ROUTER, amt);

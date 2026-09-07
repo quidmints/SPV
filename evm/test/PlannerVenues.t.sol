@@ -19,7 +19,7 @@ interface IV3 { function token0() external view returns (address); function toke
 ///    **zero** on two real pools while the router's own bit table claims it is supported, so nothing here
 ///    is taken from documentation: each row below is executed through `unoswap` on a pinned fork and
 ///    asserted to move tokens. A row that does not fill is not a row.
-/// ⚠️ **`zeroForOne` IS NOT IN THE TABLE, DELIBERATELY.** `_aggSwap` DERIVES it from `tokenIn` and
+/// ⚠️ **`zeroForOne` IS NOT IN THE TABLE, DELIBERATELY.** `routedSwap` DERIVES it from `tokenIn` and
 ///    discards whatever the keeper set — *"the keeper names pools, never directions"* — so the planner
 ///    must not carry a direction bit it cannot be trusted with anyway.
 contract PlannerVenues is ForkPin {
@@ -38,7 +38,7 @@ contract PlannerVenues is ForkPin {
 
     function _word(address pool, address tokenIn) internal view returns (uint256 w) {
         w = (uint256(1) << 253) | uint256(uint160(pool));          // PROTO_UNIV3
-        if (IV3(pool).token0() == tokenIn) w |= ZERO_FOR_ONE;      // derived, exactly as _aggSwap does
+        if (IV3(pool).token0() == tokenIn) w |= ZERO_FOR_ONE;      // derived, exactly as routedSwap does
     }
 
     /// @dev ⚠️ **RAW-CALL `approve`, NOT THE TYPED ONE — AND THIS TEST HIT THE TRAP ON ITS FIRST RUN.**

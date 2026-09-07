@@ -274,9 +274,11 @@ contract LevManager is LevBase {
     ///         performs (off-chain quoted by the keeper). Permissionless: only moves toward target.
     /// PERMISSIONLESS single-LP rebalance toward the IL target. Sets `_activeKeeper` so the flash reimburses the caller.
     /// @param dex the volatile leg's router calldata. §E357 — REQUIRED, and its absence is why
-    ///        this entrypoint could not work at all: `_aggSwap` refuses an empty route and this
+    ///        this entrypoint could not work at all: the router refused an empty route and this
     ///        passed one, so every keeper rebalance reverted `NoVolatileRoute()` no matter what
-    ///        credential existed anywhere. The keeper computes it off-chain (an aggregator quote, or
+    ///        credential existed anywhere. ⚠️ **That revert no longer exists** — §SESS-91 made
+    ///        `LevMath.routedSwap` synthesise a zero route instead, so the same mistake is now
+    ///        SILENT (§EMPTY-ROUTE-IS-SILENT). The requirement is unchanged; only the alarm is gone. The keeper computes it off-chain (an aggregator quote, or
     ///        our own pool reads over multicall); the DESTINATION remains the pinned
     ///        `ONEINCH_ROUTER`, so what arrives here is a PATH, never an address.
     function rebalance(address lp, uint256 minOut, uint256 dex, uint256 dex2, bytes calldata route) external nonReentrant {
@@ -304,7 +306,7 @@ contract LevManager is LevBase {
     ///    then a batch cannot route a stable the old table does not cover.**"* The encoder has now moved
     ///    (`lev_keeper.rs::encode_batch`), so the deferral is discharged rather than overridden.
     /// 🔴 **WHY IT MATTERED: THE TWO-HOP WAS BUILT AND FENCED OFF BY AN ARGUMENT LIST.**
-    ///    `_aggSwap` emits `UNOSWAP2_SELECTOR` whenever `dex2 != 0`, and the permissionless single
+    ///    `routedSwap` emits `UNOSWAP2_SELECTOR` whenever `dex2 != 0`, and the permissionless single
     ///    `rebalance` (`:294`) has carried `dex2`/`route` all along — so a DIRECT call could take the
     ///    two-hop and the keeper's BATCH could not. §UNOSWAP-CANNOT-REACH measured what that costs:
     ///    **4 of 8 candidate dollars (GHO, USDG, RLUSD, USDE) have no direct v3 pool to USDC**, so the
@@ -396,7 +398,7 @@ contract LevManager is LevBase {
     }
 
     /// @dev ⚠️ **THE LEVER-UP LEG NEEDS A ROUTE TOO, AND `§ROUTE-BLOCKED-24` DID NOT NAME THAT HALF.**
-    ///      `_leverUpBuy` reaches `_stableToWethSor` → `_aggSwap` (stable→WETH), so a rebalance that
+    ///      `_leverUpBuy` reaches `_stableToWethSor` → `routedSwap` (stable→WETH), so a rebalance that
     ///      levers UP reverted on an empty route exactly as a de-lever did. Reading the row as a
     ///      de-lever problem would have fixed half the entrypoint and left the other half dead.
     function _leverUp(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut, uint256 dex, uint256 dex2, bytes calldata route)
@@ -427,8 +429,11 @@ contract LevManager is LevBase {
     ///          pins `cascadeDelever` and `rebalanceMany` and nothing else, so there is no pinned
     ///          selector to preserve, only a duplicate entrypoint to pay for.
     ///        · **There is no V3 fallback.** §C2.1 removed it, so an EMPTY route is not "the same call
-    ///          without a hint" — it is `NoVolatileRoute()`. An un-routed twin could never work.
-    ///      ⇒ One entrypoint, and it fails closed.
+    ///          without a hint" — it is a leg that does nothing. An un-routed twin could never work.
+    ///      ⛔ **AND IT NO LONGER FAILS CLOSED, WHICH IS THE OPPOSITE OF WHAT THIS SAID.** The claim
+    ///        was `NoVolatileRoute()`; §SESS-91 deleted that revert and `routedSwap` now synthesises a
+    ///        zero route, so an empty one is skipped inside `convertTo` and the call SUCCEEDS having
+    ///        moved nothing (§EMPTY-ROUTE-IS-SILENT).
     function deleverOne(address lp, uint256 minOut, uint256 dex, uint256 dex2, bytes calldata route) external {
         _deleverOne(lp, minOut, dex, dex2, route);
     }
@@ -813,8 +818,8 @@ contract LevManager is LevBase {
     /// manager fits EIP-170). This builds the context it needs: the manager's runtime addresses + the crank keeper
     /// + the live WETH gas-reserve (threaded in, returned updated).
     /// @dev §E357 — `route` is a PARAMETER because this struct field was hardcoded `""`, and that
-    ///      one literal is where every empty route on the BUY side came from. `_aggSwap` refuses an
-    ///      empty route, so `stableToColl` → `_stableToWethSor` → `_aggSwap` could never execute:
+    ///      one literal is where every empty route on the BUY side came from. `routedSwap` refuses an
+    ///      empty route, so `stableToColl` → `_stableToWethSor` → `routedSwap` could never execute:
     ///      the lever-up leg was dead at the source, not at the entrypoints.
     function _sellCtx(address keeper, uint256 dex, uint256 dex2, bytes memory route) internal view returns (LevMath.SellCtx memory) {
         return LevMath.SellCtx({ weth: WETH, weeth: address(COLL), aux: address(AUX), keeper: keeper, reserveIn: gasReserve, dex: dex, dex2: dex2, route: route });

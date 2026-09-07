@@ -47,9 +47,9 @@ interface IERC20G {
 ///      (2) the ROUTER overhead — 1inch pulling the tokens to itself and pushing them to the pool,
 ///          i.e. one extra ERC-20 transfer versus approving the pool and letting it pull once.
 ///
-/// ⛔ AND THE PRIOR QUESTION THIS ANSWERS FIRST, WHICH NOBODY HAD ASKED: **can `_aggSwap` even ENCODE a
+/// ⛔ AND THE PRIOR QUESTION THIS ANSWERS FIRST, WHICH NOBODY HAD ASKED: **can `routedSwap` even ENCODE a
 ///    Curve pool word?** `PROTO_UNIV3 = 1` is the ONLY protocol constant in `Interfaces.sol`, and
-///    `_aggSwap` derives `ZERO_FOR_ONE` only for that branch — every other protocol id is passed through
+///    `routedSwap` derives `ZERO_FOR_ONE` only for that branch — every other protocol id is passed through
 ///    untouched, but **nothing in the tree ever constructs one**. If Curve is not encodable, "route the
 ///    offramp through 1inch" is not a drop-in at all and the gas delta is the smaller half of the cost.
 ///    This test ENUMERATES the protocol ids rather than inferring one, per CLAUDE.md: *"BEFORE CONCLUDING
@@ -151,7 +151,7 @@ contract OfframpRouteGas is ForkPin {
     ///
     ///      So: run the SAME encoder against a pool word this tree already ships and trusts —
     ///      `DEFAULT_UNWIND_DEX`, the Uniswap V3 WETH/USDC 0.05% pool `LevBase._unwindDex` resolves
-    ///      to. And call **`LevMath._aggSwap` itself** rather than a re-encoding of it, so what is proven
+    ///      to. And call **`LevMath.routedSwap` itself** rather than a re-encoding of it, so what is proven
     ///      is the real path (encode -> `convertTo` -> pinned router -> measured balance delta), not my
     ///      copy of it.
     ///
@@ -167,7 +167,7 @@ contract OfframpRouteGas is ForkPin {
         uint256 used = g0 - gasleft();
         uint256 delta = IERC20G(WETH).balanceOf(address(this)) - before;
 
-        console2.log("CONTROL. _aggSwap USDC->WETH via DEFAULT_UNWIND_DEX  gas:", used);
+        console2.log("CONTROL. routedSwap USDC->WETH via DEFAULT_UNWIND_DEX  gas:", used);
         console2.log("   WETH out:", delta);
         assertGt(delta, 0, "CONTROL FAILED - the unoswap encoder does not fill even on the tree's own pool word, so the Curve probe proves nothing");
         assertEq(out, delta, "convertTo returned something other than the measured delta");

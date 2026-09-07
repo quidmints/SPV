@@ -32,10 +32,6 @@ library BtcLib {
     // selector as the range's own (selectors are name-derived). `ZeroTwap` and
     // `InsufficientChannelBtc` are Vault's, and the only two any body below raises; the other four
     // carry Quid's names.
-    error Dust();
-    error NotOwner();
-    error BadPercent();
-    error NotAStable();
     error ZeroTwap();
     error InsufficientChannelBtc();   // mirror Vault's selector (name-derived) for the delegatecalled expose body
 
