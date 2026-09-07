@@ -52983,6 +52983,41 @@ FOLDED citation is still stale** — the one bucket that is actionable. Per this
 with a binary result beats a disposition; and per the tooling-traps rule it fails loudly, exiting with
 a FATAL if the tree walk returns zero `.md` files rather than reporting a clean run.
 
+# 🌡️ §SKEW-CLUSTER-IS-ONE-DECISION — **51 OPEN ROWS. 44 OF THEM HANG ON THE FLOW-VS-STOCK RULING (2026-09-07)**
+
+**Counted after the owner flagged the skew work.** `§SEQ-AUDIT` markers mentioning skew, σ², variance,
+the kernel or Γ: **51 open rows — roughly a third of the 159 doable.** It is the largest cluster in the
+file, and it is **not 51 independent tasks.**
+
+| | rows | |
+|---|---|---|
+| 🔴 reference the machinery a STOCK denominator would delete — Γ, the σ² estimator, the ring, `flowEwmaUsd`, `uint target = flowUsd` | **44** | G2 16 · G0 12 · G6 9 · G8 4 · G4 2 · G9 1 |
+| ✅ independent — about what the skew is FOR, the refill, the LVR framing | 7 | `§V-R10` · `#100` · `E48` · `E16` · `A10` · `E126` · §E218 |
+
+⇒ 🔴 **ONE RULING DETERMINES 44 OPEN ROWS, ~28% OF EVERYTHING DOABLE.** `§SKEW-DESIGN-VERDICT`'s open
+fork is whether the depletion target stays a **FLOW** (`flowEwmaUsd`, 48h half-life) or becomes a
+**STOCK** (LP capital, or a fixed buffer). Its own text: a stock denominator *"needs no oracle, no ring,
+no Γ, no ρ, and it is representation-independent"*, and *"variance, if wanted at all, enters as a SLOW
+BOUNDED MULTIPLIER from a source we trust — not as the term the whole charge is proportional to."*
+
+⇒ **Under STOCK: Γ's derivation rows, the σ²-estimator rows, the ring-sizing rows and the
+`flowEwmaUsd`-target rows do not get ANSWERED, they stop being questions.** `§GAMMA-HORIZON-DERIVED`
+(`GAMMA_WAD=3e16`), `E72`'s sentinel cliff, `E88-PROOF`'s early exits, `E93`/`E93-r`'s
+`uint target = flowUsd`, `E207`'s RING sizing — all of them are calibration of apparatus the ruling may
+delete. **Calibrating them first is the exact waste `§MASTER-ORDER` rule 2 exists to prevent, at the
+largest scale it appears anywhere in this file.**
+
+⚠️ **STATED AT THE CONFIDENCE I HAVE: "44 reference the machinery" is a KEYWORD classification, not a
+survival analysis.** A row that merely mentions σ² in passing is counted. **The exact set that survives
+a stock ruling cannot be determined until the ruling exists** — which is itself the point: *nobody can
+size this work without the decision.* ⇒ **the defensible claim is entanglement, not deletion.**
+
+▶️ **SO THE SKEW WORK IS NOT 51 TASKS QUEUED BEHIND A BUILDER. IT IS ONE DECISION AND SEVEN
+INDEPENDENT ROWS.** The seven can proceed now. The 44 should not be calibrated, measured or tested
+until `§SKEW-DESIGN-VERDICT` lands — and several of them are `L6` test rows, which rule 2 already puts
+behind it (*a ruling that can DELETE a mechanism outranks work that hardens, wires, **tests** or
+documents it*).
+
 # 🔎 §SELF-CLOSING-ROWS-SWEEP — **312 ASSERTIONS THAT SOME ROW IS CLOSABLE. ZERO GENUINE CLOSURES, AND THE REASON IS AN ID COLLISION (2026-09-07)**
 
 **E99 exposed the shape — a row saying another row SHOULD CLOSE, with the target still open — so it was
