@@ -54313,3 +54313,28 @@ extra token moves the offset and cannot hide.
 signature was never wrong — the drift was in the TOKEN LIST the encoder built. **The gate cannot
 see arity-in-encoding at all, by construction.** Same trap shape as the documented
 `check-orphans.py` one: a green check that was never looking at the thing.
+
+## §SESS-COMMENTS-5 — **A PATTERN, NOT THREE INCIDENTS: "MITIGATIONS" THAT ARE FALLBACKS.** (2026-09-07)
+
+Three independent findings today are the same shape, and the shape is worth naming because a
+reviewer counting protections counts all three and gets a wrong total.
+
+⚠️ **`TWAP_MAX_DEVIATION_BPS` IS A FALLBACK TRIGGER, NOT A CIRCUIT BREAKER.** `Aux.getTWAPforAsset`
+was documented as *"reverts if they diverge beyond `TWAP_MAX_DEVIATION_BPS`"*. `SwapLib.twapResolve`
+does the opposite — on divergence it `return (ext18, true)`, i.e. **Chainlink's price, marked
+stale**. The code is deliberate (its own line says *"stale TWAP → trust Chainlink"*); the comment
+inverted it. ⇒ Exceeding the bound does not stop anything; it SWITCHES ORACLES. Anyone reasoning
+about manipulation resistance must reason about Chainlink alone past that threshold.
+
+⚠️ **`Core.OBS_PUSH_MAX_BPS = 50` BINDS ON NOTHING** (§SESS-COMMENTS-3) — both call sites pass
+`price = 0`, at which the deviation test returns the raw anchor.
+
+⚠️ **`LevVenueBase`'s per-LP escrow isolation DOES NOT EXIST** (`8b6261dc`) — §POOL-VENUE deployed
+ONE escrow per venue, so a liquidation hits every LP pro-rata. Five comments said otherwise.
+
+🔑 **THE COMMON FAILURE IS NOT DRIFT, IT IS DIRECTION.** Each comment named only live symbols and
+described a STRONGER guarantee than the code provides — a revert where there is a fallback, a bound
+where there is none, isolation where there is sharing. ⇒ **When auditing prose against code, the
+claims to check first are the ones that assert a LIMIT.** A comment that overstates a limit is worth
+more attention than one that is merely out of date, because it is the one that gets counted as a
+control and stops someone looking further.
