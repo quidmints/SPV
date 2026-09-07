@@ -12,7 +12,7 @@ import {RLUSD_TOKEN, PYUSD_TOKEN, USDT_TOKEN, DAI_TOKEN, USDG_TOKEN,
 /// twice before; this wrapper is the fix, not a convenience.
 contract HubHopCaller {
     function hop(address stable, uint256 amt, bool toUsdc) external returns (uint256) {
-        return LevMath._hubHop(stable, amt, toUsdc, 0);
+        return LevMath._hubHop(stable, amt, toUsdc, 0, 0);
     }
 }
 
@@ -51,11 +51,11 @@ contract HubHopRosterTest is AllesFixture {
     function test_TheRouteFillsInBothDirections() public {
         uint256 amt = 10_000e18;                       // RLUSD is 18-dec
         deal(RLUSD_TOKEN, address(this), amt);
-        uint256 usdcOut = LevMath._hubHop(RLUSD_TOKEN, amt, true, 0);
+        uint256 usdcOut = LevMath._hubHop(RLUSD_TOKEN, amt, true, 0, 0);
         emit log_named_uint("RLUSD -> USDC out (6-dec)", usdcOut);
         assertGt(usdcOut, 0, "the route did not fill - a zero here is the whole defect");
 
-        uint256 back = LevMath._hubHop(RLUSD_TOKEN, usdcOut, false, 0);
+        uint256 back = LevMath._hubHop(RLUSD_TOKEN, usdcOut, false, 0, 0);
         emit log_named_uint("USDC -> RLUSD back (18-dec)", back);
         assertGt(back, amt * 90 / 100, "round-trip lost >10% - indices are crossed, not a fee");
     }

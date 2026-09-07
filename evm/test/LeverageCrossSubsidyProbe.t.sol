@@ -74,7 +74,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
         // oracle availability rather than on the levered LP's actual effect, which is the only thing
         // this probe is trying to measure.
         _setEthFeed(AUX.getTWAPforAsset(address(WETH), 1800) / 1e10);
-        AUX.setAssetFeed(address(WETH), ETH_FEED);
+        _auxSetAssetFeed(address(WETH), ETH_FEED);
     }
 
     function _seedBasket() internal {

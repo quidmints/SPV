@@ -36,7 +36,7 @@ contract SkewVsUniswapV3Test is AllesFixture {
         ETH.deposit{value: 400 ether}(0, User02);
         px = AUX.getTWAPforAsset(address(WETH), 1800);
         _setEthFeed(px / 1e10);
-        AUX.setAssetFeed(address(WETH), ETH_FEED);
+        _auxSetAssetFeed(address(WETH), ETH_FEED);
         // (§E294) ONE LOOP: the anchor moves, then a real swap records it. Both sigma^2 legs are fed
         // only from `swap()` (Core:1031/1039), so the old push-only loop built variance through a
         // path production does not use — and the swaps it needed for `flowEwmaUsd` were already here.

@@ -110,7 +110,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         // Pin the external anchor and HOLD it: production-faithful, since draining OUR pool does
         // not move Chainlink. Without this the drain loop below prices against a drifting oracle.
         _setEthFeed(px / 1e10);
-        AUX.setAssetFeed(address(WETH), ETH_FEED);
+        _auxSetAssetFeed(address(WETH), ETH_FEED);
         uint snap = vm.snapshotState();
 
         // ---- ARM 1: NEVER DRAINED. The range keeps its full volatile inventory.
@@ -256,7 +256,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
 
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
         _setEthFeed(px / 1e10);
-        AUX.setAssetFeed(address(WETH), ETH_FEED);
+        _auxSetAssetFeed(address(WETH), ETH_FEED);
 
         // Someone ELSE drains. The exiting LP did not cause this imbalance.
         for (uint i; i < 12; ++i) _drainEth(30_000 * USDC_PRECISION, px);
@@ -328,7 +328,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
 
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
         _setEthFeed(px / 1e10);
-        AUX.setAssetFeed(address(WETH), ETH_FEED);
+        _auxSetAssetFeed(address(WETH), ETH_FEED);
         // Drive into priced scarcity first: a flush-regime swap charges 0 and reconciles trivially.
         for (uint i; i < 14; ++i) _drainEth(30_000 * USDC_PRECISION, px);
 
@@ -426,7 +426,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         _settle();
 
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
-        AUX.setAssetFeed(address(WETH), ETH_FEED);
+        _auxSetAssetFeed(address(WETH), ETH_FEED);
         emit log_named_uint("sigma^2 BEFORE the walk", CORE.realizedVarianceWad());
         emit log_named_uint("frame lower price BEFORE      ", _bLo(address(ETH)));
 
@@ -659,7 +659,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         _settle();
 
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
-        AUX.setAssetFeed(address(WETH), ETH_FEED);
+        _auxSetAssetFeed(address(WETH), ETH_FEED);
         emit log_named_uint("TWAP before      ", px);
         emit log_named_uint("sigma^2 before   ", CORE.realizedVarianceWad());
 
@@ -694,7 +694,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         vm.prank(lp); ETH.deposit{value: 400 ether}(0, lp);
         _settle();
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
-        AUX.setAssetFeed(address(WETH), ETH_FEED);
+        _auxSetAssetFeed(address(WETH), ETH_FEED);
 
         // (a) ALIGNED — the common case. Should be a cheap no-op (`targetSqrt == spotPrice`).
         uint g = gasleft(); ETH.reseat(); uint gNoop = g - gasleft();

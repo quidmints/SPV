@@ -46,7 +46,7 @@ contract ConfigureIsAllOrNothing is AllesFixture {
         address pinned  = address(0xB0B01);
         address fresh   = address(0xB0B02);
         vm.prank(AUX.owner());
-        AUX.setStableFeed(pinned, address(0xFEED02));       // pin one up front
+        _auxSetStableFeed(pinned, address(0xFEED02));       // pin one up front
 
         address[] memory t = new address[](2); t[0] = fresh;  t[1] = pinned;
         address[] memory f = new address[](2); f[0] = address(0xFEED03); f[1] = address(0xFEED04);

@@ -194,10 +194,6 @@ contract Aux is // Auxiliary
     uint public constant ASSET_FEED_MAX_AGE = 4 hours;
     error FeedPinned();
 
-    function setStableFeed(address token, address feed) external onlyOwner {
-        _setStableFeed(token, feed);
-    }
-
     /// @dev The pin-once write, shared by the singular setter and `configure`. Kept in ONE place
     ///      so a batch can never diverge from what a single call does.
     function _setStableFeed(address token, address feed) private {
@@ -225,10 +221,6 @@ contract Aux is // Auxiliary
     // unavailable → fall back to the internal TWAP, never bricks on a dead feed).
     mapping(address => address) public assetPriceFeed;
     uint public constant TWAP_MAX_DEVIATION_BPS = 500; // 5% = manipulation territory
-
-    function setAssetFeed(address asset, address feed) external onlyOwner {
-        _setAssetFeed(asset, feed);
-    }
 
     /// @dev See `_setStableFeed` — one write, two entrypoints.
     function _setAssetFeed(address asset, address feed) private {
@@ -534,29 +526,27 @@ contract Aux is // Auxiliary
     ///         the vault's own `asset()` makes correctness self-enforced, and a vault
     ///         already in the set reverts `VaultAlreadySet` — a venue can be ADDED but
     ///         never re-pointed.
-    function setVault(address stable, address vault) external onlyOwner {
-        // Multi-venue: append self-validated 4626 vaults to the
-        // stable's set (the inner pro-rata dimension). The first becomes the
-        // primary (`vaults[stable]`). onlyOwner + asset()==stable self-check; the
-        // deploy wires the full HARDCODED curator set, then the finalize RENOUNCE
-        // locks ownership permanently — no vaults can be added after deployment.
-        // GHO + USDG route via AAVE, wired at construction. Block here
-        // to prevent partial-wiring footgun.
-        _setVault(stable, vault);
-    }
-
     /// @dev The GHO/USDG guard and the delegatecall body, shared with `configure`. The guard MUST
     ///      stay outside `ChannelLib.setVaultBody` — it is the partial-wiring footgun, not a
     ///      storage concern.
+    ///      Multi-venue: appends a self-validated 4626 vault to the stable's set (the inner
+    ///      pro-rata dimension); the first becomes the primary (`vaults[stable]`). The venue
+    ///      self-checks `asset() == stable`. The deploy wires the full HARDCODED curator set and
+    ///      `finalize()` then RENOUNCES, so no vault can be added after deployment.
+    ///      ⚠️ THE OWNER GATE IS NO LONGER HERE — it is on `configure`, the only external
+    ///      entrypoint that reaches this (§SETTER-FOLD). This is `private`; do not read the
+    ///      absence of `onlyOwner` on this line as the write being ungated.
+    ///      GHO + USDG route via AAVE, wired at construction, and are blocked below to prevent a
+    ///      partial-wiring footgun.
     function _setVault(address stable, address vault) private {
         if (stable == GHO || stable == USDG) revert GHOIsAaveWired();
         // Body extracted to ChannelLib.setVaultBody to free Aux bytecode.
-        // onlyOwner gate + GHO/USDG early-revert stay HERE; the DELEGATECALL runs
+        // The GHO/USDG early-revert stays HERE; the DELEGATECALL runs
         // the storage writes (vaultsOf/vaults/tokens/aaveReserveId) + venue reads
         // + selector-encoded approve in Aux's storage context. The shared AAVE-v4
         // spoke member-vs-4626-venue dispatch (no tokens[spoke] reverse-map) is
-        // preserved inside the body. No vault-count cap — setVault is onlyOwner, so
-        // the set size is the deployer's choice; loops iterate the real set length.
+        // preserved inside the body. No vault-count cap — the only caller is the owner-gated
+        // `configure`, so the set size is the deployer's choice; loops iterate the real set length.
         ChannelLib.setVaultBody(stable, vault, ChannelLib.SetVaultCfg(
             AAVE_SPOKE, AAVE_HUB, stables.length),
             toIndex, vaultsOf, aaveReserveId, tokens, vaults);

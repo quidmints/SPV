@@ -148,7 +148,7 @@ contract LevYbRealProbe is AllesFixture {
         // and because it deliberately never reverts (#101 degrade-to-partial-fill), that zero
         // propagated as `pxWeth` into LevMath's divisors and killed these tests with
         // `panic: division or modulo by zero`. The fixture must match the deployed config.
-        if (AUX.assetPriceFeed(address(WETH)) == address(0)) AUX.setAssetFeed(address(WETH), CL_ETH_USD);
+        if (AUX.assetPriceFeed(address(WETH)) == address(0)) _auxSetAssetFeed(address(WETH), CL_ETH_USD);
         rpx = AUX.getTWAPforAsset(address(WETH), 1800);            // 1e18 USD/ETH (real)
         assertGt(rpx, 0, "ETH/USD anchor must resolve non-zero (pxWeth feeds LevMath divisors)");
         RealRateMorphoOracle oracle = new RealRateMorphoOracle(WEETH, CL_ETH_USD); // REAL ether.fi rate × Chainlink

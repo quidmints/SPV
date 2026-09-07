@@ -773,7 +773,7 @@ contract BtcLpMintStress is AllesFixture {
     function test_AaveVenue_USDC_SupplyValueWithdraw() public {
         address spoke = AUX.AAVE_SPOKE();
         uint v0 = AUX.getVaults(address(USDC)).length;
-        AUX.setVault(address(USDC), spoke);
+        _auxSetVault(address(USDC), spoke);
         assertEq(AUX.getVaults(address(USDC)).length, v0 + 1, "spoke added as a USDC venue");
         assertGt(AUX.aaveReserveId(address(USDC)), 0, "USDC reserve-id resolved on Aave v4");
 

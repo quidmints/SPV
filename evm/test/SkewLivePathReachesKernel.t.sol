@@ -36,7 +36,7 @@ contract SkewLivePathReachesKernelTest is AllesFixture {
 
         px = AUX.getTWAPforAsset(address(WETH), 1800);
         _setEthFeed(px / 1e10);
-        AUX.setAssetFeed(address(WETH), ETH_FEED);
+        _auxSetAssetFeed(address(WETH), ETH_FEED);
         // ⭐ **ONE LOOP, BECAUSE PRODUCTION HAS ONE PATH.** This was two: a `pushObservation` loop for
         //    variance and a swap loop for flow. **The push loop was measuring the wrong thing.** σ² has
         //    two legs — `max(ringVariance, anchorVarianceWad)` — and BOTH are fed only from `swap()`

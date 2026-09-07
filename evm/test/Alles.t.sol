@@ -512,6 +512,47 @@ contract AllesFixture is ForkPin, ExitFixture {
     }
 
     // ─── New protocol stack (replaces old Amp/Rover/Jury/Court) ───
+    // ─── §SETTER-FOLD test shims ────────────────────────────────────────────────
+    // `Aux.setAssetFeed`/`setStableFeed`/`setVault` are DELETED — `configure` is the only
+    // wiring entrypoint, so the contract carries one dispatch entry instead of four.
+    // ⚠️ THESE DELIBERATELY DO NOT PRANK. 21 of the 28 migrated call sites ran unpranked as the
+    // fixture's own sender and 7 wrapped themselves in `vm.prank(AUX.owner())`; a prank inside
+    // the shim would consume the caller's. Building the arrays is pure memory, so `configure` is
+    // the FIRST external call and any pending prank lands on it — both shapes keep working
+    // unchanged.
+    function _emptyAddrs() internal pure returns (address[] memory) { return new address[](0); }
+
+    function _one(address a) internal pure returns (address[] memory r) {
+        r = new address[](1); r[0] = a;
+    }
+
+    function _auxSetAssetFeed(address asset, address feed) internal {
+        AUX.configure(Aux.Wiring({
+            assetTokens: _one(asset), assetFeeds: _one(feed),
+            stableTokens: _emptyAddrs(), stableFeeds: _emptyAddrs(),
+            vaultStables: _emptyAddrs(), vaultAddrs: _emptyAddrs(),
+            quid: address(0), ethVenue: address(0), btcChannels: address(0)
+        }));
+    }
+
+    function _auxSetStableFeed(address token, address feed) internal {
+        AUX.configure(Aux.Wiring({
+            assetTokens: _emptyAddrs(), assetFeeds: _emptyAddrs(),
+            stableTokens: _one(token), stableFeeds: _one(feed),
+            vaultStables: _emptyAddrs(), vaultAddrs: _emptyAddrs(),
+            quid: address(0), ethVenue: address(0), btcChannels: address(0)
+        }));
+    }
+
+    function _auxSetVault(address stable, address vault) internal {
+        AUX.configure(Aux.Wiring({
+            assetTokens: _emptyAddrs(), assetFeeds: _emptyAddrs(),
+            stableTokens: _emptyAddrs(), stableFeeds: _emptyAddrs(),
+            vaultStables: _one(stable), vaultAddrs: _one(vault),
+            quid: address(0), ethVenue: address(0), btcChannels: address(0)
+        }));
+    }
+
     Core public CORE;
     Basket   public QUID;
     Quid    public ETH;
@@ -1094,7 +1135,7 @@ contract AllesFixture is ForkPin, ExitFixture {
         vm.stopPrank();
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
         _setEthFeed(px / 1e10);
-        AUX.setAssetFeed(address(WETH), ETH_FEED);   // pin the anchor (owner, pre-renounce)
+        _auxSetAssetFeed(address(WETH), ETH_FEED);   // pin the anchor (owner, pre-renounce)
         vm.deal(lp, lpEth);
         vm.prank(lp); ETH.deposit{value: lpEth}(0, lp); // all-Galaxy ETH LP
     }
@@ -1970,7 +2011,7 @@ contract Alles is AllesFixture {
         // the feed fresh as time is warped forward.
         uint px0 = AUX.getTWAPforAsset(address(WETH), 1800);
         _setEthFeed(px0 / 1e10);
-        AUX.setAssetFeed(address(WETH), ETH_FEED);
+        _auxSetAssetFeed(address(WETH), ETH_FEED);
 
         uint pooledBefore  = CORE.POOLED();
         uint premiumBefore = CORE.skewPremium();
@@ -2305,13 +2346,13 @@ contract Alles is AllesFixture {
         // Fresh feed at $0.97 = 300 bps below peg -> factor 9700, via Aux.riskFactor.
         vm.mockCall(feed, abi.encodeWithSignature("latestRoundData()"),
             abi.encode(uint80(1), int256(97e6), uint(0), block.timestamp, uint80(1)));
-        AUX.setStableFeed(address(USDC), feed);
+        _auxSetStableFeed(address(USDC), feed);
         assertEq(AUX.riskFactor(address(USDC)), 9700,
             "live feed (0.97) flows through Aux.riskFactor as the depeg signal");
 
         // Pin-once: a second wiring reverts (no owner repoint to a hostile feed).
         vm.expectRevert(Aux.FeedPinned.selector);
-        AUX.setStableFeed(address(USDC), address(0xBEEF));
+        _auxSetStableFeed(address(USDC), address(0xBEEF));
 
         // Stale feed - even reading a deep depeg - DEFERS (returns 0, no haircut):
         // a benign heartbeat lapse must not inflict a haircut; a real depeg keeps the
@@ -2442,7 +2483,7 @@ contract Alles is AllesFixture {
     function testMultiVenue_SpreadAndProRataDraw() public {
         // Wire a SECOND USDC vault - USDC now spans two venues.
         MockUsdcVault mockUsdc = new MockUsdcVault();
-        AUX.setVault(address(USDC), address(mockUsdc));
+        _auxSetVault(address(USDC), address(mockUsdc));
 
         address[] memory vs = AUX.getVaults(address(USDC));
         assertEq(vs.length, 2, "USDC should have two venues");
@@ -2532,7 +2573,7 @@ contract Alles is AllesFixture {
         vm.mockCall(feed, abi.encodeWithSignature("decimals()"), abi.encode(uint8(8)));
         vm.mockCall(feed, abi.encodeWithSignature("latestRoundData()"),
             abi.encode(uint80(1), int256(pB / 1e20), uint(0), block.timestamp, uint80(1)));
-        AUX.setAssetFeed(address(WBTC), feed);
+        _auxSetAssetFeed(address(WBTC), feed);
         assertEq(AUX.getTWAPforAsset(address(WBTC), 1800), pB,
             "fair WBTC anchor must not trip TwapDeviation (1e18-RAW basis match)");
     }

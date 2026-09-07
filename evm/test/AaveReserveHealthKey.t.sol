@@ -32,8 +32,8 @@ contract AaveReserveHealthKey is AllesFixture {
         // the REAL owner-gated entrypoint, so `setVaultBody` resolves the reserve ids the same way the
         // deploy does — no mock, no vm.store.
         vm.startPrank(AUX.owner());
-        AUX.setVault(address(USDC), spoke);
-        AUX.setVault(address(USDT), spoke);
+        _auxSetVault(address(USDC), spoke);
+        _auxSetVault(address(USDT), spoke);
         vm.stopPrank();
 
         uint ridUsdc = AUX.reserveIdOf(address(USDC));

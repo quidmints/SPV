@@ -1348,7 +1348,7 @@ contract DrainAtomicity is AllesFixture {
         //    idiom: Chainlink FOLLOWS each push, because `pushObservation` admits a price only
         //    within 50 bps of the anchor and would otherwise reject the whole sequence silently.
         _setEthFeed(px / 1e10);
-        AUX.setAssetFeed(address(WETH), ETH_FEED);       // pin the anchor (same order as AllesFixture)
+        _auxSetAssetFeed(address(WETH), ETH_FEED);       // pin the anchor (same order as AllesFixture)
         // (§E294) The anchor moves and a real SWAP records it. Both sigma^2 legs are fed only from
         // `swap()` (`_observeIfSourced` Core:1031, `_sampleAnchorVariance` Core:1039), so the old
         // push-only loop fed the ring by hand and never touched the anchor EWMA that §E345 made

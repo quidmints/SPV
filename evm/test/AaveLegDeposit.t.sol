@@ -18,7 +18,7 @@ contract AaveLegDeposit is AllesFixture {
     function test_aaveLegDepositCompletes_withTheSpokeInTheSet() public {
         address spoke = AUX.AAVE_SPOKE();
         vm.startPrank(AUX.owner());
-        AUX.setVault(address(USDT), spoke);
+        _auxSetVault(address(USDT), spoke);
         vm.stopPrank();
         emit log_named_uint("USDT reserveId", AUX.reserveIdOf(address(USDT)));
         emit log_named_uint("aaveBalance(USDT)", AUX.aaveBalance(address(USDT)));
@@ -46,7 +46,7 @@ contract AaveLegDeposit is AllesFixture {
     function test_aaveLegRoundTrip_usdc() public {
         address spoke = AUX.AAVE_SPOKE();
         vm.prank(AUX.owner());
-        AUX.setVault(address(USDC), spoke);
+        _auxSetVault(address(USDC), spoke);
 
         address[] memory vs = AUX.getVaults(address(USDC));
         bool hasSpoke;

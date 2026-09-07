@@ -46,7 +46,7 @@ contract TwapAnchorDeadlockTest is AllesFixture {
         address feed = address(0x7A33FEED);
         int256 fair = int256(pE / 1e10);
         _mockFeed(feed, fair, 1);
-        AUX.setAssetFeed(address(WETH), feed); // pin-once
+        _auxSetAssetFeed(address(WETH), feed); // pin-once
         assertEq(AUX.getTWAPforAsset(address(WETH), 1800), pE,
             "within 5%: keep internal TWAP (normal swaps unaffected)");
 

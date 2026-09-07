@@ -376,7 +376,7 @@ contract PooledUsdRepackMatrix is AllesFixture {
         _seedBoth(400 ether, 2e7);
 
         // Pin the anchor the way production does. setAssetFeed is onlyOwner + pin-once.
-        AUX.setAssetFeed(address(WETH), CL_ETH_USD_REAL);
+        _auxSetAssetFeed(address(WETH), CL_ETH_USD_REAL);
         assertEq(AUX.assetPriceFeed(address(WETH)), CL_ETH_USD_REAL,
             "PREMISE: the production Chainlink anchor is pinned, else this is not a control");
 
@@ -409,7 +409,7 @@ contract PooledUsdRepackMatrix is AllesFixture {
     function testMatrix_S3c_CompoundPath_AnchorPinnedAndFresh() public {
         warpPerSwap = 10 minutes;
         _seedBoth(400 ether, 2e7);
-        AUX.setAssetFeed(address(WETH), CL_ETH_USD_REAL);
+        _auxSetAssetFeed(address(WETH), CL_ETH_USD_REAL);
 
         Pair memory s0 = _snap();
         _oracleTrace("S3c t0 (anchored + fresh)");

@@ -166,7 +166,7 @@ contract LevCascadeProbe is AllesFixture {
         // twapResolve anchor fall-through actually rescue this fixture, exactly as the real deploy
         // pins Chainlink (DeployL1_s:326).
         _setEthFeed(AUX.getTWAPforAsset(address(WETH), 1800) / 1e10);   // seed it before pinning
-        AUX.setAssetFeed(address(WETH), ETH_FEED);
+        _auxSetAssetFeed(address(WETH), ETH_FEED);
     }
 
     /// Seed REAL basket POOLED_USD surplus (mint QUID against USDC) so syncLev can pair the levered range slice.

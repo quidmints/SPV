@@ -174,7 +174,7 @@ contract YieldFactorDimensions is AllesFixture {
         address spoke = AUX.AAVE_SPOKE();
         require(spoke != address(0), "no spoke wired - assertion would be vacuous");
         vm.prank(AUX.owner());
-        AUX.setVault(address(USDT), spoke);
+        _auxSetVault(address(USDT), spoke);
 
         deal(address(USDT), User02, 100_000 * USDC_PRECISION);
         vm.startPrank(User02);
