@@ -54249,3 +54249,36 @@ positives got through anyway and BOTH were caught by agents checking rather than
 · `LevMath._repayPretransferred` has **ZERO callers** (grep-verified); its named caller
   `swapOutDeleverBody` is gone. Recorded in its docblock only — removing the function is a code
   change and outside the comment pass.
+
+## §SESS-COMMENTS-3 — **CORE: A SAFETY BOUND THAT BOUNDS NOTHING, AND FOUR DEAD LOCALS.** (2026-09-07)
+
+🔴 **`OBS_PUSH_MAX_BPS = 50` IS INERT ON BOTH LIVE PATHS.** Measured 2026-09-07:
+  · `Core.sol:478` and `Core.sol:1630` are the ONLY call sites, and both pass **`price = 0`**.
+  · At `price == 0`, `twapResolve`'s deviation test trips for any bound below 10000 and returns the
+    RAW ANCHOR — the bound never binds.
+  · The pinned-source branch of `_observeIfSourced` applies **no deviation check at all**.
+⚠️ **THE DAMAGE IS THAT IT READS AS A LIVE CONTROL.** The constant is declared, four comments
+claimed "±50 bps bounds the ring", and a reviewer counting mitigations counts this one. The comments
+are fixed (`ad6260e8`); **the constant is not**. ▶️ Decide: either wire a real bound into the
+observe path, or delete `OBS_PUSH_MAX_BPS` so nothing can mistake it for protection. ⛔ Do not
+"fix" this by passing a non-zero price without first deriving what the bound should be — a bound
+nobody sized is the same defect with a larger number.
+
+🔴 **THE FLAT-RING HAZARD IS STRONGER THAN §E345/§E346-ZERO STATE IT.** Those arguments were
+written when `pushObservation` existed. It is now **gone (0 occurrences tree-wide)** and
+`_observeIfSourced` — reached only through `onlyUs` `swap`/`repack` — is the sole ring writer. ⇒ A
+flat anchor between Chainlink rounds is the **ORDINARY** state, not an attacker-constructed one, so
+any reasoning that treats a flat ring as evidence of manipulation has its sign backwards.
+
+📌 **FOUR CODE RESIDUES IN `Core.sol`, comment-documented, none removed (comment pass cannot touch
+code):**
+  · `_handleDelta`'s `inRange = false` arm has **no caller** — all three call sites pass `true`.
+  · `_decayedBy`'s `slowN` is always 1; the ratio generality has no live user.
+  · `pooledPre` in `_poolUsdInRange` is referenced only from comments — the local is unused.
+  · `_levDebtUsd18` and `levGrossNative` both short-circuit on `address(BTC) == 0`, so leverage debt
+    reads 0 on EITHER instance until `setBtcVault` lands. ⚠️ That is an odd gate for the **ETH**
+    instance's debt — confirm it is intended before relying on either read.
+
+📌 **`CurveObserverIsCheapAndSane` WAS A CENSUS "CHECK BY HAND" HIT AND IS LIVE**
+(`evm/test/CurveObserverIsCheapAndSane.t.sol`). Recorded as evidence the bucket earns its keep:
+under either of the old suppression rules it would have been silently mis-answered.
