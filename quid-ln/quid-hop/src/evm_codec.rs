@@ -1096,8 +1096,87 @@ fn t_params() -> OpenParams {
 }
 
 #[cfg(test)]
+mod abi_arity {
+    use super::*;
+
+/// Split an ABI argument list on TOP-LEVEL commas only — tuples carry their own.
+pub(crate) fn split_top_level(args: &str) -> Vec<String> {
+    let (mut depth, mut out, mut cur) = (0usize, Vec::new(), String::new());
+    for ch in args.chars() {
+        match ch {
+            '(' => { depth += 1; cur.push(ch); }
+            ')' => { depth -= 1; cur.push(ch); }
+            ',' if depth == 0 => out.push(std::mem::take(&mut cur)),
+            _ => cur.push(ch),
+        }
+    }
+    if !cur.is_empty() { out.push(cur); }
+    out
+}
+
+/// A top-level type needs a TAIL (so its head word is an offset) rather than fitting inline.
+pub(crate) fn needs_tail(t: &str) -> bool {
+    if t.ends_with(']') || t == "bytes" || t == "string" { return true; }
+    if t.starts_with('(') {
+        return split_top_level(&t[1..t.len() - 1]).iter().any(|x| needs_tail(x));
+    }
+    false
+}
+
+/// Assert `calldata`'s HEAD holds EXACTLY ONE WORD PER TOP-LEVEL PARAMETER of `sig`.
+///
+/// 🔴 **THIS REPLACES `assert_eq!(cd.len() % 32, 4)`, WHICH CANNOT SEE AN ARITY BUG AT ALL.**
+/// An extra ABI token adds exactly 32 bytes, so it leaves the remainder at 4 — the old
+/// assertion had the SAME VALUE for the right arity and for any wrong one. That is how
+/// `requestSwapOutOnchain` shipped a phantom fifth token (§SESS-54): correct selector, four
+/// declared static params, so the decoder read the head and silently discarded the extra
+/// word. Selector + alignment were both green throughout.
+///
+/// Every top-level parameter occupies exactly one head word — its value if the type fits
+/// inline, otherwise an offset to its tail. So HEAD SIZE IS ARITY, and the first
+/// tail-needing parameter's offset must equal `32 * arity`. Adding or dropping a token
+/// moves that offset and cannot hide behind it.
+///
+/// ⚠️ Derived from the SIGNATURE STRING, not hand-numbered per test — the signature is the
+/// same constant the encoder builds from and `check-client-abis.py` matches against the
+/// contract, so this cannot drift out of step with either.
+/// ⛔ Do not "simplify" this back to a length check. `tools/check-client-abis.py` is blind
+/// to arity BY CONSTRUCTION (it compares declared signatures against `evm/out`; the
+/// signature was never wrong — the encoder's token list was), so this assertion is the
+/// only thing standing between a mis-arity encoder and a silent on-chain discard.
+pub(crate) fn assert_head_arity(calldata: &[u8], sig: &str) {
+    let open = sig.find('(').expect("signature has no argument list");
+    let params = split_top_level(&sig[open + 1..sig.rfind(')').unwrap()]);
+    assert!(!params.is_empty(), "{sig}: no parameters");
+
+    assert!(calldata.len() >= 4, "{sig}: shorter than a selector");
+    let body = &calldata[4..];
+    assert_eq!(body.len() % 32, 0, "{sig}: body is not word-aligned");
+    assert!(
+        body.len() >= params.len() * 32,
+        "{sig}: head holds {} words but the signature declares {} parameters",
+        body.len() / 32, params.len(),
+    );
+
+    let first_tail = params.iter().position(|t| needs_tail(t)).unwrap_or_else(|| {
+        panic!("{sig}: every parameter is inline — assert an EXACT length instead, as \
+                requestSwapOutOnchain does")
+    });
+    let off = U256::from_be_slice(&body[first_tail * 32..first_tail * 32 + 32]).to::<u64>();
+    assert_eq!(
+        off as usize, params.len() * 32,
+        "{sig}: declares {} top-level parameters (head = {} bytes) but the encoder wrote a \
+         first tail offset of {off} (= {} words). An extra or missing top-level token is \
+         the usual cause.",
+        params.len(), params.len() * 32, off / 32,
+    );
+}
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+    use super::abi_arity::assert_head_arity;
 
     /// (E177) `keys_hash` must equal what `BTCChannels._requireChannelKeys` computes.
     ///
@@ -1251,7 +1330,7 @@ mod tests {
         let cid = [0x11u8; 32];
         let exit = t_exits()[0].clone();
         let cd = encode_emit_dead_man_exit(cid, &t_params(), &exit);
-        assert_eq!(cd.len() % 32, 4, "4-byte selector + 32-aligned body");
+        assert_head_arity(&cd, SIG_EMIT_DEAD_MAN_EXIT);
         let body = &cd[4..];
         assert_eq!(&body[0..32], &cid[..], "word0 = channelId (static, inline)");
         // Head = 3 words: one static + two dynamic offsets, so arg1's tail starts at 0x60.
@@ -1320,10 +1399,10 @@ mod tests {
             let oc = encode_open_channel(&p, &[], &proof, &t_auth(), &t_exits());
             assert_eq!(&oc[..4], &oc_sel[..4]);
             // dynamic-tail length is always a 32-byte multiple (well-formed ABI).
-            assert_eq!(oc.len() % 32, 4);
+            assert_head_arity(&oc, SIG_OPEN_CHANNEL);
             let rc = encode_record_close([0u8; 32], &t_params(), &vec![0u8; 4096], [0u8; 32], &proof, u64::MAX);
             assert_eq!(&rc[..4], &rc_sel[..4]);
-            assert_eq!(rc.len() % 32, 4);
+            assert_head_arity(&rc, SIG_RECORD_CLOSE);
         }
         // Empty Bytes / huge Bytes / nested tuple — encode_struct/tuple no panic.
         let _ = encode_struct(&[Tok::Bytes(vec![]), Tok::Bytes(vec![0xff; 9999])]);
@@ -1337,7 +1416,7 @@ mod tests {
             let proof = vec![[0xABu8; 32]; proof_len];
             let sp = encode_splice([0xCDu8; 32], &p, &vec![0u8; 4096], &proof, &t_exits());
             assert_eq!(&sp[..4], &sp_sel[..4]);
-            assert_eq!(sp.len() % 32, 4);
+            assert_head_arity(&sp, SIG_SPLICE);
         }
     }
 
@@ -1406,7 +1485,7 @@ mod tests {
         let cd = encode_deliver_swap_out_onchain([1u8; 32], [2u8; 32], &p, &[], &[], &[0x00, 0x14], &t_exits());
         let sig = SIG_DELIVER_SWAP_OUT_ONCHAIN;
         assert_eq!(hex_encode(&cd[..4]), hex_encode(&keccak256(sig)[..4]));
-        assert_eq!(cd.len() % 32, 4); // well-formed
+        assert_head_arity(&cd, SIG_DELIVER_SWAP_OUT_ONCHAIN);
     }
 
     // requestSwapOutOnchain selector matches keccak256(signature)[..4].
@@ -1482,11 +1561,14 @@ mod tests {
 //
 // Generalizes the hand-rolled `*_never_panics*` unit tests above to thousands of
 // generated inputs (with shrinking). The ABI encoders + digests take
-// attacker-influenced field values, so we fuzz those for the structural
-// invariant `calldata.len() % 32 == 4`.
+// attacker-influenced field values, so we fuzz those for the structural invariant
+// that the HEAD holds exactly one word per top-level parameter — see `assert_head_arity`.
+// ⛔ NOT `calldata.len() % 32 == 4`, which this module used to assert: an extra ABI token
+// adds exactly 32 bytes and leaves that remainder at 4, so it was true for every arity.
 #[cfg(test)]
 mod proptests {
     use super::*;
+    use super::abi_arity::assert_head_arity;
     use proptest::prelude::*;
 
     fn arb_33() -> impl Strategy<Value = [u8; 33]> {
@@ -1544,7 +1626,7 @@ mod proptests {
             prop_assert_eq!(&cd[..4], &keccak256(
                 SIG_OPEN_CHANNEL
             )[..4]);
-            prop_assert_eq!(cd.len() % 32, 4);
+            assert_head_arity(&cd, SIG_OPEN_CHANNEL);
         }
 
         #[test]
@@ -1559,7 +1641,7 @@ mod proptests {
             prop_assert_eq!(&cd[..4], &keccak256(
                 SIG_SPLICE
             )[..4]);
-            prop_assert_eq!(cd.len() % 32, 4);
+            assert_head_arity(&cd, SIG_SPLICE);
         }
 
         #[test]
@@ -1572,7 +1654,7 @@ mod proptests {
         ) {
             let proof = vec![[0xABu8; 32]; proof_len];
             let cd = encode_record_close(cid, &t_params(), &raw, bhash, &proof, tx_index);
-            prop_assert_eq!(cd.len() % 32, 4);
+            assert_head_arity(&cd, SIG_RECORD_CLOSE);
         }
 
         // (P4) `channelId` over arbitrary inputs: never panics, deterministic.
