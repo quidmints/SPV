@@ -793,9 +793,9 @@ contract Core {
     function setup(address _range, address _aux, address _basket, uint seedPrice)
         external { require(msg.sender == DEPLOYER, "403");   
         // auth-wiring pin (deployer only) anti-frontrun
-        require(address(AUX) == address(0), "!");   // §DEDUP-RANGE: the once-only pin is gated on
-        // `AUX`, not on `RANGE` — `_range` is legitimately zero on the BTC instance, so a zero
-        // `RANGE` cannot mean "not set up yet".
+        // §DEDUP-RANGE — the once-only pin is gated on `AUX`, NOT on `RANGE`: `_range` is
+        // legitimately zero on the BTC instance, so a zero `RANGE` cannot mean "not set up yet".
+        require(address(AUX) == address(0), "!");   // once only
 
         AUX = Aux(payable(_aux));
         // §ISBTC-ZERO: the RANGE is whatever the deployer pins here. The ETH range (Quid) exists by
@@ -875,13 +875,12 @@ contract Core {
     /// `pooledBeforeWithdraw - POOLED()`; POOLED came back at 1.509e19, HIGHER than before, so the
     /// subtraction underflowed. The test is right and the accounting was wrong.
     ///
-    /// ⚠️ THE DIRECTION WAS LOST IN THE V4 CUT, and the header it left behind says so without
-    /// noticing: *"the range TAKES WHAT IT IS GIVEN"*. While v4 existed, `modifyLiquidity` RETURNED
-    /// signed deltas — the pool told us which way value moved. The cut replaced that return with a
-    /// hand-built `Delta` and hardcoded the sign to "enters", which is correct for the deposit path
-    /// the author was looking at and silently wrong for the two burn paths.
+    /// ⚠️ THE HAZARD IS HAND-BUILDING A `Delta` AND FIXING ITS SIGN FROM THE PATH IN FRONT OF YOU.
+    /// A curve RETURNED signed deltas and so answered "which way did value move?" for free; assembling
+    /// the struct here means the answer has to be supplied, and hardcoding it to "enters" is correct
+    /// for the deposit path and silently wrong for every burn path.
     ///
-    /// ⇒ Callers now pass the sign, under the SAME convention `Delta` and `swap` already use —
+    /// ⇒ Callers pass the sign, under the SAME convention `Delta` and `swap` already use —
     /// **positive LEAVES the pool, negative ENTERS it**. That is this file's own stated rule
     /// ("SIGN CARRIES DIRECTION … one value, one meaning — no companion flag that can disagree with
     /// it"), and following it deletes the negation here rather than adding a boolean beside it.
@@ -925,12 +924,12 @@ contract Core {
 
 
     /// @notice §E258 — settle ONE filled boundary order, both legs, at the order's own price.
-    /// @dev    `inRange = true` HERE, where `outOfRange` passes false, and the difference is the
-    ///         point. A resting order is deliberately kept out of `POOLED_*` so it cannot inflate
-    ///         the in-range depth every LP claim is priced against. Filling it is the moment its
-    ///         funded side JOINS that depth and the other side leaves it — exactly what a swap
-    ///         does — so it settles on the in-range path, and the two states stay disjoint with no
-    ///         window in which the order counts twice.
+    /// @dev    `inRange = true` HERE, AND THAT IS THE POINT rather than an oversight. A resting
+    ///         order has no on-chain footprint at all until it fills (§OOR-BOOK-DELETED: they are
+    ///         signed intents), so it cannot inflate the in-range depth every LP claim is priced
+    ///         against. Filling it is the moment its funded side JOINS that depth and the other side
+    ///         leaves it — exactly what a swap does — so it settles on the in-range path, and the
+    ///         two states stay disjoint with no window in which the order counts twice.
     ///         `token` is `address(0)`: a fill's USD leg is either taken into the pool or paid out
     ///         through `AUX.take`, and only the burn branch reads a payout token.
     /// @param loadBalance the ORDER OWNER's load-balance consent, captured when they placed the
@@ -965,14 +964,13 @@ contract Core {
         }
     }
 
-    /// @notice Fused swap — IS_BTC selects which V4 pool. The shortfall signal is
-    ///         ASYNC per-pool (in-frame refill is unsafe — re-enters Aux on
-    ///         half-settled backing); BTC emits a hop request (we don't mint WBTC).
-    /// @dev    §SCRUB: this said "ETH emits ETHRefillRequest (keeper → refillETH buys back from free
-    ///         surplus)". BOTH are deleted -- this same file records "REMOVED: refillETH() /
-    ///         ETHRefillRequest — the eager, permissionless ETH-pool [...]". The BTC hop request is
-    ///         real and stays; the ETH half named an event no contract emits and a function no
-    ///         contract declares, which is how a reader concludes the ETH shortfall path is wired.
+    /// @notice This range's swap: settled at the oracle against inventory, one price for the whole
+    ///         size. The shortfall signal is ASYNC (an in-frame refill is unsafe — it re-enters Aux
+    ///         on half-settled backing), and it is the range manager that acts on it:
+    ///         `Vault.onShortfall` routes to `AUX.btcShortfall` because we cannot mint WBTC.
+    /// @dev    ⚠️ THE ETH SIDE HAS NO REFILL PATH, AND ITS `onShortfall` IS A DELIBERATE NO-OP —
+    ///         read that as designed, not as unwired. `_shortfallLoadBalance` runs the SAME threshold
+    ///         and trigger on both instances; only the remediation differs.
     /// @param loadBalance  the SWAPPER's consent to trigger the shortfall load-balance. It routes
     ///        through the SOR/hop and can add MEV/slippage to their OWN fill, so it is theirs to
     ///        decide -- and it is a PARAMETER OF THE SWAP, not a stored per-address flag: consent
@@ -980,7 +978,7 @@ contract Core {
     /// @param recipient WHERE THE OUTPUT GOES. §E90 — this parameter was named `sender`, and its
     ///        only use is `_handleDelta(..., who, ...)`, whose `who` feeds
     ///        `RANGE.deliverVolatile(amount, who)`. It is a DESTINATION, never a payer. The one
-    ///        caller (`BasketLib:527`) passes `p.recipient`, so the behaviour was always right and
+    ///        caller (`BasketLib.routeSwap`) passes `p.recipient`, so the behaviour was always right and
     ///        the NAME was the defect: a future caller reading `sender` would pass `msg.sender` and
     ///        deliver the output to the swapper instead of the intended recipient. Renamed rather
     ///        than commented, because the next reader will trust the signature over any note.
@@ -990,29 +988,27 @@ contract Core {
 
         // ═══════════════ §V4-CUT — SETTLE AT ORACLE, BOUNDED BY INVENTORY ═══════════════
         // No unlock, no callback, no curve traversal, no price discovery. ONE price for the whole
-        // size. The skew is deliberately NOT folded into this rate: we restore 1:1 from the inside
-        // via Curve, so there is no arbitrageur to pay a spread to — the skew is the ATTRIBUTION KEY
-        // for the realised restoration cost (BatchLedger), never a charge applied here.
+        // size. ⛔ The skew is deliberately NOT folded into this rate: we restore 1:1 from the inside
+        // via Curve, so there is no arbitrageur to pay a spread to. The skew is an ATTRIBUTION KEY
+        // for the realised restoration cost, never a charge applied here — and `_fillDelta` says the
+        // same thing a second time, because it was violated once.
         //
-        // UNITS — CHECKED, NOT ASSUMED, because a 1e12 slip here mis-scales every swap.
-        // `BasketLib.getPrice` output, the observation ring's stored `lastPrice`, and
-        // `AUX.getTWAPforAsset` are ALL the same basis: WAD USD per unit volatile. The ring stores
-        // `getPrice`'s output and `twapBody` reads the ring, so the TWAP substitutes directly where
-        // `getPrice(getSlot0())` used to sit. `BasketLib.convert` carries the 6↔18 bridge and is the
-        // SAME conversion `routeSwap` already uses — deriving a second one here is how the §A.50/C2
-        // asymmetry happened.
+        // UNITS — CHECKED, NOT ASSUMED, because a 1e12 slip here mis-scales every swap. The
+        // observation ring's stored `lastPrice` and `AUX.getTWAPforAsset` are the SAME basis: WAD USD
+        // per unit volatile. `_observeIfSourced` writes plain WAD prices into the ring and
+        // `SwapLib.twapBody` reads them back, so the TWAP below needs no conversion of its own.
+        // `BasketLib.convert` carries the 6↔18 bridge and is the SAME conversion `routeSwap` already
+        // uses — deriving a second one here is how the §A.50/C2 asymmetry happened.
         //
-        // SIGN CONVENTION — DERIVED from the two consumers so the legs cannot silently invert:
-        //   • the old `out` was `forOne ? amount1 : amount0` ⇒ THE LEG THE USER RECEIVES IS POSITIVE;
-        //   • `_settleUsdSide` reads `usdDelta = _t1 ? amt0 : amt1` ⇒ with `_t1`, USD is leg 0.
+        // SIGN CONVENTION — ONE rule, carried by the VALUE, so the legs cannot silently invert:
         //   ⇒ POSITIVE = leaves the pool (we pay out) · NEGATIVE = enters the pool (we take in).
-        //   `forOne` is zeroForOne: pays leg 0, receives leg 1.
+        //   `Delta` names its legs `usd` and `vol`, so there is no ordering flag to disagree with,
+        //   and `_settleUsdSide`/`_handleDelta` read the sign directly.
         //
-        // ⚠️ `spotPrice` IS NOW UNUSED. It carried the packed range ticks for the price limit —
-        // a bound that existed because crossing the range edge cost ZERO and bricked the range
-        // (`PooledUsdRepackMatrix::testMatrix_S6`). The inventory bound below replaces it with a
-        // PHYSICAL limit, and an edge that does not exist cannot be crossed. The parameter stays
-        // only until `BasketLib.routeSwap`'s call site is updated in the same cut.
+        // ⚠️ THERE IS NO PRICE LIMIT ARGUMENT, AND NOTHING IS MISSING. A curve needed one because
+        // crossing the range edge cost ZERO and bricked the range
+        // (`PooledUsdRepackMatrix::testMatrix_S6`); the inventory bound in `_fillDelta` is a PHYSICAL
+        // limit instead, and an edge that does not exist cannot be crossed.
         // OWN FRAME (`via_ir = false`). The fill's locals -- price, leg ordering, inventory bound,
         // partial-fill re-derivation -- are computed in `_fillDelta` and only a struct pointer and
         // `out` come back. Inlining them here blows the stack at `_handleDelta`, twice measured.
@@ -1022,32 +1018,33 @@ contract Core {
         Delta memory delta;
         (delta, out) = _fillDelta(inputIsUsd, amount, px);
 
-        // 🔴 THE THREE LINES BELOW LIVED IN `_handleSwap`, WHICH THIS CUT DELETED. Moving the seam
-        // without carrying the body left `swap` computing a delta and doing NOTHING with it — no
-        // settlement, no observation, no flow bump — and it compiled. Recorded because "the seam is
-        // one statement" was true of the SOURCE of the delta and false of everything downstream.
+        // ⚠️ FOUR THINGS HAPPEN AFTER THE FILL AND ALL FOUR ARE LOAD-BEARING. A version of this that
+        // computed the delta and did nothing with it — no settlement, no observation, no flow bump —
+        // compiled cleanly and reverted nothing. Numbered so a later edit cannot drop one silently.
 
-        // (1) OBSERVATION. `_writeObservation` took a sqrt-price only because v4's API handed one
-        // over; the ring has stored PLAIN PRICE since §TICK-REMOVAL, and we now HAVE the price, so
-        // it goes in directly with no conversion. This is the whole of the oracle repoint.
+        // (1) OBSERVATION — an INDEPENDENT read, deliberately NOT the `px` above. `_observeIfSourced`
+        // fetches its own price (the pinned source, or the Chainlink anchor when none is pinned) and
+        // writes it to the ring as a plain WAD price; the ring has stored plain price since
+        // §TICK-REMOVAL, so there is no conversion anywhere on this path.
         _observeIfSourced();   // §E222: an independent OBSERVATION -- never `px`, which READ this ring
         // §E345 — AND THE VARIANCE SAMPLE, WHICH IS A DIFFERENT QUESTION WITH A DIFFERENT SOURCE.
         // The line above needs a source INDEPENDENT of Chainlink because the ring feeds `twapResolve`'s
         // deviation test, and two sources that cannot disagree are one source (§E222). σ² is a property
-        // of ONE series, so that rule does not reach it — and the ring's permissionless writer makes
-        // the anchor the SAFER series to measure, not merely an admissible one. Both calls sit here
-        // because this is the one seam every range and well swap routes through, the same argument
-        // that makes (3) below the single flow-bump point.
+        // of ONE series, so that rule does not reach it — and the anchor is the series nobody but
+        // Chainlink can write, which makes it the SAFER one to measure rather than merely an
+        // admissible one. Both calls sit here because this is the one seam every range and well swap
+        // routes through, the same argument that makes (3) below the single flow-bump point.
         _sampleAnchorVariance();
 
-        // (2) SETTLEMENT. Without this `POOLED_*` never moves and nobody is paid.
+        // (2) SETTLEMENT. Without this `POOLED_USD`/`POOLED` never move and nobody is paid.
         _handleDelta(delta, true, false, recipient, token);
 
         // (3) FLOW EWMA — LOAD-BEARING, AND ITS ABSENCE WOULD HAVE BEEN SILENT. `flowEwmaUsd` decays
-        // with no replenishment if this is missing, and flow IS the `target` in `skewWad`/`sellSkew`.
-        // At `target == 0` `sellSkew` RETURNS 0, so every sell goes exempt from the imbalance charge
-        // — looking exactly like a skew that simply never fires. Every range and well swap routes
-        // through here, so this remains the ONE bump point.
+        // with no replenishment if this is missing, and it is the swap half of `skewTargetUsd()`,
+        // which is what `skewWad`/`sellSkew` read as `target`. At `target == 0` `sellSkew` RETURNS 0,
+        // so every sell goes exempt from the imbalance charge — looking exactly like a skew that
+        // simply never fires. Every range and well swap routes through here, so this remains the ONE
+        // bump point for SWAP flow (a redemption unwind has its own, `bumpRedeemFlow`).
         {
             int256 usdLeg = delta.usd;
             uint usd6 = uint(usdLeg < 0 ? -usdLeg : usdLeg);
@@ -1093,45 +1090,36 @@ contract Core {
         // yields: an opted-out swap returns its fill, having declined only the load-balance.
         if (!loadBalance) return out;
 
-        // Per-pool shortfall arb. Threshold (1%) and trigger logic are
-        // identical across pools; only the remediation differs. Both
-        // sides bootstrap symmetrically: at deploy POOLED_X = 0 and
-        // totalSharesX = 0, so the trigger naturally doesn't fire until
-        // LPs join via modLP (which grows both in lockstep).
-        // GROSS fee depth on both sides: for BTC, totalShares is NET, so add the levered buffer
-        // (totalBuffer) to match POOLED (gross, includes the buffer) — keeps the shortfall
-        // comparison gross-to-gross (unchanged behavior). ETH: rangeETH(net) vs totalShares(net) already balanced.
+        // The shortfall arb. Both sides bootstrap symmetrically: at deploy inventory and shares are
+        // both 0, so the trigger cannot fire until LPs join via `modLP`, which grows both in
+        // lockstep. Keeping the comparison GROSS-to-GROSS or NET-to-NET is the range manager's job,
+        // not this frame's — `Vault.sharesForShortfall` adds `totalBuffer` because its `totalShares`
+        // is NET while `POOLED` is gross, and ETH's `rangeETH`-vs-`totalShares` pair is already
+        // balanced. See `_shortfallLoadBalance` for the threshold and the two remediations.
         _shortfallLoadBalance(recipient);
     }
 
 
 
-    /// @notice Fused repack — replaces separate repack/repackBTC. Pass
-    ///         IS_BTC=true to repack the BTC/USD pool, false for ETH/USD.
+    /// @notice Move THIS range's anchor. Also absorbs what `reseat` did — the body was identical.
     /// §V4-CUT — REPACKING MOVES NO TOKENS. Once liquidity settles against inventory, the range is
     /// a PRICING PARAMETER, not a custody boundary: the range holds what it holds, and re-ranging
-    /// only changes the bounds we price against. So this stores the new range and returns zeros for
-    /// every delta — there is nothing to burn and nothing to re-add.
-    /// ⚠️ `POOLED_*` IS NOT ZEROED HERE ANY MORE. `_handleRepack` used to clear it and rebuild from
-    /// the re-added position, which was correct while the position WAS the inventory. Zeroing it now
-    /// would delete the range's holdings on a bookkeeping operation.
-    /// Fees return 0 because there is no v4 accrual to harvest: the charge is the SKEW PREMIUM, taken
-    /// in the fill (§E311 deleted the flat 420 ppm), and it compounds into `POOLED_*` at swap time.
-    /// §DE-TICK — the four dead parameters are GONE, not widened. `myLiquidity` and the old bounds
-    /// described a v4 position being burned and re-added; there is no burn. Keeping them as ignored
-    /// arguments would cost calldata on every repack to describe an operation that no longer happens.
-    /// §V4-CUT — RETURNS THE PRICE ALONE. The old tuple was
-    /// `(price, fees0, fees1, delta0, delta1)`; v4 collected the fees and reported the deltas, and
-    /// with the collector gone all four were hard-coded ZERO. Callers destructured them, reordered
-    /// them by token identity, and fed them to `feeIncrements` -- arithmetic on constants. Also
-    /// absorbs `reseat`, whose body was identical.
-    /// ✅ **AND THE STRUCT SIDE IS NOW GONE TOO (2026-08-28).** Cutting the return tuple left
-    /// `SwapLib.Rebalanced.fees0/fees1/delta0/delta1` behind as fields nothing ever assigned, and
-    /// `BtcLib`/`QuidLib` went on reading the two fee fields into `feeIncrements` — the same
-    /// arithmetic on constants this note describes, one layer up, surviving the cut that was meant
-    /// to remove it. All four fields are deleted. ⚠️ A return-value deletion is not finished until
-    /// the STRUCT that carried it is checked: the callers compiled and the zeros stayed correct, so
-    /// nothing failed to announce the leftovers.
+    /// only changes the bounds we price against. So the whole operation is ONE storage write plus a
+    /// price read — there is nothing to burn and nothing to re-add.
+    /// ⛔ `POOLED_USD` AND `POOLED` ARE NOT ZEROED HERE, AND MUST NEVER BE. Clearing them and
+    /// rebuilding from a re-added position was correct while the POSITION was the inventory; with
+    /// inventory held directly, zeroing would delete the range's holdings on a bookkeeping operation.
+    /// ⚠️ AND NO FEES ARE HARVESTED HERE — there is no accrual to harvest, not an omission. The
+    /// charge is the SKEW PREMIUM, taken in the fill (§E311 deleted the flat 420 ppm), and it
+    /// compounds into `POOLED_USD` at swap time.
+    /// §DE-TICK — there are no liquidity or bounds parameters: they described a position being
+    /// burned and re-added, and keeping them as ignored arguments would cost calldata on every
+    /// repack to describe an operation that no longer happens.
+    /// §V4-CUT — RETURNS THE PRICE ALONE, and the caller-side fee plumbing went with the tuple:
+    /// `SwapLib.Rebalanced` no longer carries fee/delta fields for `BtcLib`/`QuidLib` to read into
+    /// `feeIncrements`. ⚠️ A return-value deletion is not finished until the STRUCT that carried it
+    /// is checked — the callers compiled and the zeros stayed correct, so nothing announced the
+    /// leftovers.
     /// @dev §ONE-ANCHOR — takes the ANCHOR, not the two bounds it implies. The caller computed those
     ///      as `updateBounds(spotPrice, RANGE_DELTA)` and already held `spotPrice`, so passing the
     ///      pair meant sending a derived value and reconstructing its source. Reconstructing it as
@@ -1156,38 +1144,43 @@ contract Core {
     //    the LIVE, LP-facing claim entrypoint and is untouched.
 
 
-    /// §V4-CUT — the pair travels as ONE memory pointer, not two stack values. `BalanceDelta` was a
-    /// SINGLE PACKED int256; two `int256` parameters added a stack slot per call site and blew the
-    /// limit (`via_ir = false`). CLAUDE.md's remedy verbatim: locals into struct fields, because one
-    /// memory pointer costs less stack than two values. Do NOT "simplify" it back — it will not compile.
-    /// §DE-TICK — THE FIELDS ARE NAMED FOR WHAT THEY HOLD, not for a token ordering. `amt0`/`amt1`
-    /// mirrored Uniswap's LEX-ORDERED currency0/currency1, so every producer encoded the legs by
-    /// `token1isVol` and every consumer decoded them by it again -- an encode/decode pair around a
-    /// struct WE own, with no external ordering left to agree with. Worse, the flag derives from the
-    /// lex order of freshly-deployed MOCK addresses, so it varied with deployment nonce: the same
-    /// code could put the USD leg in either slot on two different deploys. Naming the fields makes
-    /// the ordering question unaskable.
+    /// §V4-CUT — ⛔ THE PAIR TRAVELS AS ONE MEMORY POINTER, AND MUST KEEP DOING SO. Two `int256`
+    /// parameters add a stack slot per call site and blow the limit (`via_ir = false`); CLAUDE.md's
+    /// remedy verbatim is locals into struct fields, because one memory pointer costs less stack
+    /// than two values. Do NOT "simplify" it back into two arguments — it will not compile.
+    /// §DE-TICK — THE FIELDS ARE NAMED FOR WHAT THEY HOLD, not for a token ordering, and that is
+    /// what makes the ordering question unaskable. A lex-ordered `(amount0, amount1)` pair has to be
+    /// ENCODED by a "which slot is the volatile one" flag at every producer and DECODED by it again
+    /// at every consumer — an encode/decode pair around a struct WE own, with no external ordering
+    /// left to agree with. Worse, such a flag derives from the lex order of deployed ADDRESSES, so it
+    /// varies with deployment nonce: the same code could put the USD leg in either slot on two
+    /// different deploys.
     struct Delta { int256 usd; int256 vol; }
 
+    /// @dev The 5-arg form: `basketLeg = false`. Used by `swap` and `settleOor`.
     function _handleDelta(Delta memory d, bool inRange, 
         bool keep, address who, address token) internal {
         _handleDelta(d, inRange, keep, who, token, false);
     }
 
-    /// `addLiq`). Swap/collect/reseat legs pass FALSE, so a swap moves mirror
-    /// (`POOLED_USD_*`) without moving the basket's contribution (`basketUsd`)...
-    /// the USD leg keeps its own frame (it is the big one, and `_poolUsdInRange` 
-    /// sits under it). Net stack pressure FALLS: each leg 
-    /// used to take `amt0` AND `amt1` and re-derive which was which.
+    /// @dev `basketLeg` is TRUE only where the USD leg IS the basket's own contribution — `modLP`,
+    ///      i.e. an `addLiq`/burn. A swap or an OOR fill passes FALSE, so it moves the mirror
+    ///      (`POOLED_USD`) without CREDITING `basketUsd` on the mint arm. ⚠️ The burn arm debits
+    ///      `basketUsd` either way; see §E230-PHANTOM in `_poolUsdInRange`.
+    ///      Each leg settles in its OWN frame: the USD leg is the big one, with `_poolUsdInRange`
+    ///      under it, and keeping it out of this frame is what holds the legacy stack under the
+    ///      limit. Naming the legs is also what removed the per-leg re-derivation of which was which.
     function _handleDelta(Delta memory d, bool inRange, bool keep,
         address who, address token, bool basketLeg) internal {
         _settleUsdSide(d.usd, inRange, keep, who, token, basketLeg);
         int256 tokDelta = d.vol;
         if (tokDelta > 0) {
             uint tokAmount = uint(tokDelta);
-            if (inRange) POOLED -= Math.min(tokAmount, POOLED);   // clamp: see the note at the deleted helpers
-            // ⚠️ THE `!IS_BTC` GUARD STAYS: ETH pays out real ether here, BTC settles by Lightning
-            // cooperative close, not an on-chain transfer. One of the four known-REAL asymmetries.
+            if (inRange) POOLED -= Math.min(tokAmount, POOLED);   // clamp: see the ABSENT BY DECISION note
+            // ⚠️ THE ASYMMETRY IS REAL AND IT LIVES IN THE RANGE MANAGER, NOT IN A FLAG HERE:
+            // `Quid.deliverVolatile` sends real ether, `Vault.deliverVolatile` is a no-op because the
+            // BTC range settles by Lightning cooperative close rather than an on-chain transfer. One
+            // of the four known-REAL asymmetries. ⛔ Do not "unify" the two into a transfer here.
             if (who != address(0)) RANGE.deliverVolatile(tokAmount, who);   // BTC: no-op (LN close)
         } else if (tokDelta < 0) {
             uint tokAmount = uint(-tokDelta);
@@ -1195,21 +1188,17 @@ contract Core {
         }
     }
 
-    /// @dev USD-leg of _handleDelta. delta>0 → take+burn; delta<0 → mint+settle and
-    ///      (in-range) pool it under the backing invariant.
+    /// @dev USD-leg of `_handleDelta`, under the SIGN convention: delta>0 LEAVES the pool (draw the
+    ///      mirror down, then pay the taker through `AUX.take`); delta<0 ENTERS it (pool it under the
+    ///      backing invariant). Both directions go through `_poolUsdInRange` when in range.
     ///      ⚠️ NOT "under the BTC share cap": the `btcShareBps` median-vote cap was REMOVED in §H
     ///      (2026-07) — `SwapLib`'s "BTC allocation cap REMOVED" note is the only mention left.
     ///      There is NO per-range cap and NO fixed ETH/BTC split: the ONLY shared bound is the SUM
     ///      (`committedUsd18() <= haircutTvl`), so either range may draw the whole free surplus if
     ///      the other is not using it. Neither side is limited to a share, still less to the
     ///      MINIMUM of the two.
-    /// §V4-CUT — the mock ERC20 and the PoolManager settle are GONE; the ACCOUNTING is not.
-    /// `_mockUsd.mint/burn` + `usdCurrency.take/settle` existed ONLY to satisfy v4's requirement that
-    /// a pool trade real ERC20 CURRENCIES. The USD leg has no real token, so one was minted and
-    /// burned purely for the type system — a shadow of a movement that happens elsewhere
-    /// (`AUX.take` below is where the payout actually lands). Removing it cannot move value.
-    /// `_poolUsdInRange`, `AUX.take`, the 6-dec basis and the §A.50/C2 conversion are UNCHANGED —
-    /// that fix is about DECIMALS and has nothing to do with v4.
+    /// ⚠️ THE USD LEG HAS NO TOKEN OF ITS OWN, and nothing here mints or burns one. `AUX.take` below
+    /// is where value actually moves; everything else on this path is accounting.
     function _settleUsdSide(int256 usdDelta, bool inRange, bool keep,
         address who, address token, bool basketLeg) private returns (uint usdAmount) {
         if (usdDelta > 0) {
@@ -1229,11 +1218,12 @@ contract Core {
         }
     }
 
-    /// @dev In-range USD pooling (own frame — keeps _settleUsdSide off the stack limit). The full-2× buffer is
-    ///      NOT split off here anymore: the WHOLE `usdAmount` moves POOLED_USD_*, and committedUsd18 recovers the
-    ///      equity claim by subtracting live leverage debt. The ≤TVL backing gate is checked against that live
-    ///      EQUITY (`committedUsd18`), so the debt-funded buffer consumes no basket-USD headroom — exactly as
-    ///      the old `_LEV` segregation did, but drift-free.
+    /// @dev In-range USD pooling (own frame — keeps `_settleUsdSide` off the stack limit). The
+    ///      full-2× buffer is NOT split off into a counter of its own: the WHOLE `usdAmount` moves
+    ///      `POOLED_USD`, and `committedUsd18` recovers the equity claim by subtracting live leverage
+    ///      debt. The ≤TVL backing gate is checked against that live EQUITY, so the debt-funded
+    ///      buffer consumes no basket-USD headroom — and reading the debt live rather than keeping a
+    ///      segregation counter is what makes that drift-free (there is nothing to desync).
     function _poolUsdInRange(uint usdAmount, bool mint, bool basketLeg) private {
         if (mint) {
             (uint[15] memory _d, ,, uint depegLoss) = AUX.get_deposits();
@@ -1258,14 +1248,15 @@ contract Core {
             require(committedUsd18() <= haircutTvl, "backing");
         } else {
             uint pooledPre = POOLED_USD;
-            POOLED_USD -= Math.min(usdAmount, POOLED_USD);   // clamp: see the note at the deleted helpers
-            // §#12/E28-r — PROPORTIONAL, not first-out. A burn releases a MIX: the range's USD leg
-            // holds basket dollars AND the LP-owned increment, and modifyLiquidity returns them in
-            // the range's CURRENT ratio. The old `-= min(usdAmount, basket)` drained the basket leg
-            // FIRST, so on a partial exit `POOLED_USD - basketUsd` (the increment `_pricingBacking`
-            // now reads as LP backing) grew by the whole released basket slice — phantom backing
-            // paid to whoever withdrew next. Measured on a FULL exit: basket floored to 0 against a
-            // 25.200001 residue, leaving that entire residue mispriced as LP equity.
+            POOLED_USD -= Math.min(usdAmount, POOLED_USD);   // clamp: see the ABSENT BY DECISION note
+            // §#12/E28-r — THE HAZARD THIS ARM IS CHECKED AGAINST, and it is checked below rather
+            // than avoided here. The USD leg is ONE undivided balance holding basket dollars AND the
+            // LP-owned increment, so a rule that debits the BASKET leg first inflates
+            // `POOLED_USD - basketUsd` — the increment read as LP backing — by the whole released
+            // basket slice, i.e. phantom backing paid to whoever withdraws next. Measured on a FULL
+            // exit: basket floored to 0 against a 25.200001 residue, that entire residue then
+            // mispriced as LP equity. ⇒ Any rule adopted here must be shown not to GROW the
+            // increment in any regime; the `min` below is chosen because it cannot.
             //
             // 🔴 §E230-PHANTOM — THE `if (basketLeg)` GUARD IS DELETED FROM THIS BRANCH, AND ITS
             // ABSENCE IS THE WHOLE FIX. The guard is CORRECT on the mint arm above: dollars arriving
@@ -1293,17 +1284,15 @@ contract Core {
             // callers, so `total()` was 0 and the require compared `0 <= haircutTvl` -- always true.
             // The drift had been accumulating silently the whole time; arming the bound exposed it.
             uint b = basketUsd;
-            // §EXPERIMENT §BURN-RELEASE-CONFLICT — the two documented decisions may be two CALLERS
-            // sharing one arm, not a disagreement. `basketLeg` already separates them: `modLP`
-            // (a WITHDRAWAL) passes TRUE, a swap passes FALSE. §E230-PHANTOM's evidence is entirely
-            // about SWAPS, so keep those proportional; `burnInRange`'s is entirely about
-            // WITHDRAWALS, where the caller has ALREADY sized `usdAmount` as the basket's own share.
-            // Releasing that share in FULL leaves `incrPre = POOLED_USD - basketUsd` unchanged,
-            // which is the LP increment `_payUsdLeg` pays out of.
-            // `min` already covers "the whole leg left" on the basketLeg arm: `b <= POOLED_USD`, so
+            // §BURN-RELEASE-CONFLICT — TWO CALLERS SHARE THIS ARM AND `min` SERVES BOTH, which is
+            // why there is no `basketLeg` split here. `modLP` (a WITHDRAWAL) passes TRUE and has
+            // ALREADY sized `usdAmount` as the basket's own share, so releasing it in full leaves the
+            // LP increment `POOLED_USD - basketUsd` unchanged; a swap passes FALSE and is the case
+            // §E230-PHANTOM measured. `min` also covers "the whole leg left" — `b <= POOLED_USD`, so
             // when `usdAmount >= pooledPre` it returns `b` — one branch instead of a nested pair.
-            // 🔴 §COMMITTED-DRIFTS-UP — **THE PROPORTIONAL ARM UNDER-DEBITS BY EXACTLY
-            //    `usdAmount × increment / POOLED_USD`, AND THAT IS THE WHOLE DRIFT.** Measured by
+            // 🔴 §COMMITTED-DRIFTS-UP — WHY THIS IS `min` AND NOT PROPORTIONAL. **A PROPORTIONAL
+            //    RELEASE UNDER-DEBITS BY EXACTLY `usdAmount × increment / POOLED_USD`, AND THAT IS
+            //    THE WHOLE DRIFT** — it shipped, and it was measured out by
             //    aligning the REAL basket outflow (`Aux::take`) against the `committed` delta, swap
             //    by swap:
             //      take 2,517.927747 → committed −2,517.927747  shortfall 0        (incr 0)
@@ -1340,9 +1329,9 @@ contract Core {
     }
 
     /// @notice The venue just SETTLED `lpOwned6` as the range's remaining LP-owned USD leg — it paid the
-    ///         rest out in QU!D, so the BASKET now owns that slice of the mirror. Re-anchors `basketUsd*`
-    ///         to `POOLED_USD_* - lpOwned6` instead of leaving it to whatever the burn happened to release.
-    /// @dev    WHY THIS EXISTS. `POOLED_USD_* - basketUsd*` is the number `_pricingBacking` reads as LP
+    ///         rest out in QU!D, so the BASKET now owns that slice of the mirror. Re-anchors `basketUsd`
+    ///         to `POOLED_USD - lpOwned6` instead of leaving it to whatever the burn happened to release.
+    /// @dev    WHY THIS EXISTS. `POOLED_USD - basketUsd` is the number `_pricingBacking` reads as LP
     ///         equity, so it must equal what the venue actually still owes. It cannot, if both sides move
     ///         independently: the venue pays a SHARE-proportional slice (`served/lpShares`) while the burn
     ///         removes a LIQUIDITY-proportional one (`served/rangeEth`), and the two differ by exactly the
@@ -1351,7 +1340,7 @@ contract Core {
     ///         evaporating into an accumulator nobody reconciled. Netting it here makes the identity exact
     ///         rather than approximately right, and it is the BASKET's leg that moves because the QU!D was
     ///         minted against basket backing.
-    /// @dev    The floor is not a safety clamp: `lpOwned6 > POOLED_USD_*` means the venue believes it owes
+    /// @dev    The floor is not a safety clamp: `lpOwned6 > POOLED_USD` means the venue believes it owes
     ///         more LP-owned dollars than the curve mirror holds, which the SUBTRACTION would silently wrap.
     function absorbPaidUsd(uint lpOwned6) external onlyUs {
         uint pooled = POOLED_USD;
@@ -1359,38 +1348,21 @@ contract Core {
         basketUsd = base;                           // §ISBTC-SPLIT: both arms were identical
     }
 
-    /// @dev Token-leg (ETH or BTC) of _handleDelta. delta>0 → take+burn (ETH pays
-    ///      real ETH out); delta<0 → mint+settle and (in-range) pool it.
-    /// §V4-CUT — same removal as the USD leg, and the SAME reason it is safe: the comment below
-    /// already said the real ETH payout was SEPARATE from the mock burn ("the burned mockETH is
-    /// matched by real ETH paid out"). `RANGE.takeETH` is where value moves; the mock was a shadow.
-    /// ⚠️ THE `!IS_BTC` GUARD STAYS AND IS **NOT** IS_BTC-DRIFT TO BE DELETED LATER: ETH pays out real
-    // §DE-TICK — `_settleTokSide` FOLDED INTO `_handleDelta`. With `d.vol` naming the leg there was
-    // no selection left to make, so the frame held six lines and a `token1isVol` read. The `!IS_BTC`
-    // guard it carried moved with it, unchanged: ETH pays out real ether, BTC settles by Lightning
-    // cooperative close. That is one of the four known-REAL asymmetries -- see CLAUDE.md.
-
-
     /// §V4-CUT — THE LAST TWO v4 READS, NOW ANSWERED FROM OUR OWN STATE.
     /// These asked Uniswap's singleton for the spot price and the position's size. We hold both now:
     /// the price is the oracle the fill settles at, and the "position" is the range's own inventory.
     /// `liquidity` reports `POOLED` — the range's volatile holding — because that is what the callers
     /// actually want (how much depth is there), and it was only ever v4 liquidity units because v4
     /// was the custodian.
-    /// ⚠️ The tick bounds are ignored: with inventory held directly there is no per-range position to
-    /// look up. Callers passing (0,0) already relied on that.
-    /// 🔴 §V4-CUT — THE RETURN IS A PLAIN PRICE NOW, NOT A SQRT PRICE, AND THE NAME SAYS SO.
-    /// It used to be `slot0.spotPrice`. It is now the oracle price the fill settles at. I first
-    /// changed the VALUE while keeping the NAME and TYPE, which left every sqrt-space consumer
-    /// (`SwapLib.updateTicks` → `TickMath.getTickAtSqrtPrice`, `SwapLib.soldFractionWad`) computing
-    /// garbage with nothing reverting. Renaming turns that silent wrong answer into a COMPILE ERROR
-    /// at every call site — which is the only honest way to hand this over.
-    /// ⚠️ Consumers must be moved to PRICE SPACE, not handed a reconstructed sqrt: the sqrt source is
-    /// gone, so reconstructing one would be inventing a number to feed math that should not need it.
-    /// §DE-TICK — NO PARAMETERS, NO int24, NO uint160. The tick bounds were ignored (there is no
-    /// per-range position to look up), `currentTick` was always 0, and `uint160` was only ever
-    /// `spotPrice`'s width — a price has no reason to be 160 bits, and every consumer was paying
-    /// a cast for it. Plain `uint` throughout.
+    /// 🔴 §V4-CUT — `priceWad` IS A PLAIN PRICE, NOT A SQRT PRICE, AND THE NAME IS THE GUARD.
+    /// Changing the VALUE while keeping a sqrt-flavoured name and type once left every sqrt-space
+    /// consumer computing garbage with nothing reverting; the rename turned that silent wrong answer
+    /// into a compile error at every call site. ⛔ Anyone reintroducing sqrt space here must move the
+    /// CONSUMERS to price space instead — the sqrt source is gone, so reconstructing one would be
+    /// inventing a number to feed math that should not need it.
+    /// §DE-TICK — NO PARAMETERS, NO int24, NO uint160. There is no per-range position to look up, so
+    /// bounds would be ignored arguments; and a price has no reason to be 160 bits, which every
+    /// consumer was paying a cast for. Plain `uint` throughout.
     /// §BOOTSTRAP — RETURNS THE RING'S `lastPrice`, NOT AN 1800s TWAP. Reading a 30-minute average
     /// here was wrong on three counts, and the third broke the deploy outright:
     ///   • SEMANTICS: `poolStats` is the range's CURRENT price and inventory. A TWAP is a different
@@ -1402,10 +1374,8 @@ contract Core {
     ///     has no history and reverts `twap: pre-history`. That is what `Quid.setup` hit, and it
     ///     took every fixture's setUp down with it.
     /// `lastPrice` is seeded in `OracleLib.seedRing` from the CHAINLINK-derived price the deployer
-    /// passes to `setup`, and updated by every observation write, so it is defined from the first
-    /// block and never needs history. ⚠️ This said *"seeded from the reference pool in
-    /// `OracleLib.initPool`"* — both halves wrong since §V4-CUT: `initPool` was renamed `seedRing`,
-    /// and the source is `OracleLib.seedPrices` (Chainlink), not a v4 reference pool.
+    /// passes to `setup` (`OracleLib.seedPrices`), and updated by every observation write, so it is
+    /// defined from the first block and never needs history.
     function poolStats() public view returns (uint priceWad, uint liquidity) {
         priceWad = obsState.lastPrice;
         liquidity = POOLED;
@@ -1415,20 +1385,21 @@ contract Core {
 
     /// @dev §V4-CUT — the fill, in its OWN FRAME so `swap` stays under the stack limit.
     ///      Settles AT ORACLE against inventory: one price, no traversal, no discovery.
-    ///      UNITS: `px` is WAD USD per unit volatile — the SAME basis as `BasketLib.getPrice`, the
-    ///      observation ring's stored price, and `getTWAPforAsset`. `convert` carries the 6<->18
-    ///      bridge and is the same conversion `routeSwap` uses; a second one here is how the
-    ///      §A.50/C2 asymmetry happened.
-    ///      SIGN: positive leaves the pool, negative enters it. `forOne` pays leg 0, receives leg 1.
+    ///      UNITS: `px` is WAD USD per unit volatile — the SAME basis as the observation ring's
+    ///      stored price and `getTWAPforAsset`. `convert` carries the 6<->18 bridge and is the same
+    ///      conversion `routeSwap` uses; a second one here is how the §A.50/C2 asymmetry happened.
+    ///      SIGN: positive leaves the pool, negative enters it — the same rule `Delta` and `swap` use.
     function _fillDelta(bool inputIsUsd, uint amount, uint px)
         private view returns (Delta memory d, uint out) {
-        // §DE-TICK — THE CALLER SAYS WHICH SIDE IT IS PAYING, rather than handing over v4's
+        // §DE-TICK — THE CALLER SAYS WHICH SIDE IT IS PAYING (`inputIsUsd`), a fact about the TRADE,
+        // rather than a direction flag that only means something against a lex-ordered token pair.
         out = BasketLib.convert(amount, px, inputIsUsd);
         // 🔴 FIRM QUOTE (owner) — THE IMBALANCE CHARGE IS IN THE PRICE, NOT TRUED UP AFTERWARDS.
         // We feed 1inch / Khalani, so the counterparty is a SOLVER that has ALREADY committed a
         // price to its end user. There is nobody to bill later and no relationship to bill through,
-        // so a quote adjustable after the fact is unusable in a route. That killed estimate-plus-
-        // true-up and `BatchLedger` with it — a contract DELETED, not added.
+        // so a quote adjustable after the fact is unusable in a route. ⛔ Do not reach for an
+        // estimate-plus-true-up design, or for a ledger to true up against: the quote we hand a
+        // solver is the price, and there is no second settlement in which to correct it.
         // ⚠️ THIS IS NOT THE SPREAD THAT WAS REMOVED. The skew was rejected as compensation paid to
         // arbitrageurs we do not need, and that reasoning still holds — we restore 1:1 ourselves.
         // What is charged here is OUR COST OF DOING THE TRADE, recovered on a price we commit to.
@@ -1501,14 +1472,11 @@ contract Core {
                        : Delta(int256(out), -int256(amount));   // volatile in, USD out
     }
 
-    /// §V4-CUT — THE ORACLE REPOINT, AND IT IS THIS SMALL. The ring has stored PLAIN PRICE since
-    /// §TICK-REMOVAL; `getSlot0` only ever handed over a sqrt-price because that was v4's API, and
-    /// the docblock above said so outright ("stays until the PM is ours"). The fill computes the
-    /// price directly, so it goes straight in with NO conversion — no `getPrice`, no sqrt, no tick.
-    /// ⚠️ `observe`, `ringVariance` and EVERY `getTWAPforAsset` call site are UNTOUCHED: the
-    /// variance estimator was already price-based, so nothing downstream needs re-deriving.
-    /// @notice The ring's INDEPENDENT observation source for THIS instance. `address(0)` = none,
-    ///         and this instance then records NO observations at all.
+    /// @notice The ring's INDEPENDENT observation source for THIS instance, pinned once by the
+    ///         deployer. ⚠️ `address(0)` DOES NOT MEAN "no observations": `_observeIfSourced` then
+    ///         falls back to the CHAINLINK ANCHOR and the ring fills from that (§OBSERVATION-SOURCE-
+    ///         UNSET, which is the deployed configuration — no script calls `setObservationSource`).
+    ///         What a zero costs is INDEPENDENCE, not liveness.
     ///
     /// @dev §E222 — WHY THE RING NEEDED A SOURCE AT ALL. Both ring writes used to pass
     ///      `AUX.getTWAPforAsset(ASSET, 1800)`, which READS this ring via `twapBody`→`observe` and
@@ -1519,9 +1487,12 @@ contract Core {
     ///      recorded the POOL'S SPOT PRICE, a real observation of executed trades, with Chainlink as
     ///      the anchor checking it. Removing the AMM removed the observation, not the anchor.
     ///
-    /// @dev ETH instance: 1inch's OffchainOracle. Aggregated spot across many venues, and verified
-    ///      on-chain (not assumed) to DISAGREE with Chainlink — 0.08% on ETH/USD — which is exactly
-    ///      what makes it a second source rather than an echo. A plain rate, so no `TickMath`.
+    /// @dev WHAT AN ADMISSIBLE ETH SOURCE LOOKS LIKE, since none is pinned today. 1inch's
+    ///      OffchainOracle is the measured candidate — aggregated spot across many venues, verified
+    ///      on-chain (not assumed) to DISAGREE with Chainlink by 0.08% on ETH/USD, which is exactly
+    ///      what makes a second source a source rather than an echo. ⛔ It is NOT pinned, and the
+    ///      body says why: `getRate` costs more gas than a block holds. Whatever is pinned must
+    ///      return a PLAIN WAD price, because nothing here decodes anything else.
     ///
     /// 🔴 BTC instance: DELIBERATELY UNSET, AND THE CHECK IS DELETED RATHER THAN POINTED AT A
     ///      WRAPPER. 1inch can only quote `getRate(WBTC, USDC)` — WRAPPED BTC — and there is no
@@ -1530,9 +1501,10 @@ contract Core {
     ///      INDISTINGUISHABLE FROM BITCOIN MOVING: custodial failure arriving dressed as price, which
     ///      σ², the skew and liquidation would each read as a market event.
     ///      ⚠️ A WRONG GUARD IS WORSE THAN NO GUARD — a vacuous one reports nothing you can act on,
-    ///      a wrong one reports something you WILL act on. With no source the ring is simply not
-    ///      written, `ringVariance` returns 0, and §E213's sentinel prices unmeasured variance at the
-    ///      CEILING. That is honest: we cannot observe BTC independently, so we do not pretend to.
+    ///      a wrong one reports something you WILL act on. With no source the ring is fed the
+    ///      Chainlink anchor instead, so the deviation test has nothing independent to disagree with
+    ///      and simply never fires. That is honest: we cannot observe BTC independently, so we do
+    ///      not pretend to.
     ///      ▶️ If a wrapper-free BTC source ever exists it is pinned HERE, and the check is written
     ///      against it fresh — never revived from history.
     address public observationSource;
@@ -1583,8 +1555,7 @@ contract Core {
     ///    keeps both fixed — asserted, not assumed, by `forge inspect Core storageLayout`.
     Flow internal _redeemFlow;
 
-    /// @notice §E345 — σ² MEASURED OFF THE CHAINLINK ANCHOR, BECAUSE THE RING IS WRITABLE BY THE
-    ///         PARTY WHO PROFITS FROM SUPPRESSING IT AND THE ANCHOR IS NOT.
+    /// @notice §E345 — σ² MEASURED OFF THE CHAINLINK ANCHOR, ON A SERIES NO TRADER CAN SHAPE.
     ///
     /// ⚠️ APPENDED, FOR THE REASON THE BLOCK DIRECTLY ABOVE GIVES. `netFlowUsd` is declared last on
     /// purpose and these three go AFTER it; every pre-existing slot keeps its index, so the raw-slot
@@ -1593,26 +1564,22 @@ contract Core {
     /// WHY NOT THE RING (this is the whole finding, and §E343 only got half of it). §E343 established
     /// that σ² needs no INDEPENDENT source — variance is a property of one series, so §E222's
     /// two-sources-must-be-able-to-disagree rule is scoped to the deviation guard and does not reach
-    /// here. That is true and it is not the binding reason. The binding reason is TRUST: the ring has
-    /// a PERMISSIONLESS writer in `pushObservation`, and that function's own
-    /// ⛔ **THIS SENTENCE USED TO SAY `pushObservation` WAS "the ring's ONLY live writer". IT IS NOT,
-    /// AND THE ERROR IS EXPENSIVE.** `_observeIfSourced` writes this ring ONCE PER SWAP (`:1031`,
-    /// `:1142`), from the Chainlink anchor whenever `observationSource` is unset — which is the
-    /// deployed configuration, since no script sets it. Two separate passes on 2026-08-31 concluded
-    /// that deleting the push would empty the ring and collapse `max(ring, anchor)` to the anchor.
-    /// **Both were wrong, and both came from trusting this line instead of reading the writers.**
-    /// §AUDIT-PUSHOBS note already spells the attack out — *"pushing a stream of in-range values
-    /// fills the ring, makes σ² small-but-MEASURED, and so REPLACES the ceiling sentinel with a
-    /// floor-ish number. An attacker buys a cheap skew by being helpful."* That note gated the BTC
-    /// instance (`VOL_DECIMALS != 18`) and left ETH — the larger range — ungated, because it read the
-    /// hazard as a WBTC-basis problem rather than a writability problem.
-    ///   ⛔ AND THE ±50 bps BOUND DOES NOT COVER IT, WHICH IS THE PART THAT IS EASY TO GET WRONG:
-    ///   that bound constrains the LEVEL of each push against a fresh anchor. σ² is a property of the
-    ///   SECOND differences, and a pusher can track the anchor's level inside 50 bps while emitting a
-    ///   smooth series whose return variance is near zero. Bounding where the series IS says nothing
-    ///   about how much it SHAKES.
-    /// ⇒ The anchor has no writer we do not already trust for the settle price itself, so sourcing σ²
-    ///   from it removes the write access instead of adding a guard against its use (rule 17).
+    /// here. That is true and it is not the binding reason. The binding reason is TRUST: the ring is
+    /// written from whatever `observationSource` names, and that pin is a standing grant to shape the
+    /// series σ² is computed from. The anchor has no writer we do not ALREADY trust for the settle
+    /// price itself, so sourcing σ² from it REMOVES the write access rather than adding a guard
+    /// against its use (rule 17).
+    ///   ⛔ AND A ±BPS BAND ON THE RING WOULD NOT SUBSTITUTE FOR THAT, WHICH IS THE PART THAT IS EASY
+    ///   TO GET WRONG: such a band constrains the LEVEL of each write against a fresh anchor. σ² is a
+    ///   property of the SECOND differences, and a writer can track the anchor's level inside a tight
+    ///   band while emitting a smooth series whose return variance is near zero. Bounding where the
+    ///   series IS says nothing about how much it SHAKES.
+    ///   ⚠️ The attack that motivates this is the CHEAP-SKEW one, and it is worth stating because it
+    ///   does not look like an attack: feeding the ring a stream of in-range values makes σ² small-
+    ///   but-MEASURED, which REPLACES the ceiling sentinel with a floor-ish number. The attacker buys
+    ///   a cheap drain by being helpful. Reading that as a WBTC-basis problem and gating only the BTC
+    ///   instance was the earlier, wrong diagnosis — it is a WRITABILITY problem and it applies to the
+    ///   larger range too.
     ///
     /// THE ESTIMATOR IS TWO EXISTING REGISTERS, NOT NEW MATHS. `Flow` + `_bumpEwma` + `FLOW_DECAY`
     /// already implement "decay-then-add with a 48h half-life"; running the SAME helper over squared
@@ -1695,36 +1662,34 @@ contract Core {
         if (priceWad != 0) _writeObservationPrice(priceWad);
     }
 
-    /// @notice PUSH AN OBSERVATION. Permissionless, bounded by the Chainlink anchor, and — since
-    ///         §AUDIT-PUSHOBS — accepted ONLY on the instance whose ring is meant to be live. See
-    ///         the gate in the body for why "permissionless" was never the same as "instance-free".
+    /// @notice The internal-vs-anchor deviation tolerance this contract passes to
+    ///         `SwapLib.twapResolve`, in bps.
     ///
-    /// @dev §E232 — WHY A PUSH AT ALL. The ring needs a reading INDEPENDENT of Chainlink, because
-    ///      Chainlink is already the ANCHOR `twapResolve` checks against — source the ring from it
-    ///      too and the deviation test compares Chainlink with Chainlink and can never fire (§E222).
-    ///      The best independent source is 1inch's aggregator, and it **cannot be read on-chain**:
-    ///      `getRate` measured **33,573,664 gas** against a 30M block limit, corroborated by the
-    ///      node's own `eth_estimateGas` refusing past its 16.7M ceiling. **That is not a defect —
-    ///      the contract is named `OffchainOracle` and is built for `eth_call`, where the caller sets
-    ///      its own gas cap.** So it is read OFF-chain, where it works as designed, and pushed here.
+    /// @dev ⚠️ IT BOUNDS NOTHING TODAY, AND THAT IS WORTH KNOWING BEFORE YOU REASON FROM IT. Both
+    ///      call sites (`_observeIfSourced`, `_sampleAnchorVariance`) pass `price = 0`, and at
+    ///      `price == 0` `twapResolve`'s test is `diff == ext18`, so ANY value below 10000 trips it
+    ///      and returns the RAW anchor. It is the argument that makes those two reads say "give me
+    ///      Chainlink", not a guard on anything. Nothing else in the tree reads it.
+    ///      ⛔ In particular it does NOT bound the pinned-source branch of `_observeIfSourced`: that
+    ///      branch decodes whatever the source returns and writes it, with no deviation check. If a
+    ///      source is ever pinned and a band is wanted, the band has to be WRITTEN there.
     ///
-    /// @dev **PERMISSIONLESS, FOLLOWING `cascadeDelever`'s PRECEDENT: the BOUND is the security, not
-    ///      a keeper role.** Anyone may call this; nobody can move the ring outside the anchor range,
-    ///      so there is no privilege to steal, no key to rotate, and no liveness dependency on one
-    ///      operator. A trusted-pusher role would add all three and buy nothing the bound does not.
+    /// @dev ⛔ **IT IS NOT `Aux.TWAP_MAX_DEVIATION_BPS` (500), AND MUST NOT BE MADE TO INHERIT IT.**
+    ///      That one is calibrated for a 30-minute window against a pushed feed. A per-observation
+    ///      tolerance and a TWAP-vs-anchor tolerance are different questions, and giving this one the
+    ///      looser number would let a future ring source move the level ten times as far.
     ///
-    /// @dev **FAULT TOLERANCE — EVERY FAILURE DEGRADES TO UNMEASURED, NONE REVERTS.** No pusher, a
-    ///      dark feed, or an out-of-range value all end the same way: the ring is not written,
-    ///      `ringVariance` returns 0, and §E213's sentinel prices at the CEILING. Never a revert,
-    ///      because a revert here would let a stalled oracle halt the range.
-    ///
-    /// @dev **WHAT THE RANGE STILL LETS THROUGH IS THE POINT.** Chainlink updates on a heartbeat or a
-    ///      deviation threshold, so BETWEEN updates it reports a flat line while the market moves.
-    ///      A DEX-aggregated push carries that intra-update movement. The bound constrains the
-    ///      LEVEL; the information is in the PATH.
-    ///      ⛔ **THE SENTENCE THAT STOOD HERE — *"a ring sourced from [Chainlink] would measure
-    ///      σ² ≈ 0 through real volatility"* — IS REFUTED BY MEASUREMENT (§E343, 2026-08-23) AND
-    ///      MUST NOT BE RESTORED.** It is a reasoned assertion; §E343 sampled 60 consecutive
+    /// @dev ⛔ **DO NOT RE-ADD A PERMISSIONLESS PUSH ENTRYPOINT.** One existed, bounded by a ±50 bps
+    ///      band against a fresh anchor, and the band could never constrain what it was there for: a
+    ///      cumulative-price ring exists to make an ENDOGENOUS, atomically manipulable price safe by
+    ///      forcing an attacker to HOLD a manipulated price across the window, and BOTH premises are
+    ///      gone — no pool discovers a price here, and `_observeIfSourced` writes a feed no trader can
+    ///      move within a block. A level band also says nothing about σ², which is a property of the
+    ///      PATH. Anything pushed by an untrusted party is a standing grant to shape the variance
+    ///      series; see the §E345 block at `_varSq`.
+    ///      ⛔ **AND THE SENTENCE THAT JUSTIFIED THAT PUSH — *"a ring sourced from [Chainlink] would
+    ///      measure σ² ≈ 0 through real volatility"* — IS REFUTED BY MEASUREMENT (§E343, 2026-08-23)
+    ///      AND MUST NOT BE RESTORED.** It is a reasoned assertion; §E343 sampled 60 consecutive
     ///      ETH/USD rounds via `getRoundData` on an archive endpoint and got **57.3 updates/day,
     ///      20.5-min median gap, 0.53% median absolute move, implied annualised σ = 95.5%** — the
     ///      right order for ETH, not ≈ 0. **The flat-line intuition fails because it assumes a
@@ -1737,53 +1702,24 @@ contract Core {
     ///      independent-source rule is scoped to `twapResolve`'s deviation test and
     ///      `BasketLib.isManipulated` — guards that need two sources able to DISAGREE. σ² is a
     ///      property of ONE series, so estimating it from the anchor is not the self-reference
-    ///      §E222 forbids. Reading the deleted sentence as "Chainlink cannot feed σ²" is what
-    ///      sends the next builder back to a 1inch keeper, whose CADENCE is the one manipulation
-    ///      the 50 bps range does not bound (`script/PushObservation.s.sol`, "Usage" note).
-    ///
-    /// @dev Range = 50 bps. ⛔ **THE "8 bps ⇒ ~6x headroom" FIGURE THAT STOOD HERE IS STALE.
-    ///      RE-MEASURED 2026-08-22: the live 1inch-vs-Chainlink ETH/USD basis is 23 bps** — so the
-    ///      headroom is **~2.2x, not ~6x** (`PushSourceIsAdmissible.t.sol`, which prints the number
-    ///      and fails if it ever reaches half the range). The range still ADMITS a 1inch push, which is
-    ///      the property that matters; what changed is that the margin is thin enough to watch.
-    ///      ⚠️ **AND THE FAILURE IS SILENT IF IT GOES:** past 50 bps every push is refused, the ring
-    ///      never fills, σ² stays 0 and the skew serves the flat sentinel forever — a state
-    ///      indistinguishable from "no source pinned". That is why the tripwire exists, and why the
-    ///      pre-existing `OneInchObserverIsIndependent` assertion (`< 500` bps, **10x looser than
-    ///      this guard**) could never have caught it.
-    ///      It caps an adversary's reachable σ² inflation at ±0.5% per
-    ///      block (the ring takes one write per timestamp). It is NOT `TWAP_MAX_DEVIATION_BPS`
-    ///      (500) — that is calibrated for a 30-minute window against a pushed feed, and inheriting
-    ///      it here would let a pusher move the level ten times as far.
+    ///      §E222 forbids. Reading that refuted sentence as "Chainlink cannot feed σ²" is what sends
+    ///      the next builder back to an off-chain keeper, whose CADENCE is the one manipulation a
+    ///      level band does not bound at all.
     uint256 internal constant OBS_PUSH_MAX_BPS = 50;
-    ///         anchor by more than `OBS_PUSH_MAX_BPS`. Emitted so a keeper can see the ring stop
-    ///         filling instead of inferring it from a flat sigma^2 (§E294, §PUSH-HEADROOM-1.85X).
-    // ⛔ (§E294) `pushObservation` DELETED 2026-08-31, and the reason is THEORETICAL, not just an
-    //    attack-surface trim. A cumulative-price ring exists to make an ENDOGENOUS, atomically
-    //    manipulable price safe to consume: time-weighting forces an attacker to HOLD a manipulated
-    //    price across the window. **Both premises are gone.** There is no pool, so no price is
-    //    discovered here; and `_observeIfSourced` writes the CHAINLINK ANCHOR (no deploy script sets
-    //    `observationSource`), which no trader can move within a block. The push existed to give the
-    //    ring a source worth time-weighting — 1inch, read off-chain because it costs 33.5M gas on
-    //    chain — and its stated justification, *"a ring sourced from Chainlink would measure σ² ≈ 0"*,
-    //    was REFUTED by §E343's measurement (57.3 rounds/day, implied σ = 95.5%).
-    //    ⇒ It was a permissionless writer bounded only by a ±50 bps band on the LEVEL, while σ² is a
-    //    property of the PATH — so the bound could never constrain what it was there to constrain.
 
 
     function _writeObservationPrice(uint price) internal {
         OracleLib.writeObservation(observations, obsState, price);
     }
 
-    /// @notice §E63 — ONE observe, dispatched. These were TWO externals with IDENTICAL bodies
-    ///         differing only in which ring they read, i.e. two selectors, two dispatch entries and
-    ///         two copies of the call frame for one behaviour. The `_obs`/`_obsState` accessors
-    ///         already exist to pick the ring, so the duality was paid for twice.
-    /// @dev    This one clears the relocation threshold the other attempts did not (§E63): it
-    ///         DELETES a surface rather than moving a small body, and moving small bodies out of
-    ///         Core has measured WORSE three times (−73, −207, −471) because the caller pays the
-    ///         call overhead. Not client-facing — `tools/check-client-abis.py` has ZERO references
-    ///         to either name, and the only caller in the tree is `SwapLib.twapBody`.
+    /// @notice §E63 — ONE observe, over the ONE ring this instance owns. Two externals with
+    ///         identical bodies differing only in which ring they read cost two selectors, two
+    ///         dispatch entries and two copies of the call frame for one behaviour; with one ring per
+    ///         instance there is nothing left to pick between, so the fields are passed directly.
+    /// @dev    Keeping the body HERE rather than relocating it is measured, not assumed: moving small
+    ///         bodies out of Core has come out WORSE three times (−73, −207, −471) because the caller
+    ///         pays the call overhead. Not client-facing — `tools/check-client-abis.py` has ZERO
+    ///         references to this name, and the only caller in the tree is `SwapLib.twapBody`.
     function observe(uint32[] calldata secondsAgos)
         external view returns (uint192[] memory) {
         return OracleLib.observe(observations, obsState, secondsAgos);
