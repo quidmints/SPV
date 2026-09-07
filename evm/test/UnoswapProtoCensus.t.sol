@@ -46,8 +46,9 @@ contract UnoswapProtoCensus is Test {
     }
 
     function hop(uint256 amt, uint256 w) external returns (uint256) {
-        return LevMath.routedSwap(USDC, WETH, amt, 0,
-            abi.encodeWithSelector(UNOSWAP_SELECTOR, uint256(0), uint256(0), uint256(0), w));
+        bytes[] memory rr = new bytes[](1);
+        rr[0] = abi.encodeWithSelector(UNOSWAP_SELECTOR, uint256(0), uint256(0), uint256(0), w);
+        return LevMath.routedSwap(USDC, WETH, amt, 0, rr);
     }
 
     /// ⭐ The census. Every id 0..3 against a V2 pool, a Sushi pool, and the V3 control.

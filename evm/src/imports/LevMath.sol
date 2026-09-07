@@ -928,8 +928,15 @@ library LevMath {
     ///    superset and the attack surface is identical.
     /// ⚠️ AN EMPTY ROUTE NOW REVERTS. That is the honest surface: a caller naming no venue cannot
     ///    trade, and a silent 0 would reappear as a slippage failure frames away.
+    /// §SESS-97 — a one-element route list. ⛔ Not sugar: it exists so the SPLIT arm is the ONLY
+    /// executor and the single-route case is a degenerate split, rather than two code paths that can
+    /// drift apart — which is exactly how the on-chain encoder came to duplicate `Plan::route_bytes`.
+    function _one(bytes memory r) private pure returns (bytes[] memory o) {
+        o = new bytes[](1); o[0] = r;
+    }
+
     function routedSwap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut,
-                        bytes memory route) internal returns (uint256) {
+                        bytes[] memory routes) internal returns (uint256) {
         // ⭐ §SESS-92 — **AN EMPTY ROUTE MEANS THE PROTOCOL'S OWN DEFAULT VENUE, NOT A REVERT.**
         //    This reverted `NoVolatileRoute`, which was right while a caller could pass POOL WORDS
         //    instead. §SESS-91 deleted those, so "no route" stopped meaning *names no venue* and
@@ -942,21 +949,47 @@ library LevMath {
         // ⇒ two lines and a constant, NOT the 61-line encoder: the same default `LevBase._unwindDex`
         //   already uses for a keeper-less force-close. `_startsAt` below then hops the table when
         //   the default pool does not hold what we are selling, so a Curve-only stable still moves.
-        if (route.length == 0)
-            route = abi.encodeWithSelector(UNOSWAP_SELECTOR, uint256(0), uint256(0), uint256(0),
+        if (routes.length == 0) { routes = new bytes[](1); }
+        if (routes[0].length == 0)
+            routes[0] = abi.encodeWithSelector(UNOSWAP_SELECTOR, uint256(0), uint256(0), uint256(0),
                 (tokenIn == WBTC_TOKEN || tokenOut == WBTC_TOKEN) ? DEFAULT_WBTC_DEX : DEFAULT_UNWIND_DEX);
         // ⭐ §SESS-92 — the route may legitimately start at USDC for a stable the keyless planner
         //    cannot encode; hop the table to USDC first and let the route run from there. `minOut` 0
         //    on the hub leg is correct — `minOut` bounds the FINAL token on a measured delta.
-        if (tokenIn != USDC && !_startsAt(route, tokenIn)) {
+        if (tokenIn != USDC && !_startsAt(routes[0], tokenIn)) {
             amountIn = _hubHop(tokenIn, amountIn, true, 0);
             tokenIn  = USDC;
         }
-        address[] memory t = new address[](1);
-        uint256[] memory a = new uint256[](1);
-        bytes[]   memory r = new bytes[](1);
-        t[0] = tokenIn; a[0] = amountIn; r[0] = route;
-        return convertTo(t, a, tokenOut, minOut, r);
+        // ⭐ §SESS-97 — **SPLITTING, AND THE EXECUTOR ALREADY EXISTED.** `convertTo` has always taken
+        //    `(address[], uint256[], bytes[])` and run N legs against ONE floor on the total, with a
+        //    per-leg gas cap and a per-leg `spent > 0 ⇒ delivered > 0`; `convertShortfall` uses it
+        //    multi-leg and it is measured (250k USDC + 250k USDT → 201.63 WETH in one call). The only
+        //    thing stopping a split was this function hardcoding `new bytes[](1)`.
+        // 🔑 **THE SPLIT WEIGHTS NEED NO NEW PARAMETER.** `_retarget` overwrites each route's amount
+        //    because a keeper's absolute number is stale by construction — but the RATIO between k
+        //    routes is not stale, it is the split being proposed. So the amount field we have always
+        //    zeroed IS the weight channel: already ABI-fixed, already present, previously discarded.
+        // 📊 Worth the bytes: 1inch leads us by **57-68 bps on WBTC at $1M** across four stables while
+        //    WETH at the same size is a wash, and tuning their `parts`/`mainRouteParts`/
+        //    `complexityLevel` moves under 0.4 bps — so that gap is not a parameter we forgot, it is
+        //    that they split and we ranked whole routes. This closes it with no API key.
+        // ⚠️ ONE floor still bounds the WHOLE conversion, so a split cannot sneak a bad leg past the
+        //    oracle — a leg that fills badly is paid for out of the total the floor demands.
+        // ⚠️ **EQUAL SHARES, AND WEIGHT IS EXPRESSED BY REPETITION.** The weight-field design (read
+        //    each route's own amount as a ratio) cost **836 bytes** and put `LevMath` 148 OVER
+        //    EIP-170 — measured, both as two functions and as one. ⇒ a caller that wants 3:1 supplies
+        //    the better venue THREE times and the other once. Same expressive power at any useful
+        //    granularity, one division, and no new field to validate.
+        // ⛔ THE ALTERNATIVE WAS SHAVING A SAFETY CHECK TO FIT, WHICH IS NOT AVAILABLE: `convertTo`'s
+        //    per-leg gas cap and `spent > 0 ⇒ delivered > 0` are what make an anonymous caller's
+        //    route survivable, and `rebalance` has no auth.
+        uint256 n = routes.length;
+        address[] memory t = new address[](n);
+        uint256[] memory a = new uint256[](n);
+        uint256 each = amountIn / n;
+        for (uint256 k; k < n; ++k) { t[k] = tokenIn; a[k] = each; }
+        a[n - 1] += amountIn - each * n;      // integer division strands dust; sell the full size
+        return convertTo(t, a, tokenOut, minOut, routes);
     }
 
     /// @notice Opportunistic weETH → WETH offramp. Moved here from `SwapLib` (see the note there):
@@ -1239,7 +1272,7 @@ library LevMath {
         // ⇒ one call, whatever shape the route describes. `floor_` bounds the FINAL token, which is
         //   what it always did; the USDC intermediate was never bounded and no longer exists as a
         //   separate frame to leave value in.
-        return routedSwap(stable, c.weth, stableAmt, floor_, c.route);
+        return routedSwap(stable, c.weth, stableAmt, floor_, _one(c.route));
     }
 
 
@@ -1443,7 +1476,7 @@ library LevMath {
     ///      the suite did.
     function _stableToWbtc(address stable, uint256 amt, uint256 minOut, address wbtc,
                            bytes memory route) internal returns (uint256) {
-        return routedSwap(stable, wbtc, amt, minOut, route);   // §SESS-91 — the route is the whole path
+        return routedSwap(stable, wbtc, amt, minOut, _one(route));   // §SESS-91 — the route is the whole path
     }
 
     /// @dev Mirror of `_stableToWbtc`: volatile → USDC through the aggregator, stableswap hub back
@@ -1464,7 +1497,7 @@ library LevMath {
         //    with `minOut` enforced on a measured balance delta: `routedSwap` through `_aggSwap`, and
         //    the table arm through `_hubHop`, which carries the floor into `curveExchange`. Only the
         //    USDC intermediate is deliberately unbounded, because nothing leaves on it.
-        return routedSwap(vol, stable, amt, minOut, route);    // §SESS-91 — the route is the whole path
+        return routedSwap(vol, stable, amt, minOut, _one(route));    // §SESS-91 — the route is the whole path
     }
 
     /// @dev IDENTITY WHEN THE LOAN TOKEN IS ALREADY WETH — the close-side twin of the note on
