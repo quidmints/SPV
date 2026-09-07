@@ -767,3 +767,59 @@ reproduced them identically, so it is NOT the stale-bytecode trap** — the fail
 the call sites need route/`dex` threading I got wrong twice — but incomplete-and-red is not landable,
 and I had begun guessing rather than tracing. ▶️ **Re-do it with a trace of ONE failure first**, not a
 fourth speculative fix. The measurement above is the reason to come back.
+
+---
+
+## 🔴 §SESS-78 — **UNIVERSAL ROUTER FOR V4: THE TARGET IS RIGHT, PATCHING IS NOT VIABLE, AND BUILD-DON'T-PATCH IS THE DESIGN**
+
+Owner chose **UniversalRouter, no API key**. Measured first, and one measurement changed the plan.
+
+### 📊 WHY V4 AT ALL — THE NUMBERS, NOT THE PRINCIPLE
+Balances held by the venues we cannot reach:
+| token | **UniV4 singleton** | Balancer V2 vault | what we reach on UniV3 |
+|---|---|---|---|
+| USDC | 65,453,785 | 285,292 | — |
+| USDT | 59,357,292 | 61,443 | — |
+| **USDS** | **76,178,513** | 0 | **10,928** |
+| **GHO** | **2,270,133** | 46,759 | **8,179** |
+⇒ **V4 is where BOTH of our unroutable stables actually live** — USDS ~7,000x deeper there, GHO ~277x.
+⛔ **Balancer is NOT worth an integration**: 285k USDC total. The earlier framing that lumped them
+together was wrong; only V4 carries the value.
+✅ **AND SPLITTING NEEDS NEITHER.** `convertTo` already takes ARRAYS and approves per leg, so the keeper
+can split one trade across venues we already reach by emitting multiple legs. I had bundled splitting
+into the API case; that was wrong.
+
+### ✅ THE ROUTER IS LIVE AND ITS HEAD IS PINNED — READ FROM CHAIN
+`UniversalRouter 0x66a9893c…`, `execute(bytes,bytes[],uint256)` = **0x3593564c**. Three live
+transactions decoded: `w0` commands offset **96**, `w1` inputs offset **160**, `w2` deadline. Commands
+seen: **`0x10`** (a PURE single V4_SWAP — exactly the shape we would emit), `0x0a10`, `0x0a0004`.
+
+### 🔴 AND THE PATCHING APPROACH DIES HERE — MY OWN FAILED DECODE IS THE EVIDENCE
+I walked a real `0x10` transaction expecting `SWAP_EXACT_IN_SINGLE`'s fixed 9-word struct and got
+**nonsense**: `currency0 = 0x20`, `tickSpacing` a 22-digit number. The reason is the finding:
+**actions were `0x070c0e` — `SWAP_EXACT_IN` (the MULTI-HOP variant, carrying a path ARRAY) — and
+`params[0]` was 896 bytes, not 288.**
+⇒ **UniversalRouter calldata is THREE levels of dynamic nesting** (`execute` → `inputs[0]` →
+`actions`/`params` → `params[0]` → struct) **and the action sequence VARIES in real traffic.** There is
+no fixed offset for `amountIn` the way there is for 1inch's flat, static descriptor.
+⚠️ **THAT IS THE WHOLE DIFFERENCE FROM §SESS-69, AND IT IS WHY THE SAME TECHNIQUE DOES NOT CARRY.**
+1inch's `SwapDescription` is a STATIC struct — every field at a computable offset, verified on two live
+transactions. Nothing here is. **Patching at an offset I could not decode correctly on the first real
+sample would be the phantom-fifth-token defect with a bigger blast radius.**
+
+### ▶️ THE DESIGN: **THE CONTRACT BUILDS THE CALL; THE KEEPER NAMES ONLY THE POOL**
+Encode ONE canonical shape on-chain — commands `0x10`, actions `060c0f`
+(`SWAP_EXACT_IN_SINGLE`/`SETTLE_ALL`/`TAKE_ALL`), a single-swap struct — from a `PoolKey`
+(`currency0, currency1, fee, tickSpacing, hooks`) plus `zeroForOne` supplied by the keeper.
+✅ **No parsing, no offsets, no variance, and the SAME safety statement as every other arm:** the caller
+names a VENUE, this frame owns the amount and the floor, and the result is bounded on a measured
+balance delta. A `PoolKey` is simply the v4 spelling of a pool word — five fields instead of one word,
+because a singleton has no address.
+⚠️ **BYTE HOME IS THE REAL CONSTRAINT AND IT IS NOT `LevMath`.** Nested `abi.encode` is not free and
+`LevMath` has ~222 bytes. Candidates with room: `SwapLib` 1,194 · `Aux` 2,828 · `QuidLib` 8,635 ·
+`Core` 13,266. ⇒ **a small dedicated helper reached from `convertTo`**, not more code in `LevMath`.
+⛔ **AND IT ADDS A SECOND PINNED CALLEE** (`UNIVERSAL_ROUTER` beside `ONEINCH_ROUTER`) — sanctioned by
+the owner, and worth stating plainly because "the callee is pinned, not a parameter" is load-bearing in
+every safety argument this lane has made.
+📌 **NOT BUILT.** The hard part is de-risked: the router, the selector, the head layout and the reason
+patching fails are all measured. **Do not start it in `LevMath`.**

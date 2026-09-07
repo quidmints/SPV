@@ -929,6 +929,9 @@ pub struct Plan {
     /// §SESS-73 — the FULL ordered hop list, hop 1 first. `dex`/`dex2` stay for the legacy two-word
     /// entrypoints; this is what `route_bytes` encodes and it is not limited to two.
     pub hops: Vec<[u8; 32]>,
+    /// §SESS-78 — pre-built calldata for a venue a pool word cannot spell, or empty. **PREFERRED
+    /// over `hops` when present.** Reserved for the UniversalRouter/V4 path; NOT fetched from anyone.
+    pub fetched: Vec<u8>,
 }
 
 /// 1inch unoswap-family selectors, by hop count. Kept here rather than imported so the keeper and the
@@ -959,6 +962,9 @@ impl Plan {
     ///    selectors, so a 4-hop plan has no encoding and must fall back to the pool-word arm. **Silently
     ///    dropping a hop would route somewhere the planner did not price.**
     pub fn route_bytes(&self) -> Vec<u8> {
+        // §SESS-78 — pre-built calldata wins when present. It is no more trusted than our own words:
+        // the contract whitelists the selector and overwrites token/amount/receiver/floor either way.
+        if !self.fetched.is_empty() { return self.fetched.clone(); }
         let sel = match self.hops.len() {
             1 => SEL_UNOSWAP,
             2 => SEL_UNOSWAP2,
@@ -1179,7 +1185,7 @@ fn best_plan<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Optio
 fn best_plan_quoted<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Option<(Plan, U256)> {
     let mut best: Option<(Plan, U256)> = None;
     if let Some((pool, out)) = best_direct(rpc, tin, tout, amt) {
-        best = Some((Plan { dex: v3_word(pool), dex2: [0u8; 32], hops: vec![v3_word(pool)] }, out));
+        best = Some((Plan { dex: v3_word(pool), dex2: [0u8; 32], hops: vec![v3_word(pool)], fetched: Vec::new() }, out));
     }
     // ⭐ §SESS-58 — **EVERY CANDIDATE HUB, INCLUDING WHEN THE INPUT IS ITSELF A HUB.**
     // 🔴 This read `if tin != USDC_ADDR` with USDC as the only hub, so **a USDC-denominated venue —
@@ -1209,7 +1215,7 @@ fn best_plan_quoted<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -
         let Some((second, out)) = best_direct(rpc, hub, tout, mid) else { continue };
         if best.as_ref().is_none_or(|(_, b)| out > *b) {
             // `dex2` is hop 1 (see `Plan`) — the crossing is deliberate and load-bearing.
-            best = Some((Plan { dex: v3_word(second), dex2: w1, hops: vec![w1, v3_word(second)] }, out));
+            best = Some((Plan { dex: v3_word(second), dex2: w1, hops: vec![w1, v3_word(second)], fetched: Vec::new() }, out));
         }
     }
     best
@@ -1259,7 +1265,7 @@ fn plan_for_lp<R: JsonRpc, S: TxSigner>(
         let amt = ranking_size(evm, lm, lp, stable)?;
         best_plan(evm.rpc(), stable, volatile, amt)
     });
-    planned.unwrap_or(Plan { dex: dex_word(), dex2: [0u8; 32], hops: vec![dex_word()] })
+    planned.unwrap_or(Plan { dex: dex_word(), dex2: [0u8; 32], hops: vec![dex_word()], fetched: Vec::new() })
 }
 
 /// §SESS-49 — **THE SIZE TO RANK AT, IN THE STABLE'S OWN UNITS.**
