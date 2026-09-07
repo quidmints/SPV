@@ -43,6 +43,92 @@ contract DeleverEthBackingProbe is LevCascadeProbe {
         assertEq(CORE.committedUsd18(), expect, tag);
     }
 
+    /// 🔬 §PLP-6-BACKING-DELTA's RESIDUAL — **THE SIBLING TERM, EXERCISED.**
+    ///
+    /// The single-range probe below proved the gap is a STALE PUSH: `committedUsd18()` is
+    /// `AUX.committedTotal()`, the SUM of the last figures pushed by `_reportEquity()`, and a
+    /// de-lever moves `basketUsd`/debt through a path that never reaches the reporting site. It
+    /// self-heals on that range's next mint or burn, and the backing gate re-pushes THIS range on
+    /// the line before `require(committedUsd18() <= haircutTvl)` — so a range never reads its own
+    /// stale figure.
+    ///
+    /// ⚠️ **WHAT THAT ARGUMENT DOES NOT COVER IS THE SIBLING.** §BACKING-DEAD says the gate sees
+    /// *"THIS range's new equity, and the sibling's LAST PUSHED figure"*. So range B's gate reads
+    /// range A's stale term. That could not be exercised in the single-range probe because BTC was
+    /// 0 throughout — reported 0, live 0, nothing to be stale against.
+    ///
+    /// This builds BOTH ranges: an active BTC leg, a de-lever on ETH, then a BTC mint BEFORE ETH
+    /// re-pushes. ⛔ It asserts the EXPOSURE (that BTC's gate ran while ETH's term was stale and
+    /// LOW), not a loss — under-stating commitment makes the gate MORE permissive, and whether any
+    /// reachable state turns that into an over-commit is a separate question this does not claim.
+    function test_PLP6_SiblingTermIsStaleAcrossADeleverOnTheOtherRange() public {
+        _setupLev();
+        EV.setLevManager(address(lm));
+        vm.deal(address(this), 20 ether);
+        ETH.deposit{value: 10 ether}(0, address(this));
+
+        // ETH: a real levered position, so there is a de-lever to run.
+        _openAtEntry(lps[0], 5 ether);
+        _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0, "");
+        _calmVol();
+        ETH.syncLev(lps[0]);
+        _realignRangeToReal();
+
+        // BTC: make the sibling REAL. Without this the sibling term is 0 and cannot be stale —
+        // which is exactly why the single-range probe could not reach this state.
+        AUX.setBTCChannels(address(this));
+        BTC.requestDeposit(User01, 2e7);
+        uint btcReported0 = AUX.committedOf(address(BTC.CORE()));
+        assertGt(btcReported0, 0, "PREMISE: the BTC range must be active, else there is no sibling");
+        emit log_named_uint("BTC reported (pre)     ", btcReported0);
+
+        // ETH de-lever: the state change that moves basketUsd/debt off the reporting path.
+        vm.prank(lps[0]);
+        ETH.withdraw(type(uint).max, lps[0], lps[0]);
+        assertEq(venue.debtOf(lps[0]), 0, "PREMISE: the de-lever must have run");
+
+        uint ethStale = AUX.committedOf(address(CORE));
+        uint ethLive  = CORE.basketUsd() * 1e12 - lm.totalDebtUsd();
+        emit log_named_uint("ETH reported (stale)   ", ethStale);
+        emit log_named_uint("ETH live               ", ethLive);
+        assertTrue(ethStale != ethLive, "PREMISE: ETH's pushed term must actually be stale here");
+
+        // 🔴 THE EXPOSURE: mint on BTC while ETH's term is stale. BTC's own `_reportEquity` runs
+        //    before its gate, so BTC is fresh — but the SUM the gate compares against carries
+        //    ETH's stale figure.
+        uint committedDuringBtcMint = CORE.committedUsd18();
+        uint liveTotal = ethLive + BTC.CORE().basketUsd() * 1e12;
+        emit log_named_uint("committedUsd18 (sum)   ", committedDuringBtcMint);
+        emit log_named_uint("live total             ", liveTotal);
+
+        BTC.requestDeposit(User01, 1e7);   // a second BTC mint -> BTC re-pushes, ETH does not
+
+        uint ethAfterBtcMint = AUX.committedOf(address(CORE));
+        emit log_named_uint("ETH reported after BTC mint", ethAfterBtcMint);
+        // ⛔ NOT ASSERTED, BECAUSE IT CANNOT FAIL: "a BTC mint does not refresh ETH's term" is
+        //    structural — `Aux.report` writes `committedOf[msg.sender]`, so only the reporting
+        //    range's slot can move. Asserting it would be restating the source as a measurement.
+        //    Logged so the mechanism is visible; the assertion below is the part that can fail.
+
+        // 🔴 THE ASSERTION THAT CAN FAIL: while ETH's term is stale, the aggregate the backing gate
+        //    reads is UNDERSTATED by a material amount, and a sibling mint completes against it.
+        //    This depends on the de-lever actually having moved value off the reporting path — if
+        //    it had not, or if some path re-pushed ETH, the gap would be 0 and this would fail.
+        assertGt(liveTotal, committedDuringBtcMint,
+                 "SIBLING EXPOSURE: the aggregate must be understated while the sibling term is stale");
+        uint understated = liveTotal - committedDuringBtcMint;
+        emit log_named_uint("understatement (live - sum)", understated);
+        assertGt(understated, 1e21,
+                 "the understatement must be MATERIAL (>1000 usd18), not dust rounding");
+
+        // ⚠️ WHAT THIS DOES **NOT** ESTABLISH, stated so the row cannot be over-read: no gate was
+        //    shown to PASS WHEN IT SHOULD HAVE FAILED. That needs a state where
+        //    `liveTotal > haircutTvl >= committedUsd18()`, i.e. the understatement straddles the
+        //    bound. Understating commitment makes the gate more permissive, so the exposure is
+        //    real in direction; its reachability is a separate question and is NOT claimed here.
+    }
+
     function test_PLP6_RedeemDelivers_AndRecordsWhetherTheDeleverLegWasReached() public {
         // ⚠️ RECORD FROM THE FIRST LINE. Recording just before the withdraw reported `skips: 0`
         //    — CORRECTLY for that window, and misleadingly overall: the leg actually runs during

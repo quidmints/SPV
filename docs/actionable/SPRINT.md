@@ -55799,3 +55799,42 @@ the live state warrants. **Not exercised here** — BTC was 0 throughout this fi
 sibling to be stale against. ▶️ To exercise it: an active BTC range, a de-lever on ETH, then a BTC
 mint before ETH re-pushes. That is a two-range fixture and it does not exist yet.
 📌 Now asserted in `DeleverEthBackingProbe`, so a future change that stops the re-push fails loudly.
+
+## §PLP-6-SIBLING — **THE RESIDUAL IS EXERCISED AND QUANTIFIED: $2,774.60 UNDERSTATED. AND WHAT IT DOES NOT SHOW.** (2026-09-07)
+
+The two-range fixture the previous row said did not exist now does —
+`test_PLP6_SiblingTermIsStaleAcrossADeleverOnTheOtherRange`. Active BTC leg, a de-lever on ETH, a
+BTC mint before ETH re-pushes. **Measured:**
+
+| | usd18 |
+|---|---|
+| BTC reported (fresh) | 15,750.16 |
+| ETH reported (**stale**) | 19,015.39 |
+| ETH live | 21,790.00 |
+| `committedUsd18()` — what the gate reads | **34,765.55** |
+| live total | **37,540.16** |
+| **understatement** | **2,774.60** |
+
+⇒ The exposure §BACKING-DEAD's own comment implies (*"the gate sees THIS range's new equity, and the
+sibling's LAST PUSHED figure"*) is real and material: a sibling mint completes against an aggregate
+understated by $2,774.60. `committedTotal` is read **69** times and `Aux::report` fires **31** times
+in that trace, so the gate genuinely consumes this number.
+
+🔴 **I HAD TO REWRITE THIS TEST BECAUSE THE FIRST VERSION WAS OVERFIT — worth recording, because the
+failure is subtle and it passed.** Its headline assertion was
+`assertEq(ethAfterBtcMint, ethStale)` — "a BTC mint does not refresh ETH's term". **That cannot
+fail:** `Aux.report` writes `committedOf[msg.sender]`, so only the reporting range's slot can ever
+move. It restated the source as a measurement and would have gone green whether or not the staleness
+mattered. ⇒ **A test whose assertion is guaranteed by the code's structure measures nothing.** It is
+now logged as mechanism, and the assertion is the understatement being MATERIAL (>1000 usd18), which
+depends on the de-lever having actually moved value off the reporting path.
+⭐ **PROVED NON-VACUOUS BY INJECTION:** inserting an ETH re-push before the measurement makes it FAIL
+at `PREMISE: ETH's pushed term must actually be stale here` — it refuses to measure a state it did
+not reach rather than reporting a zero gap.
+
+⛔ **WHAT IS STILL NOT ESTABLISHED, AND THE ROW MUST NOT BE READ AS SAYING IT: no gate was shown to
+PASS WHEN IT SHOULD HAVE FAILED.** That needs `liveTotal > haircutTvl >= committedUsd18()` — the
+understatement straddling the bound. Under-stating commitment makes the gate MORE permissive, so the
+direction is unfavourable; whether any reachable state crosses the bound is a separate question and
+is NOT claimed here. ▶️ That is the next measurement, and it is now a bounded one: drive basket TVL
+down (or commitment up) until `haircutTvl` falls between the two figures above.
