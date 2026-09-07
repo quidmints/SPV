@@ -52978,6 +52978,44 @@ FOLDED citation is still stale** — the one bucket that is actionable. Per this
 with a binary result beats a disposition; and per the tooling-traps rule it fails loudly, exiting with
 a FATAL if the tree walk returns zero `.md` files rather than reporting a clean run.
 
+# ⭐ §T1-F-ROOT-IS-NOT-A-WORKAROUND — **THE SUBTRACTION WAS A SYMPTOM. THE CAUSE IS GONE, AND IT PAID A SECOND DIVIDEND (2026-09-07)**
+
+**Owner asked whether *"every payout path must subtract to work out who owns what"* has a better
+workaround.** ⇒ **It is not being worked around — the cause was removed, and two greps show the whole
+rule-17 cycle completed:**
+
+| symbol | refs in `evm/src` | what that proves |
+|---|---|---|
+| `poolOwnedSats` | **0** | **the LEDGER deleted itself.** CLAUDE.md's rule 17 worked example is this exact case: *"I landed `poolOwnedSats` to make the divergence observable, which was a good instrument for a condition that SHOULD NOT BE REACHABLE AT ALL. The root fix makes that ledger and both bounds delete themselves."* **It did.** |
+| `parkProvenSats` | **0** | **no path puts pool sats into a channel**, so the invariant is real rather than aspirational |
+
+⇒ **THE ALTERNATIVES ARE ALL WORSE AND ONE OF THEM WAS ACTUALLY TRIED.** A ledger is a clamp: it makes
+the commingling *observable* and leaves every exit still subtracting. Splitting ownership *inside* one
+funding output is not expressible — a channel's funding output is a single 2-of-2. ⇒ **removing the
+commingling removes the subtraction, the ledger AND every exit clamp together**, which is rule 17's
+test passed rather than argued: *a root fix makes the previous fix deletable; a clamp adds another
+bound.*
+
+## ✅ AND THE SECOND DIVIDEND, WHICH IS WHAT MAKES IT STRUCTURAL RATHER THAN LOCAL
+
+**`§E165-AMOUNT-FREE-SHAPE` is only correct BECAUSE of this invariant.** Its own text: *"sweep-ALL is
+only correct if the channel holds NOTHING but the LP's sats. §M1#1's `parkProvenSats` puts pool-owned
+inventory into a channel… **Verify the constraint, and enforce it rather than assume it.**"*
+🔴 **THAT CHECK IS NOW DISCHARGED, AND BY CONSTRUCTION RATHER THAN BY ENFORCEMENT: `parkProvenSats` has
+ZERO references.** ⇒ **`§E165`'s one remaining blocker is gone** — the amount-free sweep can be adopted
+without the interaction check it asks for, because the interaction cannot occur.
+
+⭐ **ONE INVARIANT BUYING TWO SIMPLIFICATIONS IS THE SIGNATURE OF A CORRECT STRUCTURAL DECISION RATHER
+THAN A WORKAROUND.** A workaround solves one problem and costs somewhere else. This one deletes the
+subtraction, the ledger and every exit clamp, **and** it is the precondition that lets the exit ladder
+be amount-free — which in turn dissolves the enumeration problem, the coarse-ladder overpayment and the
+per-splice miner fee. **Nothing better is available, because there is nothing left to work around.**
+
+⚠️ **WHAT WOULD REOPEN IT, so it is not assumed permanent: any future path that parks pool inventory in
+a channel.** If one is ever added, it re-creates the commingling, re-requires the ledger, and silently
+breaks `§E165`'s sweep-all — **which would pay an LP the pool's sats.** ⇒ **the zero-reference count on
+`parkProvenSats` is a live invariant, not a historical note. Re-run it before adopting the sweep.**
+
 # ⚖️ §HOW-TO-ADJUDICATE-BOUND-VS-DELETE — **NOT BY AUTHORITY. BY THE SCOPE OF EACH OBJECTION, AND ONE ARITHMETIC TEST (2026-09-07)**
 
 **Owner asked: how do we know which decision was right?** The record has three layers and recency does
