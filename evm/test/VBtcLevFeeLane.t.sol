@@ -788,8 +788,13 @@ contract VBtcLevFeeLane is AllesFixture {
     ///   re-running this test. Since `DeployL1_s` no longer creates the vBTC market
     ///   (§NO-VBTC-MORPHO-MARKET), WBTC-mode is the ONLY position that can exist, so this was every BTC
     ///   lev close in production.
-    /// ⇒ The exit now branches on the collateral token exactly as `openBtcLev` branches the entry: the LP
-    ///   brought this WBTC in, so the LP gets it back.
+    /// ⇒ The exit now branches on the collateral token exactly as `openBtcLev` branches the entry: the
+    ///   CALLER brought this WBTC in, so the caller gets it back.
+    /// ⛔ THIS IS NOT THE LP PRODUCT PATH, and the fixture must not be read as evidence that it is. An LP
+    ///   deposits Lightning BTC and never WBTC (owner, 2026-09-07), so `makeAddr("wbtcCloseLp")` here is
+    ///   just *someone holding WBTC* — which `openBtcLev`'s permissionless WBTC branch does admit. The
+    ///   test proves the close works for a position that can exist; §BTC-IL-PROTECT-IS-INERT is why no
+    ///   real LP has one.
     function testReal_WbtcLev_CloseReturnsTheLpsOwnWbtc() public {
         _setupBtcLevWbtc();
         // PIN THE MANAGER AS PRODUCTION DOES (`DeployL1_s`: `ETH.setLevManager(address(bm))`). Without it

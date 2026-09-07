@@ -399,9 +399,15 @@ contract BtcLevManager is LevBase {
             // post-sync needed: the slice is zeroed there, and the position is gone.
             if (back > 0) IVaultExposeB(VAULT).unexposeBtcFromLev(lp, back);
         } else {
-            // WBTC-MODE: the LP BROUGHT this equity (`openBtcLev`'s else-branch pulls WBTC off the caller),
-            // so the mirror of the open is to hand the WBTC back. There is no channel slice to un-freeze —
-            // nothing was ever exposed — so `unexposeBtcFromLev` is not merely unusable here, it is wrong.
+            // WBTC-MODE: the CALLER brought this equity (`openBtcLev`'s else-branch pulls WBTC off
+            // `msg.sender`), so the mirror of the open is to hand that WBTC back. There is no channel slice
+            // to un-freeze — nothing was ever exposed — so `unexposeBtcFromLev` is not merely unusable
+            // here, it is wrong.
+            // ⛔ DO NOT READ THIS AS "the LP's own WBTC". **AN LP CANNOT ARRIVE HERE** (owner, 2026-09-07:
+            //    *"LPs are never allowed to LP in with WBTC. they must use their lightning btc"*). This
+            //    branch exists so that a position which CAN be opened can also be closed — `openBtcLev` is
+            //    permissionless and its WBTC branch only needs a `transferFrom`, so anyone holding WBTC can
+            //    reach it — not because it is how the product works. See §BTC-IL-PROTECT-IS-INERT.
             // ⚠️ THE RANGE STILL HAS TO BE ZEROED, and it is, by the machinery that already exists rather
             //    than by a second unwind primitive: `syncLev` reads `grossCollateral(lp)`, which returns 0
             //    once `pos[lp]` is deleted above, so `levBurnAll` burns the net + buffer legs and

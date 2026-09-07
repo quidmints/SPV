@@ -97831,3 +97831,63 @@ stdout stays `0x`, so the FFI contract is unchanged and the operator sees `403 F
 📌 **OPEN, OWNER-BLOCKED:** a live `ONEINCH_API_KEY`. Until then `ConvertToRouted.t.sol`'s 2 tests
 cannot pass and **`_aggSwap`'s live-route leg has no coverage at all** — which matters more than the
 two reds, because §E357 threads `route` through every `WbtcCfg` and the BTC lev path depends on it.
+
+## §BTC-IL-PROTECT-IS-INERT-2026-09-07 — ⏸️ the BTC leg has NO reachable LP path today, and that is deliberate
+
+🔴 **THE PREMISE UNDER `§WBTC-MODE-CANNOT-CLOSE` WAS WRONG AND THE OWNER CORRECTED IT** (2026-09-07):
+*"the LP's own WBTC is not a thing because LPs are never allowed to LP in with WBTC. they must use
+their lightning btc."* ⇒ **"WBTC-mode" is not a product path.** Everything measured about the close
+defect still holds; only the SENTENCE about whose WBTC it is was wrong, and the fix's comments and
+test docblock are corrected in place rather than left to teach it.
+
+▶️ **THE STATE THIS LEAVES, STATED PLAINLY BECAUSE IT IS NOT VISIBLE FROM ANY ONE FILE:**
+· `DeployL1_s` deploys exactly one BTC venue, `AaveV3Venue{coll: WBTC, debt: USDC}` (`:552`, `vsB[0]`).
+· `openBtcLev`'s vBTC branch needs an allowlisted vBTC venue. **There is none** — the Morpho vBTC
+  market is not created (§NO-VBTC-MORPHO-MARKET).
+· So the only openable position is the WBTC branch, which is a bare
+  `IERC20Min(WBTC).transferFrom(msg.sender, venue, …)` — **permissionless, and an LP has no WBTC to
+  bring.** It is reachable by anyone holding WBTC; it is not reachable by the product's users.
+⇒ **BTC IL-PROTECT IS INERT FOR ITS ACTUAL USERS UNTIL §ANY-DOLLAR-BORROW LANDS.** ⛔ Not a defect
+and not to be "fixed" by re-adding the vBTC Morpho market — the owner has named the replacement.
+✅ The close fix STAYS: a position that can be opened must be closable, whoever opened it.
+
+## §ANY-DOLLAR-BORROW — ⏸️ DEFERRED BY THE OWNER, DO NOT START
+
+**Owner, 2026-09-07, verbatim:** *"my bad we have to return using it as collateral to borrow dollars.
+but the next thing is swapping those dollars for wbtc. it can be any dollars, right? i dont want to
+create a separate morpho venue for every one of our dollar types. i want to create on the main aavev4
+hub a way to borrow any dollar against our lightning btc. **but do this later, delay it until all our
+other work is done.**"*
+
+⭐ **THIS REFINES §NO-VBTC-MORPHO-MARKET RATHER THAN REVERSING IT, AND THE DISCRIMINATOR IS WHAT THE
+BORROWED DOLLARS BUY.** The original ruling was against *"using our lightning bitcoin as collateral to
+borrow dollars **and sell dollars for more lightning bitcoin**"* — the circular leg, where the
+collateral and the purchase are the same self-issued asset, so the position levers against itself.
+**Buying WBTC is not that**: it is an EXTERNAL BTC asset, so the exposure is real and the loop closes
+outside our own book. ⇒ vBTC-as-collateral comes BACK; buying-more-Lightning-BTC stays dead.
+
+▶️ **THE SHAPE, so it is not re-derived from scratch later:**
+| leg | asset | note |
+|---|---|---|
+| collateral | **vBTC** (the LP's Lightning BTC) | the only thing an LP can deposit |
+| borrow | **ANY basket dollar** | ⛔ NOT one Morpho market per stable — the owner rejected that explicitly |
+| venue | **the Aave v4 HUB** | one venue, many borrowable dollars, which is the whole reason for the hub |
+| buy with the proceeds | **WBTC** | external BTC — this is what makes it non-circular |
+
+⚠️ **WHAT MAKES THIS CHEAPER THAN IT LOOKS, AND WHAT DOES NOT:**
+· `AaveV3Venue` is already collateral-agnostic (`ILevVenue`), and `aaveSpoke`/`aaveHub` are ALREADY
+  threaded through `StackConfig` and consumed by the deploy — the hub is not new plumbing.
+· ⛔ **BUT `ILevVenue` PINS ONE `stable()` PER VENUE**, which is exactly the per-dollar assumption the
+  owner is rejecting. *"Borrow any dollar"* means the debt asset becomes a PARAMETER of the borrow,
+  not an immutable of the venue — that is the real work, and it touches `debtOf`/`repay`/`totalDebt`
+  and every `_toUsd18`/`_fromUsd` conversion that currently reads `p.venue.stable()`.
+· 🔴 **AND IT REOPENS `swapOutDelever`'s REFUSAL.** The guard added in `48807230` refuses a WBTC-mode
+  slice because WBTC cannot be delivered as BTC. Under this design the collateral is vBTC again, so
+  the SAME-BTC exit works and the refusal stops applying to the LP path — **re-read that guard when
+  this lands rather than assuming it still fits.**
+📌 **DEPENDENCY, and it is the reason this is deferred rather than merely queued:** the §DIVERSITY
+ruling at `DeployL1_s:535-549` says the two lev legs must NOT converge on one stable's depth, because
+de-levers are correlated and the second arrival finds the pool worse or empty. **"Borrow any dollar"
+is the mechanism that could HOLD THE LEGS APART by construction** — the thing tasks #47/#48 ask for.
+Design them together; building this first and the rule later would pin the choice the rule exists to
+make.
