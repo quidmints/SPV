@@ -54338,3 +54338,36 @@ where there is none, isolation where there is sharing. ⇒ **When auditing prose
 claims to check first are the ones that assert a LIMIT.** A comment that overstates a limit is worth
 more attention than one that is merely out of date, because it is the one that gets counted as a
 control and stops someone looking further.
+
+## §SESS-COMMENTS-6 — **CODE FIXES FROM THE PASS: STATUS.** (2026-09-07)
+
+✅ **§SESS-COMMENTS-4 CLOSED (`47d6a572`).** All eight vacuous `len % 32 == 4` assertions in
+`quid-hop/src/evm_codec.rs` replaced by `assert_head_arity(calldata, sig)`, which parses the
+top-level parameter list out of the SIGNATURE STRING and asserts the first tail offset equals
+`32 * arity`. Root fix, not eight clamps: it is derived from the same constant the encoder builds
+from and `check-client-abis.py` matches against the contract, so it cannot drift from either, and it
+covers encoders not yet written.
+⭐ **VERIFIED BY INJECTION, NOT BY GREEN.** A deliberate phantom sixth token makes three tests fail
+naming the exact defect (*"declares 5 top-level parameters (head = 160 bytes) but the encoder wrote
+a first tail offset of 192 (= 6 words)"*); injection reverted, `cargo test -p quid-hop --lib` = 97
+passed / 0 failed. The old form provably could not catch it — **adding a 32-byte word cannot change
+a value mod 32**, so no test run was ever going to reveal it.
+
+🔴 **TWO BOOKED FINDINGS WERE WRONG, AND BOTH CAME FROM AGENT REPORTS I HAD NOT YET RE-MEASURED.**
+Recording them because the lesson is the reports, not the code:
+  · *"`lev_keeper.rs` carries the same weak assertion"* — **false.** Its `rebalanceMany` test already
+    asserts `word(0) == 0xa0`, which IS the head-arity check for five parameters. The trailing
+    `% 32` there is a redundant tail check, not the sole guard. **Nothing to fix.**
+  · *"`lp`/`arg` at lev_keeper.rs:1313-1317 are dead locals the `let _` does not cover"* — **false.**
+    `cargo check -p quid-bridge --all-targets` emits NO unused-variable warning for that file; the
+    compiler would have flagged them. ⇒ The claim was not measurable from reading alone and should
+    have been checked with the compiler before booking.
+⚠️ **THE RULE: A CODE CLAIM IN AN AGENT REPORT IS A HYPOTHESIS UNTIL A TOOL AGREES.** For "is this
+local dead", the tool is the compiler, not a grep and not a careful read. Three genuinely unused
+items DO exist and the compiler names them — `ZERO_WORD`, `with_settled_logs`, `args`, all in
+`quid-bridge/src/client.rs` test scaffolding — and none of them is what was booked.
+
+📌 **STILL OPEN** (unchanged): `Core.OBS_PUSH_MAX_BPS` (wire or delete — needs a build);
+`Core._handleDelta`'s unreachable `inRange = false` arm; `_decayedBy`'s always-1 `slowN`;
+`pooledPre`; `BtcLib`'s never-written `o.feesPerShareInc`/`o.usdFeesInc` and unused `feeDenom`;
+`ResizeOut.owed`; `VBtcLevFeeLane.t.sol`'s three assertion MESSAGES.
