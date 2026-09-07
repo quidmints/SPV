@@ -35,9 +35,10 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 //                     was regrouped out of Quid + Aux, see the bridge interface
 //                     below. Also note `requestDeposit` is NOT open-only: a GROW
 //                     splice calls it again to add liquidity). The funding output is
-//                     byte-matched against the lpAuth-committed Q + value against
-//                     the proven tx, so an LP cannot fabricate a position. (Q's
-//                     2-of-2 genuineness is off-chain — see Funding script below.)
+//                     byte-matched against the caller-supplied `p.fundingTaproot` Q + value
+//                     against the proven tx, and `_proveFundingKeys` proves that Q really is
+//                     `TapTweak(KeyAgg(lpPubkey, hopPubkey))` — so an LP cannot fabricate a
+//                     position, and the 2-of-2 genuineness is checked ON-CHAIN (see below).
 //    • splice       — SPV-prove the funding UTXO was spent into a NEW 2-of-2
 //                     (grow OR shrink) and re-anchor the live outpoint. A
 //                     shrink (LP partial withdrawal) reads the LP's BTC payout
@@ -59,7 +60,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 //  A key-path simple-taproot (BOLT #995) 2-of-2. The funding output is the 34-byte
 //  `0x5120 || Q`, where Q is the 32-byte x-only MuSig2 aggregate
 //  `Q = lift_x(KeyAgg(KeySort(lpPubkey, hopPubkey))) + H_TapTweak·G` of the two
-//  33-byte funding keys (BitcoinTx.buildTaprootScriptPubKey). The contract does
+//  33-byte funding keys (BitcoinTx.buildTaprootScriptPubKey).
 //  ⚠️ CORRECTED (E129/E142): this said "NO secp256k1 EC … so it does NOT prove". BOTH halves
 //  are now false. `BitcoinTx.isTwoOfTwoOutputKey` PROVES Q == TapTweak(KeyAgg(lp,hop)) at the
 //  OPEN and at every SPLICE, and `lpAuth` is retired (see (B) below). Left as a marker because
@@ -117,8 +118,8 @@ contract BTCChannels is Ownable {
     // with 1,163 left** — the binding constraint moved, so the same trade lane A made on `Quid`
     // pays more here.
     //  solmate's `nonReentrant` is a MODIFIER, so its body — an SLOAD, a comparison, the
-    //  `"REENTRANCY"` revert string and TWO SSTOREs — was copied into all THIRTEEN use sites. One
-    //  routine each way and thirteen jumps instead.
+    //  `"REENTRANCY"` revert string and TWO SSTOREs — was copied into all ELEVEN use sites. One
+    //  routine each way and eleven jumps instead.
     //
     //  WHY IT COULD NOT BE DONE BY OVERRIDING: solmate declares `uint256 private locked = 1`, so a
     //  derived contract cannot read it and cannot write the split modifier. The base had to go.
@@ -210,16 +211,6 @@ contract BTCChannels is Ownable {
     // delivery rotation (the new funding output is claimed too).
     mapping(bytes32 => bool) public fundingOutpointUsed;
 
-    // MULTI-HOP: number of OPEN channels each hop currently owns (++ at open, -- at
-    // close). ⚠️ It used to gate "swap-in attestation authority (`settleSwapIn`)" — that
-    // entrypoint is DELETED (M1#1). The credit path that replaced it is now DELETED TOO — see
-    // hop SPV-proved into custody, so the open-channel count no longer stands in for solvency.
-    // What it still does is bind hop authority to having BTC locked, without a per-call
-    // channelId — only a hop with locked BTC (an open channel) may credit the shared
-    // USD pool, mirroring the trust the RETIRED single-`hopNode` model carried, now with
-    // per-instance scope. (Tense matters: `:133` states there is NO single global `hopNode`
-    // today — this line describes what the gate INHERITS, not what exists. E149.)
-
     uint public totalSatsLocked;     // sum across all open channels
 
     // ANTI-ROLLBACK: monotonic per-channel persistence-freshness counter.
@@ -253,15 +244,16 @@ contract BTCChannels is Ownable {
 
     // ─── BTC swap-out recipient registry ──────────────────────────────
     //
-    // Per-user BTC recipient identifier (pubkey-hash) used to route a
-    // swap's on-Bitcoin transfer. Set on channel open from the LP's committed
-    // shutdown script (see openChannel); separately settable by users who only
+    // Per-user BTC payout key: the 32-byte X-ONLY TAPROOT key whose key-path P2TR
+    // `0x5120||key` (`_lpPayoutScript`) receives a swap's on-Bitcoin transfer. NOT a
+    // pubkey-hash and never truncated to 20 bytes. Set on channel open from the LP's
+    // committed upfront-shutdown key (see openChannel); separately settable by users who only
     // swap (never open a channel). Aux reads this via IBTCChannels.btcRecipientOf.
     mapping(address => bytes32) public btcRecipientOf;
 
     // Once an address registers via a channel open, its btcRecipientOf is LOCKED:
-    // recordClose attributes the LP's cooperative-close balance to
-    // P2WPKH(btcRecipientOf), so if the LP could later setBtcRecipient(junk) it
+    // recordClose attributes the LP's cooperative-close balance to the key-path P2TR
+    // `0x5120||btcRecipientOf` (`_lpPayoutScript`), so if the LP could later setBtcRecipient(junk) it
     // would make _lpFinalBalance read 0 → delivered = funded → over-claim the
     // pool's swap-out proceeds. Locking it (and the open-time consistency guard)
     // keeps it pinned to the LP's actual, committed payout script for the life of
@@ -423,10 +415,12 @@ contract BTCChannels is Ownable {
     mapping(bytes32 => uint) public pendingClaimSats;
 
 
-    // Swap-in replay guard: the Lightning HTLC hashlock (payment hash) of each
-    // settled BTC→USD swap-in, marked used so a buggy/compromised/double-
-    // submitting hop can't credit the same swap-in twice (which would drain
-    // POOLED_USD for the seller — the old per-call `BtcInflowCap` bound was
+    // Swap-in replay guard, keyed on VALUES THE HOP DOES NOT CHOOSE: the Bitcoin deposit
+    // TXID on the proven rail (`_provenTxid`), and the client `swapId` on the swap-out
+    // reversal / self-refund / delivery paths (`reverseSwapOut`, `refundExpiredSwapOut`,
+    // `_settleSwapOutSlice`). ONE map across all of them, so the same transaction cannot be
+    // credited twice (which would drain POOLED_USD for the seller) and a swapId can never be
+    // both delivered and reversed.
     mapping(bytes32 => bool) public swapInUsed;
 
     // Swap-OUT request guard: one swap-out per swapId, ever. Symmetric with
@@ -444,7 +438,7 @@ contract BTCChannels is Ownable {
     // back on a reversal. Cleared on delivery (or reversal).
     // `usd` (6-dec) = the swapper's recorded payment — paid EXACTLY to the
     // delivering LP at deliverSwapOutOnchain, or cleared from pendingSwapOutUsd on
-    // reversal (settleSwapIn). swapper/sats pack into slot 1; scriptHash slot 2; usd slot 3.
+    // reversal (reverseSwapOut / refundExpiredSwapOut). Slot layout is spelled out below.
     /// (§T1-d / M1#3) PACKED SO THE TOKEN FITS WITHOUT A FOURTH SLOT.
     /// slot0 = swapper(20) + sats(8) + requestBlock(4) = 32 · slot1 = hash · slot2 = usd(12) + token(20)
     ///
@@ -467,7 +461,8 @@ contract BTCChannels is Ownable {
 
     // ─── Errors / Events ─────────────────────────────────────────────
     error NotLP();
-    error NotChannelHop();       // caller is not this channel's recorded hop
+    error NotChannelHop();       // caller is neither MAIN_HOP nor FALLBACK_HOP (a channel
+                                 // records no hop of its own — §E164)
     error OutpointReused();      // this funding UTXO already backs a channel
     error SwapInReplay();
     error SwapInPartialRejected();   // an all-or-nothing credit the pool could only partially fill
@@ -480,7 +475,8 @@ contract BTCChannels is Ownable {
     error BtcRecipientLockedErr(); // can't setBtcRecipient once a channel locked it
     error WrongStatus();
     error WrongPrevOutpoint();        // tx doesn't spend this channel's funding UTXO
-    error SpliceUnchanged();          // a splice must change the funded amount (grow or shrink)
+    error SpliceUnchanged();          // a splice must MOVE something: the funded amount, the key
+                                      // pair, or both (a constant-size rotation is legal)
     error SpliceIsNotAClose();        // (E153) tx pays a continuing 2-of-2 ⇒ it is a splice
     error SpliceKeyNotTwoOfTwo();     // (E129) new funding Q is not KeyAgg(lpPubkey, hopPubkey)
     error FundingKeyNotTwoOfTwo();    // (E142) initial funding Q is not KeyAgg(lpPubkey, hopPubkey)
@@ -520,7 +516,7 @@ contract BTCChannels is Ownable {
     );
     // ON-CHAIN swap-out: the swapper committed USD for `sats` BTC to `swapperScript`
     // (a Bitcoin scriptPubKey). The hop watches this, drives a splice-out paying that
-    // script, then settles via deliverSwapOutOnchain. Reverses via settleSwapIn on failure.
+    // script, then settles via deliverSwapOutOnchain. Reverses via reverseSwapOut on failure.
     event SwapOutRequestedOnchain(
         address indexed swapper, uint256 sats, address token, bytes32 indexed swapId, bytes swapperScript
     );
@@ -561,8 +557,8 @@ contract BTCChannels is Ownable {
 
     /// @dev (§E233-ladder) The live-channel gate. **A `private view`, NOT a modifier — standing rule 8c,
     ///      and here it is the reason the §E233-ladder ladder fits at all.** As `modifier whenOpen`
-    ///      this check inlined at all EIGHT use sites; the same conversion measured **+968 bytes for
-    ///      six uses** on `_onlyHop` below, against **138 bytes of margin** (snapshot, 2026-08-17).
+    ///      this check would inline at all SIX use sites; the same conversion measured **+968 bytes
+    ///      for six uses** on `_onlyHop` below, against **138 bytes of margin** (snapshot, 2026-08-17).
     ///      ⚠️ CALL IT AS THE FIRST STATEMENT OF THE BODY. As a modifier it ran BEFORE everything
     ///      including `_onlyHop()`, so which revert a caller sees is part of the observed behaviour
     ///      (tests assert `WrongStatus` vs `NotChannelHop` on specific paths). Ordering it after any
@@ -689,8 +685,9 @@ contract BTCChannels is Ownable {
     }
 
     /// @notice The LP's remaining channel balance read from a cooperative-close
-    ///         tx: the SUM of all outputs paying the LP's P2WPKH (their channel
-    ///         pubkey-hash, recorded as btcRecipientOf at open). 0 if absent (a
+    ///         tx: the SUM of all outputs paying the LP's committed key-path P2TR
+    ///         `0x5120||btcRecipientOf` (`_lpPayoutScript`, over the x-only shutdown key
+    ///         pinned at open). 0 if absent (a
     ///         fully-delivered LP has no payout output). The hop enforces this
     ///         payout-script convention when it co-signs the cooperative close.
     /// @dev Sums ALL matching outputs (not just the first) so a close tx can't
@@ -711,7 +708,7 @@ contract BTCChannels is Ownable {
     ///      A pure LP-withdrawal splice (the `splice()` entrypoint — distinct from a
     ///      swap-out delivery, which pays the swapper) legitimately has exactly two kinds
     ///      of output: the new (smaller) funding 2-of-2 at `fundingVout`, and the LP's
-    ///      payout to its committed `btcRecipientOf` P2WPKH. We REJECT any other output:
+    ///      payout to its committed `btcRecipientOf` key-path P2TR. We REJECT any other output:
     ///      without this, a malicious LP could route its withdrawal to a script ≠
     ///      btcRecipientOf, making `_lpFinalBalance` read 0 → `delivered = shrinkSats` →
     ///      over-claim the SHARED swap-out proceeds pool (cross-LP theft). With foreign
@@ -798,9 +795,10 @@ contract BTCChannels is Ownable {
     /// each was right about its own mechanism and together they removed the CAPABILITY. Here the
     /// fallback works everywhere by construction, so there is no handover to get wrong.
     /// ⚠️ A FUNCTION, NOT A MODIFIER, DELIBERATELY: a modifier's body is INLINED at every use
-    /// site, so six uses meant six copies of the check. As a `private view` it is one routine and
-    /// six JUMPs. Measured: the modifier form cost +968 bytes of `BTCChannels` bytecode, on a
-    /// contract whose margin is the binding constraint.
+    /// site, so the EIGHT call sites it has today would be eight copies of the check. As a
+    /// `private view` it is one routine and eight JUMPs. Measured at six sites: the modifier form
+    /// cost +968 bytes of `BTCChannels` bytecode, on a contract whose margin is the binding
+    /// constraint.
     function _onlyHop() private view {
         if (msg.sender != MAIN_HOP && msg.sender != FALLBACK_HOP) revert NotChannelHop();
     }
@@ -826,14 +824,15 @@ contract BTCChannels is Ownable {
     //  The hop is authorized by `_onlyHop()` against the immutable `MAIN_HOP`/`FALLBACK_HOP`
     //  pair. An LP does not delegate to a hop.
     //
-    // ⛔ THERE ARE NO PUBLIC DIGEST ACCESSORS AND NO DOMAIN TAGS — the LP consents they encoded
-    // do not exist. `splice` and `deliverSwapOutOnchain` are `_onlyHop()`-gated, and the open
-    // authenticates a BIP-340 payout PoP rather than an EVM signature.
+    // ⛔ THE RETIRED CONSENT DIGESTS AND THEIR DOMAIN TAGS ARE GONE — the LP consents they
+    // encoded do not exist. `splice` and `deliverSwapOutOnchain` are `_onlyHop()`-gated, and the
+    // open authenticates a BIP-340 payout PoP rather than an EVM signature. The one public digest
+    // that remains, `btcRecipientPoPDigest`, is public precisely BECAUSE it is verified: the LP's
+    // wallet must sign exactly what `_requireRecipientPoP` checks.
     //
     // 🔑 **WHY THE DOMAIN TAGS COULD THEN GO** (owner: *"no tags"*): a tag separates messages that
-    // would otherwise collide, and with FOUR digests in one namespace it did real work. TWO remain
-    // — the payout PoP and `rekey` — separated three ways already: different HASH (sha256 vs
-    // keccak256), FIELD COUNT (3 vs 5), and SCHEME (BIP-340 Schnorr vs ECDSA).
+    // would otherwise collide, and with FOUR digests in one namespace it did real work. ONE
+    // remains — the payout PoP — so there is nothing left for a tag to separate it FROM.
     // ⛔ **DO NOT RE-ADD A THIRD VERIFIED DIGEST WITHOUT RE-DERIVING THAT.** If a new one shares a
     // hash AND an arity with an existing one, the separation is gone and something must restore it.
     //
@@ -846,14 +845,10 @@ contract BTCChannels is Ownable {
     //
     // 🔴 AND THEY WERE ACTIVELY MISLEADING. A reader auditing whether splices are LP-authorized
     // finds a public `spliceDigest` on the contract and reasonably concludes they are. THEY ARE
-    // NOT — the hop gate is the only authorization on that path. §E182's `rekey` is the first
-    // caller of an LP-consent digest that the contract actually VERIFIES, and it keeps its own
-    // preimage inline (domain tag `rekey.v1`) rather than reviving a public accessor.
+    // NOT — the hop gate is the only authorization on that path. The only LP-consent digest this
+    // contract VERIFIES is `btcRecipientPoPDigest`, checked by `openChannel` and
+    // `setBtcRecipient`; no other path takes a signature at all.
 
-    /// @notice (B) The digest an LP signs COLD (once) to delegate channel operation to an
-    ///         `authority` — a concrete hop.
-    ///         Binds chainId + this contract + authority + payout script + version, so it
-    ///         can't be replayed to another deployment; a higher version supersedes.
     /// @notice (E157-b) What the LP signs so a hop may open its channel. ONE signature, made at
     ///         onboarding, presented by the daemon at open. No transaction, no counter, no
     ///         EOA/smart-wallet split — but still a signature, and this is why.
@@ -861,13 +856,15 @@ contract BTCChannels is Ownable {
     /// 🔑 WHY CONSENT CANNOT BE DELETED BY secp256k1, THOUGH HALF OF §E125 DID LAND. E125's route
     ///    had two halves: (1) prove `Q == KeyAgg(lpPubkey, hopPubkey)` and (2) derive `lpEth` from
     ///    `lpPubkey`. **(1) IS LIVE** — `BitcoinTx.isTwoOfTwoOutputKey` in `openChannel` — and it
-    ///    closed the hole where a hop opened with ANY Q. **(2) IS REFUTED TWICE**: §E125-r measured
-    ///    that `lpPubkey` is the PER-CHANNEL funding key (folded into `channelId`), so deriving
-    ///    yields a different EVM address per channel and FRAGMENTS the LP's position; §E125-d
-    ///    (owner) ruled derivation out because a derived address IS an EOA address and forecloses
-    ///    smart wallets. E125's own words on what is left: *"NOTHING on the Bitcoin side identifies
-    ///    the LP to the EVM; `lpEth` can only be ASSERTED, and only an LP signature makes the
-    ///    assertion trustworthy."*
+    ///    closed the hole where a hop opened with ANY Q. **(2) LANDED TOO, IN §E183, WITH ITS
+    ///    COSTS ACCEPTED**: `openChannel` derives `address lpEth = ChannelLib.lpEthOf(p.lpPubkey)`
+    ///    and reverts on a malformed key — nothing supplies it. The two objections were not
+    ///    withdrawn, they were priced: §E125-r measured that `lpPubkey` is the PER-CHANNEL funding
+    ///    key, so a later channel derives a DIFFERENT address and the LP's positions do not
+    ///    aggregate; §E125-d (owner) noted a derived address IS an EOA address, which forecloses
+    ///    smart-wallet LPs. What survives of E125's *"`lpEth` can only be ASSERTED"* is the
+    ///    consent, not the identity — and that consent is a BITCOIN signature (the BIP-340 payout
+    ///    PoP), never an EVM one.
     /// ⚠️ AND ITS PREMISE DID NOT HOLD FOR VAULT LPs — WHICH §M1#2 HAS SINCE CHANGED, AND THE
     ///    CONCLUSION SURVIVES ANYWAY. E125 argued the LP *"already co-signs the Bitcoin funding, so
     ///    that signature does double duty"*. When this was written the fleet held BOTH funding
@@ -886,8 +883,9 @@ contract BTCChannels is Ownable {
     ///    (`channel_driver.rs:698`: *"there is NO lpAuth round-trip: the LP runs nothing"*).
     ///    Standing-ness is what lets consent PRECEDE the channel, and it is the one property
     ///    of a standing consent worth preserving.
-    /// ⚠️ THE TRADE, ACCEPTED NOT DISCOVERED: these bytes replay for the same (hop, btcRecipient).
-    ///    That IS their meaning — "this hop may run my channels, paying me here" — and a replay
+    /// ⚠️ THE TRADE, ACCEPTED NOT DISCOVERED: these bytes replay for the same `(lpEth, bindHash)`
+    ///    — the digest names NO hop, so nothing about the submitter is committed. That IS their
+    ///    meaning — "this payout key is mine, bound to this payment basepoint" — and a replay
     ///    opens a channel FOR the LP, PAYING the LP, funded by someone else's sats, with
     ///    `OneChannelPerLp` allowing one at a time. What is genuinely lost is EOA revocation, which
     ///    `delegationVersion` provided; a smart-wallet LP still revokes by rotating owners.
@@ -961,7 +959,6 @@ contract BTCChannels is Ownable {
         //   names for deriving `lpEth` from it and deleting delegation outright.
         _proveFundingKeys(p);
         if (channels[channelId].amountSats != 0) revert AlreadyOpen();
-        // MULTI-HOP: bind this channel to its opening hop + bump its open-channel count.
         // OUTPOINT-UNIQUENESS: this confirmed funding UTXO may back only ONE channel
         // (else the same on-chain BTC double-counts as backing under two channelIds).
         _useOutpoint(channel.fundingTxId, channel.fundingVout);
@@ -1058,7 +1055,7 @@ contract BTCChannels is Ownable {
         btc.requestDeposit(channels[channelId].lpEth, sats);
     }
 
-    /// @dev The 9-field ChannelOpened emit in its own frame — keeps openChannel
+    /// @dev The 10-field ChannelOpened emit in its own frame — keeps openChannel
     ///      within the legacy stack (no via_ir crutch).
     function _emitOpened(
         bytes32 channelId,
@@ -1115,10 +1112,10 @@ contract BTCChannels is Ownable {
     ) external nonReentrant {
         _whenOpen(channelId);
         _onlyHop();
-        // (B) Authorization. ⚠️ UPDATED 2026-08-07 (E122), AGAIN 2026-08-10 (E156): this said
-        // "`channel.hop` … so ONLY that hop can resize" — and (E157) that is TRUE AGAIN: both the
-        // fallback and the delegation are gone, so the gate is `channel.hop`. Bounded as before:
-        // every payout output pins
+        // (B) Authorization is the `_onlyHop()` call above and NOTHING ELSE: `msg.sender` must be
+        // `MAIN_HOP` or `FALLBACK_HOP`, and EITHER may splice ANY channel — there is no
+        // per-channel authority to check, because a channel records no hop (§E164). Bounded as
+        // before: every payout output pins
         // to `btcRecipientOf`, so a wider authority set cannot redirect funds. The
         // retired per-splice lpAuth was redundant on top of this: _verifySplice still
         // SPV-proves rawSpliceTx SPENDS this channel's funding UTXO and byte-matches the new
@@ -1134,10 +1131,6 @@ contract BTCChannels is Ownable {
         // move the channel's BTC into a `Q` the hop solely controls. Self-hosted LPs must
         // co-sign the splice and would see it; IN FLEET MODE THE OPERATOR HOLDS BOTH HALVES
         // (E94) AND CAN DO IT ALONE. Closing this needs on-chain KeyAgg verification (E127).
-        // (E156) The primary only. The fallback clause that stood here is deleted: a nominated
-        // hop held no funding key (the fleet holds both halves), so it could never sign a splice
-        // — it could only relay bytes the primary had already signed. Bounded as before: the
-        // splice is SPV-proven and every payout output pins to `btcRecipientOf`.
 
         // ⛔ (§SPLICE-ROTATES-BOTH-FUNDING-KEYS, 2026-08-31) `_requireChannelKeys(channelId, p)`
         // STOOD HERE UNDER THE HEADING *"(E162) A SPLICE MAY RESIZE A CHANNEL — IT MAY NOT REKEY
@@ -1186,8 +1179,8 @@ contract BTCChannels is Ownable {
             revert SpliceUnchanged();
         // Verify + rotate + (grow|shrink) in its own frame (legacy stack, no via_ir); returns the grow delta.
         uint grewBy = _applySplice(channelId, p, rawSpliceTx, spliceMerkleProof);
-        // 🔴 RE-PIN THE PAIR — THE ROOT FIX FOR WHAT E162 ACTUALLY FOUND, and the same line
-        // `_finishRekey` has always carried (`:1304`). `keysHash` is PER-SCOPE data, not the
+        // 🔴 RE-PIN THE PAIR — THE ROOT FIX FOR WHAT E162 ACTUALLY FOUND, and the only place in
+        // the contract that writes `keysHash` after open. `keysHash` is PER-SCOPE data, not the
         // channel's identity: `ChannelLib.sol:617` binds `channelId` to the ORIGINAL pair and the
         // ORIGINAL outpoint, so the id is stable across every rotation and nothing downstream
         // re-keys. Written AFTER `_applySplice`, which is where `_verifySplice` has just proven
@@ -1204,9 +1197,10 @@ contract BTCChannels is Ownable {
         // POST-shrink balance, so carrying the pre-shrink tally forward would double-count the
         // withdrawal against the stale-close guard and reject legitimate closes.
         _armLadder(channelId, p, exits);
-        // (T1-f) THE CLAIM, decided here rather than inside the splice: an ordinary grow is
-        // funded BY this LP, so it is a deposit and earns the LP its shares. The swap-in path
-        // deliberately does NOT do this — see `settleSwapInSpliced`.
+        // (T1-f) THE CLAIM, decided here rather than inside `_applySplice`: an ordinary grow is
+        // funded BY this LP, so it is a deposit and earns the LP its shares. The grow that did
+        // NOT credit — the pool buying sats on a swap-in — no longer exists, so this is the only
+        // decision made about a grown slice anywhere.
         if (grewBy != 0) btc.requestDeposit(channels[channelId].lpEth, grewBy);
         // FEE-INTO-CHANNEL: the hop may mark up to `grewBy` of this grow as BTC-leg fees it is FUNDING in —
         // they compound into the LP's position (requestDeposit already grew pooled by the full delta, so `delivered`
@@ -1305,37 +1299,13 @@ contract BTCChannels is Ownable {
 
 
 
-    /// (M1#1) Prove a grow-splice into custody WITHOUT crediting anyone — bank it for later.
-    ///
-    /// This is half of the answer to "provability or atomicity", and the half that makes the
-    /// other half free. A Lightning HTLC produces no transaction to prove, so the LN rail could
-    /// only be made provable by claiming the seller's BTC BEFORE knowing the pool could pay for
-    /// it. Sats are fungible, so they need not be the SAME sats: the hop proves its own BTC into
-    /// custody AHEAD of demand here, and a credit later draws that balance down.
-    ///
-    /// ⚠️ Credits NO LP position — §T1-f. The parked sats are not a deposit anyone owns; they are
-    /// inventory awaiting a credit that will move them into `POOLED`.
-    /// @param exits (§E233-ladder) THE FRESH LADDER FOR THE ROTATED OUTPOINT — mandatory, exactly as
-    ///        on `splice`/`rekey`/`openChannel`. This grow rotates the funding outpoint like any
-    ///        other, so the rungs armed before it spend a spent output and are dead the moment it
-    ///        confirms. Arming here is what makes an escape-less channel UNCONSTRUCTIBLE at THIS
-    ///        site too, rather than merely visible (the outpoint-keyed map reports the absence
-    ///        honestly, which is not the same as there being an escape).
-    ///        ⚠️ WHAT THE RUNGS MUST PAY IS THE LP'S ENTITLEMENT, NOT `amountSats`. A park grows the
-    ///        channel with POOL inventory that credits no LP position (§T1-f), so a rung paying the
-    ///        whole funding output hands the LP sats the pool owns. `_finalizeClose` clamps the
-    ///        ACCOUNTING to what the channel held and emits `PayoutExceededChannel`, but the BTC has already
-    ///        moved — the clamp cannot claw it back. The signer chooses the amount, and
-    ///        `checkpointSats` is where it is recorded.
-
-
     /// @dev CUSTODY ONLY — this rotates the funding outpoint and moves `amountSats`; it does
     ///      NOT decide who owns the grown slice. **(§T1-f) The claim is the CALLER's decision**,
-    ///      because the two callers differ on it: an ordinary `splice` grow is funded BY the LP
-    ///      and so is a deposit that earns shares, while a swap-in's grow is BOUGHT BY THE POOL,
-    ///      which also pays the seller USD — registering shares there paid twice for one set of
-    ///      sats, once as a position and once in dollars, to a party that funded neither.
-    ///      Custody grows either way, because the sats really did arrive.
+    ///      and `splice` is the only caller today: an ordinary grow is funded BY the LP and so is
+    ///      a deposit that earns shares. The split was made because the OTHER caller disagreed —
+    ///      a swap-in's grow was BOUGHT BY THE POOL, which also paid the seller USD, so
+    ///      registering shares there paid twice for one set of sats. That caller is gone; the
+    ///      separation is kept because custody grows either way, whoever ends up owning the slice.
     ///      (Lifting `requestDeposit` out to the caller also relieved this frame's stack — a
     ///      `bool` parameter here compiled to Stack-too-deep, and `via_ir` is off deliberately.)
     function _applySplice(
@@ -1360,10 +1330,10 @@ contract BTCChannels is Ownable {
         } else if (p.amountSats < old) {
             _shrinkSplice(channelId, p, rawSpliceTx, newTxId, newVout, old); // own frame (legacy stack)
         } else {
-            // (§E182) SAME SIZE — a PURE REKEY: the outpoint rotated but no value moved.
-            // ⚠️ This branch is unreachable from `splice`, which rejects an unchanged amount with
-            // `SpliceUnchanged` before it gets here; `rekey` is what reaches it. Without it, a
-            // rekey that keeps its size would fall into `_shrinkSplice` and be asked to find a
+            // SAME SIZE — a PURE KEY ROTATION: the outpoint rotated but no value moved. This is
+            // the image-upgrade case, and `splice` reaches it: `SpliceUnchanged` fires only when
+            // NEITHER the size NOR the key pair moves, so a constant-size rotation lands here.
+            // Without this branch it would fall into `_shrinkSplice` and be asked to find a
             // ZERO-value withdrawal output in the tx — a payout that does not exist, so the
             // rotation would revert for a reason that has nothing to do with what it is doing.
             emit ChannelSpliced(channelId, ch.lpEth, false, 0, p.amountSats, newTxId, newVout);
@@ -1425,10 +1395,11 @@ contract BTCChannels is Ownable {
     ///         next heartbeat (a stale exit spends a spent UTXO ⇒ invalid) — ONE live
     ///         exit per current funding UTXO.
     ///
-    ///         AUTHORITY: identical (B) gate to `openChannel` — `_onlyHop()` (a two-address
-    ///         check against `MAIN_HOP`/`FALLBACK_HOP`) + `channel.hop`, so only the hop that
-    ///         opened this channel may emit (E157). The gate is the per-channel
-    ///         `channel.hop` binding, not an attestation. The payout is pinned to
+    ///         AUTHORITY: identical gate to `openChannel` — `_onlyHop()` alone, a two-address
+    ///         check against `MAIN_HOP`/`FALLBACK_HOP`. EITHER may refresh ANY channel; there is
+    ///         no per-channel hop binding (§E164) and no attestation. What is per-channel is
+    ///         `_requireChannelKeys` below, which pins the pair `Q` is recomputed from, and
+    ///         `_whenOpen`. The payout is pinned to
     ///         `btcRecipientOf` INSIDE the signed bytes, so this can only publish a
     ///         backstop that pays the LP — it can never redirect funds. Emit-only (no
     ///         external call, no fund movement) ⇒ no reentrancy surface.
@@ -1452,7 +1423,7 @@ contract BTCChannels is Ownable {
         //    arming this channel was ever given re-verifies forever, and this path used to write
         //    the attestation UNCONDITIONALLY: a hop replaying the oldest one it holds ratcheted
         //    `checkpointOf` down to the channel's opening balance, and the stale-close guard at
-        //    `_recordClose` then permitted exactly the closes it exists to reject.
+        //    `recordClose` then permitted exactly the closes it exists to reject.
         //
         // ⚠️ THE OLD JUSTIFICATION — *"the balance may have DROPPED, and keeping a stale higher
         //    attestation would reject legitimate closes"* — IS COVERED TWICE OVER BY THE OTHER
@@ -1514,9 +1485,10 @@ contract BTCChannels is Ownable {
         checkpointOf[channelId] = hi;
     }
 
-    /// @dev (E156) Record a pre-signed exit against a channel. ONE body, TWO callers: `openChannel`
-    ///      arms the first one (mandatory — see `Types.ExitArming`) and `emitDeadManExit` refreshes
-    ///      it. Keeping them separate is what let the open path ship with no exit at all.
+    /// @dev (E156) Record a pre-signed exit against a channel. ONE body, TWO callers: `_armLadder`
+    ///      (which arms the mandatory ladder from `openChannel`, `splice` and
+    ///      `deliverSwapOutOnchain` — see `Types.ExitArming`) and `emitDeadManExit`, the bare
+    ///      refresh. Keeping them separate is what let the open path ship with no exit at all.
     ///      The tally restarts because the new attestation already reflects every payout before it.
     function _armDeadManExit(
         bytes32 channelId,
@@ -1602,9 +1574,10 @@ contract BTCChannels is Ownable {
     ///         channel-monitor `update_id` for `channelId`, monotonically. On reboot the
     ///         hop's enclave reads `freshnessSeq[channelId]` and refuses a locally-loaded
     ///         monitor whose `update_id` is behind — catching a host that serves stale
-    ///         sealed channel state (MuSig2 nonce-reuse / revoked-state broadcast). Gated
-    ///         to the channel's hop (a foreign caller can't bump the counter to lock the
-    ///         enclave out) and STRICTLY monotonic (a replay/rollback of an old value reverts).
+    ///         sealed channel state (MuSig2 nonce-reuse / revoked-state broadcast). Gated by
+    ///         `_onlyHop()` to `MAIN_HOP`/`FALLBACK_HOP` — either may commit for any channel, and
+    ///         a foreign caller can't bump the counter to lock the enclave out — and STRICTLY
+    ///         monotonic (a replay/rollback of an old value reverts).
     /// 🔴 §HOP-RCE-2 — MONOTONIC IS NOT ENOUGH; THE RATCHET ALSO NEEDS A CEILING. Strictly
     ///    increasing stops a ROLLBACK, which is what this counter was built for, and does nothing
     ///    about a JUMP. A hop that writes `type(uint64).max` once makes the enclave refuse every
@@ -1621,8 +1594,6 @@ contract BTCChannels is Ownable {
 
     function commitFreshness(bytes32 channelId, uint64 seq) external {
         _onlyHop();
-        // (E122) Primary, or the LP's fallback after the staleness window — see `splice`.
-
         if (seq <= freshnessSeq[channelId]) revert FreshnessNotMonotonic();
         if (seq - freshnessSeq[channelId] > MAX_FRESHNESS_JUMP) revert FreshnessJumpTooLarge();
         freshnessSeq[channelId] = seq;
@@ -1651,8 +1622,8 @@ contract BTCChannels is Ownable {
     ///         bundle. The migrating (OLD) enclave calls this BEFORE exporting its sealed
     ///         seed; a REVERT (nonce already used) tells the daemon the bundle is a replay
     ///         and it must NOT export. Atomic compare-and-set (revert-if-used) so two racing
-    ///         migrations can't both proceed. Gated to an active hop (the migrating enclave
-    ///         holds live channels) so a non-hop can't bloat storage; the nonce itself is
+    ///         migrations can't both proceed. Gated by `_onlyHop()` to `MAIN_HOP`/`FALLBACK_HOP`
+    ///         so a non-hop can't bloat storage (nothing here inspects channel count); the nonce itself is
     ///         secret (in the signed bundle) until first use, so it can't be pre-consumed.
     function markMigrationNonceUsed(bytes32 nonce) external {
         _onlyHop();
@@ -1684,9 +1655,9 @@ contract BTCChannels is Ownable {
     ///           final and inflate delivered (the redirection attack closed on the swap-out
     ///           and withdrawal-splice paths has no foothold here either). On recency:
     ///           locktime==0 proves co-signed but not current-vs-stale, so finalBalance
-    ///           recency rests on the hop co-signing the CURRENT state (same hop-trust as
-    ///           settleSwapIn) — and the hop is TRUSTED infrastructure, not the adversarial
-    ///           party (the threat model is a malicious LP).
+    ///           recency rests on the hop co-signing the CURRENT state, backstopped on-chain by
+    ///           the stale-close guard below — and the hop is TRUSTED infrastructure, not the
+    ///           adversarial party (the threat model is a malicious LP).
     ///
     ///           PROCEEDS ARE PINNED PER-OBLIGATION, NOT POOLED (corrected 2026-08-01 — this
     ///           block used to describe netDeliveredBtc/swapUsdBtc as a SHARED cross-channel
@@ -1835,11 +1806,13 @@ contract BTCChannels is Ownable {
         // stale ABOUT. This earns its place under the guard rule: absent it, a fleet that
         // co-signs an out-of-date balance produces a close that is plausible on its face
         // and silently short-pays the LP, with no on-chain trace that anything was wrong.
-        // ⚠️ HOP-SUBMITTED CLOSES ONLY. `emitDeadManExit` is callable by ANY attested hop in
-        // fleet mode, so a guard that bound the LP too would hand a compromised hop a way to
-        // block every cooperative close by attesting an absurd checkpoint -- forcing LPs into
-        // punitive force-closes. (First version did exactly that; it was reverted for it.)
-        // Gating on the submitter removes it: the LP is the party the guard protects, and it
+        // ⚠️ EVERY SUBMITTER EXCEPT THE LP. Recording is permissionless (see the E153 note
+        // above), so the guard binds the hop and any third party alike; only `msg.sender ==
+        // lpEth` waives it. `emitDeadManExit` is callable by either immutable hop, so a guard
+        // that bound the LP too would hand a compromised hop a way to block every cooperative
+        // close by attesting an absurd checkpoint -- forcing LPs into punitive force-closes.
+        // (First version did exactly that; it was reverted for it.)
+        // Exempting the LP removes it: the LP is the party the guard protects, and it
         // can always waive by submitting the close itself. That is not coercion -- the LP's
         // alternative is a force close, which needs no counterparty cooperation at all.
         uint ckpt = checkpointOf[channelId];
@@ -1865,8 +1838,10 @@ contract BTCChannels is Ownable {
     ///         against BTC that has left the 2-of-2, the exact hazard the force-close path exists
     ///         to prevent, arriving through the ONE path that is meant to protect the LP.
     ///
-    ///         DISCRIMINATOR: the tx's locktime must EQUAL the `deadManDeadline` this contract
-    ///         itself recorded. A coop close is locktime 0; a BOLT#3 commitment carries the
+    ///         DISCRIMINATOR: the tx's locktime must be an ARMED deadline for this channel's
+    ///         CURRENT funding outpoint — `exitArmedOnOutpoint[_currentOutpointKey(id)][locktime]`,
+    ///         i.e. ANY rung of the ladder, not one "current" deadline. A coop close is locktime 0;
+    ///         a BOLT#3 commitment carries the
     ///         obscured 0x20-prefixed locktime; neither can equal a real deadline. MATURITY needs
     ///         no check — Bitcoin consensus will not confirm a CLTV tx before its locktime, so an
     ///         SPV-proven confirmation IS the proof it matured.
@@ -1902,7 +1877,7 @@ contract BTCChannels is Ownable {
     ) external nonReentrant {
         _whenOpen(channelId);
         address lpEth = channels[channelId].lpEth;
-        // (E156/E165) NO `deadline == 0` CHECK: `exitArmedAt` is false for an unarmed deadline,
+        // (E156/E165) NO `deadline == 0` CHECK: `exitArmedOnOutpoint` is false for an unarmed deadline,
         // and zero is rejected at arming — so a zero locktime simply fails the membership test
         // below. The state a separate check defended against is unrepresentable.
         uint64 deadline = BitcoinTx.extractLocktime(rawExitTx);
@@ -1930,11 +1905,12 @@ contract BTCChannels is Ownable {
     ///         provably spent by a BOLT #3 COMMITMENT transaction — removing the
     ///         dead-hop/adversary-LP veto over the decrement.
     ///
-    ///  WHY THIS IS SAFE TO BE PERMISSIONLESS (unlike `recordClose`): `recordClose`
-    ///  is participant-gated because a SPLICE / swap-out-delivery / coop-close tx
-    ///  spends the SAME funding UTXO and the contract can't reconstruct the rotated
-    ///  splice keys, so an open tx could be replayed to force-retire a LIVE channel.
-    ///  Here we additionally require the spending tx to be a genuine commitment tx
+    ///  WHY THIS IS SAFE TO BE PERMISSIONLESS: a SPLICE / swap-out-delivery / coop-close tx
+    ///  spends the SAME funding UTXO, so a spend proof alone could be replayed to force-retire
+    ///  a LIVE channel. `recordClose` — permissionless as well, since E153 — rules that out by
+    ///  reconstructing the 2-of-2 from `p` and rejecting any tx that pays a continuing one
+    ///  (`_requireNotSplice`). This entrypoint takes NO key pair at all, so it uses the other
+    ///  discriminator: the spending tx must be a genuine commitment tx
     ///  (`isCommitmentTx`: nLockTime top byte 0x20 + input nSequence top byte 0x80,
     ///  BOLT #3). A splice (locktime = block height), a coop close (locktime 0), and
     ///  a swap-out delivery all FAIL that check, so none can be used here. A force-
@@ -2031,18 +2007,18 @@ contract BTCChannels is Ownable {
     }
 
     // ═════════════════════════════════════════════════════════════════
-    //  SWAP-IN (BTC→USD) — the hop confirms native-BTC receipt over Lightning
-    //  and settles the seller in dollars. Bounded by the pool's USD leg
-    //  (creditSwapIn's inflow-capacity gate), which caps the hop's exposure to
-    //  net-BTC-bought. The seller's BTC refills a drained LP's channel; that
-    //  LP's position reconciles at its own close. `usdAmount` is valued at the
-    //  WBTC TWAP. The seller picks their payout: QUID, or a specific stable on
-    //  the strict (fee-bearing) redemption path.
+    //  SWAP-IN (BTC→USD) — the seller pays native BTC to a deposit address this contract
+    //  can RECOMPUTE, and `settleSwapInProven` credits the seller in dollars against an SPV
+    //  proof of that deposit. Bounded by the pool's USD leg (creditSwapIn's inflow-capacity
+    //  gate), which caps the hop's exposure to net-BTC-bought. The seller picks their payout
+    //  token in the committed `Terms`: QUID, or a specific stable on the strict (fee-bearing)
+    //  redemption path.
     //
-    //  Hop-attested (not preimage-proven): for a swap-IN the protocol is the
-    //  Lightning RECEIVER, so it generates the preimage itself — a preimage
-    //  proves nothing to the EVM here (unlike swap-OUT, where the swapper
-    //  generates it). The capacity gate is the bound on a dishonest hop.
+    //  PROVEN, NOT HOP-ATTESTED. `BTC_DEPOSIT_KEY` plus the swap's CLTV refund leaf and its
+    //  committed terms fix the deposit address, so the credit can never exceed what a Bitcoin
+    //  block says arrived at an address only this protocol controls. A Lightning preimage
+    //  would prove nothing here anyway: for a swap-IN the protocol is the RECEIVER, so it
+    //  generates the preimage itself (unlike swap-OUT, where the swapper generates it).
     // ═════════════════════════════════════════════════════════════════
     error SwapInDepositReplay();   // this deposit outpoint has already been credited
 
@@ -2122,7 +2098,7 @@ contract BTCChannels is Ownable {
     ///
     /// 🔑 EXTRACTED FROM `settleSwapIn` SO THAT ENTRYPOINT CAN BE DELETED. `settleSwapIn` had
     ///    TWO jobs: crediting a swap-in on the hop's WORD (`#1`, the phantom — now provable via
-    ///    `settleSwapInSpliced`), and this reversal. **They are not the same kind of thing.** A
+    ///    `settleSwapInProven`), and this reversal. **They are not the same kind of thing.** A
     ///    swap-in credit asserts BTC arrived and must be PROVEN; a reversal returns dollars the
     ///    swapper ALREADY PAID IN, so nothing arrives and there is nothing to prove. Deleting
     ///    the unproven credit must not take the reversal with it.
@@ -2188,23 +2164,23 @@ contract BTCChannels is Ownable {
 
     // ═════════════════════════════════════════════════════════════════
     //  SWAP-OUT (USD→BTC) — the on-curve mirror of swap-IN. The swapper commits
-    //  USD on the curve (recording the delivery obligation via netDeliveredBtc)
-    //  and the hop delivers native BTC. The only rail today is the ON-CHAIN one
-    //  (`requestSwapOutOnchain` → `deliverSwapOutOnchain`), which settles each
-    //  delivery's proceeds on-chain. A failed delivery IS a swap-IN: the hop
-    //  reverses it via the existing `settleSwapIn`/`creditSwapIn` (BTC back to
-    //  the pool, USD back to the swapper, netDeliveredBtc decrements on the
-    //  symmetric curve delta). The swapper approves Aux for the USD pull.
+    //  USD on the curve (the delivery obligation is recorded in `pendingOnchainSwapOut`
+    //  here and its dollar leg in `Core.pendingSwapOutUsd`) and the hop delivers native
+    //  BTC. The only rail is the ON-CHAIN one (`requestSwapOutOnchain` →
+    //  `deliverSwapOutOnchain`), which settles each delivery's proceeds on-chain. A failed
+    //  delivery IS a swap-IN: the hop reverses it via `reverseSwapOut`, or the swapper
+    //  self-refunds via `refundExpiredSwapOut` after `SWAPOUT_REFUND_BLOCKS` — both route
+    //  through `creditSwapIn`, returning the swapper's own USD.
     // ═════════════════════════════════════════════════════════════════
 
     /// @notice ON-CHAIN swap-out (delivery rail B): USD→BTC delivered to a Bitcoin
     ///         address for a user with NO Lightning wallet. Identical USD intake to
-    ///         the BOLT11 path (`creditSwapOut` runs the curve buy + records
-    ///         netDeliveredBtc/swapUsdBtc); the delivery obligation is recorded here
+    ///         the retired BOLT11 path (`creditSwapOut` runs the curve buy and returns the
+    ///         recorded 6-dec USD); the delivery obligation is recorded here
     ///         and settled by `deliverSwapOutOnchain` once the hop's SPV-proven
     ///         splice-out pays `swapperScript`. `swapId` is a client-unique dedup key
-    ///         (shares `swapOutUsed`). A failed delivery reverses via `settleSwapIn`
-    ///         (USD back to the swapper) — the SAME unhappy path as the LN rail.
+    ///         (shares `swapOutUsed`). A failed delivery reverses via `reverseSwapOut`
+    ///         (USD back to the swapper), or `refundExpiredSwapOut` once it ages out.
     /// ⚠️ (E184) THE DESTINATION IS NOT A PARAMETER ANY MORE — it is `btcRecipientOf[msg.sender]`.
     ///
     /// 🔴 THE HALF-FAILURE THIS CLOSES. §E131 proved the supplied script's 32 bytes were ON the
@@ -2228,9 +2204,10 @@ contract BTCChannels is Ownable {
     ) external nonReentrant returns (uint sats) {
         if (swapId == bytes32(0) || swapOutUsed[swapId]) revert SwapOutReplay();
         // Symmetric dedup: a swapId that collides with an already-used swap-IN key
-        // (swapInUsed is set by settleSwapIn AND by a delivered swap-out) would be BOTH
-        // undeliverable (deliverSwapOutOnchain reverts on swapInUsed) AND unreversible
-        // (settleSwapIn reverts on swapInUsed) → the swapper's USD would strand with no
+        // (swapInUsed is set by `_provenTxid` on a proven deposit AND by a delivered,
+        // reversed or refunded swap-out) would be BOTH undeliverable (deliverSwapOutOnchain
+        // reverts on swapInUsed) AND unreversible (reverseSwapOut / refundExpiredSwapOut
+        // revert on swapInUsed) → the swapper's USD would strand with no
         // recovery. Reject it up front, BEFORE creditSwapOut pulls the USD.
         if (swapInUsed[swapId]) revert SwapOutReplay();
         // (E184) The destination is the swapper's REGISTERED payout key, which `setBtcRecipient`
@@ -2255,7 +2232,8 @@ contract BTCChannels is Ownable {
         // pendingSwapOutUsd += usd6 (proceeds owed to the LP that delivers). creditSwapOut
         // grew POOLED_USD by the same usd6, so the swap-in FREE reserve
         // (POOLED − pending) is UNCHANGED → spamming requests can't grief the gate.
-        // Matched -= on delivery (_settleDelivered) or reversal (settleSwapIn).
+        // Matched -= on delivery (`_settleSwapOutSlice` → `btc.resize`) or on reversal
+        // (`reverseSwapOut` / `refundExpiredSwapOut` → `btc.subPendingSwapOut`).
         btc.addPendingSwapOut(usd6);
         emit SwapOutRequestedOnchain(msg.sender, sats, token, swapId, swapperScript);
     }
@@ -2301,8 +2279,9 @@ contract BTCChannels is Ownable {
         // ⚠️ AND THE SECOND HALF IS AS BAD AS THE FIRST: `keysHash` would be left STALE against a
         // rotated outpoint, which is §E153's *unretirable forever* regression verbatim (:1258) —
         // both retirement paths then revert and the position can never be closed.
-        // The siblings that already do this: `splice`, `emitDeadManExit`, and
-        // `_requireNotSplice` (the recordClose/retire path).
+        // The siblings that already do this: `emitDeadManExit` and `_requireNotSplice` (the
+        // recordClose / recordDeadManExit retire paths). `splice` is the exception BY DESIGN —
+        // it RE-PINS `keysHash` after `_verifySplice` instead of pinning against it.
         // This was the last unpinned one — found the same way §T1-f-general
         // was: by diffing the writers of the funding outpoint against the sites that gate it.
         // ⚠️ IT SITS IN THE **OUTER** FRAME, WITH THE `_armLadder` CALL AND FOR THE SAME REASON.
@@ -2310,17 +2289,20 @@ contract BTCChannels is Ownable {
         // settlement tail or the legacy stack (no via_ir) overflows — a prior attempt to extend
         // one live range in there reverted four tests. `p` is ALREADY live out here (it is passed
         // on to both `_deliverSwapOut` and `_armLadder`), so reading it here extends nothing.
-        // ⚠️ THIS DOES NOT REKEY: rotating to a NEW pair is `rekey` (§E182), which updates
-        // `keysHash` under its own gate. A delivery must keep the pair it opened with.
+        // ⚠️ THIS DOES NOT ROTATE THE PAIR: rotating to a NEW pair is `splice`, which re-pins
+        // `keysHash` itself after `_verifySplice` has proven the new pair is inside the new `Q`.
+        // A delivery must keep the pair the channel currently carries.
         _requireChannelKeys(channelId, p);
-        // (B) Authorization = the channel's HOP GATE (channel.hop was fixed at open to a
-        // delegated hop). The retired per-delivery lpAuth was redundant: the swapper's BTC
+        // (B) Authorization is the `_onlyHop()` call above — `MAIN_HOP` or `FALLBACK_HOP`,
+        // either of them, on any channel (§E164: a channel records no hop of its own).
+        // The retired per-delivery lpAuth was redundant: the swapper's BTC
         // payment is SPV-proven below, the shrink pins the delivered slice to the on-chain
         // obligation, and any withdrawal output still pins to btcRecipientOf.
         PendingOnchainSwapOut memory so = pendingOnchainSwapOut[swapId];
         if (so.sats == 0) revert NoSuchSwapOut();
-        // Anti-double-spend: if this swap-out was already REVERSED (its USD returned
-        // via settleSwapIn, which marks swapInUsed[swapId]), refuse to also deliver
+        // Anti-double-spend: if this swap-out was already REVERSED or self-refunded (its USD
+        // returned via reverseSwapOut / refundExpiredSwapOut, which mark swapInUsed[swapId]
+        // with the swapId itself), refuse to also deliver
         // the BTC — else the swapper gets both. The hop's driver checks this off-chain
         // too, but this is the on-chain backstop against a racing/replayed delivery.
         if (swapInUsed[swapId]) revert SwapOutReplay();
@@ -2330,7 +2312,7 @@ contract BTCChannels is Ownable {
             revert SwapOutNotDelivered();
         // Gate + SPV-verify + settle in its own frame (legacy stack, no via_ir).
         _deliverSwapOut(swapId, channelId, p, rawSpliceTx, spliceMerkleProof);
-        // (§E233-ladder) THE FIFTH AND LAST ROTATION SITE. A delivery shrink rotates the funding
+        // (§E233-ladder) THE THIRD AND LAST ROTATION SITE (`openChannel`, `splice`, here). A delivery shrink rotates the funding
         // outpoint (`_deliverSwapOut` assigns `fundingTxId`/`fundingVout` and calls `_useOutpoint`),
         // so every rung armed before it is dead, exactly as on `splice`.
         //
@@ -2345,11 +2327,11 @@ contract BTCChannels is Ownable {
         _armLadder(channelId, p, exits);
     }
 
-    /// @dev Delivery body in its own frame: same lpAuth + SPV-spend authentication as
-    ///      `splice` (the LP signs THIS exact tx; the splice provably spends the channel's
-    ///      current 2-of-2 — no static key pin, since LDK rotates funding keys per splice),
-    ///      SPV-verify the splice-out, shrink the channel, and settle the slice as
-    ///      DELIVERED (lpPayout=0 → LP claims QUI).
+    /// @dev Delivery body in its own frame: the SAME authentication as `splice`, and it is NOT
+    ///      a signature — the caller's `_onlyHop()` gate plus `_verifySplice`, which SPV-proves
+    ///      the tx spends the channel's CURRENT 2-of-2 and KeyAgg-proves the new funding output.
+    ///      Then shrink the channel and settle the slice as DELIVERED (the LP's native change is
+    ///      `shrinkSats - so.sats`; the dollar leg is `so.usd`).
     function _deliverSwapOut(
         bytes32 swapId,
         bytes32 channelId,
@@ -2407,15 +2389,15 @@ contract BTCChannels is Ownable {
         paidOutSinceCheckpoint[channelId] += shrinkSats;
         // Pay the delivering LP EXACTLY the swapper's recorded USD (so.usd) as
         // proceeds: lpPayout = shrink − sats is the LP's native change; exactUsd =
-        // so.usd is its dollar leg. _settleDelivered draws POOLED_USD + clears
+        // so.usd is its dollar leg. `Vault.resize`'s delivered leg draws POOLED_USD + clears
         // pendingSwapOutUsd by so.usd (the matched -= for the request's +=).
         _requireClaimRegistered(channelId);   // (§LAZY-OPEN-SHRINK) else `LP.pooled -=` panics
         btc.resize(lpEth, shrinkSats, shrinkSats > sats ? shrinkSats - sats : 0, so.usd);
         // Mark the swapId consumed on the swap-IN side too: delivery and reversal are now
         // MUTUALLY EXCLUSIVE in BOTH directions. The deliver entry already blocks
         // reverse→deliver (swapInUsed check at the top); this blocks deliver→reverse, so a
-        // later settleSwapIn(paymentHash=swapId) can't also refund a swapper who already
-        // received BTC.
+        // later reverseSwapOut(swapId) / refundExpiredSwapOut(swapId) can't also refund a
+        // swapper who already received BTC.
         swapInUsed[swapId] = true;
         delete pendingOnchainSwapOut[swapId];
         emit SwapOutDeliveredOnchain(swapId, channelId, lpEth, uint96(sats), newTxId, newVout);
@@ -2424,8 +2406,8 @@ contract BTCChannels is Ownable {
     // ═════════════════════════════════════════════════════════════════
     //  BTC recipient registration (swap destination)
     // ═════════════════════════════════════════════════════════════════
-    /// @notice Setter for users who haven't opened a channel. They register
-    /// their P2WPKH destination as the low 20 bytes of bytes32.
+    /// @notice Setter for users who haven't opened a channel. They register their 32-byte
+    /// X-ONLY TAPROOT key; the destination is the key-path P2TR `0x5120||xOnlyKey`.
     function setBtcRecipient(bytes32 xOnlyKey, bytes calldata pop) external {
         // A channel LP's payout is pinned by its channels (see btcRecipientLocked);
         // only non-channel swap users may set/update it freely. `xOnlyKey` = the LP's
