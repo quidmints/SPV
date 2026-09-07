@@ -52978,6 +52978,40 @@ FOLDED citation is still stale** — the one bucket that is actionable. Per this
 with a binary result beats a disposition; and per the tooling-traps rule it fails loudly, exiting with
 a FATAL if the tree walk returns zero `.md` files rather than reporting a clean run.
 
+# 🔴 §MSIG-GROWS-THEN-FREEZES — **THE OWNER'S DESIGN IS NOT EXPRESSIBLE IN THE CODE, AND A DOCBLOCK CLAIMED IT WAS (2026-09-07)**
+
+**Owner direction, 2026-09-07:** *"we are not using gnosis safe but a simple msig that can **grow after
+launch, never change after it reaches some number of signers**."*
+⇒ **a MONOTONIC APPEND with a FREEZE at a cap.** That is a cleaner requirement than the "rotation"
+this file has been carrying, and it retires the rotation question rather than answering it.
+
+⛔ **NONE OF IT IS IMPLEMENTED.** `quid-hop/src/migration.rs:97` is
+`pub const OPERATOR_OWNERS: [Address; 3]` with `MIGRATION_THRESHOLD = 2`, referenced directly by five
+call sites across `quid-bridge`. **There is no add, no grow, no freeze, no cap, and no runtime load
+path** — no unseal, no config read. A fixed-size const array cannot grow.
+
+🔴 **AND THE MODULE HEADER ASSERTED THE EXACT PROPERTY THE DESIGN NEEDS AND THE CODE LACKS.** It read:
+> *"the owner set lives in SEALED CONFIG, not in MRENCLAVE, so rotating a member does NOT change the
+> measurement (the old scheme baked pubkeys in, so rotation changed MRENCLAVE)"*
+
+**A `pub const` IS compiled into the binary, therefore INTO MRENCLAVE.** And the same header's line 3
+says *"SGX seals are MRENCLAVE-bound: a NEW enclave build can't unseal the OLD"*. ⇒ **every added
+signer is a new binary, a new measurement, and a migration ceremony — precisely the cost the docblock
+claims was avoided, and the opposite of "grows after launch".** ✅ **Corrected in place, comment-only.**
+
+▶️ **WHAT THE REQUIREMENT ACTUALLY NEEDS**, stated so it is not re-derived: the owner set must be
+**runtime state**, not a const — appended under the existing k-of-n authorization, monotonic (no
+removal, no replacement), with a cap after which appends are refused. **`verify_migration_auth` needs
+no change at all** — it already takes `owners: &[Address]` and a threshold (`:309`), so this is a
+storage-and-append question, not a verification one. ⚠️ **Where that state lives is the real design
+question, because it must survive an enclave rebuild** — which is what makes it different from every
+other config value here, and is the same constraint that killed the sealed-snapshot framing.
+
+📌 **THIS IS WHY "CHECK THE DOCBLOCK AGAINST THE CODE" IS NOT TIDYING.** The false bullet was not
+cosmetic: it asserted the one property that decides whether the launch plan works, and it read as
+settled. **Rule 19's *a stale is more dangerous than a gap, because it answers the question* — with the
+question being the design's own feasibility.**
+
 # ⛔ §NO-SAFE-STANDING-DECISION — **E121, E100 AND E119 ALL PLAN AROUND A SAFE THE OWNER RULED OUT. THE CODE RECORDS IT; THE ROWS DO NOT (2026-09-07)**
 
 **Found while discharging a GATE 1 free read, and it invalidates the recommendation I had drawn from

@@ -30,8 +30,12 @@
 //!
 //! WHY AN ADDRESS-PINNED OWNER SET (not the old baked `ed25519 OPERATOR_PUBKEYS`):
 //!   * operators sign EIP-712 with their own wallets — no bespoke keygen;
-//!   * the owner set lives in SEALED CONFIG, not in MRENCLAVE, so rotating a member does NOT change
-//!     the measurement (the old scheme baked pubkeys in, so rotation changed MRENCLAVE);
+//!   * ⛔ **THIS BULLET WAS FALSE AND IS CORRECTED (2026-09-07).** It claimed the owner set "lives in
+//!     SEALED CONFIG, not in MRENCLAVE, so rotating a member does NOT change the measurement".
+//!     [`OPERATOR_OWNERS`] is a compile-time `pub const [Address; 3]` with NO unseal or config-load
+//!     path — it is compiled into the binary, therefore INTO MRENCLAVE. Changing it changes the
+//!     measurement, and per the header above a new build cannot unseal the old state. The claimed
+//!     property is the one the design needs and the one it does not have;
 //!   * one primitive: the operator msig and the family msig verify IDENTICALLY.
 //!
 //! OWNER-SET SOURCE — [`OPERATOR_OWNERS`], a sealed-config snapshot. Self-contained, no RPC trust.
@@ -93,14 +97,21 @@ pub const PROTOCOL_CHAIN_ID: u64 = 1;
 ///
 /// PLACEHOLDERS: the well-known addresses of secp256k1 secret keys 1, 2, 3
 /// (dev/CI only — see [`operator_address`] / `quid-migrate-auth`). Replace with
-/// the real Safe owners before mainnet; prod secrets never enter the repo.
+/// the real msig owners before mainnet; prod secrets never enter the repo.
+/// ⛔ **NOT Safe owners** — there is no Gnosis Safe; see the module header.
+/// 🔴 **AND THE OWNER'S DESIGN IS NOT EXPRESSIBLE HERE AS WRITTEN** (owner, 2026-09-07: the msig
+/// *"can grow after launch, never change after it reaches some number of signers"*). A fixed
+/// `[Address; 3]` const cannot grow: every added signer is a new binary, a new MRENCLAVE and a
+/// migration ceremony — the opposite of growing after launch. Growth needs the set to be RUNTIME
+/// state with a monotonic append and a freeze at a cap, which nothing here implements.
 pub const OPERATOR_OWNERS: [Address; 3] = [
     address!("7E5F4552091A69125d5DfCb7b8C2659029395Bdf"), // sk = 0x01..01
     address!("2B5AD5c4795c026514f8317c7a215E218DcCD6cF"), // sk = 0x02..02
     address!("6813Eb9362372EEF6200f3b1dbC3f819671cBA69"), // sk = 0x03..03
 ];
 
-/// Number of distinct Safe-owner signatures required to authorize a migration.
+/// Number of distinct msig-owner signatures required to authorize a migration.
+/// (k of n, checked by [`verify_migration_auth`]; not a Safe threshold — no Safe exists.)
 pub const MIGRATION_THRESHOLD: usize = 2;
 
 /// Fail CLOSED before a staging/prod enclave boots with the DEV migration trust
