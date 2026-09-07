@@ -639,3 +639,58 @@ before patching, not guessed.
 5. **The keeper picks among table venues and may supply richer calldata; it submits privately.**
 6. **IL-protect borrows the cheapest dollar and hops** — blocked on `LevVenueBase.STABLE` being immutable.
 ⇒ **Items 1, 2 and 4 are the build. 3 is a number to derive. 6 is a venue-shape change.**
+
+---
+
+## 🔒 §SESS-69 — **THE HACKED-KEEPER ANALYSIS FOR THE WIDENED `_retarget`. THE WIDENING *IS* THE MITIGATION.**
+
+Owner: *"did you widen _retarget? how do we make sure it cant be abused, even with hacked keeper?"*
+
+### 🔑 THE FRAMING THAT MATTERS FIRST: `route` WAS PREVIOUSLY FORWARDED **VERBATIM**
+Measured at `a320683f~1` — `convertTo` did `ONEINCH_ROUTER.call{gas: ROUTE_GAS_CAP}(routes[k])` with
+**no selector check, no length check, no patching.** ⇒ **a hacked keeper could ALREADY send a `swap()`
+descriptor naming ITSELF as `dstReceiver`**, and the only thing standing in its way was
+`RouteTookAndGaveNothing` catching the theft *after* the tokens moved — a per-leg check satisfied by
+delivering **one wei**. **So widening `_retarget` did not open the generic executor; the generic
+executor was always open. What changed is that it is now the only one, and it is patched.**
+
+### WHAT A FULLY HACKED KEEPER CAN AND CANNOT DO NOW
+| it controls | it CANNOT control |
+|---|---|
+| the selector — but only 4 whitelisted | **what we sell** (`srcToken` overwritten) |
+| `executor` (w0) and `srcReceiver` (w3) | **what we want** (`dstToken` overwritten) |
+| `flags` (w7) — booked gap | **where it goes** (`dstReceiver` = `address(this)`) |
+| the `data` tail | **how much** (`amount` = this frame's computed number) |
+| which pools/venues | **the floor** (`minReturn` zeroed; the delta floor binds) |
+| | **the callee** — `ONEINCH_ROUTER` is pinned, not a parameter |
+| | **the allowance** — exactly `amt`, re-zeroed on BOTH paths |
+| | **the gas** — `ROUTE_GAS_CAP` per leg (an uncapped call measured **931,857,691 gas**) |
+
+### ⇒ THE RESIDUAL IS EXACTLY ONE NUMBER: **THE FLOOR'S SLACK**
+The worst a hacked keeper achieves is routing through an executor it controls and returning **just
+enough to clear the floor**, pocketing the difference between the oracle price and the floor.
+⚠️ **AND THE PER-LEG `spent>0 ⇒ delivered>0` GUARD DOES NOT BOUND THAT — one wei satisfies it**, which
+`convertTo`'s own docblock states deliberately (*"not proportional… a per-leg SIZE bound is what
+§SESS-20 rules out"*). So the aggregate floor is the ONLY size bound, and it is the whole exposure.
+📌 **THEREFORE: tightening the floor IS the anti-abuse work, and it is the SAME number as the MEV
+work** (§SESS-68). `_slipBps` is 25–100 bps; `CONSOL_SLIP_BPS` is a flat **100 bps**. **1% per
+consolidation slice is what a hacked keeper can take, and what a sandwicher can take, and they are one
+figure — not two problems.**
+⛔ **`srcReceiver` IS DELIBERATELY NOT FORCED, AND FORCING IT WOULD BE THEATRE.** Measured on two live
+mainnet transactions, `srcReceiver == executor` — 1inch sends the source tokens to the executor so it
+can trade them. Pinning `srcReceiver` to the executor changes nothing, because the executor is
+attacker-chosen by design; pinning it to `address(this)` would break every honest route. **The
+executor being arbitrary is how 1inch works, and the floor is what makes that survivable.**
+
+### ⚠️ WHAT IS *NOT* CLOSED, STATED PLAINLY
+1. **Cross-contract re-entrancy.** The executor is attacker code running mid-conversion. `nonReentrant`
+   exists on 47 functions across `Quid`/`LevManager`/`Aux` — **but each contract has its OWN `_lock`
+   slot** (CLAUDE.md records this), so a lock held in one does not stop a call into another. ⚠️ **This
+   is PRE-EXISTING and unchanged by the widening** — arbitrary executor code was always reachable — but
+   it is not bounded by anything I added, and I have not traced whether a cross-contract re-entry can
+   profit. **Booked, not cleared.**
+2. **`flags` (w7).** 1inch's flag word carries a partial-fill bit. Clearing it would implement the
+   owner's *"no partial fill unless the swapper agrees"* for this arm at the cost of one line — but
+   **I have not verified which bit it is**, and asserting an unmeasured bit position is the exact
+   failure this exercise exists to avoid. 📌 Evidence toward it: `flags` was **0 in both live
+   transactions** sampled, so the bit is not routinely set.
