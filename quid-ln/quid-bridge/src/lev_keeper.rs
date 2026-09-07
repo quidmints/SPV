@@ -916,6 +916,13 @@ const QUOTER_V2:     LpAddr = [0x61,0xfF,0xE0,0x14,0xbA,0x17,0x98,0x9E,0x74,0x3c
 /// Every V3 fee tier. Which one is deepest is a fact about the pair AND THE SIZE, not a constant.
 const FEE_TIERS: [u32; 4] = [100, 500, 3000, 10000];
 
+/// Candidate intermediate tokens for a two-hop route. **A "hub" is only the middle token of a two-hop
+/// route — it is not a protocol role.** USDC was the sole hub because `_hubRowOf`'s Curve rows are all
+/// `<stable>/USDC`; USDT is here because it is the deepest dollar pair on V3 and, measured, the winner
+/// alternates with the block. ⚠️ **Being a short list is fine BECAUSE IT IS PRICED, NOT TRUSTED** — an
+/// unhelpful hub simply loses the comparison, where an unhelpful TABLE ROW used to be taken on faith.
+const HUBS: [LpAddr; 2] = [USDC_ADDR, USDT_ADDR];
+
 /// A 32-byte ABI word for a `uint256`.
 fn u256_word(v: U256) -> [u8; 32] { v.to_be_bytes::<32>() }
 
@@ -995,15 +1002,20 @@ fn best_plan_quoted<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -
     if let Some((pool, out)) = best_direct(rpc, tin, tout, amt) {
         best = Some((Plan { dex: v3_word(pool), dex2: [0u8; 32] }, out));
     }
-    // Two hops through the hub. Skipped when either end IS the hub — that is the direct case.
-    if tin != USDC_ADDR && tout != USDC_ADDR {
-        if let Some((first, mid)) = best_direct(rpc, tin, USDC_ADDR, amt) {
-            if let Some((second, out)) = best_direct(rpc, USDC_ADDR, tout, mid) {
-                if best.is_none_or(|(_, b)| out > b) {
-                    // `dex2` is hop 1 (see `Plan`) — the crossing is deliberate and load-bearing.
-                    best = Some((Plan { dex: v3_word(second), dex2: v3_word(first) }, out));
-                }
-            }
+    // ⭐ §SESS-58 — **EVERY CANDIDATE HUB, INCLUDING WHEN THE INPUT IS ITSELF A HUB.**
+    // 🔴 This read `if tin != USDC_ADDR` with USDC as the only hub, so **a USDC-denominated venue —
+    //    the most common one — never had a two-hop priced at all.** Measured at block 25919955,
+    //    `USDC→USDT→WETH` at $1M beat direct by ~23 bps and was UNREACHABLE. ⚠️ And measured again at
+    //    25924xxx the sign had FLIPPED (direct 400.206 vs via-USDT 399.944), which is the point: the
+    //    winner is market state, so the planner must PRICE both rather than encode either.
+    // ⚠️ A hub equal to `tin` or `tout` is skipped — that is the direct case, already priced above.
+    for hub in HUBS {
+        if hub == tin || hub == tout { continue; }
+        let Some((first, mid)) = best_direct(rpc, tin, hub, amt) else { continue };
+        let Some((second, out)) = best_direct(rpc, hub, tout, mid) else { continue };
+        if best.is_none_or(|(_, b)| out > b) {
+            // `dex2` is hop 1 (see `Plan`) — the crossing is deliberate and load-bearing.
+            best = Some((Plan { dex: v3_word(second), dex2: v3_word(first) }, out));
         }
     }
     best
@@ -1373,9 +1385,26 @@ mod tests {
         let (p2, chosen) = best_plan_quoted(&rpc, USDC_ADDR, WETH_ADDR, amt)
             .expect("the chosen plan must re-quote");
         assert_eq!(p2.dex, p.dex, "the two entrypoints must agree on the plan");
-        println!("direct {direct_out} vs chosen {chosen} (two-hop={})", p.dex2 != [0u8; 32]);
+
+        // Price the hub route independently, so the assertion can tell "priced and lost" from
+        // "never priced". USDC is the INPUT here — the case that used to be skipped outright.
+        let via_hub = best_direct(&rpc, USDC_ADDR, USDT_ADDR, amt)
+            .and_then(|(_, mid)| best_direct(&rpc, USDT_ADDR, WETH_ADDR, mid))
+            .map(|(_, out)| out)
+            .unwrap_or(U256::ZERO);
+        println!("direct {direct_out} · via-USDT {via_hub} · chosen {chosen} (two-hop={})",
+                 p.dex2 != [0u8; 32]);
+
         assert!(chosen >= direct_out,
             "the planner chose a route quoting WORSE than the best direct pool: {chosen} < {direct_out}");
+        // 🔴 **THE ONE THAT CATCHES A SKIPPED HUB.** §SESS-58 fixed a planner that never priced a
+        //    two-hop when the INPUT was USDC. ⚠️ It cannot fail on a day when direct happens to win —
+        //    and that is correct, not vacuous: it fires exactly on the days when skipping would cost
+        //    us, which is the only time the bug has a consequence. Measured at 25919955 the hub route
+        //    beat direct by ~23 bps; at 25924xxx the sign had flipped. A test pinned to either
+        //    reading would be asserting the market (§POINT-IN-TIME-IS-NOT-AN-INVARIANT).
+        assert!(chosen >= via_hub,
+            "the planner ignored a BETTER two-hop through USDT: chosen {chosen} < via-hub {via_hub}");
     }
 
     /// §SESS-21 — the SAME encoder now serves `cascadeDelever`, so its selector gets its own pin.

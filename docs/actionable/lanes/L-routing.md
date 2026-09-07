@@ -295,3 +295,51 @@ it was known — the grep was one command (`POINT-IN-TIME-IS-NOT-AN-INVARIANT`, 
 ✅ **The reassuring half: the fix §SESS-48 landed — assert the SHAPE, log the magnitude — is verbatim
 the remedy that file already prescribes.** Independent arrival at the house rule is evidence the shape
 is right; not having looked first is still the cheaper lesson.
+
+---
+
+## ✅ §SESS-58 — **WHEN DOES A TWO-HOP HAPPEN? MEASURED — AND THE ANSWER FOUND A GAP I HAD LEFT.**
+
+Owner, 2026-09-07: *"when do two hops happen if at all"* and *"what is a hub?"*
+
+**A hub is only the middle token of a two-hop route** (`USDT → USDC → WETH` ⇒ USDC is the hub). It is
+not a protocol role. USDC held it here because it is `stables[0]` and every `_hubRowOf` Curve row is a
+`<stable>/USDC` pool.
+
+### 📊 MEASURED LIVE, WETH OUT (block ~25924xxx)
+| route | $100k | $1M |
+|---|---|---|
+| USDC→WETH direct | **40.161** | **400.206** |
+| USDC→WETH via USDT | 40.037 | 399.944 |
+| USDT→WETH direct | 40.042 | 400.012 |
+| USDT→WETH **via USDC** | **40.155** | **400.125** |
+| DAI→WETH direct | 39.321 | **339.395** |
+| DAI→WETH **via USDC** | **40.154** | 264.215 |
+
+⇒ **Two hops DO happen, and mostly for USDT: ~28 bps at both sizes.** DAI's hub route wins at $100k and
+loses catastrophically at $1M. **So the winner is a function of BOTH the pair and the size**, which is
+the whole argument for pricing it instead of tabling it.
+
+### 🔴 THE GAP THE QUESTION EXPOSED
+`best_plan` read `if tin != USDC_ADDR && tout != USDC_ADDR` with USDC as the ONLY hub, so **a
+USDC-denominated venue — the most common one — never had a two-hop priced at all.** At block 25919955
+`USDC→USDT→WETH` beat direct by ~23 bps and was unreachable.
+⚠️ **AND MY OWN 23-bps CLAIM HAS SINCE REVERSED** (direct 400.206 vs via-USDT 399.944), which is
+§POINT-IN-TIME landing on my own commit message. **The gap is real; its SIGN is market state.** That is
+the argument for pricing both, and against encoding either.
+▶️ **FIXED:** `HUBS = [USDC, USDT]`, and a hub equal to `tin` or `tout` is skipped as the direct case.
+✅ **A SHORT HUB LIST IS FINE *BECAUSE IT IS PRICED, NOT TRUSTED*** — an unhelpful hub loses the
+comparison, where an unhelpful TABLE ROW used to be taken on faith. That is the difference between this
+and the three tables deleted earlier today.
+
+### 🔑 AND A TESTABILITY PROBLEM WORTH THE NOTE
+`chosen >= best_direct` **cannot distinguish "priced and lost" from "never priced"** on a day when
+direct wins. The test now prices the hub route independently and asserts `chosen >= via_hub`.
+⚠️ **It cannot fail today, and that is correct rather than vacuous: it fires exactly on the days when
+skipping would cost us**, which is the only time the bug has a consequence. The run log carries the
+proof it was evaluated — `direct 400.114 · via-USDT 399.944 · chosen 400.114`.
+
+### ⛔ SEPARATE FINDING, NOT A ROUTING ONE: DAI HAS A LIQUIDITY CLIFF AT SIZE
+$1M DAI→WETH returns **339.4** against the ~400 USDC and USDT both get — **~15% down on EVERY route**,
+direct and both hubs. The oracle floor would reject such a fill (correct), but it means **DAI is not
+usable at $1M** and a venue denominated in it would stall rather than trade. **Booked, not diagnosed.**
