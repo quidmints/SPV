@@ -34854,7 +34854,7 @@ Per the repo owner (2026-08-03): *"make sure you land everything else that is ne
 | **C6–C9** | seedFee clamp basis · ungated TWAP seam · stale read across repack (`Quid:978-989`) · `scaleTo6` on 4626 share decimals | 🔴 **OPEN — no commit touches any of them.** The only C-items left.  📌 **§SEQ-AUDIT: GATE 4 · lane L5. Four untouched code-read defects, no commit touches any** |
 | **C1r** | 🔴 **C1 RESIDUAL, NEVER VERIFIED.** `SwapLib.sol:498` (`_refundExcess`) does `scaleTokenAmount(excess * 1e12, r.inToken, false)` on the `forVolatile` leg. That `* 1e12` **presumes `excess` is 6-dec** — but C1's whole change was making `Aux.deposit` return **NATIVE**. If `r.amount` now arrives native, this over-scales an 18-dec stable's refund by 1e12. The archive flagged it *"verify, do not assume"* and it was never done; its cited line (`:508`) has since DRIFTED to `:498`. **Trace where `r.amount` is set on the `forVolatile` path before deciding.** Reachable on BTC paths only since C3 landed (previously dead code). | 🔴 open  📌 **§SEQ-AUDIT: GATE 1 · lane L5. VERIFIED PRESENT: SwapLib:499 scales by 1e12 on forVolatile leg** ✅ **RE-READ 2026-09-07 — THE CLAIM HOLDS, THE COORDINATE HAD ROTTED BY 7 LINES.** The scale is at **`SwapLib.sol:506`**, not `:499`: `r.forVolatile ? BasketLib.scaleTokenAmount(excess * 1e12, r.inToken, false) : excess`. `:499` today is `_refundExcess`'s docblock. ⇒ **the row was right and its citation was not**, which is this file's own warning arriving on one of its own rows — *line numbers rot fastest of all, because every edit above them moves them.* **Coordinate corrected; the claim needs no re-derivation.** |
 | ~~**T1**~~ | ✅ **FIXED 2026-08-02, prediction HELD** (3,562/1/**0 skip**; the +1 pass is the cross-chain test un-skipping, NOT T1 — T1 itself moved nothing, exactly as predicted). ⛔ **OFF-BY-ONE AT THE RANGE BOUNDARY — `SwapLib.sol:1613`.** `if (currentTick > tickUpper \|\| currentTick < tickLower)`. **Uniswap ranges are HALF-OPEN `[tickLower, tickUpper)`** — a position is in-range iff `tickLower <= tick < tickUpper` — so out-of-range is `>=`, not `>`. At exactly `tick == tickUpper` this code believes the range is IN range when the AMM says it is OUT. One character, on the money path. The archive already derived this (`BUILD-QUEUE:3930`) and marked it *"⚠️ NOT APPLIED"* — **and it is still not applied.** ⚠️ Money-path: needs its OWN run + a falsifiable prediction (rule 10). | 🔴 open |
-| **T2** | 🟡 **`PREMIUM_ANNUALIZE = 127`** (`QuidLib.sol:322`). Its own docstring says *"the ONE number here worth reviewing"*, and a session note recorded it as 126 — so it HAS moved and the review never happened. Not a bug; an unreviewed constant on the premium path. | 🟡 open  📌 **§SEQ-AUDIT: GATE 6 · lane L5. VERIFIED: PREMIUM_ANNUALIZE=127 at QuidLib:221, unreviewed** |
+| **T2** | 🟡 **`PREMIUM_ANNUALIZE = 127`** (`QuidLib.sol:322`). Its own docstring says *"the ONE number here worth reviewing"*, and a session note recorded it as 126 — so it HAS moved and the review never happened. Not a bug; an unreviewed constant on the premium path. | 🟡 open  📌 **§SEQ-AUDIT: GATE 6 · lane L5. VERIFIED: PREMIUM_ANNUALIZE=127 at QuidLib:221, unreviewed** ⚠️ **COORDINATE CORRECTED 2026-09-07 — `QuidLib.sol:186`, not `:221` and not the body's `:322`. Both prior cites were wrong; the value `= 127` is confirmed.** The review this row asks for is still unmade. **And do not confuse this `T2` with the BTC threat model's `T2` at `:46425` — different tracks, same letter; see `§SELF-CLOSING-ROWS-SWEEP`.** |
 | **F1** | control-LP redeem delivers 0 | 🔴 open. Likely a FIXTURE warp — **verify before fixing**  📌 **§SEQ-AUDIT: GATE 0 · lane L6. Control-LP redeem delivers 0; verify fixture warp first** |
 | **#12** | LP share price reads only the ETH leg of a two-legged claim | 🟠 **DESIGN + SCAFFOLD DONE, CODE NOT WRITTEN (2026-08-03). Do NOT re-derive any of the below.** ✅ **Claim definition SETTLED BY MEASUREMENT** — NOT "credit the delta of `POOLED_USD_ETH`" (the spec's framing) but **range TWO-LEG VALUE − basket-supplied capital**, socialised per share, and **SIGNED** (flooring at 0 gifts the LP the basket's capital on the reverse leg — B11). ✅ **Designs ELIMINATED, each by data — do not re-propose:** the LEVEL (over-pays 246,564); booking AT THE SALE (the reversal removes it, and it hands the first mover an exit at the top); a per-range baseline inferred from `addLiq` (**`_modLP` clamps to the smaller leg**, so `addLiq`'s return is an UPPER BOUND, not the commit); cross-curve lending (77× too small a reservoir); add-capital-on-drift (headroom measured 0.0045 ETH). ✅ **Fears retired:** repacks are RARE (18 swaps → tick moved 2 → ZERO repacks), and committed rising on swaps is **NOT** a headroom leak (Δ headroom **+0.99**, TVL moves with it). ✅ **Sub-item E5 LANDED**; ✅ **E9 landed** (was blocking — same swap path, gated by the BTC e2e suite). ✅ **24 controls green** as the before-net, incl. V1b-disc (the ONLY test that catches a naive counter merge). 📐 **Prediction re-measured post-E9: `tFlat − cFlat = +33.501958443164383694`**, all four target-test assertions worked through. 🔴 **REMAINING = CODE ONLY:** shared base · two-leg term in `_pricingBacking` · USD delivery leg in `_withdraw` · `committedUsd18` reconciliation. ⚖️ **ONE OPEN DECISION:** where the floor sits. Owner leans SHARED BASE; measured cost **3,454.80** of solvency strictness (V1b-disc: 11,542.89 per-range vs 8,088.09 shared). | 🟠 code remaining  📌 **§SEQ-AUDIT: GATE 7 · lane L5. Two-leg LP claim rewrite - the structural change** |
 | **E1** | ✅ **SUPERSEDED BY E32 — CLOSED 2026-08-04.** This said *"Core IS 139 BYTES OVER EIP-170"*; **Core is now 24,351 = +225 UNDER**, and Quid 24,166 = +410. ⚠️ Left stale for a while precisely because a status marker in an old row is not evidence — the sizes in E32 are, and they were read from `out/*.json` `deployedBytecode`, never from `forge build --sizes` (which silently omits oversized contracts and still exits 0). ✅ The one durable thing in this row: **that measurement caveat**, which is now recorded in E32 and E34 where it will be seen. | ✅ superseded |
@@ -52982,6 +52982,38 @@ against the live tree, prints the fold target for each FOLDED row, and **exits n
 FOLDED citation is still stale** — the one bucket that is actionable. Per this file's own rule, a gate
 with a binary result beats a disposition; and per the tooling-traps rule it fails loudly, exiting with
 a FATAL if the tree walk returns zero `.md` files rather than reporting a clean run.
+
+# 🔎 §SELF-CLOSING-ROWS-SWEEP — **312 ASSERTIONS THAT SOME ROW IS CLOSABLE. ZERO GENUINE CLOSURES, AND THE REASON IS AN ID COLLISION (2026-09-07)**
+
+**E99 exposed the shape — a row saying another row SHOULD CLOSE, with the target still open — so it was
+swept for.** 312 statements of the form *X should close / is answered / is superseded / is moot*.
+**Seven name a target that still carries an open `GATE n · lane Lx` marker. All seven resolve to
+nothing:**
+
+| target | why it is not a closure |
+|---|---|
+| `E99` ×2 | ✅ already closed this session — the shape that started the sweep |
+| `UNIT-B` | *"**most** of §UNIT-B closes as a side effect"* — partial, not a close |
+| `E111` | its SCAFFOLDING is gone, so its COST changed. The row is not closed by that |
+| `E2` | the assertion is inside `E2`'s own row; it is self-referential |
+| 🔴 `A7` | **ID COLLISION** — `:51989`'s A7 is the ENCLAVE track (A4/A5 re-scoping, GATE 5); the open `:34825` A7 is the BASKET track (*"NAV-principal adds a 13-iteration `matureSupply` loop at mint"*). **Different items, same letter.** |
+| 🔴 `T2` | **ID COLLISION** — `:46425`'s T2 is the BTC threat model (*"closes on the deposit rail via the refund-key binding"*); the open `:34857` T2 is **`PREMIUM_ANNUALIZE = 127`**, an unreviewed constant. **Nothing to do with each other.** |
+
+⛔ **THE FALSE-POSITIVE CLASS, NAMED PER THE SWEEP RULE: SHORT IDS ARE REUSED ACROSS TRACKS.** `A4`–`A8`,
+`T2`, `E2`, `B3` and others appear in the basket track, the enclave track and the BTC threat model with
+unrelated meanings. ⇒ **any cross-reference by BARE ID is ambiguous, and a mechanical sweep on them
+manufactures false closures.** **Two of my seven hits would have closed the wrong row.** This is the
+fifth instance today of one shape: **a NAME match standing in for the thing itself.**
+
+▶️ **THE RULE THAT FOLLOWS: cite a cross-track reference as `§SECTION/ID`, never a bare `A7`.** And when
+reading one, check the TRACK before acting — the letter is not unique and never was.
+
+📌 **ONE REAL DEFECT FELL OUT OF IT: `T2` CITES `PREMIUM_ANNUALIZE` AT TWO DIFFERENT LINES, AND BOTH ARE
+WRONG.** The row body says `QuidLib.sol:322`; its own §SEQ-AUDIT verdict "corrects" it to `:221`.
+**Measured: `uint internal constant PREMIUM_ANNUALIZE = 127;` is at `QuidLib.sol:186`.** ⇒ **the row was
+re-audited once and the correction missed too — two attempts, two misses, on a constant the docstring
+itself calls *"the ONE number here worth reviewing"*.** The VALUE (127) is confirmed; only the
+coordinates rotted, twice.
 
 # ✅ §E99-CLOSED-NO-MULTIDAEMON — **OWNER: "NO MULTIDAEMON AT ALL EVER." THE ROW WAS GATED ON A DECISION ALREADY TAKEN A MONTH AGO (2026-09-07)**
 
