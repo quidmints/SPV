@@ -8,7 +8,7 @@ import {WAD, VenueNotAllowed} from "./Types.sol";
 // §A.52: the canonical view lives in Interfaces.sol — imported, never re-declared file-local.
 import {ICore, IAux, IWeETH, IDepositAdapter, ILevVenue, TWAP_WINDOW_SECS} from "./Interfaces.sol";
 import {IERC20Min, IWETH9} from "../imports/Interfaces.sol";
-import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, PROTO_UNIV3, ZERO_FOR_ONE, IUniV3PoolMin, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN, CURVE_3POOL, USDT_TOKEN, CRV_USDT_IDX, CRV_USDT_USDC_IDX, DAI_TOKEN, CRV_DAI_IDX, CRV_DAI_USDC_IDX, USDG_TOKEN, CURVE_USDG_USDC, CRV_USDG_IDX, CRV_USDG_USDC_IDX, CRVUSD_TOKEN, CURVE_CRVUSD_USDC, CRV_CRVUSD_IDX, CRV_CRVUSD_USDC_IDX} from "./Interfaces.sol";
+import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, UNOSWAP3_SELECTOR, PROTO_UNIV3, ZERO_FOR_ONE, IUniV3PoolMin, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN, CURVE_3POOL, USDT_TOKEN, CRV_USDT_IDX, CRV_USDT_USDC_IDX, DAI_TOKEN, CRV_DAI_IDX, CRV_DAI_USDC_IDX, USDG_TOKEN, CURVE_USDG_USDC, CRV_USDG_IDX, CRV_USDG_USDC_IDX, CRVUSD_TOKEN, CURVE_CRVUSD_USDC, CRV_CRVUSD_IDX, CRV_CRVUSD_USDC_IDX} from "./Interfaces.sol";
 
 // ether.fi weETH/WETH Curve pool (weETH is coin1, WETH coin0). Same address as Vault.ETHERFI_CURVE_POOL.
 address constant ETHERFI_CURVE_POOL = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;
@@ -450,6 +450,7 @@ library LevMath {
     error Slippage();
     /// §SESS-22 — a route CONSUMED an input leg and delivered NOTHING to `outToken`.
     error RouteTookAndGaveNothing();
+    error BadRoute();   // §SESS-65 — a supplied route whose selector or length we do not recognise
     error NoVolatileRoute();
     error NotNearLiq();
     error NoDebt();
@@ -656,6 +657,45 @@ library LevMath {
     ///      ⚠️ `minOut` MUST be oracle-derived by the caller. This function does NOT value its own
     ///      inputs — valuation differs per asset class and already lives correctly at each call site,
     ///      where the size-aware `_slipBps` is applied.
+    /// @notice §SESS-65 — **THE ONLY THING A CALLER MAY CHOOSE IS THE VENUE.**
+    ///
+    /// Rewrites a supplied `unoswap`-family call so its `token`, `amount` and `minReturn` are OURS.
+    /// Everything left untouched is a pool word — the venue choice — which is precisely the decision
+    /// we WANT delegated, because it is the one an off-chain quote can make better than we can.
+    ///
+    /// ⛔ **WHITELIST BY SELECTOR *AND* EXACT LENGTH, THEN PATCH — NEVER PATCH AND HOPE.** The offsets
+    ///    below are only meaningful for a known member of the family, so an unrecognised selector or a
+    ///    length that does not match its arity is REFUSED. A "close enough" length would let a crafted
+    ///    blob put our amount somewhere that is not the amount field.
+    /// ⛔ **THE GENERIC `swap()` DESCRIPTOR (`0x07ed2379`) IS DELIBERATELY EXCLUDED.** It carries a
+    ///    `dstReceiver` and a nested struct, so its amount is NOT at a fixed offset and its payout
+    ///    target is caller-chosen — the exact shape `RouteTookAndGaveNothing` exists to catch. It
+    ///    cannot be made safe by patching, so it is not admitted at all.
+    /// ⚠️ **EMPTY IS LEGAL AND MEANS "NO SUPPLIED ROUTE"** — `_aggSwap` encodes one from pool words
+    ///    instead. Both arms end in the same executor and the same floor.
+    /// 📌 Memory layout: `route` data begins at `route + 0x20`; the 4-byte selector sits there, so
+    ///    word 0 (`token`) is at `+0x24`, word 1 (`amount`) at `+0x44`, word 2 (`minReturn`) at `+0x64`.
+    /// ⚠️ `minReturn` is set to **0** on purpose. The bound that matters is `convertTo`'s aggregate
+    ///    floor on the MEASURED balance delta — the one number this contract computes itself. Writing
+    ///    a per-leg floor here would add a second bound that a multi-input conversion cannot size
+    ///    correctly, and the file's own rule is ONE floor on the whole conversion.
+    function _retarget(bytes memory route, address tokenIn, uint256 amountIn) internal pure {
+        uint256 len = route.length;
+        if (len == 0) return;                                  // pool-word arm; nothing to retarget
+        if (len < 4) revert BadRoute();
+        bytes4 sel;
+        assembly { sel := mload(add(route, 0x20)) }
+        uint256 words = sel == UNOSWAP_SELECTOR  ? 4
+                      : sel == UNOSWAP2_SELECTOR ? 5
+                      : sel == UNOSWAP3_SELECTOR ? 6 : 0;
+        if (words == 0 || len != 4 + words * 32) revert BadRoute();
+        assembly {
+            mstore(add(route, 0x24), tokenIn)                  // word 0 — what we are selling
+            mstore(add(route, 0x44), amountIn)                 // word 1 — how much, computed on-chain
+            mstore(add(route, 0x64), 0)                        // word 2 — the aggregate floor decides
+        }
+    }
+
     function convertTo(address[] memory inTokens, uint256[] memory inAmounts,
                        address outToken, uint256 minOut, bytes[] memory routes)
         internal returns (uint256 got) {
@@ -667,6 +707,16 @@ library LevMath {
             uint256 amt = inAmounts[k];
             if (amt == 0 || inTokens[k] == outToken) continue;   // nothing to do / already the target
             uint256 inPrev = IERC20Min(inTokens[k]).balanceOf(address(this));   // §SESS-22
+            // ⭐ §SESS-65 — **RETARGET THE SUPPLIED ROUTE ONTO *OUR* NUMBERS.** The caller chooses the
+            //    VENUE; this frame owns what is sold, how much, and the floor — so those three words
+            //    are overwritten rather than trusted, and a hostile or merely stale route cannot
+            //    misstate any of them. **This is what lets `route` carry ANY unoswap-family call, and
+            //    therefore any hop count 1inch supports, without an ABI change.**
+            // 🔑 **IT ALSO DISSOLVES THE STALENESS THAT POOL WORDS EXISTED TO DODGE.** `dex_word`'s own
+            //    note said full calldata *"embeds an `amount`… unknowable off-chain to the wei"*. True —
+            //    and irrelevant once the amount is written HERE, from a borrow return this transaction
+            //    just computed. ⇒ the pool-word arm is no longer the only amount-safe one.
+            _retarget(routes[k], inTokens[k], amt);
             // 🔴 **`forceApprove`, NOT `approve` — AND THIS WAS A LATENT BUG, NOT A NEW NEED.**
             //    `IERC20Min.approve` declares `returns (bool)`, and **USDT RETURNS NOTHING**, so the
             //    ABI decoder reverts on empty returndata. `_aggSwap` has always called it this way,

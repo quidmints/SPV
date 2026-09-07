@@ -2,9 +2,22 @@
 pragma solidity 0.8.30;
 
 import {ForkPin} from "./utils/ForkPin.sol";
+import {UNOSWAP_SELECTOR} from "../src/imports/Interfaces.sol";
 import {LevMath} from "../src/imports/LevMath.sol";
 import {ONEINCH_ROUTER, USDC} from "../src/imports/Interfaces.sol";
 import {console2} from "forge-std/console2.sol";
+
+/// §SESS-65 — **A ROUTE THAT FAILS, NOT A ROUTE THAT IS MALFORMED.** These tests used a bare
+/// `bytes4(0xdeadbeef)` as a stand-in for "a leg that fails". `LevMath._retarget` now REFUSES an
+/// unrecognised selector before the call (`BadRoute`), because its patch offsets are only meaningful
+/// for a known member of the unoswap family — so garbage no longer reaches the router at all.
+/// ⚠️ **THAT IS A DISTINCTION THESE TESTS PREDATE AND SHOULD KEEP: malformed is a CALLER error and is
+/// loud; failing is MARKET reality and is skipped.** This builds the second kind — a well-formed
+/// `unoswap` naming a pool that cannot serve it. A file-level function so every contract here can use it.
+function _wellFormedButFailing() pure returns (bytes memory) {
+    return abi.encodeWithSelector(UNOSWAP_SELECTOR, uint256(0), uint256(0), uint256(0),
+        (uint256(1) << 253) | uint256(uint160(address(0xDEAD))));
+}
 
 interface IERC20T { function balanceOf(address) external view returns (uint256); function transferFrom(address,address,uint256) external returns (bool); }
 
@@ -29,6 +42,7 @@ interface IERC20T { function balanceOf(address) external view returns (uint256);
 ///      callee while keeping the callee PINNED (the pin is the property under test, so it must not be
 ///      relaxed to test it).
 contract Thief {
+
     address public immutable TOK;
     constructor(address t) { TOK = t; }
     fallback() external {
@@ -64,7 +78,7 @@ contract RouteTookAndGaveNothingTest is ForkPin {
         vm.etch(ONEINCH_ROUTER, address(new Thief(USDC)).code);
 
         (address[] memory t, uint256[] memory a, bytes[] memory r) =
-            _one(USDC, amt, abi.encodeWithSelector(bytes4(0xfeedface)));
+            _one(USDC, amt, _wellFormedButFailing());
         uint256 usdc0 = IERC20T(USDC).balanceOf(address(this));
         vm.expectRevert(LevMath.RouteTookAndGaveNothing.selector);
         this.callConvert(t, a, WETH, 0, r);
@@ -79,7 +93,7 @@ contract RouteTookAndGaveNothingTest is ForkPin {
         uint256 amt = 1_000e6;
         deal(USDC, address(this), amt);
         (address[] memory t, uint256[] memory a, bytes[] memory r) =
-            _one(USDC, amt, abi.encodeWithSelector(bytes4(0xdeadbeef)));   // reverts inside the router
+            _one(USDC, amt, _wellFormedButFailing());   // reverts inside the router
         // floor 0 so the ONLY thing that could revert is the new guard. It must not.
         uint256 got = LevMath.convertTo(t, a, WETH, 0, r);
         assertEq(got, 0, "a failed leg should deliver nothing");

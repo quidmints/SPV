@@ -6,6 +6,18 @@ import {LevMath} from "../src/imports/LevMath.sol";
 import {ICurvePool, ONEINCH_ROUTER, UNOSWAP_SELECTOR, DEFAULT_UNWIND_DEX, USDC} from "../src/imports/Interfaces.sol";
 import {console2} from "forge-std/console2.sol";
 
+/// §SESS-65 — **A ROUTE THAT FAILS, NOT A ROUTE THAT IS MALFORMED.** These tests used a bare
+/// `bytes4(0xdeadbeef)` as a stand-in for "a leg that fails". `LevMath._retarget` now REFUSES an
+/// unrecognised selector before the call (`BadRoute`), because its patch offsets are only meaningful
+/// for a known member of the unoswap family — so garbage no longer reaches the router at all.
+/// ⚠️ **THAT IS A DISTINCTION THESE TESTS PREDATE AND SHOULD KEEP: malformed is a CALLER error and is
+/// loud; failing is MARKET reality and is skipped.** This builds the second kind — a well-formed
+/// `unoswap` naming a pool that cannot serve it. A file-level function so every contract here can use it.
+function _wellFormedButFailing() pure returns (bytes memory) {
+    return abi.encodeWithSelector(UNOSWAP_SELECTOR, uint256(0), uint256(0), uint256(0),
+        (uint256(1) << 253) | uint256(uint160(address(0xDEAD))));
+}
+
 interface IERC20G {
     function balanceOf(address) external view returns (uint256);
     function approve(address, uint256) external returns (bool);
@@ -43,6 +55,7 @@ interface IERC20G {
 ///    This test ENUMERATES the protocol ids rather than inferring one, per CLAUDE.md: *"BEFORE CONCLUDING
 ///    'X DOES NOT SUPPORT Y', ENUMERATE X'S INTERFACE — do not infer it from one call's output."*
 contract OfframpRouteGas is ForkPin {
+
     address constant POOL  = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5; // weETH/WETH-ng
     address constant WETH  = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
     address constant WEETH = 0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee;
@@ -172,7 +185,7 @@ contract OfframpRouteGas is ForkPin {
         uint256[] memory a = new uint256[](1);
         bytes[] memory r = new bytes[](1);
         t[0] = WEETH; a[0] = SIZE;
-        r[0] = abi.encodeWithSelector(bytes4(0xdeadbeef));  // will fail; `continue` swallows it
+        r[0] = _wellFormedButFailing();  // will fail; `continue` swallows it
 
         uint256 g0 = gasleft();
         uint256 got = LevMath.convertTo(t, a, WETH, 0, r);

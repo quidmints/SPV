@@ -166,6 +166,10 @@ bytes4 constant UNOSWAP_SELECTOR = 0x83800a8e;
 // Measured worth: on the BTC leg two hops beat one at every size — USDT→WETH→WBTC costs 0.67% at
 // $1M against 0.92% direct, and 3.29% vs 4.96% at $5M.
 bytes4 constant UNOSWAP2_SELECTOR = 0x8770ba91;
+// §SESS-65 — the THIRD member of the family, three pools in one call. Adding it costs nothing on-chain
+// beyond this line, because the route is no longer ENCODED here: it is supplied and RETARGETED
+// (`LevMath._retarget`). ⇒ hop count stops being an ABI shape and becomes a property of the calldata.
+bytes4 constant UNOSWAP3_SELECTOR = 0x19367472;
 uint256 constant PROTO_UNIV3   = 1;             // `dex >> 253` for a UniswapV3 pool
 uint256 constant ZERO_FOR_ONE  = uint256(1) << 247;  // V3 direction flag, DERIVED by `_aggSwap`
 
