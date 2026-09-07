@@ -98074,3 +98074,49 @@ credited). That is a money-path design decision with a test to write, not a rena
 📌 ⇒ **`#7` / `#9` / `B8` remain OPEN and unstarted. What is now known is narrower and worth having:
 the 7540 CONFORMANCE surface is clean, so the only thing left in the 7540 area is the DEFERRED-CLAIM
 semantics.** ⛔ Do not batch that with a comment pass — it changes when an LP owns shares.
+
+## §B8-SLOP-FOLD-MEASURED-2026-09-07 — the re-measure B8 asked for, done. The fold is bigger and better than the row says.
+
+B8 says *"`splice`'s parameter count is now load-bearing differently… **re-measure the slop before
+acting on the counts below**"*. Done — and the counts are **UNCHANGED**: `openChannel` 5, `splice` 5,
+`recordClose` 6, `deliverSwapOutOnchain` 7 (the row says 6; it gained `swapperScript`+`exits`). The
+`rekey` fold did not move them.
+
+⭐ **BUT THE RE-MEASURE FOUND THE ACTUAL SHAPE, AND IT IS NOT "FOUR FAT SIGNATURES". IT IS ONE TUPLE
+REPEATED EIGHT TIMES:** `(bytes rawTx, bytes32 blockHash, bytes32[] merkleProof, uint txIndex)` — a
+Bitcoin transaction plus its inclusion proof — passed LOOSE everywhere.
+| site | `BTCChannels.sol` | kind |
+|---|---|---|
+| `_verifyTxSpendsChannel` | `:594` decl, called at **`:1533` `:1775` `:1879` `:1923`** | internal, 5 params |
+| `recordClose` | `:1758` | external, 6 params |
+| the dead-man-exit entrypoint | `:1862` | external |
+| the force-close entrypoint | `:1918` | external |
+| the swap-in deposit path | `:2065` (all four on ONE line) | external |
+⇒ **`Types.TxProof { bytes rawTx; bytes32 blockHash; bytes32[] merkleProof; uint txIndex; }` collapses
+`_verifyTxSpendsChannel` 5 → 2 at four call sites and `recordClose` 6 → 3** — B2's landed `5 → 3`
+(`settleSwapInProven(Types.Terms, Types.DepositProof, bytes)`) is the precedent, and this is the same
+move on the other half of the file.
+✅ **IT PASSES RULE 23's THIRD QUESTION — it DELETES: three parameters at eight sites, and it cuts
+stack pressure in the file where `via_ir = false` bites hardest** (CLAUDE.md: *"one memory pointer
+costs less stack than two values"*).
+⚠️ **AND RULE 23's SECOND QUESTION HAS A REAL ANSWER: `Types.DepositProof` (`Types.sol:310`) ALREADY
+CONTAINS THIS TUPLE** — `{userRefund, cltvHeight, blockHash, txIndex, merkleProof}`. So `TxProof` is
+its SUBSET plus `rawTx`, and the honest form is COMPOSITION (`DepositProof { userRefund, cltvHeight,
+TxProof }`), not a second near-duplicate struct. **Do not land `TxProof` beside `DepositProof` without
+reshaping the latter — that is exactly the `hubHopOf` mistake rule 23 exists for.**
+
+### 🔴 WHAT THIS COSTS, MEASURED, AND WHY IT IS NOT A NO-BUILD ITEM
+It is an **ABI change across three languages**, so it cannot ride a comment batch:
+· `evm/src/imports/Types.sol` + `evm/src/BTCChannels.sol` (4 externals + 1 internal + call sites)
+· `quid-ln/quid-hop/src/evm_codec.rs` — the **four selector strings at `:87` `:90` `:93` `:98`** and
+  the four encoders at `:660` `:695` `:815` `:937`, each with a docblock naming its arity
+· `spa/src/lib/abi.ts` — the full `recordClose` signature at `:197`
+· every Solidity call site: `openChannel` 10, `recordClose` 7, `deliverSwapOutOnchain` 2
+▶️ **GATES IT MUST PASS, none optional:** `forge build` + the BTC suites, `cargo test -p quid-hop -p
+quid-bridge`, and **`tools/check-client-abis.py`** — which is the ONLY client-side gate in this tree
+(`spa/` has no `node_modules`, so `tsc` cannot run) and which exists precisely to catch this.
+📌 **`openChannel`/`splice` are NOT in the first slice**: their `blockHash`/`txIndex` live INSIDE
+`Types.OpenParams` (`fundingBlockHash`/`fundingTxIndex`), so folding them means moving fields OUT of
+`OpenParams` — a second, larger decision that B8 does not ask for. **Close/exit/deposit first.**
+⏸️ **NOT STARTED — it needs the builds, and B8's own scope note says the security half already landed,
+so nothing is exposed while it waits.**
