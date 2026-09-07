@@ -91933,7 +91933,71 @@ transfer.** Moving weETH within `rangeETH` restores serving capacity and crosses
 back means spending basket dollars — a transfer from QU!D holders to ETH LPs, which is exactly what
 `onShortfall` refuses.
 
-## §PLP-11 — σ²: THE ONE CHANNEL THAT SURVIVES
+## §PLP-11 — σ²: CONSOLIDATED STATUS (2026-09-07)
+
+⭐ **THIS IS THE SINGLE PLACE THE σ² QUESTION LIVES.** It was spread across §PLP-0, §PLP-7, §PLP-11,
+§PLP-13 and Q5.4, and a reader had to assemble it — which flattens the distinction that matters most
+here: these findings have **different epistemic weights**, and merging them turns "settled by
+arithmetic" and "settled as sequencing" into one undifferentiated "decided". 🔴 **NOTHING BELOW IS
+DECIDED except where it says so.** The individual sections stay as the working record; this is the
+status, and it is what to read first.
+
+### ✅ SETTLED BY ARITHMETIC — σ² is NOT adverse-selection compensation
+`σ²·confFrac/8` is **0.00023 bps on ETH** and **0.036 bps on BTC**, because `confFrac` is a
+SETTLEMENT WINDOW — one block on ETH, ~1 hour on BTC — not a holding period. That magnitude cannot be
+compensation for anything. ⇒ **This kills §E79's stated purpose for the skew**, and it is the one σ²
+conclusion that **depends on no open question below**. It stands whatever item 0 resolves to.
+
+### ✅ SETTLED BY ELIMINATION — three of four channels fail; only convexity survives
+| channel | verdict |
+|---|---|
+| option on the quote window | **tiny at any plausible window** — 5 bps needs 3 days; a minute is 0.001 bps |
+| σ² as a leading indicator of flow | **double-counts** — `target` IS flow. Argues for a shorter window, not a σ² term |
+| capacity thinning (Curve depth in vol events) | **real, but read `balances(0)` DIRECTLY** — σ² is a worse proxy for a thing we can observe |
+| **convexity** | ⭐ **SURVIVES** — a Jensen adjustment, because the toll is convex and the state diffuses |
+⚠️ **CONVEXITY IS SURVIVING, NOT ESTABLISHED.** Nothing computes it; its materiality depends on
+`f''` NEAR THE OPERATING POINT, and that is **unmeasured**. "The one channel that survives" is a
+statement about the other three, not evidence for this one.
+
+### ✅ SETTLED AS A PRINCIPLE — not yet as code
+> **σ² prices RISK decisions** (how tightly to track the target — `ilTargetBps`'s band).
+> **Flow prices SCARCITY decisions** (what depth costs).
+> **σ² enters the toll only through CONVEXITY, never as `γσ²q`.**
+
+### ✅ SETTLED AS SEQUENCING — and this is the OPERATIONAL decision
+**σ² pinning is NOT SEPARABLE.** The flush short-circuit sits ABOVE the σ² sentinel and fires because
+the TARGET is wrong. Fix Cluster 1's target and **the sentinel becomes reachable for the first time**.
+θ also fails open at `1e18` and arms on the same event. ⇒ **Two dormant mechanisms go live together,
+and neither has ever executed against live state** — so **σ² pinning, the target fix, and §E88-r's
+sentinel split are ONE LANDING**, not three.
+⚠️ **PRECISION ON "σ²=0 RETURNS 0" — IT IS BRANCH-DEPENDENT AND THE UNQUALIFIED FORM MISLEADS.**
+On the **flush/exempt** branch (`inv ≤ target`) σ²=0 does return 0 through the short-circuit. On the
+**OVERSHOOT** branch it returns **`UNKNOWN_VARIANCE_SKEW = 3e16`** — a flat 300 bps, measured
+constant from +1% to +200% overshoot — because `sellSkew` branches on `sigmaSqWad == 0` and never
+evaluates `qBar`. Anyone reaching for the sentinel-split work needs the second form.
+⭐ **SUPPORTING STRUCTURE FOR "NEVER EXECUTED": §SKEW-COVERAGE-HOLE.** It is not only that the
+mechanisms are dormant in PRODUCTION — the curve behind them has never run **under test** either.
+Every skew test in the suite runs its swaps at ONE pinned block, so σ² is structurally 0 and each one
+exercises the sentinel. Measured with a real-Chainlink-round harness, the curve is exactly linear in
+the overshoot (1.00×/4.99×/9.97×/49.85×/199.4× at +1/+5/+10/+50/+200%). The sequencing argument is
+therefore stronger than it was, on evidence rather than on inference.
+
+### 🔴 OPEN, AND BLOCKING THE REST — item 0: does σ² belong in the kernel at all?
+Narrowed to **depth toll vs future-variance premium**. ⚠️ **§PLP-T class 3 would remove σ² entirely**,
+and the two decisions are one decision. **Neither is decidable without the measurements.**
+
+### ⚠️ 0a REACHES BACK INTO THE SEQUENCING — and the two halves have different lifetimes
+The **3.04%** figure that motivates treating that landing as a first exercise comes from
+**§UNIT-A-ATTEMPT-1, a MOCK-BASED run**. If that harness models a DELETED settlement path, the number
+needs re-sourcing. ⇒ **Separate the two claims and do not let them travel together:** the sequencing
+conclusion probably survives **on structure alone**; **the number behind it does not.** ⛔ A
+mock-sourced figure sitting unlabelled beside a structural argument is how it gets cited later as
+measured — the exact shape that produced a `(usd6)` label on an 18-dec quantity and a cross-run "$1.62
+gap" elsewhere in this file on the same day.
+
+---
+
+### working record — the original channel table
 
 | channel | verdict |
 |---|---|
