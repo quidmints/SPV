@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {AllesFixture} from "./Alles.t.sol";
 import {LevMath} from "../src/imports/LevMath.sol";
-import {UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, UNOSWAP3_SELECTOR,
+import {UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, UNOSWAP3_SELECTOR, SWAP_SELECTOR,
         PROTO_UNIV3, ZERO_FOR_ONE, USDC} from "../src/imports/Interfaces.sol";
 
 interface IB { function balanceOf(address) external view returns (uint256); }
@@ -12,10 +12,11 @@ interface IV3 { function token0() external view returns (address); }
 /// An external frame, so `vm.expectRevert` has something to bind to: `_retarget` is an INLINED
 /// `internal` library function and a cheatcode cannot attach to one (CLAUDE.md records this trap).
 contract Retargeter {
-    function go(bytes memory route, address tokenIn, uint256 amt) external pure returns (bytes memory) {
-        LevMath._retarget(route, tokenIn, amt);
+    function go(bytes memory route, address tokenIn, uint256 amt) external view returns (bytes memory) {
+        LevMath._retarget(route, tokenIn, WETH, amt);          // WETH as the wanted token for these cases
         return route;
     }
+    address constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
 }
 
 /// @notice §SESS-65 — **THE CALLER CHOOSES THE VENUE. NOTHING ELSE.**
@@ -106,4 +107,68 @@ contract RetargetedRouteTest is AllesFixture {
         out = new bytes(n);
         for (uint256 i; i < n; ++i) out[i] = b[o + i];
     }
+    /// ⭐ §SESS-69 — **THE GENERIC `swap()` DESCRIPTOR, AND THE FIELD THAT MATTERS IS `dstReceiver`.**
+    ///
+    /// 🔑 **THIS IS THE ONLY DOOR TO UNISWAP V4.** A v4 pool has no address — it is a singleton keyed
+    ///    by a `PoolKey` inside the PoolManager — so no 160-bit pool word can name one. Same for
+    ///    Balancer. Admitting `swap()` is not "one more venue", it is every venue a pool word cannot
+    ///    spell.
+    /// ⛔ **AND IT IS SAFE ONLY BECAUSE `dstReceiver` IS OVERWRITTEN.** `convertTo`'s own docblock
+    ///    records the attack: *"1inch's `swap` descriptor names a `dstReceiver`, so a hacked keeper can
+    ///    have the pinned router pull leg k's input and pay ITSELF."* That is what
+    ///    `RouteTookAndGaveNothing` exists to DETECT. Forcing the field makes it **unconstructible**
+    ///    (standing rule 17) — the guard becomes a backstop rather than the defence.
+    /// ⚠️ Asserted on a descriptor that names an ATTACKER as `dstReceiver`, because a test built with
+    ///    an honest receiver would pass without the patch doing anything.
+    function test_TheGenericDescriptorCannotDivertThePayout() public {
+        setUp2();
+        address attacker = address(0xBADBAD);
+        bytes memory route = abi.encodeWithSelector(SWAP_SELECTOR,
+            address(0xE0),                 // w0 executor — 1inch's, left alone
+            address(0xAAA1),               // w1 srcToken     ← ours
+            address(0xAAA2),               // w2 dstToken     ← ours
+            address(0xBBB1),               // w3 srcReceiver  — 1inch plumbing, left alone
+            attacker,                      // w4 dstReceiver  ← THE ATTACK
+            uint256(999),                  // w5 amount       ← ours
+            uint256(type(uint256).max),    // w6 minReturn    ← ours
+            uint256(0xF1A65),              // w7 flags        — left alone, booked
+            bytes(hex"c0ffee"));           // w8 -> tail
+        bytes memory f = r.go(route, address(USDC), 50_000e6);
+
+        assertEq(_w(f, 1), uint256(uint160(address(USDC))), "srcToken must be what WE sell");
+        assertEq(_w(f, 2), uint256(uint160(WETHA)),         "dstToken must be what WE want");
+        assertEq(_w(f, 4), uint256(uint160(address(r))),    "dstReceiver must be US - the diversion is the whole risk");
+        assertNotEq(_w(f, 4), uint256(uint160(attacker)),   "the attacker's receiver survived the patch");
+        assertEq(_w(f, 5), 50_000e6,                        "amount must be OURS - the staleness fix");
+        assertEq(_w(f, 6), 0,                               "minReturn zeroed; the delta floor is the bound");
+        assertEq(_w(f, 3), uint256(uint160(address(0xBBB1))), "srcReceiver is 1inch plumbing and must survive");
+        assertEq(_w(f, 7), 0xF1A65,                         "flags must survive untouched - see the booked gap");
+    }
+
+    /// 🔴 **THE HEAD MUST END WHERE THE TAIL BEGINS.** `swap()` carries a dynamic `bytes`, so total
+    ///    length cannot be pinned the way an unoswap arity can. The offset word is what IS fixed, and
+    ///    a blob that moved it would put our amount somewhere that is not the amount field — the same
+    ///    failure the arity check prevents, expressed the only way a dynamic call allows.
+    function test_ADescriptorWhoseTailOffsetIsWrongIsRefused() public {
+        setUp2();
+        bytes memory route = abi.encodeWithSelector(SWAP_SELECTOR,
+            address(0xE0), address(0xAAA1), address(0xAAA2), address(0xBBB1),
+            address(0xCCC1), uint256(1), uint256(2), uint256(3), bytes(hex"c0ffee"));
+        // Move the tail offset off the head boundary (9*32 = 0x120).
+        assembly { mstore(add(route, add(0x24, mul(8, 0x20))), 0x140) }
+        vm.expectRevert(LevMath.BadRoute.selector);
+        r.go(route, address(USDC), 1e6);
+    }
+
+    /// A head too short to contain the descriptor at all.
+    function test_ATruncatedDescriptorIsRefused() public {
+        setUp2();
+        vm.expectRevert(LevMath.BadRoute.selector);
+        r.go(abi.encodeWithSelector(SWAP_SELECTOR, address(0xE0), address(0xAAA1)), address(USDC), 1e6);
+    }
+
+    function _w(bytes memory b, uint256 k) internal pure returns (uint256 v) {
+        assembly { v := mload(add(b, add(0x24, mul(k, 0x20)))) }
+    }
+
 }

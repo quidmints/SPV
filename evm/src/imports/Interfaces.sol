@@ -180,6 +180,14 @@ bytes4 constant UNOSWAP3_SELECTOR = 0x19367472;
 // bound it on a measured delta (§SESS-46), so there is nothing to reverse-engineer.
 // Layout, low bits first: pool(160) | i(8) | j(8) | … | proto(3 @ 253). `i` is the NON-USDC coin's
 // index, `j` is USDC's. Direction is the caller's, never the word's — one word serves both ways.
+// §SESS-69 — 1inch v6's GENERIC executor. ⚠️ **THE SELECTOR IS THE PROOF, NOT A RECOLLECTION:**
+// `swap(address,(address,address,address,address,uint256,uint256,uint256),bytes)` hashes to
+// **0x07ed2379**, and the v5 four-argument form (…,bytes,bytes) hashes to 0x12aa3caf — a different
+// function. Checked with `cast sig` against the deployed router's selector before a line was written.
+// ⭐ **THIS IS THE ONLY WAY TO REACH UNISWAP V4.** A v4 pool has NO ADDRESS — it is a singleton keyed
+// by a `PoolKey` inside the PoolManager — so a 160-bit pool word cannot name one. Balancer, Maverick
+// and anything else 1inch reaches are in the same position.
+bytes4 constant SWAP_SELECTOR   = 0x07ed2379;
 uint256 constant PROTO_CURVE   = 2;
 uint256 constant HOP_I_OFFSET  = 160;
 uint256 constant HOP_J_OFFSET  = 168;

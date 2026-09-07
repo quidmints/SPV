@@ -5,6 +5,7 @@ import {ForkPin} from "./utils/ForkPin.sol";
 import {LevMath} from "../src/imports/LevMath.sol";
 import {DEFAULT_UNWIND_DEX, USDC, ONEINCH_ROUTER} from "../src/imports/Interfaces.sol";
 import {console2} from "forge-std/console2.sol";
+import {UNOSWAP_SELECTOR} from "../src/imports/Interfaces.sol";
 
 interface IERC20P {
     function balanceOf(address) external view returns (uint256);
@@ -61,7 +62,13 @@ contract ProRataConvertGas is ForkPin {
             uint256 amt = 1000 * (10 ** IERC20P(tok).decimals());
             deal(tok, address(this), amt);
             t[i] = tok; a[i] = amt;
-            r[i] = abi.encodeWithSelector(bytes4(0xdeadbeef));   // fails; `continue` swallows it
+            // §SESS-65 — a route that FAILS, not one that is MALFORMED. `_retarget` refuses an
+            // unrecognised selector before the call (`BadRoute`), because its patch offsets are only
+            // meaningful for a known 1inch selector. Malformed is a CALLER error and is loud; failing
+            // is MARKET reality and is skipped by `convertTo`'s `continue`, which is what this gas
+            // measurement is about. A well-formed `unoswap` naming a dead pool is the second kind.
+            r[i] = abi.encodeWithSelector(UNOSWAP_SELECTOR, uint256(0), uint256(0), uint256(0),
+                (uint256(1) << 253) | uint256(uint160(address(0xDEAD))));
         }
         uint256 g0 = gasleft();
         LevMath.convertTo(t, a, WETH, 0, r);

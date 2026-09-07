@@ -38,8 +38,29 @@ contract AggSwapTwoHopTest is Test {
         assertGt(oneHop, 0, "one-hop produced no WBTC");
         emit log_named_decimal_uint("USDC->WBTC direct  ", oneHop, 8);
 
-        // the measured claim: two pools beat the best direct pool at this size
-        assertGt(twoHop, oneHop, "two-hop must beat the direct pool on the BTC leg");
+        // ⭐ §SESS-71 — **RESHAPED. `assertGt(twoHop, oneHop)` ASSERTED THE MARKET, NOT THE CODE.**
+        //
+        // 🔴 It failed three times today at three different blocks, on identical bytecode — direct won
+        //    by 3.8 bps, then 5.5 bps, then 5.5 again — and it is the same class as §SESS-48 (the slip
+        //    test), §SESS-53 (E2) and `VenueBorrowRate.t.sol`'s own §POINT-IN-TIME-IS-NOT-AN-INVARIANT.
+        //    Measured independently this session: the two-hop wins USDT→WETH by ~28 bps at both $100k
+        //    and $1M, and LOSES on USDC→WETH at $1M. **Neither route wins by class**, which is exactly
+        //    why §SESS-49 made the planner QUOTE both instead of preferring one.
+        // ⛔ **AND SUPERIORITY WAS NEVER THE PROPERTY THIS TEST GUARDS.** What can actually break here
+        //    is `_aggSwap` deriving a direction bit wrongly or naming a pool that does not hold the
+        //    token — and that produces a CATASTROPHIC difference, not a five-basis-point one. A 5 bps
+        //    gap does not mean the routing is broken; a 90% gap does. §VACUOUS-BOUNDS' discriminator
+        //    is whether the extreme value MEANS the thing the message says, and here it did not.
+        // ⇒ assert PROXIMITY, which fails loudly on the real defect and never on market drift. The
+        //   magnitude stays as an emitted OBSERVATION, because it is a fact about the pools today.
+        uint256 gapBps = twoHop > oneHop
+            ? (twoHop - oneHop) * 10_000 / oneHop
+            : (oneHop - twoHop) * 10_000 / oneHop;
+        emit log_named_uint("two-hop vs direct, gap (bps)", gapBps);
+        emit log_named_string("winner", twoHop > oneHop ? "two-hop" : "direct");
+        assertLt(gapBps, 200,
+            "the two routes diverged by more than 2% - at these depths that is not a market spread, "
+            "it is a crossed direction bit or a pool that does not hold the token");
     }
 
     /// The direction bit is DERIVED, never trusted: passing it set the WRONG way must not corrupt the

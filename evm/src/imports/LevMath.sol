@@ -8,7 +8,7 @@ import {WAD, VenueNotAllowed} from "./Types.sol";
 // §A.52: the canonical view lives in Interfaces.sol — imported, never re-declared file-local.
 import {ICore, IAux, IWeETH, IDepositAdapter, ILevVenue, TWAP_WINDOW_SECS} from "./Interfaces.sol";
 import {IERC20Min, IWETH9} from "../imports/Interfaces.sol";
-import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, UNOSWAP3_SELECTOR, PROTO_UNIV3,
+import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, UNOSWAP3_SELECTOR, SWAP_SELECTOR, PROTO_UNIV3,
         PROTO_CURVE, HOP_I_OFFSET, HOP_J_OFFSET, ZERO_FOR_ONE, IUniV3PoolMin, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN, CURVE_3POOL, USDT_TOKEN, CRV_USDT_IDX, CRV_USDT_USDC_IDX, DAI_TOKEN, CRV_DAI_IDX, CRV_DAI_USDC_IDX, USDG_TOKEN, CURVE_USDG_USDC, CRV_USDG_IDX, CRV_USDG_USDC_IDX, CRVUSD_TOKEN, CURVE_CRVUSD_USDC, CRV_CRVUSD_IDX, CRV_CRVUSD_USDC_IDX} from "./Interfaces.sol";
 
 // ether.fi weETH/WETH Curve pool (weETH is coin1, WETH coin0). Same address as Vault.ETHERFI_CURVE_POOL.
@@ -680,7 +680,9 @@ library LevMath {
     ///    floor on the MEASURED balance delta — the one number this contract computes itself. Writing
     ///    a per-leg floor here would add a second bound that a multi-input conversion cannot size
     ///    correctly, and the file's own rule is ONE floor on the whole conversion.
-    function _retarget(bytes memory route, address tokenIn, uint256 amountIn) internal pure {
+    function _retarget(bytes memory route, address tokenIn, address tokenOut, uint256 amountIn)
+        internal view
+    {
         uint256 len = route.length;
         if (len == 0) return;                                  // pool-word arm; nothing to retarget
         if (len < 4) revert BadRoute();
@@ -689,12 +691,54 @@ library LevMath {
         uint256 words = sel == UNOSWAP_SELECTOR  ? 4
                       : sel == UNOSWAP2_SELECTOR ? 5
                       : sel == UNOSWAP3_SELECTOR ? 6 : 0;
-        if (words == 0 || len != 4 + words * 32) revert BadRoute();
-        assembly {
-            mstore(add(route, 0x24), tokenIn)                  // word 0 — what we are selling
-            mstore(add(route, 0x44), amountIn)                 // word 1 — how much, computed on-chain
-            mstore(add(route, 0x64), 0)                        // word 2 — the aggregate floor decides
+        if (words != 0) {
+            if (len != 4 + words * 32) revert BadRoute();
+            assembly {
+                mstore(add(route, 0x24), tokenIn)              // word 0 — what we are selling
+                mstore(add(route, 0x44), amountIn)             // word 1 — how much, computed on-chain
+                mstore(add(route, 0x64), 0)                    // word 2 — the aggregate floor decides
+            }
+            return;
         }
+        // ⭐ §SESS-69 — **THE GENERIC EXECUTOR, AND IT IS THE ONLY DOOR TO UNISWAP V4.** A v4 pool has
+        //    no address (a singleton keyed by `PoolKey`), so no pool word can name one; the same is
+        //    true of Balancer and anything else 1inch reaches through its own executor. Admitting
+        //    `swap()` is therefore not "one more venue", it is **every venue a pool word cannot spell**.
+        // 🔑 **THE DESCRIPTOR IS A STATIC STRUCT, SO IT IS INLINED AND ITS FIELDS ARE AT FIXED
+        //    OFFSETS** — which is the entire reason this is patchable at all:
+        //      w0 executor · w1 srcToken · w2 dstToken · w3 srcReceiver · w4 dstReceiver
+        //      w5 amount   · w6 minReturnAmount · w7 flags · w8 offset→data
+        // ⛔ **`dstReceiver` IS FORCED TO US, AND THAT IS THE POINT OF ADMITTING THIS AT ALL.**
+        //    `convertTo`'s own note says a hacked keeper can name a `dstReceiver` and have the pinned
+        //    router pay ITSELF — that is what `RouteTookAndGaveNothing` exists to CATCH. Overwriting
+        //    the field makes the diversion **unconstructible** instead of detectable (standing rule
+        //    17), and turns that guard into a backstop rather than the defence.
+        // ⚠️ **THE DYNAMIC TAIL IS WHY THE LENGTH CHECK CHANGES SHAPE.** `swap()` carries a `bytes`
+        //    argument, so total length is not fixed and cannot be pinned. What IS fixed is the HEAD:
+        //    the offset word must equal the head size exactly. A crafted blob that moved it would put
+        //    our amount somewhere that is not the amount field — the same failure the arity check
+        //    prevents for the unoswap family, expressed the only way a dynamic call allows.
+        if (sel != SWAP_SELECTOR) revert BadRoute();
+        if (len < 4 + 10 * 32) revert BadRoute();              // 9 head words + at least a length word
+        uint256 dataOff;
+        assembly { dataOff := mload(add(route, add(0x24, mul(8, 0x20)))) }
+        if (dataOff != 9 * 32) revert BadRoute();              // the tail must begin where the head ends
+        assembly {
+            mstore(add(route, 0x44), tokenIn)                  // w1 srcToken
+            mstore(add(route, 0x64), tokenOut)                 // w2 dstToken
+            mstore(add(route, 0xA4), address())                // w4 dstReceiver — diversion made impossible
+            mstore(add(route, 0xC4), amountIn)                 // w5 amount
+            mstore(add(route, 0xE4), 0)                        // w6 minReturnAmount — the delta floor decides
+        }
+        // ⚠️ **`flags` (w7) IS DELIBERATELY LEFT ALONE, AND IT IS A BOOKED GAP, NOT AN OVERSIGHT.**
+        //    1inch's flag word carries a PARTIAL-FILL bit, and the owner's rule is *"no partial fill
+        //    … if and only if the swapper agrees to load balance."* Clearing it here would implement
+        //    that — but I have not verified WHICH bit it is against the deployed router, and asserting
+        //    a bit position I have not measured is the exact failure this function was written to
+        //    avoid. **Zeroing the whole word is worse**: `flags` also gates legitimate behaviour, so a
+        //    blanket zero would break routes rather than constrain them.
+        //    ⇒ value is safe REGARDLESS — a partial fill delivers less and the aggregate delta floor
+        //      refuses it. What is unhandled is the swapper's EXPERIENCE, which is §SESS-65 item 3.
     }
 
     function convertTo(address[] memory inTokens, uint256[] memory inAmounts,
@@ -717,7 +761,7 @@ library LevMath {
             //    note said full calldata *"embeds an `amount`… unknowable off-chain to the wei"*. True —
             //    and irrelevant once the amount is written HERE, from a borrow return this transaction
             //    just computed. ⇒ the pool-word arm is no longer the only amount-safe one.
-            _retarget(routes[k], inTokens[k], amt);
+            _retarget(routes[k], inTokens[k], outToken, amt);
             // 🔴 **`forceApprove`, NOT `approve` — AND THIS WAS A LATENT BUG, NOT A NEW NEED.**
             //    `IERC20Min.approve` declares `returns (bool)`, and **USDT RETURNS NOTHING**, so the
             //    ABI decoder reverts on empty returndata. `_aggSwap` has always called it this way,
@@ -1579,7 +1623,28 @@ library LevMath {
     ///      Each pair carries its own `swapFloor`, enforced on the SECOND hop; the caller's aggregate
     ///      `minStableOut` is the outer bound, so a slice that cannot move only lowers `got` and trips that floor
     ///      (fail-safe, never a silent shortfall).
-    uint256 internal constant CONSOL_SLIP_BPS = 100;  // 1% anti-MEV floor on each stable→loan-token consolidation swap
+    /// ⭐ §SESS-70 — **TIGHTENED 100 → 20 bps, AND THE JUSTIFICATION IS THIS TREE'S OWN MEASUREMENT.**
+    ///
+    /// 🔑 **THIS CONSTANT ONLY EVER APPLIES TO THE SIX `_hubRowOf` ROWS** — `_consolidateTo` asks
+    ///    `_routableStable` first and REFUNDS anything not on the table, so no unmeasured stable can
+    ///    reach it. And `Interfaces.sol:244` records what those rows cost, measured at three sizes:
+    ///    **USDT 4/4/4 · DAI 1/1/1 · USDG −1/−1/−1 · crvUSD 0/0/0 bps, FLAT to $1M.**
+    ///    ⇒ **100 bps was 25x the worst case on a path that cannot reach an unmeasured venue.**
+    /// 🔴 **AND THE SLACK IS NOT A SAFETY MARGIN, IT IS THE ENTIRE EXPOSURE — TWICE OVER.** §SESS-69:
+    ///    a hacked keeper's maximum take is exactly the gap between the reference and the floor, because
+    ///    every other lever (token, amount, receiver, callee, allowance, gas) is overwritten or pinned.
+    ///    §SESS-68: a sandwicher's maximum take is the same gap. **One number, two threats.** A wide
+    ///    floor does not buy safety here; it *is* the loss budget.
+    /// ⚠️ **20 AND NOT 4: five times the worst measured cost.** The residual headroom covers the
+    ///    quote-vs-execute drift a pre-trade reference cannot see — most concretely, a slice whose two
+    ///    hops share ONE pool (`s → USDC → target` both on 3pool) moves that pool between them, which
+    ///    `_selfServableQuote` prices on the pre-trade state. ⛔ Going to the measured 4 would make the
+    ///    floor unmeetable by its own execution, which is §SESS-41's liveness defect re-created on
+    ///    purpose — *"a path that reverts is worse than one that leaks."*
+    /// 📌 Deliberately still FLAT rather than size-aware: the four measurements are flat to $1M, so a
+    ///    size curve would model a cost this path does not have (§SESS-41 measured the size-aware curve
+    ///    as sometimes UNMEETABLE). **Size-awareness belongs where impact grows, and here it does not.**
+    uint256 internal constant CONSOL_SLIP_BPS = 20;
 
     function _consolidateTo(address aux, address target, address lp) private {
         address[] memory sts = IAux(aux).getStables();
@@ -1596,7 +1661,25 @@ library LevMath {
             // not `_slipBps`): swapping it here would tighten every consolidation swap at once, and
             // §SESS-41 measured the size-aware curve as sometimes UNMEETABLE. The formula is deduped;
             // the three budgets stay as they were and are now visible side by side.
+            // ⭐ §SESS-70 — **THE REFERENCE IS THE BETTER OF THE ORACLE AND WHAT WE COULD GET
+            //    OURSELVES.** `_selfServableQuote` walks the same `_hubRowOf` rows `_hubHop` executes,
+            //    through live `get_dy` at the size actually being traded — no tolerance, no curve, no
+            //    tuned number in it. Taking the MAX states the anti-abuse rule directly: **you may not
+            //    do worse than we could do without you.**
+            // ⚠️ `max` is the manipulation-safe direction, and the asymmetry is the point: a reference
+            //    pushed DOWN falls back to the oracle and changes nothing; one pushed UP costs a FILL
+            //    (liveness), never custody. So the arm an attacker can move is the harmless one.
+            // ⛔ It binds only where it EXCEEDS par — which is exactly the stables the table measured
+            //    at a NEGATIVE cost (USDG −1 bps). For the rest the oracle arm is already tighter, so
+            //    this is a floor that ratchets up and never down.
             uint256 floor = swapFloor(aux, s, bal, target, CONSOL_SLIP_BPS);
+            {
+                uint256 q = _selfServableQuote(s, bal, target);
+                if (q != 0) {
+                    q = (q * (10_000 - CONSOL_SLIP_BPS)) / 10_000;   // ONE budget, both arms
+                    if (q > floor) floor = q;
+                }
+            }
             // ROUTABILITY IS CHECKED, NOT CAUGHT. A library cannot `try this.…` — in a delegatecalled
             // library `this` is the CALLER — and the condition the old try/catch actually guarded was
             // "this stable has no route", which is now a pure predicate. An unroutable slice is skipped
