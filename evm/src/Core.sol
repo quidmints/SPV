@@ -103,10 +103,21 @@ contract Core {
     /// @dev THIS range's equity USD (18-dec): the BASKET's contribution less this range's live
     ///      leverage debt, floored at 0. ⚠️ The basis is `basketUsd`, NOT `POOLED_USD` — the LP-owned
     ///      increment sitting in the curve is not a basket commitment and must not be gated as one.
+    /// ⛔ §FLOOR-IS-FAIL-SAFE — **DO NOT "FIX" THE `: 0` INTO A SIGNED NET FIGURE.** It looks like a
+    ///    clamp that hides information, and the instinct is that a range whose debt EXCEEDS its
+    ///    basket contribution should report a NEGATIVE claim rather than zero. Work out which way
+    ///    that moves the bound before touching it — I got it backwards first:
+    ///      `Aux.committedTotal()` is `committedOf[CORE] + committedOf[BTC_CORE]`, a plain SUM, and
+    ///      the gate is `committedUsd18() <= haircutTvl`. Flooring a would-be NEGATIVE term at 0
+    ///      makes this range's contribution LARGER than the signed truth ⇒ the SUM is LARGER ⇒ the
+    ///      gate is **HARDER** to pass. The floor reads TIGHTER than reality, never looser.
+    ///    ⇒ Allowing a negative would let a debt-heavy range OFFSET its sibling and hand it headroom
+    ///      that does not exist — on the one bound that stops both ranges over-committing the same
+    ///      basket. That is the failure direction, and it is what the "fix" would introduce.
     function _rangeEquityUsd18() internal view returns (uint) {
         uint pooled18 = basketUsd * 1e12;   // §#12: BASKET contribution
         uint debt18 = _levDebtUsd18();
-        return pooled18 > debt18 ? pooled18 - debt18 : 0;
+        return pooled18 > debt18 ? pooled18 - debt18 : 0;   // floor: fail-SAFE, see above
     }
 
     /// @notice THIS instance's NET equity USD (18-dec). Was `btcRangeEquityUsd18`, which existed so
