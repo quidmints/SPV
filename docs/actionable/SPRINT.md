@@ -54371,3 +54371,90 @@ items DO exist and the compiler names them — `ZERO_WORD`, `with_settled_logs`,
 `Core._handleDelta`'s unreachable `inRange = false` arm; `_decayedBy`'s always-1 `slowN`;
 `pooledPre`; `BtcLib`'s never-written `o.feesPerShareInc`/`o.usdFeesInc` and unused `feeDenom`;
 `ResizeOut.owed`; `VBtcLevFeeLane.t.sol`'s three assertion MESSAGES.
+
+## §SESS-RANGEOP — 🔴 **UNAUTHENTICATED WETH WITHDRAWAL ON `Quid.rangeOp`. FOUND BY THE COMMENT AUDIT.** (2026-09-07)
+
+**THE DEFECT.** `Quid.sol:212` was `function rangeOp(uint amount, uint8 op) public` with **no gate**.
+It delegates to `SwapLib.rangeOpBody`, which is `external` ⇒ **DELEGATECALLED** ⇒ `msg.sender`
+inside the library is *whoever called `rangeOp`*, not Quid. op 1 is:
+
+    sent = aux.withdrawSelf(address(weth), min(amount, rangeETHLive), address(this));
+    weth.transfer(msg.sender, sent);
+
+⚠️ **THE `withdrawSelf` SELF-GATE PROTECTED NOTHING.** It passes *because* the inner call
+originates inside Quid (`IAux(address(this))`), and the value then leaves on the very next line to
+an arbitrary caller — up to the entire `rangeETH()` claim.
+
+🔑 **WHY IT SURVIVED, AND THIS IS THE LESSON.** `rangeOpBody`'s docblock asserted *"Wrapper enforces
+`msg.sender == V4` BEFORE delegating"*. **No such wrapper exists** — `Quid.rangeOp` IS the only
+wrapper and it had no modifier, and `Aux` has no `rangeOp` at all. Every reader of the library saw a
+gate that had never been written. ⇒ This is §SESS-COMMENTS-5's pattern (*a comment claiming a
+LIMIT the code does not impose*) with the maximum possible consequence, and it is the argument for
+auditing prose against code as a security activity, not a tidiness one.
+
+✅ **FIXED**: `if (msg.sender != address(this)) revert NotSelf();` on the wrapper — the same pattern
+`withdrawSelf` already uses (`Quid.sol:225`), with an error that already existed (`:116`). Both real
+callers are Quid re-entering itself (`QuidLib.sendEth` op 1, `QuidLib._venueBalanceLib` op 2, each
+passing `ev = address(this)`), and there is **no off-chain caller** — verified across `quid-ln/`,
+`evm/script` and `evm/test`. The gate therefore costs nothing.
+⛔ **THE BOUND CANNOT LIVE IN `SwapLib`.** A delegatecalled library sees the SAME `msg.sender` for an
+internal re-entry and an external call, so it is structurally unable to tell them apart. Only the
+wrapper frame knows.
+
+⭐ **VERIFIED BY REMOVAL, NOT BY GREEN.** `evm/test/RangeOpIsSelfGated.t.sol` (3 tests) passes with
+the gate; with the gate deleted and a FORCED rebuild, two fail *"next call did not revert as
+expected"* — the attacker's withdrawal succeeds. The test seeds the venue with a 10-ETH deposit
+first, because against an empty venue `rangeETH() == 0` and the whole suite would pass vacuously
+against a gate that does nothing.
+
+📌 `Interfaces.sol:677` still declares `IEthVenue.rangeOp` — now unreachable for any external
+caller. Harmless, but it is the kind of declaration that invites someone to "wire it up".
+
+## §SESS-OFFRAMP — 🔴 **SECOND UNAUTHENTICATED WITHDRAWAL, SAME CLASS, SAME FILE.** (2026-09-07)
+
+Found by project-a0 sweeping for the SHAPE §SESS-RANGEOP exposed — *an external library function
+that uses `msg.sender` or a caller-supplied address, reached through an UNGATED public wrapper*.
+Independently re-verified here before acting.
+
+**THE DEFECT.** `Quid.sol:201` was `function offrampEtherFi(uint amount, address recipient) public`.
+It delegates to `QuidLib.offrampBody`, which ends **`IERC20(c.weth).transfer(recipient, got)`** —
+`recipient` is a **CALLER-SUPPLIED ADDRESS**. Size is bounded only by this contract's weETH balance
+and the Curve pool's depth; nothing about the caller bounds it.
+
+⛔ **WORSE THAN `rangeOp` IN ONE RESPECT.** The legitimate path (`Quid.sol:795`, inside `_withdraw`)
+bounds the amount by the caller's OWN position — `Math.min(amount, SwapLib.plainNet(LP.pooled,
+levPooled[msg.sender]))` — and then BURNS what was served (`_burnInRange(served, address(0))`).
+**Calling the public entrypoint directly skipped both**: the attacker took the WETH and the
+accounting never moved.
+
+✅ **FIXED BY VISIBILITY, NOT A GATE — `public` → `internal`** (rule 17: unconstructible beats
+detectable). Measured before the change: declared in NO interface (0 hits in `Interfaces.sol`), ZERO
+external call sites across `src/`, `test/`, `script/` and `quid-ln/`, and exactly ONE caller in the
+tree — `Quid.sol:795`, internal. Removing the external surface costs nothing and leaves no gate to
+get wrong.
+⚠️ **A `NotSelf` GATE HERE WOULD HAVE BROKEN REDEMPTION.** `_withdraw` reaches it by a PLAIN
+INTERNAL call, so `msg.sender` inside is the original redeemer, NOT `address(this)`. The `rangeOp`
+gate is correct only because both of ITS callers re-enter through `address(this)`. ⇒ **Two defects
+of the same class needed two different fixes, and copying the first onto the second would have
+looked right and broken the money path.**
+
+📌 **FOUR MORE OF THE SHAPE WERE SWEPT AND ARE CLEAN**, recorded so nobody re-checks them:
+`SwapLib.sweepBody` (every `msg.sender` is inside `///`), `SwapLib.auxSwapBody` (PULLS from the
+caller via `allowance`/`safeTransferFrom` — you can only take from someone who approved you),
+`SwapLib.swapToBody` (credits `msg.sender` for their own deposit), `ChannelLib.depositBody`
+(`msg.sender == quid` used AS the authorisation).
+
+## 🔴 TOOLING TRAP — `forge test` RAN STALE BYTECODE ACROSS A SOURCE CHANGE (2026-09-07)
+
+Cost two wrong results in a row while verifying the above, and it is NOT the known "`evm/out`
+outlives `evm/src`" read — it came through `forge test` itself.
+· Deleted the gate from `Quid.sol`, ran `forge test` → **3 passed**, i.e. "the attack is blocked"
+  against a contract with no gate in it.
+· Restored the gate, ran `forge build` (5 files) then `forge test` → **2 failed**, i.e. "the attack
+  works" against a contract that has the gate.
+Both readings were the exact inverse of the source.
+⭐ **THE TELL IS THE GAS NUMBER.** Identical gas (`1247472` / `99255`) across a source change that
+inverts the outcome is impossible; if two runs of a changed contract report the same gas, you are
+reading a cached artifact. **Only `forge build --force` produced runs that matched the source.**
+⇒ On any security-relevant verification, `--force` first, and compare gas between runs before
+believing either.

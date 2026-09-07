@@ -198,7 +198,18 @@ contract Quid is Shares,
     /// @dev    NOT a SLICE of a withdrawal — the WHOLE of one. `_withdraw` states it in place:
     ///         *"Every exit is an ether.fi exit: all ETH is weETH, so the slice IS the withdrawal"*
     ///         (`ethfiPart = amount`). ⛔ Do not add sizing logic for a split that does not exist.
-    function offrampEtherFi(uint amount, address recipient) public returns (uint served) {
+    /// 🔴 **`internal`, AND THAT VISIBILITY IS THE SECURITY BOUNDARY — DO NOT WIDEN IT.**
+    ///      `QuidLib.offrampBody` ends `IERC20(c.weth).transfer(recipient, got)` with a
+    ///      CALLER-SUPPLIED `recipient`, sized only by this contract's weETH balance and the
+    ///      Curve pool's depth. As a `public` entrypoint that was an unauthenticated withdrawal
+    ///      to an arbitrary address. The only legitimate caller is `_withdraw` below, which
+    ///      bounds `amount` by the caller's OWN position and then BURNS what was served —
+    ///      calling the entrypoint directly skipped both, taking the WETH while the accounting
+    ///      never moved.
+    ///      ⛔ A `NotSelf` gate would be WRONG here: `_withdraw` reaches this by a PLAIN
+    ///      INTERNAL call, so `msg.sender` is the original redeemer, not `address(this)`.
+    ///      Visibility makes the bad state unconstructible; a gate would only detect it.
+    function offrampEtherFi(uint amount, address recipient) internal returns (uint served) {
         return QuidLib.offrampBody(amount, recipient, _etherfiCfg());
     }
 
@@ -209,7 +220,18 @@ contract Quid is Shares,
     }
 
     /// @notice Venue op selector. @param op 1 = take ETH, 2 = read the current claim.
+    /// 🔴 **SELF-GATED, AND THE GATE IS THE WHOLE SAFETY ARGUMENT FOR op 1.** `rangeOpBody` is an
+    ///      `external` library function, so it is DELEGATECALLED and `msg.sender` inside it is
+    ///      whoever called THIS function. op 1 ends in `weth.transfer(msg.sender, sent)` after a
+    ///      `withdrawSelf` that passes precisely because the inner call comes from this contract.
+    ///      Ungated, that is an unauthenticated WETH withdrawal of up to `rangeETH()` by any
+    ///      caller. Both real callers are this contract reaching back into itself —
+    ///      `QuidLib.sendEth` (op 1) and `QuidLib._venueBalanceLib` (op 2), each passing
+    ///      `ev = address(this)` — so the self-gate costs nothing and closes it.
+    ///      ⛔ Do not move this bound into `SwapLib`: the library cannot tell an internal
+    ///      re-entry from an external call, because delegatecall gives it the same `msg.sender`.
     function rangeOp(uint amount, uint8 op) public returns (uint sent) {
+        if (msg.sender != address(this)) revert NotSelf();
         sent = SwapLib.rangeOpBody(amount, op, WETH, rangeETH());
     }
 
