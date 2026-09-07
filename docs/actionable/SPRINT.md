@@ -97989,3 +97989,32 @@ crate.
 written to. Exporting the env turned 5 of 6 green and left this one, which is the real signal. **A red
 count is not a finding until the environmental class is subtracted**, the same discipline the
 full-suite census needed.
+
+## §7540-CONFORMANCE-IS-DISCHARGED-2026-09-07 — ✅ the `preview*` half, on BOTH ranges. ⏸️ the SEMANTIC half is untouched.
+
+The file carries the 7540 concern in two places that read alike and are NOT the same item. Measured
+against the code (rule 20), one is closed and the other is not started.
+
+### ✅ 1. *"7540 requires `preview*` to REVERT for async flows and ours returns a number"* — **CLOSED**
+| range | surface today | verdict |
+|---|---|---|
+| **ETH** (`Quid.sol`) | `maxDeposit` `maxMint` `previewDeposit` `previewMint` — **the four deposit-side only** (`:1622-1625`) | ✅ HONEST. `_deposit4626` mints IMMEDIATELY, so this flow really is synchronous. The four REDEMPTION-side accessors that lied are already deleted (§E297) |
+| **BTC** (`Vault` / `VBtc` / `Shares`) | **ZERO** `preview*` and **ZERO** `max*` — grepped all three files | ✅ HONEST BY ABSENCE. It cannot over-promise a number it does not return |
+⇒ **Neither range now returns a synchronous number for a deferrable flow.** The remaining ETH four are
+exactly the side that does not defer, which is the discriminator §E297 established. **Nothing to build
+here; do not re-commission it.**
+
+### ⏸️ 2. *"`Vault.requestDeposit` is a 7540 NAME over a `lpShares += …` SYNCHRONOUS credit"* — **STILL TRUE, AND NO LONGER OBVIOUSLY A DEFECT**
+`Vault.sol:449` is still `lpShares += BtcLib.requestDeposit(...)`. The claim is accurate as code.
+🔴 **BUT THE ROWS THAT BOOKED IT PREDATE THE ARGUMENT NOW SITTING ON THE FUNCTION**, and that argument
+has to be answered rather than ignored: *"The name states the LIFECYCLE rather than the mechanism…
+the REQUEST is the on-chain funding transaction and `BTCChannels` is what observes it."* On that
+reading the asynchrony is REAL and lives in Bitcoin confirmation — which completes BEFORE this call —
+so the credit is the SETTLEMENT of an already-made request, not a synchronous shortcut.
+⚠️ **I AM NOT CLOSING IT ON THAT, because rule 20 forbids discharging a question from prose and
+because the docblock is prose the tree wrote about itself.** What would settle it is the thing `#7`
+already asks for: whether the CLAIM should defer (an LP whose funding confirmed but who is not yet
+credited). That is a money-path design decision with a test to write, not a rename.
+📌 ⇒ **`#7` / `#9` / `B8` remain OPEN and unstarted. What is now known is narrower and worth having:
+the 7540 CONFORMANCE surface is clean, so the only thing left in the 7540 area is the DEFERRED-CLAIM
+semantics.** ⛔ Do not batch that with a comment pass — it changes when an LP owns shares.
