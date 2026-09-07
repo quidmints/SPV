@@ -169,7 +169,10 @@ bytes4 constant UNOSWAP2_SELECTOR = 0x8770ba91;
 // §SESS-65 — the THIRD member of the family, three pools in one call. Adding it costs nothing on-chain
 // beyond this line, because the route is no longer ENCODED here: it is supplied and RETARGETED
 // (`LevMath._retarget`). ⇒ hop count stops being an ABI shape and becomes a property of the calldata.
-bytes4 constant UNOSWAP3_SELECTOR = 0x19367472;
+// ⛔ §SESS-91 — `UNOSWAP3_SELECTOR` DELETED. Measured 2026-09-07 with a live key: 1inch returned the
+// generic `swap()` (0x07ed2379) for **24 of 24** pair/size combinations (USDC/USDT/DAI/GHO/crvUSD/
+// FRXUSD x {WETH,WBTC} x {$100k,$1M}) and NOT ONE unoswap of any arity. Our own planner caps at two
+// hops (`hops: vec![w]` or `vec![w1, second]`), so the 3-hop form had no producer on either side.
 
 // §SESS-66 — **A CURVE HOP WORD, EXECUTED BY US, NEVER HANDED TO 1inch.** ⚠️ I deleted this in
 // §SESS-52 as "capability nobody asked for" and that was right at the time: the roster route was the

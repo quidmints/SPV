@@ -940,7 +940,6 @@ pub struct Plan {
 /// contract can be diffed against each other by eye (`Interfaces.sol` holds the same three).
 const SEL_UNOSWAP:  [u8; 4] = [0x83, 0x80, 0x0a, 0x8e];
 const SEL_UNOSWAP2: [u8; 4] = [0x87, 0x70, 0xba, 0x91];
-const SEL_UNOSWAP3: [u8; 4] = [0x19, 0x36, 0x74, 0x72];
 
 impl Plan {
     /// ⭐ §SESS-73 — **THE ROUTE PRODUCER. THE THING THE WHOLE 1inch ARM WAS WAITING ON.**
@@ -970,7 +969,6 @@ impl Plan {
         let sel = match self.hops.len() {
             1 => SEL_UNOSWAP,
             2 => SEL_UNOSWAP2,
-            3 => SEL_UNOSWAP3,
             _ => return Vec::new(),
         };
         let mut d = Vec::with_capacity(4 + (3 + self.hops.len()) * 32);
@@ -1092,32 +1090,33 @@ fn deep_enough<R: JsonRpc>(rpc: &R, pool: LpAddr, token: LpAddr, amt: U256) -> b
 /// ⚠️ Deliberately NOT a 1inch pool word: `unoswap` was probed with six candidate Curve layouts
 /// against the live router and **0 of 6 filled**. `LevMath._hubHop` calls `exchange` directly.
 /// One word per venue KIND, or `None` when the venue cannot be expressed as one (v4 needs a PoolKey).
-/// ⛔ §SESS-89 — **TAKES THE TRADE DIRECTION, AND MUST.** `Venue::Curve` now stores `lo → hi`
-/// indices (see `venues_for`), but `LevMath._hubHop` decodes the word as `(iStable, iUsdc)` and
-/// dispatches `toUsdc ? curveExchange(stable, pool, iS, iU) : curveExchange(USDC, pool, iU, iS)`.
-/// So the WORD is directional even though the CACHE ENTRY is not, and the direction has to come from
-/// the caller rather than from address order. ⚠️ Before this, the word inherited whichever direction
-/// populated the cache — correct when the stable→USDC leg ran first, silently reversed otherwise.
-/// A reversed Curve word is a WRONG-PAIR swap on-chain, not a bad price.
-fn venue_word(v: Venue, tin: LpAddr, tout: LpAddr) -> Option<[u8; 32]> {
+/// ⭐ §SESS-91 — **ONE ARGUMENT AGAIN.** §SESS-89 had to thread the trade direction through here,
+/// because a Curve word encodes `(iStable, iUsdc)` and the cache stores indices canonically. With
+/// Curve no longer plannable the only word left is UniswapV3's, which carries **no direction** — the
+/// contract derives `zeroForOne` from `tokenIn` in `_retarget` and discards whatever arrived. So the
+/// parameters that existed to disambiguate a Curve index pair have nothing left to disambiguate.
+/// ⚠️ The §SESS-89 bug they were added for is gone by construction rather than by care: there is no
+/// longer a directional value stored under a non-directional key.
+fn venue_word(v: Venue) -> Option<[u8; 32]> {
     match v {
         Venue::V3 { pool, .. } => Some(v3_word(pool)),
-        Venue::Curve { pool, i, j } => {
-            let (i, j) = if tin <= tout { (i, j) } else { (j, i) };   // lo→hi stored; flip for hi→lo
-            Some(curve_word(pool, i, j))
-        }
+        // 🔴 §SESS-91 — **A CURVE WORD HAS NOWHERE TO EXECUTE ANY MORE, SO IT MUST NOT BE PLANNED.**
+        //    Curve never filled through `unoswap`: §SESS-22 measured 1inch's own bit table claiming
+        //    support while `proto=2` filled **zero** on two real pools, and this file's own note says
+        //    *"proto = 1 is the ONLY protocol id measured to fill."* The single executor a Curve word
+        //    ever had was `LevMath._hubHop`'s `PROTO_CURVE` arm, reached through `dex2` — and that arm
+        //    is deleted with the pool-word plumbing.
+        // ⚠️ **THE COST IS STATED, NOT HIDDEN:** the KEYLESS fallback is now UniswapV3-only. Curve is
+        //    still reached, two ways — through 1inch's `swap()` whenever the API is up, and on-chain
+        //    for `consolidate` through `_hubRowOf`'s six fixed rows, which no caller can influence.
+        //    What is gone is a KEEPER-CHOSEN Curve pool, which is the one form that had no executor.
+        // ⇒ returning `None` here is what stops `best_direct` ranking a venue we cannot fill —
+        //   §SESS-86's defect exactly, and the reason that check lives in the ranking and not later.
+        Venue::Curve { .. } => None,
         Venue::V4 { .. } => None,   // §SESS-79 — a singleton pool has no address to put in a word
     }
 }
 
-fn curve_word(pool: LpAddr, i: u8, j: u8) -> [u8; 32] {
-    let mut w = [0u8; 32];
-    w[12..].copy_from_slice(&pool);
-    w[31 - 20] = i;                       // bit 160
-    w[31 - 21] = j;                       // bit 168
-    w[0] |= 2 << 5;                       // proto = Curve (2) at bits 253-255
-    w
-}
 
 /// ⭐ §SESS-66 — **CURVE CANDIDATES: A SHORTLIST, QUOTED LIVE. NOT AN ENUMERATION.**
 ///
@@ -1176,27 +1175,6 @@ const CURVE_SHORTLIST: [(LpAddr, LpAddr, LpAddr, u8, u8); 6] = [
 ];
 
 
-/// Quote the shortlist for `tin -> tout` and return the best `(hop word, out)`.
-fn curve_best<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Option<([u8; 32], U256)> {
-    let mut best: Option<([u8; 32], U256)> = None;
-    for (a, b, pool, ia, ib) in CURVE_SHORTLIST {
-        let (i, j) = if a == tin && b == tout { (ia, ib) }
-                     else if b == tin && a == tout { (ib, ia) }
-                     else { continue };
-        if !deep_enough(rpc, pool, tin, amt) { continue; }   // §SESS-67 — depth BEFORE price
-        let mut qa = Vec::with_capacity(96);
-        qa.extend_from_slice(&{ let mut w = [0u8; 32]; w[31] = i; w });
-        qa.extend_from_slice(&{ let mut w = [0u8; 32]; w[31] = j; w });
-        qa.extend_from_slice(&u256_word(amt));
-        let Ok(dy) = eth_call_raw(rpc, Address::from_slice(&pool),
-            "get_dy(int128,int128,uint256)", Some(&qa)) else { continue };
-        if dy.len() < 32 { continue; }
-        let out = U256::from_be_slice(&dy[..32]);
-        if out.is_zero() { continue; }
-        if best.as_ref().is_none_or(|(_, b2)| out > *b2) { best = Some((curve_word(pool, i, j), out)); }
-    }
-    best
-}
 
 /// ⭐ §SESS-80 — **THE VENUE CACHE: DISCOVER RARELY, QUOTE EVERY TIME.**
 ///
@@ -1375,7 +1353,7 @@ fn best_direct<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Opt
         //    singleton pool has no address, and the on-chain arm that used to execute one (`V4Lib`)
         //    was unreachable and is deleted. v4 returns when a route is BUILT for it (`Plan.fetched`),
         //    and the gap is booked in L-routing rather than papered over with a silent skip.
-        if venue_word(v, tin, tout).is_none() { continue; }
+        if venue_word(v).is_none() { continue; }
         let out = match v {
             Venue::V3 { fee, .. } => quote_hop(rpc, tin, tout, amt, fee),
             Venue::Curve { pool, i, j } => curve_quote(rpc, pool, i, j, tin, tout, amt),
@@ -1404,18 +1382,6 @@ fn curve_quote<R: JsonRpc>(rpc: &R, pool: LpAddr, i: u8, j: u8, tin: LpAddr, _to
     if out.is_zero() { None } else { Some(out) }
 }
 
-/// ⭐ **THE PLANNER: quote every shape we can execute, take the best.** Direct across all tiers, and
-///    two hops through the USDC hub across all tier pairs.
-/// 🔴 **A DIRECT POOL NO LONGER SHORT-CIRCUITS, AND THAT WAS A REAL COST.** `plan_route` returned the
-///    direct pool whenever one existed and never priced the alternative. **Measured at block 25919955,
-///    USDC→WETH at $1M: direct best `399.365` vs hub 2-hop `400.282` — ~23 bps left on the table**, on
-///    the exact pair a USDC-denominated venue uses. At $50k direct wins, so this is SIZE-DEPENDENT and
-///    cannot be fixed by reordering a table; it needs a quote.
-/// @return `None` when nothing quotes — the caller then leaves `dex2 = 0` and the contract uses its
-///         own `_hubRowOf` row, which is a correct default rather than a guess.
-fn best_plan<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Option<Plan> {
-    best_plan_quoted(rpc, tin, tout, amt).map(|(p, _)| p)
-}
 
 /// The same search, keeping the winning QUOTE. ⭐ Not a second implementation: `best_plan` is one
 /// `.map` over this. The quote already existed inside the search and was being discarded, so a caller
@@ -1432,7 +1398,7 @@ fn best_plan_quoted<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -
     let mut best: Option<(Plan, U256)> = None;
     if let Some((v, out)) = best_direct(rpc, tin, tout, amt) {
         // `best_direct` no longer returns a venue without a word, so this cannot silently drop an arm.
-        let w = venue_word(v, tin, tout).expect("best_direct returned an unencodable venue");
+        let w = venue_word(v).expect("best_direct returned an unencodable venue");
         best = Some((Plan { dex: w, dex2: [0u8; 32], hops: vec![w], fetched: Vec::new() }, out));
     }
     // ⭐ §SESS-58 — **EVERY CANDIDATE HUB, INCLUDING WHEN THE INPUT IS ITSELF A HUB.**
@@ -1452,7 +1418,7 @@ fn best_plan_quoted<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -
         // ⚠️ Measured this session: 3pool beats the UniV3 0.01% tier for USDT→USDC above ~$500k
         //    (−0.42 vs −0.72 bps at $1M, −0.68 vs −2.16 at $5M) and LOSES below it. So neither venue
         //    wins by class — which is exactly why both are quoted rather than one being preferred.
-        let v3_first = best_direct(rpc, tin, hub, amt).and_then(|(v, o)| venue_word(v, tin, hub).map(|w| (w, o)));
+        let v3_first = best_direct(rpc, tin, hub, amt).and_then(|(v, o)| venue_word(v).map(|w| (w, o)));
         let cv_first: Option<([u8; 32], U256)> = None;   // §SESS-80 — Curve is a cached candidate now
         let first_leg = match (v3_first, cv_first) {
             (Some(a), Some(b)) => Some(if b.1 > a.1 { b } else { a }),
@@ -1461,7 +1427,7 @@ fn best_plan_quoted<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -
         };
         let Some((w1, mid)) = first_leg else { continue };
         let Some((second_v, out)) = best_direct(rpc, hub, tout, mid) else { continue };
-        let Some(second) = venue_word(second_v, hub, tout) else { continue };
+        let Some(second) = venue_word(second_v) else { continue };
         if best.as_ref().is_none_or(|(_, b)| out > *b) {
             // `dex2` is hop 1 (see `Plan`) — the crossing is deliberate and load-bearing.
             best = Some((Plan { dex: second, dex2: w1, hops: vec![w1, second], fetched: Vec::new() }, out));
@@ -1902,7 +1868,7 @@ mod tests {
         //   tells you whether to go find liquidity or to go write an encoder.
         let tradeable = |x: LpAddr, y: LpAddr, amt: U256| -> (bool, bool) {
             let vs = venues_for(&rpc, x, y, amt);
-            (vs.iter().any(|v| venue_word(*v, x, y).is_some()), !vs.is_empty())
+            (vs.iter().any(|v| venue_word(*v).is_some()), !vs.is_empty())
         };
         println!("{:<8} {:>26} {:>26}", "stable", "-> WETH", "-> WBTC");
         let (mut both, mut v4_only) = (0usize, 0usize);
@@ -1990,8 +1956,8 @@ mod tests {
         let mut planned = 0;
         for (name, stable, dec) in cases {
             let amt = U256::from(100_000u64) * U256::from(10u64).pow(U256::from(dec));   // $100k
-            match best_plan(&rpc, stable, WETH_ADDR, amt) {
-                Some(p) => {
+            match best_plan_quoted(&rpc, stable, WETH_ADDR, amt) {
+                Some((p, _)) => {
                     planned += 1;
                     assert_ne!(p.dex, [0u8; 32], "{name}: planned a ZERO volatile hop");
                     println!("{name} -> WETH planned, two-hop={}", p.dex2 != [0u8; 32]);
@@ -2053,7 +2019,7 @@ mod tests {
         //    this whole audit is about.
         let (_, direct_out) = best_direct(&rpc, USDC_ADDR, WETH_ADDR, amt)
             .expect("no direct USDC/WETH quote - the deepest pair on the chain must always quote");
-        let p = best_plan(&rpc, USDC_ADDR, WETH_ADDR, amt).expect("a route must exist for USDC/WETH");
+        let p = best_plan_quoted(&rpc, USDC_ADDR, WETH_ADDR, amt).expect("a route must exist for USDC/WETH").0;
         let (p2, chosen) = best_plan_quoted(&rpc, USDC_ADDR, WETH_ADDR, amt)
             .expect("the chosen plan must re-quote");
         assert_eq!(p2.dex, p.dex, "the two entrypoints must agree on the plan");

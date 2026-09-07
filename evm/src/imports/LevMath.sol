@@ -8,8 +8,8 @@ import {WAD, VenueNotAllowed} from "./Types.sol";
 // §A.52: the canonical view lives in Interfaces.sol — imported, never re-declared file-local.
 import {ICore, IAux, IWeETH, IDepositAdapter, ILevVenue, TWAP_WINDOW_SECS} from "./Interfaces.sol";
 import {IERC20Min, IWETH9} from "../imports/Interfaces.sol";
-import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, UNOSWAP3_SELECTOR, SWAP_SELECTOR, PROTO_UNIV3,
-        PROTO_CURVE, HOP_I_OFFSET, HOP_J_OFFSET, ZERO_FOR_ONE, IUniV3PoolMin, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN, CURVE_3POOL, USDT_TOKEN, CRV_USDT_IDX, CRV_USDT_USDC_IDX, DAI_TOKEN, CRV_DAI_IDX, CRV_DAI_USDC_IDX, USDG_TOKEN, CURVE_USDG_USDC, CRV_USDG_IDX, CRV_USDG_USDC_IDX, CRVUSD_TOKEN, CURVE_CRVUSD_USDC, CRV_CRVUSD_IDX, CRV_CRVUSD_USDC_IDX} from "./Interfaces.sol";
+import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, SWAP_SELECTOR, PROTO_UNIV3,
+        ZERO_FOR_ONE, IUniV3PoolMin, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN, CURVE_3POOL, USDT_TOKEN, CRV_USDT_IDX, CRV_USDT_USDC_IDX, DAI_TOKEN, CRV_DAI_IDX, CRV_DAI_USDC_IDX, USDG_TOKEN, CURVE_USDG_USDC, CRV_USDG_IDX, CRV_USDG_USDC_IDX, CRVUSD_TOKEN, CURVE_CRVUSD_USDC, CRV_CRVUSD_IDX, CRV_CRVUSD_USDC_IDX} from "./Interfaces.sol";
 
 // ether.fi weETH/WETH Curve pool (weETH is coin1, WETH coin0). Same address as Vault.ETHERFI_CURVE_POOL.
 address constant ETHERFI_CURVE_POOL = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;
@@ -327,7 +327,7 @@ library LevMath {
                                 * (10_000 - cfg.slipBps) / 10_000;
             if (minOut < floorWbtc) minOut = floorWbtc;   // the oracle floor always wins
         }
-        wbtcBought = _stableToWbtc(stable, borrowed, minOut, cfg.wbtc, cfg.dex, cfg.dex2, cfg.route);
+        wbtcBought = _stableToWbtc(stable, borrowed, minOut, cfg.wbtc, cfg.route);
         IERC20Min(cfg.wbtc).transfer(address(venue), wbtcBought);
         venue.supply(lp, wbtcBought);
     }
@@ -371,7 +371,7 @@ library LevMath {
                                   * (10_000 - cfg.slipBps) / 10_000;
             if (minOut < floorStable) minOut = floorStable;
         }
-        uint256 stableOut = _volToStable(cfg.wbtc, stable, pulled, minOut, cfg.dex, cfg.dex2, cfg.route);
+        uint256 stableOut = _volToStable(cfg.wbtc, stable, pulled, minOut, cfg.route);
         IERC20OZ(stable).forceApprove(flashProvider, assets);   // provider pulls `assets`; a short approve reverts the whole op
         if (stableOut > assets) IERC20OZ(stable).safeTransfer(lp, stableOut - assets);   // realized surplus → LP
     }
@@ -707,7 +707,7 @@ library LevMath {
         assembly { sel := mload(add(route, 0x20)) }
         uint256 words = sel == UNOSWAP_SELECTOR  ? 4
                       : sel == UNOSWAP2_SELECTOR ? 5
-                      : sel == UNOSWAP3_SELECTOR ? 6 : 0;
+                      : 0;
         if (words != 0) {
             if (len != 4 + words * 32) revert BadRoute();
             assembly {
@@ -869,31 +869,27 @@ library LevMath {
     ///      📊 What the calldata arm buys, measured: Fluid, Balancer, Maverick, Ekubo and the
     ///      `lite-psm`/`dai-usds` par converters that beat every AMM at 0.000%, plus SPLIT routes —
     ///      none of which a pool word can address.
+    /// ⭐ §SESS-91 — **ONE VENUE CHANNEL. THE ON-CHAIN ENCODER IS DELETED.**
+    ///
+    /// 🔴 **IT WAS A DUPLICATE OF A FUNCTION THAT ALREADY EXISTS OFF-CHAIN.** It built
+    ///    `abi.encodeWithSelector(UNOSWAP_SELECTOR, 0, 0, 0, dex)`; the keeper's `Plan::route_bytes`
+    ///    builds the same bytes from the same pool words. Not two mechanisms — one mechanism written
+    ///    twice, in two languages, and the Solidity copy is the one that cost three failed refactors
+    ///    over the `(0,w) → (w,0)` compaction and 26 red tests each time.
+    /// ⛔ **AND IT WAS NOT THE KEYLESS FALLBACK, WHICH IS WHAT I DEFENDED IT AS.** The fallback is the
+    ///    keeper PLANNING without the 1inch API and emitting unoswap calldata itself — that survives
+    ///    untouched, is wired to all four legs, and lands here as `route` like everything else. What
+    ///    is gone is a second door to the same room.
+    /// 🔑 **NOTHING IS LOST IN TRUST TERMS EITHER.** A pool word was caller-supplied; a route is
+    ///    caller-supplied. Both are retargeted onto our own token/amount/receiver/floor by
+    ///    `_retarget` and bounded on a measured balance delta by `convertTo`. Anyone who could pass a
+    ///    pool word can pass a one-hop unoswap route containing it, so the expressive power is a
+    ///    superset and the attack surface is identical.
+    /// ⚠️ AN EMPTY ROUTE NOW REVERTS. That is the honest surface: a caller naming no venue cannot
+    ///    trade, and a silent 0 would reappear as a slippage failure frames away.
     function routedSwap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut,
-                        uint256 dex, uint256 dex2, bytes memory route) internal returns (uint256) {
-        // ⭐ §SESS-84 — **THE ENCODER IS SIX LINES, NOT SIXTY-ONE.** `_aggSwap` is deleted: it built
-        //    `unoswap`/`unoswap2` calldata AND derived the direction bits, and the derivation now
-        //    lives in `_retarget`, shared by BOTH arms. What is left is the wrapping, which is this.
-        // 🔑 **THE ENCODING NEVER NEEDED TO BE ON-CHAIN; THE DERIVATION DID.** A keeper can wrap pool
-        //    words in calldata off-chain (§SESS-73 does), but it cannot be trusted to say which way we
-        //    cross a pool — that is a fact about `tokenIn`, which this frame owns. Separating the two
-        //    is what lets 61 lines leave without giving anything up.
-        if (route.length == 0) {
-            // 🔴 **§SESS-50's COMPACTION, WHICH I DELETED WITH `_aggSwap` AND DID NOT CARRY OVER.**
-            //    `(0, w)` and `(w, 0)` both mean ONE HOP through `w`. `_stableToWethSor` passes
-            //    `(hub, c.dex)` in the CROSSED order its docblock flags as a trap, so a USDC venue —
-            //    which has no hub hop BY NATURE — arrives here with `dex == 0` and a perfectly good
-            //    volatile word sitting in `dex2`.
-            // ⚠️ **THIS COST THREE FAILED ATTEMPTS AT THE SAME REFACTOR, EACH TIME 26 TESTS RED WITH
-            //    `NoVolatileRoute()`, AND I GUESSED TWICE BEFORE TRACING ONCE.** The trace showed the
-            //    revert landing immediately after `swapFloor` — i.e. at the routed call, not inside it
-            //    — which named the line in one read. Standing rule: trace one failure before fixing any.
-            if (dex == 0) { dex = dex2; dex2 = 0; }
-            if (dex == 0) revert NoVolatileRoute();
-            route = dex2 == 0
-                ? abi.encodeWithSelector(UNOSWAP_SELECTOR,  uint256(0), uint256(0), uint256(0), dex)
-                : abi.encodeWithSelector(UNOSWAP2_SELECTOR, uint256(0), uint256(0), uint256(0), dex, dex2);
-        }
+                        bytes memory route) internal returns (uint256) {
+        if (route.length == 0) revert NoVolatileRoute();
         address[] memory t = new address[](1);
         uint256[] memory a = new uint256[](1);
         bytes[]   memory r = new bytes[](1);
@@ -1173,12 +1169,15 @@ library LevMath {
         //    a plain OVERRIDE WITH A DEFAULT, not a migration branch waiting to be deleted.
         // No keeper word ⇒ take the table's route. `minOut` 0 on the hub leg is correct: `floor_`
         // bounds the whole route on the final token.
-        uint256 hub = c.dex2;
-        if (stable != USDC && (hub == 0 || hub >> 253 == PROTO_CURVE))
-            return routedSwap(USDC, c.weth, _hubHop(stable, stableAmt, true, 0, hub), floor_, c.dex, 0, "");
-        // `c.dex2` is hop 1, `c.dex` hop 2. A USDC venue has `c.dex2 == 0` and `_aggSwap` compacts it
-        // (§SESS-50) — which is what finally lets a USDC venue reach `c.route` at all.
-        return routedSwap(stable, c.weth, stableAmt, floor_, hub, c.dex, c.route);
+        // ⭐ §SESS-91 — **NO HUB BRANCH. THE ROUTE *IS* THE HUB HOP PLUS THE VOLATILE HOP.**
+        //    This split `stable → USDC → volatile` into an on-chain Curve hop and a routed hop, and
+        //    passed `""` to the second one — so for every NON-HUB stable the supplied route was
+        //    DISCARDED and the volatile leg fell back to a single pool word. No two-hop, no split,
+        //    no v4, no Fluid, on exactly the stables that need them most.
+        // ⇒ one call, whatever shape the route describes. `floor_` bounds the FINAL token, which is
+        //   what it always did; the USDC intermediate was never bounded and no longer exists as a
+        //   separate frame to leave value in.
+        return routedSwap(stable, c.weth, stableAmt, floor_, c.route);
     }
 
 
@@ -1199,13 +1198,22 @@ library LevMath {
     /// ⚠️ **DIRECTION IS THE CALLER'S, NEVER THE TABLE'S** — same discipline as `_aggSwap` deriving
     ///    `ZERO_FOR_ONE` rather than trusting a keeper bit, so one row serves a lever-up and the
     ///    de-lever that unwinds it and the two cannot disagree about which way to cross a pool.
-    /// @param word §SESS-66 — a caller-supplied **Curve** hop (`proto | j | i | pool`), or **0** to use
-    ///        the compile-time row. ⭐ **THE WORD IS A VENUE, NOT A PRICE:** whichever pool it names,
-    ///        `curveExchange` bounds the result on a MEASURED balance delta against `minOut`, so a
-    ///        wrong or hostile pool makes the hop FAIL and can never make it pay short. Same argument
-    ///        that lets the keeper name UniV3 pools, applied to the venue it could not reach — which
-    ///        is why widening DISCOVERY does not widen AUTHORITY.
-    function _hubHop(address stable, uint256 amt, bool toUsdc, uint256 minOut, uint256 word)
+    /// ⛔ §SESS-91 — **CONSOLIDATE-ONLY NOW, AND THE `word` PARAMETER IS GONE WITH THE LEVERED ARMS.**
+    ///    Every levered leg takes a supplied route; the ONE caller left is `_consolidateTo`, which
+    ///    always passed `0` because `protectFromQuid` is PERMISSIONLESS — caller-supplied venues there
+    ///    would hand an anonymous address the SELECTION of every venue against a 20 bps floor, and the
+    ///    floor bounds the loss, never the selection.
+    /// ⛔ **AND THE DISTINCTION IS NOT AUTHENTICATION — I WROTE THAT AND IT IS FALSE.** `rebalance`
+    ///    is `external nonReentrant` with NO auth (`LevManager:282`, it merely records
+    ///    `_activeKeeper = msg.sender`), exactly like `protectFromQuid`. **Both callers are
+    ///    anonymous.** The difference is that `protectFromQuid` takes no venue parameter at all.
+    /// 🔑 **THE REAL PRINCIPLE IS ABOUT WHAT A REPEATED SELECTION CAN EXTRACT.** A levered leg is ONE
+    ///    trade against a floor derived from the TWAP, so delegating its venue risks the floor's slack
+    ///    once. `consolidate` runs **one leg per stable**, so a caller who could name venues would get
+    ///    that slack again per slice, on demand, for free — *the floor bounds the loss, never the
+    ///    selection, and selection is the takeable part.* ⇒ **venue selection is delegated where it is
+    ///    exercised once and bounded once; it is fixed where the same anonymous caller can repeat it.**
+    function _hubHop(address stable, uint256 amt, bool toUsdc, uint256 minOut)
         internal returns (uint256)
     {
         if (amt == 0) return 0;
@@ -1219,11 +1227,7 @@ library LevMath {
         // ⇒ v4 belongs where every other multi-hop venue already lives: in a route BUILT OFF-CHAIN
         //   and retargeted here. Building UniversalRouter calldata on-chain was ~80 lines and a
         //   linked deployment to reach a case that never arrived.
-        (address pool, int128 iS, int128 iU) = word >> 253 == PROTO_CURVE
-            ? (address(uint160(word)),
-               int128(uint128(uint8(word >> HOP_I_OFFSET))),
-               int128(uint128(uint8(word >> HOP_J_OFFSET))))
-            : _hubRowOf(stable);
+        (address pool, int128 iS, int128 iU) = _hubRowOf(stable);
         // fail closed — a silent 0 would leave the position unhedged, and a caller that sizes a hedge
         // from "converted nothing" is the failure this revert exists to make loud.
         if (pool == address(0)) revert NoStableRoute();
@@ -1348,12 +1352,9 @@ library LevMath {
     ///      legitimately has `hubDex == 0` — onto the two-hop path with a ZERO first pool word, and
     ///      **17 tests fail with `NoVolatileRoute()`**. ⚠️ The compiler cannot see this; only running
     ///      the suite did.
-    function _stableToWbtc(address stable, uint256 amt, uint256 minOut, address wbtc, uint256 volDex,
-                           uint256 hubDex, bytes memory route) internal returns (uint256) {
-        uint256 hub = hubDex;   // §SESS-66 — a CURVE word takes this arm too; 1inch cannot carry one
-        if (stable != USDC && (hub == 0 || hub >> 253 == PROTO_CURVE))
-            return routedSwap(USDC, wbtc, _hubHop(stable, amt, true, 0, hub), minOut, volDex, 0, "");
-        return routedSwap(stable, wbtc, amt, minOut, hub, volDex, route);
+    function _stableToWbtc(address stable, uint256 amt, uint256 minOut, address wbtc,
+                           bytes memory route) internal returns (uint256) {
+        return routedSwap(stable, wbtc, amt, minOut, route);   // §SESS-91 — the route is the whole path
     }
 
     /// @dev Mirror of `_stableToWbtc`: volatile → USDC through the aggregator, stableswap hub back
@@ -1367,17 +1368,14 @@ library LevMath {
     ///      surface — a silent 0 would reappear as a slippage failure frames away.
     /// 🔴 SAME CROSSED ORDER as `_stableToWbtc`, and MIRRORED because this leg runs the other way:
     ///    here the VOLATILE pool is hop 1 and the hub hop is hop 2.
-    function _volToStable(address vol, address stable, uint256 amt, uint256 minOut, uint256 volDex,
-                          uint256 hubDex, bytes memory route) internal returns (uint256) {
+    function _volToStable(address vol, address stable, uint256 amt, uint256 minOut,
+                          bytes memory route) internal returns (uint256) {
         // ⭐ THE FLOOR RIDES THE ROUTE ITSELF — ⛔ do not re-express it as an unbounded hop plus an
         //    `if (out < minOut) revert Slippage()` a frame later. Both arms end on the FINAL token
         //    with `minOut` enforced on a measured balance delta: `routedSwap` through `_aggSwap`, and
         //    the table arm through `_hubHop`, which carries the floor into `curveExchange`. Only the
         //    USDC intermediate is deliberately unbounded, because nothing leaves on it.
-        uint256 hub = hubDex;   // §SESS-66 — a CURVE word takes this arm too; 1inch cannot carry one
-        if (stable != USDC && (hub == 0 || hub >> 253 == PROTO_CURVE))
-            return _hubHop(stable, routedSwap(vol, USDC, amt, 0, volDex, 0, ""), false, minOut, hub);
-        return routedSwap(vol, stable, amt, minOut, volDex, hub, route);
+        return routedSwap(vol, stable, amt, minOut, route);    // §SESS-91 — the route is the whole path
     }
 
     /// @dev IDENTITY WHEN THE LOAN TOKEN IS ALREADY WETH — the close-side twin of the note on
@@ -1388,7 +1386,7 @@ library LevMath {
         //   two arms are the same operation, and hand-inlining the routed one is how `minOut` came to
         //   be accepted as a parameter and silently discarded on the leg that actually ran. ONE call:
         //   `_volToStable` picks the arm and carries the bound onto the final token either way.
-        return _volToStable(c.weth, stable, wethIn, minOut, c.dex, c.dex2, c.route);  // one routed call, floor on the final token
+        return _volToStable(c.weth, stable, wethIn, minOut, c.route);   // one routed call, floor on the final token
     }
 
     /// @dev The anti-MEV floor for the **WETH → stable** leg, priced off the WETH being sold.
@@ -1675,7 +1673,7 @@ library LevMath {
             //    ⇒ the pools come from `_hubRowOf`, which no caller can influence.
             if (_routableStable(s) && _routableStable(target)) {
                 // `floor` is enforced on the SECOND hop, so it bounds the pair on the measured delta.
-                _hubHop(target, _hubHop(s, bal, true, 0, 0), false, floor, 0);
+                _hubHop(target, _hubHop(s, bal, true, 0), false, floor);
             }
             // Whatever of this slice did not move — an unroutable stable, or a remainder — goes back to the LP.
             // Never strand the LP's own redeemed value in the manager (it only lowers `got`, which the
@@ -1721,18 +1719,6 @@ library LevMath {
         wethDelivered = collToWethDeliver(got, recipient, floor, cfg);
     }
 
-    /// @dev Repay `stableUsd`-worth (clamped to debt) of `lp`'s debt with the stable the Vault pre-transferred to the
-    ///      venue; returns the USD 1e18 actually applied.
-    ///      ⚠️ NO CALLER TODAY — verified by grep over `evm/src`. It is kept as the repay half of the ETH
-    ///      pre-transferred settle; anything that revives that path calls THIS rather than re-deriving the
-    ///      clamp, which is the part that has to match `venue.repay`'s own.
-    function _repayPretransferred(ILevVenue venue, address lp, uint256 stableUsd, address aux) private returns (uint256 usedUsd) {
-        address stable = venue.stable();
-        uint256 amt = _fromUsd(aux,stable, stableUsd);
-        uint256 debt = venue.debtOf(lp);
-        if (amt > debt) amt = debt;                                               // clamp to debt (never over-repay / strand)
-        if (amt > 0) usedUsd = _toUsd18(aux,stable, venue.repay(lp, amt));            // USD 1e18 actually applied to the debt
-    }
 
     /// @notice §G.3 size the debt-stable to flash-repay for extracting `extractUsd` of value: ΔD = X·debt/netEq,
     ///         clamped to live debt. `debtUsd18` = the LP's live debt (USD 1e18, decimal-normalized by the manager);

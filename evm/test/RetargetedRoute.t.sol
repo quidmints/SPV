@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {AllesFixture} from "./Alles.t.sol";
 import {LevMath} from "../src/imports/LevMath.sol";
-import {UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, UNOSWAP3_SELECTOR, SWAP_SELECTOR,
+import {UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, SWAP_SELECTOR,
         PROTO_UNIV3, ZERO_FOR_ONE, USDC} from "../src/imports/Interfaces.sol";
 
 interface IB { function balanceOf(address) external view returns (uint256); }
@@ -88,17 +88,11 @@ contract RetargetedRouteTest is AllesFixture {
         assertEq(_w(f, 3), w, "unoswap2: first hop derived from tokenIn");
         assertEq(_w(f, 4), w, "unoswap2: last hop derived from tokenOut");
 
-        // ③ unoswap3 — arg 3 and arg 5 derived; **arg 4 is the STATED GAP and must survive as sent.**
-        //    ⚠️ Asserted, not assumed: `_retarget`'s docblock records that chaining the middle bit
-        //    measured +425 bytes and put `LevMath` 203 over EIP-170, so the gap is a decision. A
-        //    decision nothing checks is a decision that gets silently reversed.
-        f = r.go(_route(UNOSWAP3_SELECTOR, lie, lie, lie, 3), address(USDC), 50_000e6);
-        _head(f, "unoswap3");
-        assertEq(f.length, 4 + 6 * 32, "unoswap3: length unchanged");
-        assertEq(_w(f, 3), w,   "unoswap3: first hop derived from tokenIn");
-        assertEq(_w(f, 4), lie, "unoswap3: the MIDDLE bit is a stated gap - it must survive untouched, "
-                                "and if this ever flips, chaining landed and the byte budget moved");
-        assertEq(_w(f, 5), w,   "unoswap3: last hop derived from tokenOut");
+        // ⛔ §SESS-91 — **THE unoswap3 ARM IS GONE, AND SO IS THE SELECTOR.** Measured with a live
+        //    key: 1inch answered `swap()` for 24 of 24 pair/size combinations and never an unoswap of
+        //    any arity, and our own planner emits at most two hops. A whitelist entry no producer can
+        //    reach is a declaration serving nothing — and it carried the ONLY undederived direction
+        //    bit in the system (the middle hop), so deleting it closes that gap by removing it.
     }
 
     /// The three fields this frame owns, on every arity: a supplied route lies about all of them.
