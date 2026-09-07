@@ -8,7 +8,7 @@ import {WAD, VenueNotAllowed} from "./Types.sol";
 // §A.52: the canonical view lives in Interfaces.sol — imported, never re-declared file-local.
 import {ICore, IAux, IWeETH, IDepositAdapter, ILevVenue, TWAP_WINDOW_SECS} from "./Interfaces.sol";
 import {IERC20Min, IWETH9} from "../imports/Interfaces.sol";
-import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, SWAP_SELECTOR, PROTO_UNIV3,
+import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, SWAP_SELECTOR, PROTO_UNIV3, PROTO_UNIV2,
         ZERO_FOR_ONE, DEFAULT_UNWIND_DEX, DEFAULT_WBTC_DEX, WBTC_TOKEN, DAI_USDS, SKY_USDS_TO_DAI, SKY_DAI_TO_USDS, USDS_TOKEN, IUniV3PoolMin, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN, CURVE_3POOL, USDT_TOKEN, CRV_USDT_IDX, CRV_USDT_USDC_IDX, DAI_TOKEN, CRV_DAI_IDX, CRV_DAI_USDC_IDX, USDG_TOKEN, CURVE_USDG_USDC, CRV_USDG_IDX, CRV_USDG_USDC_IDX, CRVUSD_TOKEN, CURVE_CRVUSD_USDC, CRV_CRVUSD_IDX, CRV_CRVUSD_USDC_IDX} from "./Interfaces.sol";
 
 // ether.fi weETH/WETH Curve pool (weETH is coin1, WETH coin0). Same address as Vault.ETHERFI_CURVE_POOL.
@@ -694,7 +694,8 @@ library LevMath {
         if (sel != UNOSWAP_SELECTOR && sel != UNOSWAP2_SELECTOR) return true;
         uint256 w;
         assembly { w := mload(add(route, 0x84)) }
-        if (w >> 253 != PROTO_UNIV3) return true;
+        uint256 proto = w >> 253;
+        if (proto != PROTO_UNIV3 && proto != PROTO_UNIV2) return true;   // §SESS-94 — V2 asks too
         address p = address(uint160(w));
         address t0 = _poolToken(p, false);
         if (t0 == address(0)) return true;                // unreadable ⇒ leave it alone
@@ -704,7 +705,10 @@ library LevMath {
     function _deriveBit(bytes memory route, uint256 off, address token, bool matchIsZero) private view {
         uint256 w;
         assembly { w := mload(add(route, off)) }
-        if (w >> 253 != PROTO_UNIV3) return;
+        // §SESS-94 — derive for the V2 family too. Both expose `token0()`/`token1()` and both read
+        // bit 247 as `zeroForOne`, so ONE derivation serves both and neither is caller-trusted.
+        uint256 proto = w >> 253;
+        if (proto != PROTO_UNIV3 && proto != PROTO_UNIV2) return;
         address t0 = _poolToken(address(uint160(w)), false);
         if (t0 == address(0)) return;                     // not a pool we can read — leave it as-is
         w &= ~ZERO_FOR_ONE;

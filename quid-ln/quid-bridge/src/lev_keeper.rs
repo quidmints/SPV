@@ -985,11 +985,51 @@ impl Plan {
 }
 
 /// The 256-bit word for a V3 pool: `proto=1` at bits 253-255, address in the low 160. No direction bit.
+/// §SESS-94 — a V2-family word: `proto = 0`, so the high bits stay CLEAR and only the address is set.
+/// ⚠️ NO direction bit is emitted, exactly as for V3 — `LevMath._deriveBit` now derives `zeroForOne`
+/// for `proto = 0` as well, and discards whatever arrived. The keeper names pools, never directions.
+fn v2_word(pool: LpAddr) -> [u8; 32] {
+    let mut w = [0u8; 32];
+    w[12..].copy_from_slice(&pool);
+    w
+}
+
 fn v3_word(pool: LpAddr) -> [u8; 32] {
     let mut w = [0u8; 32];
     w[12..].copy_from_slice(&pool);
     w[0] |= 1 << 5;                       // PROTO_UNIV3 = 1, at bits 253-255
     w
+}
+
+/// §SESS-94 — every V2-family factory worth asking. ⚠️ A LIST, not a search: `getPair` is one call
+/// and these are the deployments with real depth on mainnet. Adding a fork costs one line.
+const V2_FACTORIES: [(&str, LpAddr); 2] = [
+    ("UniswapV2", [0x5C,0x69,0xbE,0xe7,0x01,0xef,0x81,0x4a,0x2B,0x6a,0x3E,0xDD,0x4B,0x16,0x52,0xCB,0x9c,0xc5,0xaA,0x6f]),
+    ("Sushi",     [0xC0,0xAE,0xe4,0x78,0xe3,0x65,0x8e,0x26,0x10,0xc5,0xF7,0xA4,0xA2,0xE1,0x77,0x7c,0xE9,0xe4,0xf2,0xAc]),
+];
+
+/// The V2 pair for an unordered token pair from one factory, or `None`.
+fn v2_pair<R: JsonRpc>(rpc: &R, factory: LpAddr, a: LpAddr, b: LpAddr) -> Option<LpAddr> {
+    let mut arg = Vec::with_capacity(64);
+    arg.extend_from_slice(&addr_word(a));
+    arg.extend_from_slice(&addr_word(b));
+    let r = eth_call_raw(rpc, Address::from_slice(&factory), "getPair(address,address)", Some(&arg)).ok()?;
+    let p = word_to_lpaddr(&r).ok()?;
+    if p == [0u8; 20] { None } else { Some(p) }
+}
+
+/// ⭐ Constant product with the 0.3% fee, straight from reserves — EXACT for a V2 pair, and one call.
+/// ⛔ No simulator needed and none wanted: `x*y=k` is the pool's whole behaviour, so a quote that
+///    disagrees with the fill would mean the reserves moved, not that the model is wrong.
+fn v2_quote<R: JsonRpc>(rpc: &R, pool: LpAddr, tin: LpAddr, amt: U256) -> Option<U256> {
+    let r = eth_call_raw(rpc, Address::from_slice(&pool), "getReserves()", None).ok()?;
+    if r.len() < 64 { return None; }
+    let (r0, r1) = (U256::from_be_slice(&r[0..32]), U256::from_be_slice(&r[32..64]));
+    let t0 = word_to_lpaddr(&eth_call_raw(rpc, Address::from_slice(&pool), "token0()", None).ok()?).ok()?;
+    let (rin, rout) = if t0 == tin { (r0, r1) } else { (r1, r0) };
+    if rin.is_zero() || rout.is_zero() { return None; }
+    let ain = amt * U256::from(997u64);
+    Some(ain * rout / (rin * U256::from(1000u64) + ain))
 }
 
 /// A pool holding exactly this unordered pair, or `None`.
@@ -1103,6 +1143,7 @@ fn deep_enough<R: JsonRpc>(rpc: &R, pool: LpAddr, token: LpAddr, amt: U256) -> b
 fn venue_word(v: Venue) -> Option<[u8; 32]> {
     match v {
         Venue::V3 { pool, .. } => Some(v3_word(pool)),
+        Venue::V2 { pool } => Some(v2_word(pool)),
         // 🔴 §SESS-91 — **A CURVE WORD HAS NOWHERE TO EXECUTE ANY MORE, SO IT MUST NOT BE PLANNED.**
         //    Curve never filled through `unoswap`: §SESS-22 measured 1inch's own bit table claiming
         //    support while `proto=2` filled **zero** on two real pools, and this file's own note says
@@ -1209,6 +1250,10 @@ pub enum Venue {
     /// §SESS-79 — `hooks` is absent BY CONSTRUCTION: the contract forces `address(0)`, so a hooked
     /// pool cannot be named here even by a compromised keeper.
     V4 { fee: u32, tick_spacing: i32 },
+    /// ⭐ §SESS-94 — the UniswapV2 FAMILY (UniV2, Sushi, any V2 fork). MEASURED to fill through
+    /// `unoswap` under `proto = 0`: 25,000 USDC → 9.983 WETH on UniV2, 8.480 on Sushi, against the
+    /// V3 control's 10.019. No fee tier — a V2 pair IS the pair, one pool per factory per pair.
+    V2 { pool: LpAddr },
 }
 
 type CacheKey = (LpAddr, LpAddr);
@@ -1231,6 +1276,12 @@ fn venues_for<R: JsonRpc>(rpc: &R, a: LpAddr, b: LpAddr, amt: U256) -> Vec<Venue
     for fee in FEE_TIERS {
         if let Some(pool) = pool_for(rpc, a, b, fee) {
             if deep_enough(rpc, pool, a, amt) { out.push(Venue::V3 { pool, fee }); }
+        }
+    }
+    // §SESS-94 — the V2 family, now that `proto = 0` is measured to fill.
+    for (_name, f) in V2_FACTORIES {
+        if let Some(pool) = v2_pair(rpc, f, a, b) {
+            if deep_enough(rpc, pool, a, amt) { out.push(Venue::V2 { pool }); }
         }
     }
     for (x, y, pool, ia, ib) in CURVE_SHORTLIST {
@@ -1370,6 +1421,7 @@ fn best_direct<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Opt
         if venue_word(v).is_none() { continue; }
         let out = match v {
             Venue::V3 { fee, .. } => quote_hop(rpc, tin, tout, amt, fee),
+            Venue::V2 { pool } => v2_quote(rpc, pool, tin, amt),
             Venue::Curve { pool, i, j } => curve_quote(rpc, pool, i, j, tin, tout, amt),
             // §SESS-82 — quoted at the traded size, like every other venue. Candidacy said a pool
             //    exists; the quote says whether it is the best one, and for the thin USDC/WETH tier

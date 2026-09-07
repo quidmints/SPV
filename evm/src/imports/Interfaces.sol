@@ -216,6 +216,18 @@ bytes4  constant SKY_USDS_TO_DAI = 0x68f30150;   // usdsToDai(address,uint256)
 bytes4  constant SKY_DAI_TO_USDS = 0xf2c07aae;   // daiToUsds(address,uint256)
 address constant USDS_TOKEN      = 0xdC035D45d973E3EC169d2276DDab16f1e407384F;
 
+// ⭐ §SESS-94 — **MEASURED: `proto = 0` IS THE UNISWAP-V2 FAMILY AND IT FILLS THROUGH `unoswap`.**
+// Executed at FORK_BLOCK 25927822, 25,000 USDC in: UniswapV2 USDC/WETH → **9.983 WETH**, SushiSwap
+// USDC/WETH → **8.480 WETH**, against the V3 control's 10.019 under `proto = 1`. `proto = 2` (Curve)
+// and `proto = 3` filled ZERO on every pool, both direction bits.
+// 🔴 **THIS OVERTURNS THE LINE EVERYTHING KEYLESS WAS BUILT ON.** §SESS-22 concluded *"proto = 1 is
+// the ONLY protocol id measured to fill"* — but it only ever tested CURVE, and the conclusion was
+// generalised to every non-V3 venue. Keyless coverage sat at 11/14, and GHO/FRXUSD were called
+// key-only, because of a claim that was never tested against a V2 pool.
+// ⚠️ **V2 FILLS ONLY WITH BIT 247 SET**, and `_deriveBit` used to skip every non-V3 word — so that
+// bit arrived caller-supplied and unchecked. Deriving it for `proto = 0` closes a hacked-keeper hole
+// and is what makes the family safe to admit, not merely reachable.
+uint256 constant PROTO_UNIV2   = 0;
 uint256 constant PROTO_CURVE   = 2;
 uint256 constant HOP_I_OFFSET  = 160;
 uint256 constant HOP_J_OFFSET  = 168;
