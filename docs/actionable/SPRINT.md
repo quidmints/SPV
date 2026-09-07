@@ -52813,6 +52813,36 @@ floors would let a keeper pass the aggregate by over-delivering one leg and stea
 
 ---
 
+# 📐 §CITATION-ROT-2026-09-07 — **2,331 `file:line` CITATIONS, AND NO TOOL CAN FIND THE DANGEROUS ROT**
+
+**Measured after four consecutive coordinate failures in one sweep** — `C1r` cited `SwapLib:499` and
+the claim is at `:506`; `UNIT-REPEG-CADENCE` cited `Aux:220`, it is `:223`; `UNIT-B-STALE-RETRACT`
+cited `SwapLib:1341`, which is a `SPLICE_FLOOR` comment; `UNIT-RESEAT-CONFIRMED` cited
+`SwapLib:2718`, which is a storage docblock. **Four for four, all in DIFFERENT rows.**
+
+| bucket | count | |
+|---|---|---|
+| line number resolves inside the file | 2,151 | **92% — and this proves NOTHING, see below** |
+| the file no longer exists anywhere | **132** | 5% — genuinely dead coordinates |
+| line past end-of-file | 48 | ⚠️ **contaminated, see the false-positive note** |
+
+🔴 **THE FINDING IS THE LIMIT, NOT THE PERCENTAGE: "IN RANGE" IS NOT "CORRECT", AND THE 92% CARRIES NO
+ASSURANCE.** All four rots above are **in-range citations pointing at the wrong content**. A line that
+MOVED still resolves; only a line past EOF or a deleted file is mechanically detectable. ⇒ **an
+automated checker can find the harmless failures and is blind to the dangerous ones**, which is why
+those four had to be found by reading. **Do not build a citation gate and believe it.**
+
+⚠️ **AND THE FALSE-POSITIVE CLASS IN MY OWN MEASUREMENT, named per the sweep rule:** the 48 past-EOF
+rows are dominated by `channel.rs`, which my basename resolver matched to a 49-line file because the
+walk excluded `lib/` — the real target is the vendored
+`quid-ln/lib/rust-lightning/lightning/src/ln/channel.rs`. **Those are my resolver's failures, not the
+file's.** The defensible number is the 132 whose file is gone from the tree entirely.
+
+📌 **THE PRACTICAL RULE, which this file already states and which the four rots confirm at scale:**
+*"when a row cites a LINE NUMBER rather than a measurement, treat it as unverified until you have
+re-read that line."* ⇒ **cite a SYMBOL or a quoted phrase alongside the line** — a symbol survives
+edits above it, a line number does not. The four corrected rows above now carry both.
+
 # 🧾 §UNIT-CENSUS-2026-09-07 — **"EVERYTHING LABELED UNIT IS DONE" IS RIGHT FOR 106 OF 140. HERE ARE THE ELEVEN IT IS NOT.**
 
 **Owner, 2026-09-07: *"to my understanding everything labeled UNIT is done."*** Counted rather than
