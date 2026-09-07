@@ -1,7 +1,8 @@
 //! QU!D EVM-sender bridge — the LN↔EVM glue that turns the hop node's swap
 //! events into `BTCChannels` transactions. Designed to run as a parallel daemon
 //! on the SAME box as the hop: it shares the hop's tokio runtime + an in-process
-//! `mpsc`, and holds the hot `onlyHop` EVM key. EVM I/O is BLOCKING (see [`evm`])
+//! `mpsc`, and holds the hot hop EVM key (the one `BTCChannels._onlyHop()` accepts).
+//! EVM I/O is BLOCKING (see [`evm`])
 //! and runs on `spawn_blocking`, so the daemon never starts a second async
 //! runtime — sidestepping the tokio-fork vs `alloy-provider` version clash.
 //!
@@ -20,14 +21,17 @@
 //!     path was unusable here — it needs alloy-primitives 1.x / rustc 1.91, both
 //!     conflicting with this workspace's 0.8.26 / 1.90 pins.)
 //!   • [`swap_out_onchain`] — the ON-CHAIN USD→BTC swap-out rail: watch
-//!     `SwapOutRequestedOnchain`, deliver BTC to the swapper's Bitcoin address via
-//!     an LP splice-out (finality-gated), reverse via `settleSwapIn` if
-//!     undeliverable. (The off-chain LN swap-out rail was removed; re-added in a later milestone.)
+//!     `SwapOutRequestedOnchain`, deliver BTC to the swapper's Bitcoin address via a
+//!     vault-initiated splice-out (finality-gated), then `deliverSwapOutOnchain`; reverse
+//!     via `reverseSwapOut` when the delivery never started. (The off-chain LN swap-out
+//!     rail was removed; re-added in a later milestone.)
 //!   • [`relayer`] — SPV header relayer. DONE.
-//!   • The `lp_fees` LP-fee settler was RETIRED — BTC-leg fees now compound
-//!     in-channel via the fee-splice; any exit residual is forgone to the pool (dust).
-//!   • Remaining: openChannel/recordClose drivers (the channel-lifecycle EVM
-//!     senders) and the rebalancer/channel-capacity manager.
+//!   • [`channel_driver`] — the channel-lifecycle EVM senders (`openChannel`, `splice`,
+//!     `recordClose`) plus the periodic reconciler. DONE.
+//!   • Channel-capacity keeping runs fleet-side out of [`vault`]'s open orchestrator
+//!     (PHASE C → `quid_hop::rebalancer::rebalance_capacity_tick`); nothing runs LP-side.
+//!     The BTC fee leg COMPOUNDS in-channel rather than being settled by a separate
+//!     payout; any exit residual is forgone to the pool (dust).
 
 /// Canonical EVM ABI word-building / decoding helpers, shared by every calldata
 /// encoder in this crate so the fund-gating / anti-rollback bytes stay identical.

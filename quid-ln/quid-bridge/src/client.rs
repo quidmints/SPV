@@ -1,4 +1,4 @@
-//! Concrete JSON-RPC `EvmClient`: builds the `settleSwapIn` tx, signs it (via a
+//! Concrete JSON-RPC `EvmClient`: builds the `settleSwapInProven` tx, signs it (via a
 //! pluggable [`TxSigner`]), sends it, awaits the receipt, and on a revert
 //! disambiguates `AlreadySettled` vs `Undeliverable` by reading `swapInUsed`.
 //!
@@ -167,7 +167,7 @@ pub struct TxFields {
 /// Signs an EIP-1559 settle tx. Abstract so the control flow + RPC decode are
 /// testable, and so the (version-constrained) concrete signer is swappable.
 pub trait TxSigner: Send + Sync + 'static {
-    /// The hot `onlyHop` signer's EVM address.
+    /// The hot hop signer's EVM address — the one `BTCChannels._onlyHop()` accepts.
     fn address(&self) -> Address;
     /// Sign `fields` as a type-2 tx → raw bytes for `eth_sendRawTransaction`.
     fn sign_eip1559(&self, fields: &TxFields) -> anyhow::Result<Vec<u8>>;
@@ -185,7 +185,7 @@ pub struct JsonRpcEvmClient<R: JsonRpc, S: TxSigner> {
     rpc: R,
     signer: S,
     cfg: BridgeConfig,
-    /// Serializes nonce acquisition + the FIRST broadcast. The `onlyHop` key is
+    /// Serializes nonce acquisition + the FIRST broadcast. The hop hot key is
     /// shared by every sender (settle, reversal, relayer), so without this two
     /// `submit`s could fetch the same `pending` nonce and stack unconfirmable txs
     /// Held ONLY across `get_nonce` + the first `send_raw` — once that tx is
@@ -204,8 +204,8 @@ impl<R: JsonRpc, S: TxSigner> JsonRpcEvmClient<R, S> {
         Self { rpc, signer, cfg, nonce_lock: Mutex::new(()) }
     }
 
-    /// The hot `onlyHop` signer's EVM address — i.e. the `from` a revert-reason
-    /// `eth_call` replay must use so the `msg.sender == hopNode` gate matches.
+    /// The hot hop signer's EVM address — i.e. the `from` a revert-reason `eth_call`
+    /// replay must use so `_onlyHop()` (`msg.sender` ∈ {`MAIN_HOP`, `FALLBACK_HOP`}) matches.
     pub fn address(&self) -> Address {
         self.signer.address()
     }
@@ -501,10 +501,12 @@ impl<R: JsonRpc, S: TxSigner> JsonRpcEvmClient<R, S> {
         anyhow::bail!("settle block {settle_block} not buried under {depth} confs within budget — retry")
     }
 
-    /// How many of the seller's sats a `settleSwapIn` actually converted, decoded from the
-    /// `SwapInSettled(seller, paymentHash, sats, consumedSats, token)` event (`consumedSats`
-    /// = the 2nd non-indexed field, data word[1]). Filters `eth_getLogs` by `btc_channels`
-    /// + `topic0` + the INDEXED `paymentHash` (`topic2`) over `[from_block, to_block]`.
+    /// How many of the seller's sats a `settleSwapInProven` actually converted, decoded from
+    /// the `SwapInSettled(seller, paymentHash, sats, consumedSats, token)` event
+    /// (`consumedSats` = the 2nd non-indexed field, data word[1]). Filters `eth_getLogs` by
+    /// `btc_channels` + `topic0` + the INDEXED `paymentHash` (`topic2`) over
+    /// `[from_block, to_block]`. ⚠️ On the proven rail that indexed word is the DEPOSIT TXID —
+    /// what the contract writes into `swapInUsed` and emits here — not a hop-chosen hash.
     ///
     /// Returns `sats` — i.e. "the pool converted everything, refund nothing" — whenever the
     /// log can't be found or decoded (RPC error, empty range, garbage data). That fallback
@@ -585,8 +587,8 @@ impl<R: JsonRpc, S: TxSigner> JsonRpcEvmClient<R, S> {
     /// credits no BTC and attests nothing. The only caller holds a concrete client, so the
     /// distinction costs nothing and stops the two paths sharing a stub.
     ///
-    /// The outcome disambiguation is identical in SHAPE to `settle_swap_in` and identical in
-    /// KIND: the dedup key is `swapInUsed[swapId]` on both paths (the contract reuses that
+    /// The outcome disambiguation is identical in SHAPE to `settle_swap_in_proven` and
+    /// identical in KIND: the dedup key is `swapInUsed` on both paths (the contract reuses that
     /// map for reversals), so a revert with the key SET is a replay of a reversal that already
     /// landed, and a revert with it CLEAR is a genuine failure to refund. `consumed_sats` is
     /// not read back: nothing is claimed against a reversal, so there is no remainder to
@@ -650,9 +652,9 @@ impl<R: JsonRpc, S: TxSigner> crate::evm::ProvenSwapInSettler for JsonRpcEvmClie
         let mined = self.submit(self.cfg.btc_channels, &data, self.cfg.gas_limit)?;
         debug!(success = mined.success, block = mined.block, "proven settle mined");
 
-        // Identical uniform reorg gate to the unproven path — but keyed on the DEPOSIT TXID,
-        // which is what the contract writes into `swapInUsed`. Gating on a swap id here would
-        // read a slot that is never set and report every settle as unconfirmed.
+        // The uniform reorg gate, keyed on the DEPOSIT TXID — which is what the contract
+        // writes into `swapInUsed`. Gating on a hop-chosen swap id here would read a slot that
+        // is never set and report every settle as unconfirmed.
         if self.swap_in_used_buried(deposit_txid, depth, mined.block)? {
             return Ok(if mined.success {
                 SettleOutcome::Delivered {
@@ -678,10 +680,6 @@ impl<R: JsonRpc, S: TxSigner> crate::evm::ProvenSwapInSettler for JsonRpcEvmClie
         Ok(SettleOutcome::Undeliverable)
     }
 }
-
-// The LpFeeMarker impl (markLpFeePaid/lpFeePaid F4 dedup) was REMOVED with the
-// off-chain fee settler — fees now compound in-channel, so there is no native payout to
-// dedup on-chain.
 
 impl<R: JsonRpc, S: TxSigner> crate::provision_api::MigrationNonceConsumer for JsonRpcEvmClient<R, S> {
     fn consume(&self, nonce: [u8; 32]) -> anyhow::Result<()> {

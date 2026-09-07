@@ -9,21 +9,25 @@
 //!
 //! Flow per request (after the EVM burn-finality gate):
 //!   1. SELECT an LP channel with funded ≥ `sats` (its LP delivers + earns the QUI).
-//!   2. TRIGGER the LP (`request_swap_out_delivery` over the lpAuth transport): the LP
-//!      initiates the SpliceOut paying the swapper, and — once it locks — returns the
-//!      delivery lpAuth (over `swapOutDeliverDigest`) + the new params/outpoint.
-//!   3. REBUILD the splice params + raw tx + SPV proof from the LP's reported outpoint
-//!      (own esplora view) and CROSS-CHECK they equal what the LP signed (never trust
-//!      the LP's params blindly — same discipline as `drive_splice`).
-//!   4. Confirmation-gate the splice block, then submit `deliverSwapOutOnchain`.
-//!   On any failure (no channel / LP declines / timeout / revert) → REVERSE via
-//!   `settleSwapIn` (USD back to the swapper in their token), keyed by `swapId` — the
-//!   same unhappy path as the LN rail. The on-chain `pendingOnchainSwapOut` obligation
-//!   makes a stuck delivery always reversible.
+//!   2. (B) INITIATE the swapper-directed SpliceOut on the VAULT node, which holds the LP-side
+//!      channel keys and co-signs in-process, and await its lock. **There is NO LP round-trip
+//!      and no per-call lpAuth**: the fleet splices directly and submits as the channel's hop.
+//!   3. REBUILD the splice params + raw tx + SPV proof from the LOCKED outpoint, from our own
+//!      esplora view. We initiated the splice, so there is no counterparty signature to
+//!      cross-check; the contract SPV-verifies it and pins the delivered slice to the
+//!      swapper's proven payment (`sumOutputValuesToScript`).
+//!   4. Confirmation-gate the splice block, then submit `deliverSwapOutOnchain` with the
+//!      §E233 fresh `ExitArming` ladder for the rotated outpoint.
+//!   On a failure BEFORE any splice was initiated (no channel / immediate error) → REVERSE via
+//!   `reverseSwapOut`, which returns the swapper's USD in their own token keyed by `swapId`.
+//!   ⚠️ An INITIATED-but-unlocked splice is NEITHER retried nor reversed — see
+//!   §AUDIT-SWAPOUT-DOUBLEPAY / §DELIVERY-INFLIGHT-RESOLUTION below; both would pay twice.
+//!   The on-chain `pendingOnchainSwapOut` obligation, plus the swapper's own
+//!   `refundExpiredSwapOut` window, are what make a stuck delivery recoverable.
 //!
-//! NOTE: written to mirror `channel_driver::drive_splice`;
-//! the LN/p2p seams (LP-initiated SpliceOut to the swapper, co-sign, lpAuth round-trip)
-//! are verified on the regtest harness, exactly as the splice-in seam was.
+//! NOTE: written to mirror `channel_driver::drive_splice`; the LN seams (vault-initiated
+//! SpliceOut to the swapper, in-process co-sign) are verified on the regtest harness,
+//! exactly as the splice-in seam was.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -140,7 +144,8 @@ fn select_delivery_channels<R: JsonRpc>(
 
 /// On-chain resolution state: a swap-out is RESOLVED once it is either DELIVERED
 /// (`pendingOnchainSwapOut` cleared → its swapper word is 0) or REVERSED
-/// (`swapInUsed[swapId]` set by the reversal's `settleSwapIn`). The driver must NOT
+/// (`swapInUsed[swapId]` set by `reverseSwapOut`, or by the swapper's own
+/// `refundExpiredSwapOut`). The driver must NOT
 /// (re-)deliver a resolved swap — this is what makes a watcher restart / re-scan
 /// idempotent WITHOUT a durable cursor: the on-chain state is the source of truth.
 fn swap_out_resolved<R: JsonRpc>(
@@ -416,12 +421,12 @@ async fn complete_delivery<R: JsonRpc + Send + Sync + 'static>(
 /// USD (in their token), keyed by `swapId` (the on-chain dedup `swapInUsed` makes it
 /// idempotent).
 ///
-/// (T1-b) This used to ride the `settleSwap_in` credit path, passing `req.swapper` and
-/// `req.sats` as if they were a seller and a delivery. They are neither, and passing them
-/// was the risk: on that path the hop's word set the payee and the amount. `reverseSwapOut`
-/// takes only the id, and the contract reads the payee and sats from the record the
-/// swapper's OWN `requestSwapOutOnchain` wrote — so a compromised hop can at worst reverse a
-/// swap-out that really is pending, to the address that really requested it.
+/// (T1-b) 🔑 **THE HOP ASSERTS NOTHING ABOUT THE PAYEE OR THE AMOUNT, AND THAT IS THE POINT.**
+/// `reverseSwapOut` takes only the id; the contract reads the payee and sats from the record
+/// the swapper's OWN `requestSwapOutOnchain` wrote — so a compromised hop can at worst reverse
+/// a swap-out that really is pending, to the address that really requested it. Do not
+/// re-introduce a path that passes `req.swapper` / `req.sats` as a seller and a delivery: they
+/// are neither, and on such a path the hop's word would set both.
 ///
 /// ✅ SEALED as of §T1-d: `token` is no longer ours to assert either. The record was repacked
 /// (`sats` to `uint64`, freeing slot space) so it now stores the token the swapper's OWN request

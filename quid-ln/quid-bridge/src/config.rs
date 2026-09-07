@@ -59,7 +59,7 @@ pub struct BridgeConfig {
     /// Same-nonce fee-bump (replace-by-fee) attempts before declaring a tx
     /// unmineable. After each receipt-poll window with no receipt, the tx is
     /// re-signed at the SAME nonce with a higher fee and re-broadcast, so one
-    /// underpriced tx can't wedge the shared `onlyHop` nonce. 0 disables
+    /// underpriced tx can't wedge the hop hot key's shared nonce. 0 disables
     /// bumping (single shot).
     pub fee_bump_attempts: u32,
     /// Per-replacement fee multiplier, in percent (≥ 113 to clear the node's
@@ -81,8 +81,9 @@ pub struct BridgeConfig {
     pub swap_out_poll_secs: u64,
 
     // --- BTC Vault --- //
-    /// The `Vault` contract (`btcFeesOwedSats` ledger + the fee-flush target). (The
-    /// separate LP-fee settler was retired; fees compound in-channel.)
+    /// The `Vault` contract. The BTC fee leg COMPOUNDS in-channel, so nothing here settles
+    /// fees; this address is on the validating signer's destination allowlist
+    /// (`daemon::hop_allowed_contracts`) and is the fee-flush path's read target.
     pub btc_vault: Address,
 
     // --- SPV header relayer --- //
@@ -109,10 +110,10 @@ pub struct BridgeConfig {
     /// hop's single hot key/nonce with the time-critical swap settlers. Under a
     /// swap burst the relayer's header tx can queue behind theirs. To keep
     /// settlement (HTLC deadlines) ahead of header relay (which tolerates minutes
-    /// — Bitcoin blocks are ~10 min), the relayer DEFERS a round when in-flight
-    /// swap settlements reach this count. A TIER below the swap-out concurrency
-    /// ceiling (`MAX_CONCURRENT_SWAP_OUTS`) so the relayer yields FIRST; bounded
-    /// swaps drain and the relayer resumes. 0 = never defer.
+    /// — Bitcoin blocks are ~10 min), the relayer DEFERS a round when the count of
+    /// PERSISTED IN-FLIGHT SWAP-INS (`Store::inflight_swapin_count`) reaches this value
+    /// — see `relayer::relayer_should_defer`. Bounded: the swaps drain and the relayer
+    /// resumes. 0 = never defer.
     pub relayer_defer_inflight: usize,
 }
 
@@ -227,7 +228,7 @@ impl BridgeConfig {
 
     /// STAGING/PROD hardening (untrusted-host M11). The fund-gating AGREEMENT reads
     /// (`btcRecipientOf`, `swapInUsed`, `pendingOnchainSwapOut`, `freshnessSeq`,
-    /// `lpFeePaid`, `migrationNonceUsed`) are only meaningful if a MAJORITY of
+    /// `migrationNonceUsed`) are only meaningful if a MAJORITY of
     /// INDEPENDENTLY-operated endpoints must concur. Base `validate()` permits a single
     /// endpoint (self-host, host trusted); under an untrusted host that is single-host
     /// trust — the host forges every read (redirect fee payouts, claim BTC without USD,
@@ -298,9 +299,8 @@ mod tests {
             relay_poll_secs: 5,
             relay_reorg_lookback: 144,
             channel_reconcile_secs: 300,
-            // Defer header relay once 20 swap settlements are in flight — a tier
-            // below MAX_CONCURRENT_SWAP_OUTS (30) so the relayer yields its nonce
-            // to time-critical settlement first.
+            // Defer header relay once 20 swap-ins are in flight, so the relayer yields
+            // its nonce to time-critical settlement first.
             relayer_defer_inflight: 20,
         }
     }

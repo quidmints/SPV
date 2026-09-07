@@ -833,9 +833,9 @@ pub async fn drive_open<R: JsonRpc + Send + Sync + 'static>(
 /// splice (keyed on the ORIGINAL funding outpoint), so it is passed in, never
 /// recomputed from the splice outpoint.
 ///
-/// (B) Authorization is on-chain (the channel's HOP GATE, `channel.hop`, fixed at
-/// open to a delegated hop) — the retired lpAuth round-trip is gone, the LP runs
-/// nothing. The 2-of-2 pubkeys are read from LDK ([`channel_funding_pubkeys`] at the
+/// (B) Authorization is on-chain (`_whenOpen` + `_onlyHop()` — `msg.sender` must be
+/// one of the two immutable hop addresses) — the retired lpAuth round-trip is gone,
+/// the LP runs nothing. The 2-of-2 pubkeys are read from LDK ([`channel_funding_pubkeys`] at the
 /// splice outpoint — the channel's `funding_txo` post-`SpliceLocked`), so this is
 /// correctness-by-construction like [`drive_open`]: the hop re-derives + verifies
 /// exactly what the LP signed. The ONE remaining upstream input is the confirmed
@@ -1032,7 +1032,7 @@ pub async fn run_channel_driver<R: JsonRpc + Send + Sync + 'static>(
         match ev {
             ChannelLifecycleEvent::Ready {
                 channel_id,
-                counterparty_node_pk: _, // (B) lpAuth transport retired; open is delegation-gated on-chain
+                counterparty_node_pk: _, // (B) lpAuth transport retired; open is `_onlyHop()`-gated on-chain
                 funding_txid,
                 funding_vout,
             } => {
@@ -1259,32 +1259,27 @@ pub async fn run_channel_driver<R: JsonRpc + Send + Sync + 'static>(
     warn!("channel driver: lifecycle stream ended");
 }
 
-/// Hop-side BTC-leg **fee flush**: when a channel is caught up (nothing to
-/// mirror) and has accrued `Vault.btcFeesOwedSats` worth splicing, initiate a
-/// HOP-FUNDED splice-in of exactly the owed sats. `requestDeposit` (in the splice
-/// mirror) then grows the LP's `POOLED` by that delta — the fees COMPOUND into the
-/// position. This is the fleet doing the keeping for every channel it serves;
-/// nothing runs LP-side.
+/// Hop-side BTC-leg **fee flush**: the landing site for a HOP-FUNDED splice-in of an
+/// LP's accrued BTC-leg fees, run per channel on a caught-up (nothing to mirror) pass.
+/// `requestDeposit` (in the splice mirror) grows the LP's `POOLED` by the delta, so the
+/// fees COMPOUND into the position — the fleet doing the keeping for every channel it
+/// serves, with nothing running LP-side.
 ///
-/// ⛔ **THERE IS NO KEYSEND, AND THIS DOCBLOCK USED TO SAY THERE WAS.** It read
-/// "[`drive_splice`] keysends the same sats hop→LP and clears the owed ledger", which
-/// contradicted line ~893 of this same file — *"under B the LP has no LN node — the old
-/// keysend is obsolete"* — and that line is the correct one. **No
-/// `send_spontaneous_payment` call exists anywhere in `quid-bridge`, `quid-hop` or
-/// `quid-ln`;** the only `Spontaneous` symbols in the tree are LDK's INBOUND types for
-/// RECEIVING one. The keysend belonged to the pre-§E145 settlement design, and §E145
-/// deleted "the owed ledger and everything that existed to settle it" — the prose simply
-/// outlived the code, as `fee_settle_sats` did until §E191 struck it out below.
+/// ⚠️ **DORMANT AS WRITTEN.** No amount ever reaches the splice: `owed` is pinned to `0`
+/// in the body, so every call returns at the economic-grow floor. The bounds below it are
+/// retained on purpose — see the body for why — but do not read the paragraph above as a
+/// description of work this pass performs today.
 ///
-/// 🔑 **SO NOTHING IS PAID OUT: the LP's SHARE COUNT grows and the value is realised at
-/// resize or close** (`BtcLib.feeCompounded` → `Vault.sol:543`,
-/// `lpSharesBTC += feeCompounded`). An LP needs no node, no action and no notification to
-/// receive fees, which is the whole point under B — and it is why a keysend, which would
-/// require the LP to be online to receive, could never have been the mechanism here.
+/// 🔑 **NOTHING IS PAID OUT TO AN LP: the LP's SHARE COUNT grows and the value is realised
+/// at resize or close** (`BtcLib.ResizeOut.feeCompounded`, applied in `Vault.sol` as
+/// `lpShares = lpShares + o.feeCompounded - o.sharesRemoved`). An LP needs no node, no
+/// action and no notification to receive fees, which is the whole point under B — and it
+/// is why a keysend, which would require the LP to be online to receive, could never have
+/// been the mechanism here. **Do not add one**: no `send_spontaneous_payment` call exists
+/// anywhere in `quid-bridge`, `quid-hop` or `quid-ln`, and under B the LP has no LN node.
 ///
 /// Rate limit is structural, not a timer: at most ONE splice per channel is
-/// outstanding (`no_pending_splice`), and once it locks the mirror settles the
-/// owed so the next pass sees nothing to flush. The economic-grow floor
+/// outstanding (`no_pending_splice`). The economic-grow floor
 /// ([`MIN_ECONOMIC_GROW_SATS`]) batches small fees so the on-chain funding fee
 /// never dominates. All bounds are physics/economics; a blocked-but-needed flush
 /// is `warn!`ed loudly (fund the hop wallet / raise the cap), never a silent no-op.
@@ -1314,18 +1309,18 @@ async fn maybe_flush_btc_fees<R: JsonRpc + Send + Sync + 'static>(
         return;
     }
 
-    // Accrued BTC-leg fees owed to THIS channel's LP.
+    // Scaffolding for the per-LP `Vault` read this path would make: the channel's `lpEth`
+    // left-padded into an ABI word. Nothing consumes it while `owed` is pinned below.
     let vault = cfg.btc_vault;
     let lp = state.lp_eth;
     let mut arg = [0u8; 32];
     arg[12..].copy_from_slice(lp.as_slice());
-    // (E145/E191) THERE IS NO OWED LEDGER ANY MORE, so nothing is ever pending a flush.
-    // `974b6d8` made the BTC fee leg COMPOUND INTO THE POSITION in sats; `a67e2d8` deleted the
-    // owed ledger "and everything that existed to settle it"; `5e16492` deleted `feeSettleSats`.
-    // This function used to read `btcFeesOwedSats(address)` — a selector no contract implements
-    // since then, so the call ALWAYS failed and fell through `_ => return, // read blip → try
-    // again next pass`. ⚠️ THAT COMMENT WAS THE BUG: it dressed a PERMANENT failure as a
-    // TRANSIENT one, so a path that had not run since E191 looked healthy in every log.
+    // (E145) THERE IS NO OWED LEDGER ANY MORE, so nothing is ever pending a flush: the BTC
+    // fee leg COMPOUNDS INTO THE POSITION in sats, and no contract exposes an outstanding
+    // per-LP balance to read. Hence the literal `0` — NOT a failed read defaulting to zero.
+    // ⚠️ Do not "restore" this by re-adding an `eth_call` whose error falls through as a
+    // transient blip: that is exactly how this path spent releases looking healthy in the
+    // logs while permanently dead.
     //
     // The path is DELIBERATELY KEPT rather than deleted. Routing fees do not reach it today —
     // they are never observed upstream (no `PaymentForwarded` handling anywhere in the tree) —
@@ -1383,8 +1378,8 @@ async fn maybe_flush_btc_fees<R: JsonRpc + Send + Sync + 'static>(
     )
     .await
     {
-        // Not fatal: the fees stay owed and the next pass retries (one attempt per
-        // pass — no retry storm). The mirror still settles them on any later splice.
+        // Not fatal: the next pass retries (one attempt per pass — no retry storm), and
+        // the fee leg compounds into the position on any later splice regardless.
         warn!(cid = %hex::encode(cid), owed, "fee-flush: initiate_splice failed: {e:#}");
     }
 }
@@ -1411,12 +1406,10 @@ pub async fn run_channel_reconciler<R: JsonRpc + Send + Sync + 'static>(
     chain_monitor: Arc<HopChainMonitor>,
     channel_manager: Arc<HopChannelManager>,
     vault_registry: Arc<crate::vault::VaultRegistry>,
-    // the hop's on-chain wallet + rebalance config. When `Some`, this same
-    // per-channel pass ALSO flushes each channel's accrued BTC-leg fees
-    // (`Vault.btcFeesOwedSats`) INTO the position via a HOP-FUNDED splice-in — the
-    // fleet/hop does the keeping for every channel it serves (a self-hosting
-    // family-plan LP runs this same daemon), so nothing runs LP-side. `None` =
-    // mirror-only (fees not flushed; e.g. tests / a read-only reconciler).
+    // the hop's on-chain wallet + rebalance config. When `Some`, this same per-channel
+    // pass ALSO enters [`maybe_flush_btc_fees`], the hop-funded fee-splice landing site —
+    // which is dormant today (its `owed` is pinned to 0), so in practice both settings
+    // mirror only. `None` skips the pass outright (e.g. tests / a read-only reconciler).
     hop_wallet: Option<quid_ln::wallet::OnchainWallet>,
     rebalance: Option<quid_hop::rebalancer::RebalanceConfig>,
     // (§LP-LIVENESS) The routing gate, if this deployment collects LP heartbeats. This pass

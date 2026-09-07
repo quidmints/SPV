@@ -17,25 +17,29 @@
 //! liquidation, which still never touches the QU!D basket — the lender is external,
 //! and that is the reason it must be.
 //!
-//! 🔴 **BUT IT IS NO LONGER ISOLATED TO ONE LP, AND THIS PARAGRAPH SAID IT WAS.** It
-//! read *"it hits that one LP, never the basket"*. Under §POOL-VENUE the venue runs
-//! ONE Morpho position under `address(this)`, so a seizure hits the pool and
-//! therefore **every LP pro-rata** — `LevVenueBase:117` states exactly that. The
-//! basket half of the claim survives; the per-LP half does not.
-//! ⇒ **THE CONSEQUENCE IS THAT THIS KEEPER MATTERS MORE, NOT LESS.** When a
-//! liquidation was one LP's own problem, a keeper miss cost that LP. Pooled, a miss
-//! is socialised across the book, so "the venue's engine is a never-triggered
-//! backstop" is now a guarantee the keeper owes EVERY LP jointly. That is why the
-//! safety gate reads [`PositionView::pool_ltv_bps`] — the aggregate Morpho actually
-//! liquidates on — and not only the per-LP LTV it used to read.
+//! 🔴 **A SEIZURE IS NOT ISOLATED TO ONE LP.** Under §POOL-VENUE the venue runs ONE
+//! Morpho position under `address(this)` and slices it by unit share
+//! (`LevVenueBase.positionOf` / `_unitSlice`), so a seizure hits the pool and therefore
+//! **every LP pro-rata**. Only the basket stays out of it.
+//! ⇒ **THE CONSEQUENCE IS THAT THIS KEEPER MATTERS MORE, NOT LESS.** Were a liquidation
+//! one LP's own problem, a keeper miss would cost that LP alone. Pooled, a miss is
+//! socialised across the book, so "the venue's engine is a never-triggered backstop" is a
+//! guarantee the keeper owes EVERY LP jointly. That is why the safety gate reads
+//! [`PositionView::pool_ltv_bps`] — the aggregate Morpho actually liquidates on — and not
+//! only the per-LP LTV.
 //!
 //! # The target is `L = 1/α`, never a pinned 2x
-//! `α` = the realized range concavity (how √p-like the position is), measured from
-//! flow via [`realized_alpha`]. Busy flow → `α→0.5` → `L→2` (cancel the IL the flow
-//! created). Quiet → `α→1` → `L→1` (no leverage, because there is no realized IL to
-//! cancel). Pinning `L=2` (ybamm's mistake) over-levers in quiet regimes and drains
-//! the buffer; sizing to `α` is what bounds the tail. The LTV form is
-//! `target_ltv = 1 − α` ([`target_ltv_bps_from_alpha`]).
+//! `α` = the realized range concavity (how √p-like the position is). Busy flow →
+//! `α→0.5` → `L→2` (cancel the IL the flow created). Quiet → `α→1` → `L→1` (no leverage,
+//! because there is no realized IL to cancel). Pinning `L=2` (ybamm's mistake) over-levers
+//! in quiet regimes and drains the buffer; sizing to `α` is what bounds the tail. The LTV
+//! form is `target_ltv = 1 − α`.
+//!
+//! ⚠️ **THE KEEPER DOES NOT MEASURE `α` — THE CONTRACT DOES.** `LevManager.ilTargetLtvBps`
+//! publishes `1 − √(entry/now)` (i.e. `α = √(entry/now)`), which the loop reads into
+//! [`PositionView::target_ltv_bps`] and treats as authoritative. [`il_target_ltv_bps`] is a
+//! pure off-chain mirror of that same formula, for logging only, clamped at the 2× cap
+//! (5000 bps).
 //!
 //! # OMNI triggers — the keeper is EVENT-DRIVEN, not just an LTV poller
 //! A levered position must unwind on the right events, and — critically — an UNLEVERED LP's range
@@ -143,7 +147,7 @@ pub struct PositionView {
     /// protecting the LP's collateral (their ETH/BTC exposure) instead of selling it. Redeem is mature-only
     /// on-chain, so UNMATURED QUID is never touched (no par-burn-for-debt abuse — audit 2026-07-03).
     pub mature_quid_usd: u64,
-    /// TRUE when the position's collateral is WBTC (the `AaveV3Venue`/`AaveV4Venue`/… WBTC-fallback route),
+    /// TRUE when the position's collateral is WBTC (the `AaveV3Venue` WBTC-fallback route),
     /// FALSE for native channel-vBTC. WBTC-mode positions rebalance via ONE atomic on-chain `rebalanceWbtc`
     /// (flash-repay-first de-lever OR fold-up, decided on-chain) — no acquirer, no async vBTC legs — so the
     /// keeper routes them past the withdraw→sell→repay sequence. Always FALSE on the ETH keeper.
@@ -569,17 +573,17 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
         let (evm, lm, gas) = (self.evm.clone(), self.lev_manager, self.gas_limit);
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
             // minOut=0: the contract's oracle-derived MAX_SLIPPAGE floor protects every swap (anti-MEV).
-            // §C2.1 — three STATIC words now: (lp, minOut, dex). The `bytes route` tail is gone,
-            // and with it the offset word that made this the only hand-rolled dynamic head in the
-            // keeper. The venue word is real, so this call no longer reverts `NoVolatileRoute()`.
+            // §C2.1 — five STATIC head words (lp, minOut, dex, dex2, route-offset) followed by an
+            // EMPTY `bytes route` tail, matching `rebalance(address,uint256,uint256,uint256,bytes)`
+            // on `LevManager`. The venue words are real, so this call cannot revert
+            // `NoVolatileRoute()` for want of a pool.
             let mut data = selector4("rebalance(address,uint256,uint256,uint256,bytes)");
             data.extend_from_slice(&addr_word(lp));
             data.extend_from_slice(&u64_word(0));
-            // §SESS-47 — BOTH hops now come from `plan_for_lp`, which resolves THIS LP's venue stable
-            // and plans against it. The literal `[0u8; 32]` that used to sit on the next line is the
-            // whole reason a USDT- or DAI-denominated venue reverted `NoStableRoute()`: it forced the
-            // contract onto `_hubSwap`'s two-row Curve table. A stable we cannot plan still lands
-            // here as `dex_word()` + zero, i.e. byte-identical to the old call.
+            // §SESS-47 — BOTH hops come from `plan_for_lp`, which resolves THIS LP's venue stable
+            // and plans against it, so a USDT- or DAI-denominated venue gets a real hub word instead
+            // of being pushed onto the contract's own Curve hub. A stable we cannot plan degrades to
+            // `dex_word()` + a zero hub word, which is the contract's keyless `_hubHop` arm.
             let p = plan_for_lp(&evm, lm, lp, WETH_ADDR);
             data.extend_from_slice(&p.dex);
             data.extend_from_slice(&p.dex2);
@@ -596,13 +600,9 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
     }
 
     async fn cascade_delever(&self, lps: &[LpAddr], routes: &[Vec<u8>]) -> anyhow::Result<()> {
-        // §SESS-21 — `routes` was `_routes`: the parameter was here and DROPPED, because the CLOSE leg
-        // could not carry one (`_delever` handed `_deleverFlash` only `dex`). §SESS-19 fixed the leg and
-        // this widens the batch that reaches it.
-        // §SESS-47 — the sentence that stood here, *"this keeper plans no second pool word yet — so
-        // `dex2s` goes EMPTY and on-chain behaviour is unchanged"*, was STALE: `plan_route` plans one,
-        // and sending nothing is what pinned every non-USDC venue to `_routeOf`'s two-row table.
-        // PER-LP now, because a batch spans venues and a book-wide word would be wrong for most of it.
+        // §SESS-19/§SESS-21 — the CLOSE leg carries `routes` all the way to `_deleverFlash`, so the
+        // batch is widened to match. The hub word is planned PER-LP, because a batch spans venues and
+        // one book-wide word would be wrong for most of it.
         let (evm, lm, gas, lps, routes) =
             (self.evm.clone(), self.lev_manager, self.gas_limit, lps.to_vec(), routes.to_vec());
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
@@ -618,14 +618,11 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
     /// Hold the whole book at its IL target in ONE tx. Gas scales with the batch (each LP is a flash-repay
     /// or lever-up), capped below the block limit; the on-chain loop is fault-tolerant + syncs each LP internally.
     async fn rebalance_many(&self, lps: &[LpAddr], routes: &[Vec<u8>]) -> anyhow::Result<()> {
-        // §S15 — `routes` used to be `_routes`: the parameter was here and DROPPED, because the
-        // on-chain `rebalanceMany` had nowhere to put it. It does now.
-        // §SESS-47 — that predicted "keeper-planner change alone" is THIS, and it is one line per site.
-        //    The note here used to read *"this keeper has no SECOND pool word to plan yet"*; `plan_route`
-        //    had already landed, so the claim was stale and the empty `dex2s` was a live regression —
-        //    `dex2 == 0` routes the contract into `_hubSwap`, whose table covers RLUSD and PYUSD only.
-        //    A route only takes effect when its `dex2` is non-zero (`LevMath._stableToWethSor:991`),
-        //    which is precisely why sending nothing disabled the `bytes route` arm as well.
+        // §S15/§SESS-47 — `dex2s` is planned PER-LP and sent non-empty. That matters twice over:
+        //    a zero hub word sends a non-USDC venue down the contract's own `_hubHop` table arm, and
+        //    on that arm `_stableToWethSor` bypasses `routedSwap` entirely — so an empty `dex2s`
+        //    would disable the `bytes route` arm as well. (USDC is the exception by nature: it IS the
+        //    hub, so `dex2 == 0` is correct for it and still reaches `route`.)
         let (evm, lm, gas, lps, routes) =
             (self.evm.clone(), self.lev_manager, self.gas_limit, lps.to_vec(), routes.to_vec());
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
@@ -954,27 +951,23 @@ fn venue_stable_of<R: JsonRpc, S: TxSigner>(
     Some(out)
 }
 
-/// §SESS-47 — 🔴 **THE ACTUAL REASON A NON-USDC STABLE WAS UNBORROWABLE, AND IT WAS NEVER ON-CHAIN.**
+/// §SESS-47 — 🔑 **THE KEEPER SUPPLIES THE HUB HOP, SO THE CONTRACT NEVER HAS TO GUESS ONE.**
 ///
-/// `plan_route` has known how to reach USDT and DAI since it was written, and
-/// `plan_route_puts_the_hub_hop_in_dex2` pins that USDT→WETH yields `dex2 = USDT/USDC 0.01%`.
-/// **All three send sites then threw the plan away** — `rebalance` wrote a literal `[0u8; 32]` hub
-/// word, `cascade_delever` and `rebalance_many` sent `dex2s = Vec::new()` — and every one carried a
-/// comment saying *"this keeper plans no second pool word yet"*, which stopped being true the day
-/// `plan_route` landed. ⇒ `dex2 == 0` sent the contract down `_stableToWbtc`/`_stableToWethSor`'s
-/// `hubDex == 0` arm into `_hubSwap`, whose `_routeOf` table holds RLUSD and PYUSD and **reverts
-/// `NoStableRoute()` for everything else**. The table was the SYMPTOM; discarding the plan was the
-/// defect. Per standing rule 17 this makes the fix a deletion rather than another row: `_routeOf` is
-/// already marked *"DELETE THIS BRANCH … once the keepers supply `hubDex` for every venue stable in
-/// use"* (`LevMath.sol:1243`) — this is the keeper half of that condition.
+/// Resolve THIS LP's venue stable, plan `stable → volatile` against it, and send BOTH pool words.
+/// `planner_two_hop_puts_the_hub_leg_in_dex2` pins the shape: USDT→WETH yields
+/// `dex2 = USDT/USDC 0.01%` (hop 1) and `dex = USDC/WETH 0.05%` (hop 2). A non-zero `dex2` is what
+/// keeps `_stableToWethSor` / `_stableToWbtc` on `routedSwap` — their `hubDex == 0` arm calls
+/// `_aggSwap` directly and never looks at `route` — so sending the plan is also what makes the
+/// full-venue `bytes route` arm reachable.
 ///
-/// ⭐ **FAIL-SAFE BY CONSTRUCTION, WHICH IS WHY IT IS SAFE TO LAND AHEAD OF THAT DELETION.** A failed
-///    read, an unknown venue or a stable `direct_pool` cannot express all degrade to **exactly
-///    today's bytes** — `dex_word()` with a zero hub word — so the legacy Curve arm stays reachable
-///    and no position changes behaviour. It never guesses a pool.
+/// ⭐ **FAIL-SAFE BY CONSTRUCTION.** A failed read, an unknown venue, or a stable `direct_pool`
+///    cannot express all degrade to `dex_word()` with a ZERO hub word, which is the contract's own
+///    keyless arm (`_hubHop` → `_hubRowOf`, six stables, `NoStableRoute()` only for a stable that is
+///    on none of them). It never guesses a pool.
 /// ⚠️ **AND NOTE WHAT DOES NOT CHANGE: USDC.** `plan_route(USDC, WETH)` finds a DIRECT pool, so it
-///    returns `dex2 = 0` on its own merits. The identity case is handled inside `_hubSwap` (`stable
-///    == USDC ⇒ return amt`), which is why adding `&& stable != USDC` to that guard broke 17 tests.
+///    returns `dex2 = 0` on its own merits. USDC IS the hub — `_hubHop` returns `amt` unchanged for
+///    it — which is why `_stableToWethSor` excludes it from the `dex2 == 0` guard, and why adding
+///    `&& stable != USDC` to that guard broke 17 tests.
 /// 📌 Costs two `eth_read`s per LP per cycle against a 5-minute poll. `position_view` already reads
 ///    `pos(lp)`; threading the stable through it would save one read at the price of widening the
 ///    `LevKeeperEvm` trait and its mock, so the duplicate read is the smaller change.
@@ -994,12 +987,9 @@ fn hex_lit_pool() -> [u8; 20] {
 
 /// §S15 — the FIVE-array `rebalanceMany(address[],uint256[],uint256[],uint256[],bytes[])`.
 ///
-/// ⚠️ **THIS NOTE WAS REVERSED BY §SESS-21, AND THE REVERSAL IS THE POINT.** It read: *"Kept separate
-/// from `encode_batch` rather than generalising it: `cascadeDelever` still takes three arrays and MUST
-/// NOT gain a `bytes[]`, because `deleverOne` drops `dex2`/`route` before `_deleverFlash` — a fourth
-/// array there would be signable calldata that no code path consumes."* **That was correct while the
-/// drop existed.** §SESS-19 removed the drop and §SESS-21 widened `deleverOne`/`cascadeDelever`, so the
-/// calldata IS consumed now and one encoder serves both batch selectors — which is why it takes `sig`.
+/// ⭐ **ONE ENCODER, TWO SELECTORS — WHICH IS WHY IT TAKES `sig`.** `cascadeDelever` has the SAME
+/// five-array shape, and since §SESS-19/§SESS-21 `deleverOne` carries `dex2`/`route` through to
+/// `_deleverFlash` rather than dropping them, so the extra arrays are consumed on both paths.
 ///
 /// ⚠️ **`dex2s` and `routes` may each be EMPTY, which is the contract's compat shape** (`length 0`
 ///    ⇒ every LP takes the legacy single-hop hub route). Any OTHER length must equal `lps.len()`,
@@ -1241,10 +1231,10 @@ mod tests {
     /// `dex2 = 0` — a green planner is exactly what a discarded plan produces, which is the
     /// built-but-unwired shape `check-orphans.py` catches on the Solidity side and nothing catches here.
     ///
-    /// Two properties, and the second is the one that lets this land ahead of `_routeOf`'s deletion:
-    ///   1. **a stable the venue can borrow must yield a NON-ZERO hub word** — `dex2 == 0` is precisely
-    ///      the value that routes the contract into `_hubSwap`'s two-row table and reverts
-    ///      `NoStableRoute()` for anything but RLUSD/PYUSD;
+    /// Two properties:
+    ///   1. **a stable the venue can borrow must yield a NON-ZERO hub word** — `dex2 == 0` is the
+    ///      value that hands the hub leg back to the contract's own `_hubHop` table and, on that
+    ///      arm, bypasses `routedSwap` (and therefore `route`) entirely;
     ///   2. **an unplannable stable must degrade to today's EXACT bytes**, so a failed `stable()` read
     ///      or an unlisted venue changes nothing rather than naming a pool we did not verify.
     /// ⚠️ Asserts the fallback against `dex_word()` itself rather than a literal, so an operator's
@@ -1259,7 +1249,7 @@ mod tests {
             assert_ne!(p.dex, [0u8; 32], "{name} planned no volatile hop");
         }
         // USDC is the hub, so a zero `dex2` is CORRECT for it and must not be read as the defect:
-        // `_hubSwap` returns `amt` unchanged when `stable == USDC`.
+        // `_hubHop` returns `amt` unchanged when `stable == USDC`.
         let usdc = plan_route(USDC_ADDR, WETH_ADDR).expect("USDC must plan");
         assert_eq!(usdc.dex2, [0u8; 32], "USDC is the hub; a second hop would be a pool we do not need");
 

@@ -12,8 +12,9 @@
 //!   { "seller":"0x..", "token":"0x..", "sats":N, "price_per_btc":"<u256>",
 //!     "slippage_bps":N, "user_refund_pubkey":"<32-byte x-only hex>" }
 //!   → 200 { "deposit_address":"bcrt1p..", "swap_id":"0x..", "cltv_height":N }
-//!   The hop watches the address; once the deposit buries it settles `settleSwapIn`
-//!   (floor recomputed from the ACTUAL deposited sats) then claims by key path. If the
+//!   The hop watches the address; once the deposit buries it settles `settleSwapInProven`
+//!   (floor DERIVED on-chain from the committed rate and the proven sats) then claims by
+//!   key path. If the
 //!   hop never settles, the sender reclaims via the CLTV refund leaf after `cltv_height`.
 //!   Enabled only when the on-chain rail is running (else 503).
 //!
@@ -24,20 +25,15 @@
 //!     "payout_mode":"invoice"|"raw_btc" }
 //!   → 200 { "deposit_address":"bcrt1p.." }
 //!
-//!   ⚠️ **THIS USED TO DESCRIBE A GATE THAT NO LONGER EXISTS**, and the description outlived
-//!   the code twice over. It said the LP must first "sign `registerDelegation` on-chain" and
-//!   that the endpoint "refuses unless `delegationVersion[lpEth] > 0` (the anti-spam gate —
-//!   the LP paid gas to delegate)". §E157 (`e0fed54`) folded delegation INTO the open, so
-//!   `registerDelegation` and `delegationVersion` are both gone from `BTCChannels`; the
-//!   `delegationVersion` read here was still being made against the deleted selector and
-//!   returned `BAD_GATEWAY` on every call until it was removed.
-//!
-//!   🔴 **SO THE ANTI-SPAM PROPERTY IS GONE, NOT MOVED.** The gate's real job was to make an
-//!   onboard cost gas, and nothing replaced it: `/lp/onboard` now allocates a watched deposit
-//!   address for any authenticated caller. The bearer token is the only thing limiting it.
-//!   Booked rather than papered over — a rate limit here would be a clamp; the question is
-//!   whether consent-riding-with-the-open should also carry a cost, or whether the token is
-//!   considered sufficient because the app is the only client.
+//!   🔴 **THIS ROUTE HAS NO ANTI-SPAM GATE, AND THAT IS AN OPEN HOLE, NOT AN OVERSIGHT TO
+//!   PATCH IN PASSING.** Consent rides with the open (§E157), so onboarding costs an LP
+//!   nothing on-chain: `/lp/onboard` allocates a watched deposit address for any authenticated
+//!   caller, and the bearer token is the only thing limiting how many distinct `lpEth` values
+//!   can each claim one. `register_lp` is idempotent per `lpEth`, so ONE identity cannot
+//!   inflate the watch set — identities themselves are free. Recorded rather than papered
+//!   over: a rate limit here would be a clamp, and the real question is whether
+//!   consent-riding-with-the-open should carry a cost of its own, or whether the token
+//!   suffices because the app is the only client.
 
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
@@ -82,10 +78,10 @@ struct OnchainState {
     next_index: AtomicU32,
 }
 
-/// (B) Deps the `/lp/onboard` endpoint needs. `None` ⇒ that route returns 503. Holds the
-/// vault node (whose wallet allocates the deposit address + whose registry the open
-/// orchestrator watches) and an RPC handle + BTCChannels address to enforce the on-chain
-/// delegation gate.
+/// (B) Deps the `/lp/onboard` + `/lp/withdraw` routes need. `None` ⇒ those return 503. Holds
+/// the vault node (whose wallet allocates the deposit address + whose registry the open
+/// orchestrator watches) and an RPC handle + `BTCChannels` address, used by `/lp/withdraw` to
+/// read `channels(cid)` and the LP's on-chain-pinned `btcRecipientOf`.
 pub struct OnboardIngrid {
     pub vault: Arc<VaultNode>,
     pub rpc: DaemonRpc,
@@ -451,8 +447,10 @@ async fn swap_in_onchain(
     let cltv = bitcoin::absolute::LockTime::from_height(tip + oc.cltv_window_blocks)
         .map_err(|_| bad("cltv height overflow"))?;
 
-    // Per-swap index → deterministic swap_id (also the settleSwapIn payment-hash / on-chain
-    // dedup key) → the per-swap deposit key + address.
+    // Per-swap index → deterministic `swap_id` → the per-swap deposit key + address. The id is
+    // the LOCAL registry key and what we hand back to the caller; it is NOT the on-chain replay
+    // key. `settleSwapInProven` dedups on the DEPOSIT TXID (`swapInUsed[txid]`) precisely because
+    // a hop-invented hash is not a fact — see `the_replay_key_is_the_deposit_txid_not_the_swap_id`.
     let idx = oc.next_index.fetch_add(1, Ordering::SeqCst);
     let swap_id = keccak256([b"quid-swapin-onchain-v1".as_slice(), &idx.to_be_bytes()].concat());
     let secp = bitcoin::secp256k1::Secp256k1::new();
@@ -491,7 +489,6 @@ struct OnboardReq {
     /// The LP's committed key-path P2TR payout: 32-byte BIP340 x-only OUTPUT key (hex).
     /// MUST equal the `btcRecipient` the LP pinned on chain via the BIP-340 `btcRecipientPoP`
     /// in `OpenAuth` — the fleet does not re-derive it, it is the LP's committed value.
-    /// (⚠️ this named `registerDelegation`, which is deleted; the pin moved to the open itself.)
     btc_recipient: String,
     desired_sats: u64,
     /// "invoice" (default) or "raw_btc" — see [`PayoutMode`].
@@ -524,31 +521,16 @@ async fn lp_onboard(
     }
     let payout_mode = parse_payout_mode(&req.payout_mode)?;
 
-    // Anti-spam gate: only ever watch a deposit address for an lpEth that PAID GAS to
-    // register its delegation on-chain (`delegationVersion[lpEth] > 0`). One lying RPC
-    // can't forge a false positive into a real open (the open still requires the LP's
-    // funds + the on-chain `_authorizedHop` gate); a false negative just refuses a real
-    // LP, who retries.
-    // (E157) THE DELEGATION PRE-CHECK IS GONE ENTIRELY, IN TWO STEPS.
-    //
-    // First: this called `delegationVersion(address)`, which `e0fed54` deleted when it folded
-    // delegation INTO the open ("the registration tx goes"). The eth_call therefore failed on a
-    // deleted selector and this handler returned BAD_GATEWAY on every request — LP onboarding was
-    // BROKEN, not merely stale, and only the Rust-side ORPHAN check surfaced it. It was replaced
-    // with a constant `true`, on the reasoning quoted just above: post-E157 an LP that has opened
-    // is delegated BY CONSTRUCTION, so the pre-check had nothing left to discriminate.
-    //
-    // Then the flag itself was removed from `register_lp`, which is the better end state: a
-    // parameter that is always `true` is a lie about there being a choice.
-    //
-    // 🔴 WHAT WAS LOST WITH IT, STATED PLAINLY: the old gate ALSO made an onboard COST GAS, and
-    // nothing replaced that. `register_lp` is still idempotent per `lpEth`, so one identity
-    // cannot inflate the watch set — but identities are now free, where they used to cost a
-    // delegation tx. The bearer token is the only remaining limit on how many distinct `lpEth`
-    // values can each claim a watched deposit address. Recorded rather than patched: a rate limit
-    // here would be a clamp on the symptom, and the real question is whether consent riding with
-    // the open should carry a cost of its own, or whether the token suffices because the app is
-    // the only client.
+    // 🔴 THERE IS NO ON-CHAIN PRE-CHECK HERE, DELIBERATELY — AND THE COST IT USED TO IMPOSE IS
+    // AN OPEN HOLE, not a solved problem. Authorisation lives entirely in the open: it needs the
+    // LP's own funds and passes `BTCChannels._onlyHop()`, so a pre-check on this handler would
+    // have nothing left to discriminate on. But the retired gate ALSO made an onboard COST GAS,
+    // and nothing replaced that. `register_lp` is idempotent per `lpEth`, so one identity cannot
+    // inflate the watch set — identities are free. The bearer token is the only remaining limit
+    // on how many distinct `lpEth` values can each claim a watched deposit address.
+    // ⚠️ Do not "fix" this with a rate limit: that is a clamp on the symptom. The real question
+    // is whether consent riding with the open should carry a cost of its own, or whether the
+    // token suffices because the app is the only client.
     let f = LpFunding { lp_eth, btc_recipient, desired_sats: req.desired_sats, payout_mode };
     let addr = register_lp(&ob.vault.registry, &ob.vault.node, f).await.map_err(|e| {
         warn!(%lp_eth, error = %e, "lp onboard refused");

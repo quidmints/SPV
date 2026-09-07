@@ -259,9 +259,9 @@ pub struct VaultRegistry {
     /// (E166-3) `funding_txid_hex:vout` → the LP's CONSENT for that open: the `OpenAuth`
     /// and the pre-signed `ExitArming` ladder.
     ///
-    /// 🔑 **WHY THIS EXISTS AND WHY THE FLEET CANNOT SYNTHESISE IT.** §E157 deleted
-    /// `registerDelegation` precisely so consent rides WITH the open instead of being
-    /// pre-granted to the fleet, and §E165 made a pre-signed exit ladder mandatory at open.
+    /// 🔑 **WHY THIS EXISTS AND WHY THE FLEET CANNOT SYNTHESISE IT.** Consent rides WITH the
+    /// open rather than being pre-granted to the fleet (§E157), and §E165 made a pre-signed
+    /// exit ladder mandatory at open.
     /// `OpenAuth.btc_recipient_pop` is the LP's BIP-340 proof-of-possession, and the ladder
     /// rungs are spends of the 2-of-2 — **both require the LP funding half, which after §E175
     /// the fleet does not have IN THE DEFAULT (LP-HOSTED) TOPOLOGY.** So the fleet RELAYS
@@ -359,13 +359,13 @@ pub(crate) fn lp_payout_script(recipient_xonly: [u8; 32]) -> Vec<u8> {
     bitcoin::ScriptBuf::new_witness_program(&program).into_bytes()
 }
 
-/// One LP's funding intent, recorded at onboarding (SPA: MetaMask signs the
-/// delegation on-chain; here we record where it will deposit + how much + its payout).
+/// One LP's funding intent, recorded at onboarding: where it will deposit, how much, and
+/// where it wants to be paid. Purely local bookkeeping — nothing here is authorisation.
 #[derive(Clone, Debug)]
 pub struct LpFunding {
     pub lp_eth: Address,
-    /// The LP's committed key-path P2TR payout (x-only) — MUST equal the
-    /// `btcRecipientOf` pinned in its on-chain delegation.
+    /// The LP's committed key-path P2TR payout (x-only) — MUST equal the `btcRecipientOf`
+    /// the open pins on-chain from `OpenAuth.btc_recipient` + its BIP-340 PoP.
     pub btc_recipient: [u8; 32],
     pub desired_sats: u64,
     /// How this LP elects to be paid at exit (see [`PayoutMode`]). Defaults to
@@ -568,8 +568,8 @@ impl VaultRegistry {
     /// **no adversary involved, and invisible because the invariant was asserted in prose rather
     /// than enforced by a call.** Found 2026-08-17 while threading this map into `drive_splice`.
     ///
-    /// ⚠️ RENAMED FROM `clear_funding` deliberately — it clears two maps now, and a name that
-    /// says "funding" would be the same prose-vs-code drift that hid the leak.
+    /// ⚠️ THE NAME IS DELIBERATE: this clears BOTH maps. Do not narrow it to "funding" — a
+    /// name that describes one of the two is the same prose-vs-code drift that hid the leak.
     pub fn clear_inflight(&self, funding_txid_hex: &str, vout: u32) {
         let key = format!("{funding_txid_hex}:{vout}");
         self.by_funding.lock().unwrap().remove(&key);
@@ -614,20 +614,11 @@ impl VaultRegistry {
 /// (B) Onboard an LP as a BTC liquidity provider: allocate a vault-wallet deposit
 /// address for it and start watching it.
 ///
-/// THE `delegated` PARAMETER IS GONE (2026-08-15). It gated on the caller having verified
-/// `delegationVersion[lpEth] > 0` on-chain, and that selector NO LONGER EXISTS: `e0fed54`
-/// folded delegation INTO THE OPEN, so there is no separate registration to read a version
-/// from. Its only caller had already been reduced to passing a literal `true`
-/// (`swap_in_api.rs`, with the reasoning written out at the site), which made this an
-/// `ensure!` that COULD NOT FIRE while still reading as an anti-spam gate — the same shape
-/// as the I-3 hot-key check deleted in this pass, and the reason a green suite over it
-/// proved nothing.
-///
-/// THE ANTI-SPAM PROPERTY IS NOT LOST, because it was never enforced here. Post-E157 an LP
-/// that has opened is delegated BY CONSTRUCTION: the open itself requires the LP's funds and
-/// passes the on-chain `_authorizedHop` gate, so gas is still spent per identity and the
-/// watch set still cannot grow for free. That gate is the real one and always was; this was
-/// a pre-check that, once delegation moved into the open, had nothing left to discriminate.
+/// ⚠️ **DO NOT ADD AN "IS THIS LP AUTHORISED?" PRE-CHECK HERE.** Onboarding is deliberately
+/// ungated: it allocates a watch, nothing more. Anti-spam is enforced by the OPEN — it needs
+/// the LP's own funds and it passes `BTCChannels._onlyHop()` on-chain — so gas is still spent
+/// per identity and the watch set cannot grow for free. A gate here would have nothing left to
+/// discriminate on, and would read as a real check while being unable to fire.
 pub async fn register_lp(
     registry: &VaultRegistry,
     vault: &HopNode,
@@ -735,9 +726,9 @@ impl VaultNode {
 
     /// (B) Deliver a swap-out: initiate a swapper-directed SpliceOut on the vault channel
     /// for `on_chain_cid` (the LP's `sats` leave to `swapper_script`, co-signed by the hop
-    /// in-process), then AWAIT the lock and return the splice's new outpoint. Replaces the
-    /// retired LP-responder round-trip (`begin`/`complete_swap_out_delivery`): the vault
-    /// holds the LP-side keys, so it splices directly — no lpAuth, no LN-message transport.
+    /// in-process), then AWAIT the lock and return the splice's new outpoint. The vault holds
+    /// the LP-side keys, so it splices DIRECTLY — no LP round-trip, no lpAuth, no LN-message
+    /// transport.
     /// The caller (`drive_swap_out_onchain`) rebuilds params from the returned outpoint,
     /// SPV-confirmation-gates, and submits the (hop-gated) `deliverSwapOutOnchain`.
     pub async fn deliver_swap_out(
@@ -1052,7 +1043,7 @@ pub async fn run_vault_open_orchestrator(
     let interval = std::time::Duration::from_secs(interval_secs.max(1));
     info!(interval_secs = interval_secs.max(1), "vault open-orchestrator: started");
     // (B) capacity keeping (PHASE C) state, persistent across ticks: the in-flight splice rate-limit set + the
-    // rebalance config. The fleet does ALL keeping — the LP-side `run_rebalancer` loop was retired into PHASE C.
+    // rebalance config. The fleet does ALL keeping; nothing runs LP-side.
     let capacity_active = Arc::new(Mutex::new(std::collections::HashSet::new()));
     let rebalance_cfg = quid_hop::rebalancer::RebalanceConfig::default();
     loop {
@@ -1125,8 +1116,8 @@ pub async fn run_vault_open_orchestrator(
             }
         }
         // PHASE C — capacity keeping: splice IN each drained fleet channel (below the per-swap ceiling) from a
-        // fresh LP top-up deposit in the vault wallet. Reuses the pure `decide_splice` + `initiate_splice` — the
-        // retired LP-side `run_rebalancer`, now fleet-side (the LP runs nothing). LDK guards concurrent splices,
+        // fresh LP top-up deposit in the vault wallet. Reuses the pure `decide_splice` + `initiate_splice`,
+        // driven fleet-side (the LP runs nothing). LDK guards concurrent splices,
         // so a racing delivery splice just fails gracefully and this retries next tick.
         quid_hop::rebalancer::rebalance_capacity_tick(
             &vault.node.channel_manager,
@@ -1247,12 +1238,11 @@ mod tests {
 mod e166_consent_tests {
     use super::*;
 
-    /// ⚠️ The varying field is the **PoP**, because after §E183 that is the only thing in an
-    /// `OpenAuth` the LP signs. It used to be `lp_sig`, an ECDSA signature over an EVM digest;
-    /// that field is gone precisely because the LP now signs NOTHING on the EVM side — its
-    /// address is DERIVED from `lpPubkey` on chain rather than asserted alongside a signature.
-    /// So a "conflicting consent" is now a conflicting BIP-340 proof-of-possession, which is
-    /// the authorisation that actually exists. Same test, current binding.
+    /// ⚠️ The varying field is the **PoP**, because after §E183 that is the ONLY thing in an
+    /// `OpenAuth` the LP signs: the LP signs nothing on the EVM side, and its address is
+    /// DERIVED from `lpPubkey` on chain rather than asserted alongside a signature. So a
+    /// "conflicting consent" is a conflicting BIP-340 proof-of-possession — the authorisation
+    /// that actually exists.
     fn a_consent(pop_byte: u8) -> LpConsent {
         LpConsent {
             auth: quid_hop::evm_codec::OpenAuth {
