@@ -52881,6 +52881,71 @@ grep -o '§SEQ-AUDIT.\{0,60\}' docs/actionable/SPRINT.md | \
 
 ---
 
+
+## 🔴 §CENSUS-CROSSTAB — **THE BUILDER IS NOT THE CONSTRAINT. 62 OWNER DECISIONS ARE.**
+
+**The census counted gates and lanes separately. Crossing them says what to actually do next, and it
+overturns the plan's own cost model.**
+
+| gate | L1 | L2 | L3 | L4 | L5 | L6 | L7 | open | no-build | ⚖️ decisions | I can do |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| GATE 0 · evidence | · | · | 1 | · | 1 | 24 | 8 | 34 | 8 | 1 | **33** |
+| GATE 1 · free reads | · | · | · | · | 2 | · | 13 | 15 | **13** | **0** | **15** |
+| 🔴 GATE 2 · decisions | · | 3 | 5 | · | 14 | 1 | 40 | **63** | 40 | 🔴 **56** | **7** |
+| GATE 3 · btc | · | · | 13 | · | · | · | · | 13 | 0 | 0 | 13 |
+| GATE 4 | · | 4 | 2 | 1 | 9 | · | 1 | 17 | 1 | 0 | 17 |
+| GATE 5 | · | 11 | · | · | · | · | 1 | 12 | 1 | 1 | 11 |
+| GATE 6 | · | 1 | · | 1 | 14 | 1 | · | 17 | 0 | 2 | 15 |
+| GATE 7 | · | 1 | 1 | 1 | 12 | 1 | 2 | 18 | 2 | 2 | 16 |
+| GATE 8 · tests | · | · | · | · | · | 18 | 1 | 19 | 1 | 0 | 19 |
+| GATE 9 · prose | 5 | · | · | · | · | · | · | 5 | **5** | 0 | 5 |
+| **all** | 5 | 20 | 22 | 3 | 52 | 45 | 66 | **213** | **71** | **62** | **151** |
+
+### ⛔ FINDING 1 — **GATE 2 IS 88% OWNER DECISIONS, AND IT GATES EVERY CONSTRUCTION GATE BELOW IT**
+
+**56 of GATE 2's 63 rows are blocked on a person, not on work.** Their audit verdicts say it in their
+own words: *"owner decides what funds restoration"*, *"STOP-AND-DECIDE — what the skew is for"*,
+*"rebuild-or-not decision"*, *"which ships is undecided"*, *"blocked on a person"*.
+⇒ **They cost ZERO machine time and cannot be started by anyone but the owner.**
+🔴 **AND BY THIS SECTION'S OWN RULE 2 — *decision before construction; a ruling that can DELETE a
+mechanism outranks any work that hardens, wires, tests or documents it* — the 83 rows in GATES 4–8
+are downstream of them.** **Building before the ruling is how work gets undone**, which is the exact
+waste the owner asked this order to prevent.
+
+### ⛔ FINDING 2 — **THE "~2 DAYS OF PURE COMPILE" WAS COMPUTED ON A DENOMINATOR THAT NO LONGER EXISTS**
+
+§LANES' arithmetic is right and its input was the ~400 estimate. On the census: at its own **~105s
+warm compile + ~250s pinned suite = 5.9 min/cycle**,
+| population | cycles | cost |
+|---|---|---|
+| the old ~400 estimate | 400 | 39.4 h — *"~2 days"*, consistent |
+| 213 open | 213 | 21.0 h |
+| ▶️ **the 122 that actually need `forge`** | 122 | ⭐ **12.0 h — 30% of the quoted figure** |
+**71 rows need no `forge build` at all** (L1 prose + L7 reads; a comment-only edit is byte-identical
+by config, gated by `tools/comment-only.sh`) and **20 more are L2 `cargo`, a separate toolchain.**
+
+### ✅ SO THE ORDER TO WORK IN, AND WHY IT IS NOT THE GATE ORDER
+
+1. 🔴 **PUT THE 56 GATE 2 DECISIONS IN FRONT OF THE OWNER, BATCHED, TODAY.** Zero machine time,
+   highest leverage in the file: they unblock GATE 2 and de-risk the 83 rows below it. **This is the
+   critical path and no amount of parallelism touches it.**
+2. ✅ **MEANWHILE RUN GATE 1's 15 FREE READS — 13 need no build, 0 need a decision.** This section
+   already says *"each can INVALIDATE a finding; all are read-only; do them in one pass."* ⇒ **a read
+   that kills a row is worth more than the build it saves**, and none of them contend for the builder.
+3. **THEN GATE 0's 33** — everything citing a measurement waits on it, and 24 of the 34 are `L6`
+   tests, which §LANES marks *"cannot collide with `src` by construction."*
+4. **GATE 9's 5 prose rows are free at any time** and need no build, no lane and no decision.
+
+📌 **AND ONE THING CHECKED RATHER THAN ASSUMED, because it was the question that started this:
+NONE of GATE 2's 40 `L7` rows is blocked by GATE 0.** Zero of them cite `§UNIT-A-ATTEMPT-1`'s 3.04%,
+`§PLP-R2`'s `NothingDelivered`, `§V4-CUT` or the four money-path reds. **They were never waiting on
+the fixture question — they are waiting on a person**, which is why pulling them forward past GATE 0
+would have gained nothing. **39 of the 40 are owner decisions; exactly one (`:34873`, spec gaps for
+#12) is a read.**
+
+
+---
+
 # 🛤️ §LANES-2026-09-06 — **THE EXECUTION PARTITION. READ THIS BEFORE STARTING ANY ITEM.**
 
 **Owner, 2026-09-06:** *"this is not an acceptable pace … rewrite the commands in such a way that
