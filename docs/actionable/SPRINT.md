@@ -95312,12 +95312,21 @@ recorded event. ⇒ **461 was either approximate when written or grew by an unlo
 rather than smoothed, because a reconciliation that comes out exact by construction is not evidence.
 
 ⚠️ **THIS COUNT HAS THE SAME EXPIRY AS THE ONES IT REPLACES.** It is one command, so re-run it
-instead of quoting it:
+instead of quoting it — **but it MUST deduplicate, and the first version of this command did not:**
 ```bash
-grep -o '§SEQ-AUDIT.\{0,60\}' docs/actionable/SPRINT.md | \
+grep -o '§SEQ-AUDIT.\{0,90\}' docs/actionable/SPRINT.md | \
   sed -E 's/.*(MERGED into|GATE [0-9]).*/\1/;s/.*(verified against code|wave [0-9]).*/CLOSED/' | \
-  sort | uniq -c | sort -rn
+  sort -u | sort | uniq -c | sort -rn        # sort -u FIRST: see the warning below
 ```
+🔴 **THE DEDUPLICATION IS NOT COSMETIC — WITHOUT IT THIS FILE OVERCOUNTS BY 77%.** Measured
+2026-09-07: **390 `§SEQ-AUDIT` marker INSTANCES against 220 DISTINCT verdicts — 170 are archive
+copies.** The file folds whole sections in verbatim (`§FROM-QUEUE`, `§BUILD-QUEUE-FOLD-ARCHIVE`, and
+more since), so **every folded row's marker is counted twice.** ⇒ **a naive re-run reports ~390 open
+items and is wrong by 170.** ⚠️ **AND THE ORIGINAL COMMAND IN THIS SECTION WAS THE NAIVE ONE.** It was
+correct when written and became wrong when the next fold landed — **this section's own instrument
+acquired the defect the section exists to prevent, which is the sharpest possible demonstration that a
+count is a reading with a timestamp.** ✅ **The 220 figure reconciles with the 213/222 measured earlier
+today; the 390 never did, and that discrepancy is the tell to look for.**
 
 ---
 
