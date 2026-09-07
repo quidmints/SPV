@@ -2206,7 +2206,22 @@ library SwapLib {
     function _sourceRepayFree(address core, address aux, address mgr, address lp, uint want, uint wantUsd6, uint exactUsd6)
         private returns (uint deLeverUsd6) {
         (address venue, address stable, uint amtNative) =
-            ILevManagerDeliver(mgr).swapOutDeleverAmt(lp, wantUsd6 * 1e12);  // amtNative clamped to LIVE debt
+            // 🔴 §UNCLAMPED-AMTNATIVE — THIS SAID *"amtNative clamped to LIVE debt"* AND IT IS NOT.
+            //    `LevBase.swapOutDeleverAmt` reads `pos[lp]`, takes the venue's stable, and returns
+            //    `_fromUsd(AUX, stable, maxUsd18)`. **It contains ZERO references to debt** — no
+            //    `totalDebt`, no `debtOf`, no clamp. The value returned is the FULL requested size
+            //    converted to native units, whatever the position actually owes.
+            //    ⇒ The two clamps that DO exist are `held` (what the basket has) and `exactUsd6`
+            //      (the delivery's own proceeds). NEITHER is the debt.
+            //    ⚠️ OPEN, NOT ASSERTED: when `wantUsd6` exceeds the slice's live debt — reachable at
+            //      low LTV, where a levered slice's proceeds share is far larger than what it owes —
+            //      `deLeverUsd6` is derived from the unclamped figure and `drawPooledUsdBtc` runs
+            //      BEFORE the repay, which is bounded by debt downstream. That is an over-draw of
+            //      POOLED_USD against a smaller retirement. The comment two lines down says the
+            //      buffer's stale POOLED_USD is reconciled by the keeper's async `syncLev`, so this
+            //      may self-heal — **that is the thing to MEASURE, and it has not been.** Do not
+            //      book it as a bug and do not book it as safe.
+            ILevManagerDeliver(mgr).swapOutDeleverAmt(lp, wantUsd6 * 1e12);
         if (venue == address(0)) return 0;
         uint takeUsd18 = LevMath._toUsd18(aux,stable, amtNative);
         { uint held = _heldUsd18(aux, stable); if (takeUsd18 > held) takeUsd18 = held; } // stay on the cherry-pick leg
