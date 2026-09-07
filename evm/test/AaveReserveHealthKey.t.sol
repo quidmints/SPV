@@ -25,9 +25,12 @@ contract AaveReserveHealthKey is AllesFixture {
         address spoke = AUX.AAVE_SPOKE();
         require(spoke != address(0), "no aave spoke wired - assertion would be vacuous");
 
-        // ⚠️ THE HARNESS DOES NOT WIRE THE DUAL-VENUE AAVE LEGS — `Alles.t.sol:514-521` gives USDC and
-        // USDT their Morpho vaults only, while `DeployL1_s:404-405` calls `setVault(USDC, aaveSpoke)`
-        // and `setVault(USDT, aaveSpoke)` IN PRODUCTION. So the configuration this test is about has
+        // ⚠️ THE HARNESS DOES NOT WIRE THE DUAL-VENUE AAVE LEGS — the fixture gives USDC and USDT
+        // their Morpho vaults only, while PRODUCTION wires both to the Aave spoke: `DeployL1_s`
+        // builds `vaultStables`/`vaultAddrs` with USDC→aaveSpoke and USDT→aaveSpoke and passes them
+        // to `Aux.configure(Wiring)`. (No line cite on purpose — the citation that stood here named
+        // `setVault` at two lines that are now `vm.serializeAddress`, so it was wrong twice over;
+        // §SETTER-FOLD deleted `setVault` as an external.) So the configuration this test is about has
         // ZERO coverage in the suite, which is why nothing caught the shared key. Build it here through
         // the REAL owner-gated entrypoint, so `setVaultBody` resolves the reserve ids the same way the
         // deploy does — no mock, no vm.store.

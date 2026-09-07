@@ -4,11 +4,14 @@ import {AllesFixture} from "./Alles.t.sol";
 
 /// @notice §E199. THE DUAL-VENUE AAVE LEG IS WIRED IN PRODUCTION AND EXERCISED BY NOTHING.
 ///
-///         `DeployL1_s:404-405` calls `setVault(USDC, aaveSpoke)` and `setVault(USDT, aaveSpoke)`;
-///         `Alles.t.sol:514-521` gives both their Morpho vaults only. Worse, **no test in the repo
-///         deposits USDT at all** — the second-largest stable in the basket had zero deposit coverage.
-///         This builds the production wiring through the real owner-gated `setVault` and proves a
-///         deposit completes with the spoke in the set.
+///         PRODUCTION wires both stables to the Aave spoke — `DeployL1_s` builds
+///         `vaultStables`/`vaultAddrs` with USDC→aaveSpoke and USDT→aaveSpoke and passes them to
+///         `Aux.configure(Wiring)` — while the fixture gives both their Morpho vaults only. Worse,
+///         **no test in the repo deposits USDT at all** — the second-largest stable in the basket
+///         had zero deposit coverage. This builds the production wiring through the real
+///         owner-gated entrypoint and proves a deposit completes with the spoke in the set.
+///         (Deliberately no line citation: the one that stood here named `setVault`, which
+///         §SETTER-FOLD deleted, at lines that are now `vm.serializeAddress`.)
 ///
 ///         ⚠️ USDT RETURNS NO BOOL, so a standard `IERC20.approve` reverts on return-data decode. My
 ///         first version of this probe hit that and I mis-read it as the SUPPLY PATH failing — and

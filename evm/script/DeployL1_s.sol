@@ -153,8 +153,11 @@ contract Deploy is Script {
     IERC20 public USDC = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
 
     /// @notice PYUSD ERC20. No vault is wired at deploy: PYUSD does not
-    /// yet have a Morpho vault listed. Anyone may call
-    /// `Aux.setVault(PYUSD, vaultAddress)` once Morpho lists it.
+    /// yet have a Morpho vault listed. Adding one once Morpho lists it means a
+    /// `Aux.configure(Wiring)` call carrying PYUSD in `vaultStables` — §SETTER-FOLD
+    /// deleted `setVault` as an external entrypoint and `configure` is the only one.
+    /// ⚠️ AND IT IS `onlyOwner`, NOT "anyone": the previous wording here said anyone
+    /// may call it, which was false of `setVault` (also `onlyOwner`) before the fold too.
     IERC20 public PYUSD = IERC20(0x6c3ea9036406852006290770BEdFcAbA0e23A0e8);
     IERC20 public USDS = IERC20(0xdC035D45d973E3EC169d2276DDab16f1e407384F);
     IERC20 public USDE = IERC20(0x4c9EDD5852cd905f086C759E8383e09bff1E68B3);
@@ -348,11 +351,13 @@ contract Deploy is Script {
         // Pin the Chainlink anchors so getTWAPforAsset cross-checks the internal
         // observation-ring TWAP against a live feed (defeats the multi-block
         // internal-TWAP grind; the body defers safely on stale/zero/reverting).
-        // setAssetFeed/setStableFeed are onlyOwner + pin-once → MUST run here,
-        // before the finalize renounce. OPERATOR: VERIFY every feed address
-        // against docs.chain.link before mainnet — a wrong-but-live feed feeds
-        // bad prices (it won't "defer"). ETH/USD + BTC/USD are the canonical
-        // mainnet aggregators; add setStableFeed(<stable>, <USD feed>) per stable.
+        // Feed wiring is onlyOwner + pin-once → MUST run here, before the finalize
+        // renounce. OPERATOR: VERIFY every feed address against docs.chain.link
+        // before mainnet — a wrong-but-live feed feeds bad prices (it won't
+        // "defer"). ETH/USD + BTC/USD are the canonical mainnet aggregators; add a
+        // further stable by extending `stableTokens`/`stableFeeds` in the
+        // `Aux.configure(Wiring)` call below, NOT by calling `setStableFeed` —
+        // §SETTER-FOLD deleted that external and `configure` is the only entrypoint.
         _wireBasketFeedsAndVenues();
 
         // ─── IL-protect leverage overlay (opt-in, SAME script) ────────────
