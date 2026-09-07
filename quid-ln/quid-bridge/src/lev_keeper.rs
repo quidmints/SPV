@@ -1307,58 +1307,64 @@ fn venues_for<R: JsonRpc>(rpc: &R, a: LpAddr, b: LpAddr, amt: U256) -> Vec<Venue
     if let Some((at, v)) = cache().lock().unwrap().get(&key) {
         if at.elapsed() < VENUE_CACHE_TTL { return v.clone(); }
     }
+    // ⭐ §SESS-98 — **THE DEPTH GATE IS A PRE-FILTER, AND A PRE-FILTER THAT LEAVES NOTHING IS WORSE
+    //    THAN NO FILTER.** MEASURED: DAI→WETH at $1M had every V3 tier gated out and every V2 pair
+    //    too, so `best_plan_quoted` returned None and `plan_for_lp` fell back to `dex_word()` — the
+    //    DEFAULT WETH/USDC word, which is not even a DAI pool. We discarded every real venue and
+    //    shipped a constant.
+    // 🔑 **AND THE GATE IS REDUNDANT WITH THE QUOTE, WHICH IS WHY THE FALLBACK IS SAFE.** `QuoterV2`
+    //    SIMULATES the swap and constant product is exact, so a thin pool already loses the ranking
+    //    on its own number. Depth-gating first only saves RPC — it was never the thing making the
+    //    choice correct. ⇒ gate for economy, and when it leaves NOTHING, quote the ungated set and
+    //    let the price decide. The on-chain floor still refuses a bad fill either way.
+    // ⛔ Not "drop the gate": at $100k it removes venues that would waste a quote, and §SESS-95 showed
+    //    an unfiltered constant-product pool winning at an 18% loss. Both bounds are wanted.
+    // ⛔ §SESS-98 — **I TRIED AN UNGATED FALLBACK AND MEASURED IT WORSE, SO IT IS NOT HERE.**
+    //    The reasoning was: a pre-filter that leaves NOTHING discards real venues, and the quote
+    //    already encodes depth, so re-run ungated and let price decide. MEASURED on DAI→WETH at $1M:
+    //    it turned `None` into **340.05 WETH against 402 available** — it re-admitted the same
+    //    constant-product pool §SESS-95 caught, at an 18% loss the on-chain floor would REVERT.
+    // 🔑 **AND `None` WAS NEVER A HOLE.** It means "the keeper has no plan", which makes
+    //    `plan_for_lp` emit the default word — and `LevMath._startsAt` then sees that pool does not
+    //    hold DAI, hops `_hubRowOf` to USDC, and routes through the DEEP default pool. The contract's
+    //    own fallback is better than the best venue the keeper could name. Planning a bad route
+    //    OVERRIDES a good default; planning nothing defers to it.
+    // ⇒ the gate stays as it is. Recorded so the next thread does not re-derive the same wrong idea.
+    let out = discover(rpc, a, b, amt, true);
+    if !out.is_empty() {
+        cache().lock().unwrap().insert(key, (Instant::now(), out.clone()));
+    }
+    out
+}
+
+/// The candidate walk. `gated` applies the depth pre-filter; `false` keeps every pool that exists and
+/// leaves the decision entirely to the quote.
+fn discover<R: JsonRpc>(rpc: &R, a: LpAddr, b: LpAddr, amt: U256, gated: bool) -> Vec<Venue> {
     let mut out: Vec<Venue> = Vec::new();
     for fee in FEE_TIERS {
         if let Some(pool) = pool_for(rpc, a, b, fee) {
-            if deep_enough(rpc, pool, a, amt) { out.push(Venue::V3 { pool, fee }); }
+            if !gated || deep_enough(rpc, pool, a, amt) { out.push(Venue::V3 { pool, fee }); }
         }
     }
-    // §SESS-94 — the V2 family, now that `proto = 0` is measured to fill.
     for (_name, f) in V2_FACTORIES {
         if let Some(pool) = v2_pair(rpc, f, a, b) {
-            if deep_enough_mult(rpc, pool, a, amt, V2_DEPTH_MULTIPLE) { out.push(Venue::V2 { pool }); }
+            if !gated || deep_enough_mult(rpc, pool, a, amt, V2_DEPTH_MULTIPLE) {
+                out.push(Venue::V2 { pool });
+            }
         }
     }
     for (x, y, pool, ia, ib) in CURVE_SHORTLIST {
         let m = (x == a && y == b) || (x == b && y == a);
-        if m && deep_enough(rpc, pool, a, amt) {
-            // 🔴 §SESS-89 — **ORIENTED TO THE SORTED KEY, NOT TO THE CALLER'S DIRECTION.** This read
-            //    `if x == a`, which orients to whichever way the FIRST caller happened to ask — while
-            //    the cache key is the UNORDERED pair. So a `(USDC, crvUSD)` lookup populated the entry
-            //    and a later `(crvUSD, USDC)` lookup reused it with the indices meaning the opposite
-            //    trade. **Direction-dependent data under a direction-independent key**, and the
-            //    resulting bug is ORDER-DEPENDENT: right or wrong according to which leg ran first.
-            // ⚠️ MEASURED, and it is what exposed this: crvUSD→USDC at $100k quoted
-            //    13,154,084,973,767,953,627,796,321 — an 18-decimal crvUSD figure returned for a
-            //    6-decimal USDC leg, saturated at the pool's whole opposite side and therefore
-            //    IDENTICAL at $100k and $1M. That mid then fed the volatile leg and the planner
-            //    quoted 8,793 WETH for $100k of crvUSD.
-            // ⇒ store `lo → hi` always, so `curve_quote`'s own address-order flip is correct by
-            //   construction rather than by luck, and `venue_word` re-orients explicitly below.
+        if m && (!gated || deep_enough(rpc, pool, a, amt)) {
             let lo = if a <= b { a } else { b };
             let (i, j) = if x == lo { (ia, ib) } else { (ib, ia) };
             out.push(Venue::Curve { pool, i, j });
         }
     }
-    // §SESS-79 — v4 candidacy is checked through StateView, because the singleton holds EVERY pool's
-    // tokens together and a `balanceOf` on it says nothing about the pool we would trade.
     for (fee, ts) in V4_TIERS {
         if v4_pool_has_liquidity(rpc, a, b, fee, ts) {
             out.push(Venue::V4 { fee, tick_spacing: ts });
         }
-    }
-    // 🔴 **NEVER CACHE AN EMPTY RESULT. THIS BUG BIT WITHIN AN HOUR OF THE CACHE LANDING.**
-    //    `deep_enough` REJECTS on a failed read — conservative for value, because a throttled endpoint
-    //    must not be read as depth. But combined with a one-hour TTL that turns a transient rate limit
-    //    into **an hour of blindness to that pair**, silently.
-    // ⚠️ **MEASURED, NOT FEARED:** the §SESS-81 coverage matrix reported USDe as `** NONE **` to both
-    //    volatiles while its UniV3 0.01% pool holds **1,596,391 USDe against a 400,000 gate** — it
-    //    passes comfortably. The venue was there; the read was not.
-    // ⇒ an empty discovery is treated as UNKNOWN rather than as an answer: nothing is stored, so the
-    //   next lookup retries. **A cache may remember what it learned; it must not remember what it
-    //   failed to learn.**
-    if !out.is_empty() {
-        cache().lock().unwrap().insert(key, (Instant::now(), out.clone()));
     }
     out
 }
