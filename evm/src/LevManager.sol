@@ -486,7 +486,7 @@ contract LevManager is LevBase {
     ///         `nonReentrant`: the tail `syncLev` range call-back is already try/catch-wrapped, so a re-entrant
     ///         range context degrades to the permissionless slice reconcile.
     /// ⚠️ **NO `dex` PARAMETER, DELIBERATELY.** `_onlyRange()` means the sole caller is the range,
-    ///    and the range has no route to supply — see `LevBase.rangeUnwindDex`. A parameter with no
+    ///    and the range has no route to supply — see `LevBase._unwindDex`. A parameter with no
     ///    possible supplier is API surface that can only ever be passed `0`; taking the venue from
     ///    the pinned slot instead keeps `ILevClose`'s two-argument signature intact.
     function closeLevFor(address lp, uint256 minOut) external nonReentrant {

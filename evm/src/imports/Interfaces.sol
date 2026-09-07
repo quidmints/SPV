@@ -206,8 +206,10 @@ uint256 constant PROTO_UNIV3   = 1;             // `dex >> 253` for a UniswapV3 
 uint256 constant ZERO_FOR_ONE  = uint256(1) << 247;  // V3 direction flag, DERIVED by `_aggSwap`
 
 // §RANGE-UNWIND — the venue the RANGE falls back to when it force-closes a lever with no keeper to
-// name one (see `LevBase.rangeUnwindDex`). Uniswap V3 WETH/USDC 0.05%, the deepest ETH/USDC pool on
-// mainnet; `_aggSwap` derives the direction, so ONE word serves both legs. GOV-overridable.
+// name one (see `LevBase._unwindDex`). Uniswap V3 WETH/USDC 0.05%, the deepest ETH/USDC pool on
+// mainnet; `_aggSwap` derives the direction, so ONE word serves both legs.
+// ⛔ NOT OVERRIDABLE — this said "GOV-overridable" and there was no GOV path to override it with.
+// This system has no governance knobs; repointing it is a code change and a redeploy.
 uint256 constant DEFAULT_UNWIND_DEX =
     (PROTO_UNIV3 << 253) | uint256(uint160(0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640));
 

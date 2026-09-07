@@ -150,7 +150,7 @@ contract OfframpRouteGas is ForkPin {
     ///      and the zero says nothing about Curve.
     ///
     ///      So: run the SAME encoder against a pool word this tree already ships and trusts —
-    ///      `DEFAULT_UNWIND_DEX`, the Uniswap V3 WETH/USDC 0.05% pool `LevBase.rangeUnwindDex` falls back
+    ///      `DEFAULT_UNWIND_DEX`, the Uniswap V3 WETH/USDC 0.05% pool `LevBase._unwindDex` resolves
     ///      to. And call **`LevMath._aggSwap` itself** rather than a re-encoding of it, so what is proven
     ///      is the real path (encode -> `convertTo` -> pinned router -> measured balance delta), not my
     ///      copy of it.

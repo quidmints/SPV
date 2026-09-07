@@ -1343,7 +1343,6 @@ library LevMath {
     ///      the LN daemon compromises the lev keeper, and vice versa.** It is why the owner's
     ///      "keeper is hacked and replaced with malicious code" constraint spans both roles at once,
     ///      and why an API key placed there is leaked alongside the Lightning material.
-    ///      Same shape as `rangeUnwindDex`'s `zero ⇒ DEFAULT_UNWIND_DEX`.
     ///      🔴 **THE `stable != USDC` HALF OF THE GUARD IS LOAD-BEARING AND ONLY WORKS BECAUSE
     ///      `_aggSwap` COMPACTS A ZERO HOP.** Without that compaction it sends a USDC venue — which
     ///      legitimately has `hubDex == 0` — onto the two-hop path with a ZERO first pool word, and
@@ -1448,9 +1447,13 @@ library LevMath {
     ///      to free beyond what was repaid, which the settle path passes as 0 — plus WHERE `pxWeth` comes
     ///      from: `_pullForExtract` resolves a live TWAP, `deleverSettleBody` passes the caller's
     ///      already-resolved price.
-    ///      ⚠️ THE `NoPrice` GUARD BELONGS HERE, NOT ON ONE CALLER. `Aux.getTWAPforAsset` deliberately never
-    ///      reverts, so a zero anchor reaches this divisor and would PANIC — see `freeAndDeliverBody`'s note,
-    ///      which argues the named revert for exactly this divisor.
+    ///      ⚠️ THE `NoPrice` GUARD BELONGS HERE, NOT ON ONE CALLER, AND A ZERO PRICE MUST NEVER PANIC.
+    ///      `Aux.getTWAPforAsset` deliberately NEVER reverts — that is what makes #101's degrade-to-
+    ///      partial-fill work — so an unset or stale Chainlink anchor propagates `pxWeth == 0` straight
+    ///      into this divisor. MEASURED: `testReal_Morpho_OpenAndDelever` and `testReal_Euler_OpenAndDelever`
+    ///      both died on `panic: division or modulo by zero (0x12)` here, via `twapResolve(feed=0x0,
+    ///      price=0)`. A panic burns all gas and is undiagnosable; a named revert is the correct failure
+    ///      for an operation that genuinely cannot be sized without a price.
     ///      ⛔ `extractToVaultBody` REACHES THIS THROUGH `_pullForExtract`, WHICH EXISTS PURELY FOR THE
     ///      NON-via_ir STACK AND MUST NOT BE INLINED AWAY. That caller carries 8 params + 2 named returns, and
     ///      its own `_sellAndPay` call already peaks at the legacy DUP limit — a SEVENTH argument evaluated in
@@ -1525,29 +1528,6 @@ library LevMath {
         wethDelivered = _weethToWeth(sc, collAmt);
         require(wethDelivered >= minOut, "swapDelever:minOut");
         if (wethDelivered > 0) IERC20Min(cfg.weth).transfer(recipient, wethDelivered);
-    }
-
-    /// @notice Free `usedUsd`-worth of collateral (value-neutral, `pxWeth`-priced) and deliver it as WETH — the
-    ///         manager's _freeAndDeliverWeth/_pullForFree/_deliverColl, folded here (delegatecall, address(this)==
-    ///         manager) to keep the manager under EIP-170. `cfg.weeth` doubles as the weETH rate source.
-    function freeAndDeliverBody(ILevVenue venue, address lp, uint256 usedUsd, address recipient,
-        uint256 minWethOut, uint256 pxWeth, ExtractCfg memory cfg) public returns (uint256 wethDelivered) {
-        // A ZERO oracle price must never PANIC. `Aux.getTWAPforAsset` deliberately NEVER reverts
-        // (that is what makes #101's degrade-to-partial-fill work), so an unset/stale Chainlink anchor
-        // propagates `pxWeth == 0` straight into these divisors — measured: testReal_Morpho_OpenAndDelever
-        // and testReal_Euler_OpenAndDelever both died on `panic: division or modulo by zero (0x12)` here,
-        // via twapResolve(feed=0x0, price=0). A panic burns all gas and is undiagnosable; a named revert
-        // is the correct failure for an operation that genuinely cannot be sized without a price.
-        if (pxWeth == 0) revert NoPrice();
-        uint256 freeEth = (usedUsd * 1e18) / pxWeth;                              // WETH-equivalent to free
-        uint256 coll = venue.collateralOf(lp);
-        uint256 collInEth = IWeETH(cfg.weeth).getEETHByWeETH(coll);
-        uint256 pull = collInEth == 0 ? 0 : (freeEth >= collInEth ? coll : (coll * freeEth) / collInEth);
-        if (pull == 0) return 0;
-        uint256 got = venue.withdraw(lp, pull);                                   // collateral → the manager
-        uint256 floor = minWethOut;
-        { uint256 f = (freeEth * (10_000 - cfg.maxSlippageBps)) / 10_000; if (f > floor) floor = f; } // MEV floor
-        wethDelivered = collToWethDeliver(got, recipient, floor, cfg);
     }
 
     /// Pay `keeper` its gas as native ETH: skim from `availWeth` (freed WETH headroom) first, shortfall from

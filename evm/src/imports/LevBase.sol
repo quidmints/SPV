@@ -241,24 +241,15 @@ abstract contract LevBase {
     ///      path that already had a router. This is the ONLY venue on a path that has no router at
     ///      all, and it is not consulted anywhere a keeper can supply one: `closeLevFor` is
     ///      `_onlyRange()`, so `msg.sender == RANGE` is the whole audience.
-    ///      Zero ⇒ `DEFAULT_UNWIND_DEX`, so a fresh deploy trades without a governance step; GOV can
-    ///      repoint it if that pool ever stops being the deepest, which a constant could not.
-    uint256 public rangeUnwindDex;
-
-    /// @dev `NotRange` rather than the children's `NotGov`: this gate is `msg.sender == RANGE`, and
-    ///      both managers declare `NotGov` separately, so naming it here would collide on inherit.
-    error NotRange();
-
-    function setRangeUnwindDex(uint256 d) external {
-        if (msg.sender != RANGE) revert NotRange();
-        rangeUnwindDex = d;
-    }
-
-    /// The venue actually used — see `rangeUnwindDex`.
-    function _unwindDex() internal view returns (uint256 d) {
-        d = rangeUnwindDex;
-        if (d == 0) d = DEFAULT_UNWIND_DEX;
-    }
+    ///      ⛔ IT IS A CONSTANT AND THERE IS DELIBERATELY NO WAY TO REPOINT IT — THIS SYSTEM HAS NO
+    ///      GOVERNANCE KNOBS (owner, 2026-09-07). If `DEFAULT_UNWIND_DEX` ever stops being the deepest
+    ///      ETH/USDC pool, the fix is a code change and a redeploy, not a privileged write. ⛔ Do not
+    ///      add a setter: the one that used to sit here was gated on RANGE — not GOV, despite the
+    ///      justification written beside it — and RANGE never called it, so the slot was permanently 0
+    ///      and every read fell through to the default regardless.
+    /// The venue the range unwinds through. A function, not a bare constant, so the docblock above
+    /// has a home and the call site keeps reading as a lookup rather than a magic number.
+    function _unwindDex() internal pure returns (uint256) { return DEFAULT_UNWIND_DEX; }
 
     /// @notice §E298 — the five events `LevManager` and `BtcLevManager` each declared separately.
     ///         Both inherit this contract, so one declaration here reaches both and an inherited

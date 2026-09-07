@@ -296,6 +296,85 @@ environment actually is*. Every line below was verified in-repo, not recalled.
     opener converts a quoted FALSE claim into an asserted true one. This was done once here and
     caught only on re-read.
 
+    ### 🔴 DELETE AND FOLD AS MANY FUNCTIONS AS POSSIBLE — THE TIGHTEST SOLIDITY WINS (owner,
+    2026-09-07: *"we need to delete and fold as many functions as possible to have the tightest
+    possible solidity (standing rule)"*). This is not tidiness. **EIP-170 is the binding constraint
+    in this tree** — the tightest contract has run as low as **102 bytes** of headroom — so every
+    function that survives without earning its place is spending the budget that a real feature
+    will need. Ride this with the comment pass and the algebra scan; same sweep, same discipline.
+    ⇒ **What to look for, cheapest first:**
+    1. **ZERO CALLERS** — count CODE references with comments stripped, across `src`, `test`,
+       `script`, the Rust crates and the clients. ⚠️ A raw "≤1 reference" threshold is WRONG: it
+       also catches functions with exactly one LEGITIMATE caller. Measured here — that filter
+       flagged `swapOutDeliverUnleveredBody`, whose single reference IS its live call.
+    2. **ONE CALLER** — fold it into that caller unless it exists to buy stack depth (below).
+    3. **A WRAPPER THAT ONLY FORWARDS** — collapse it; the indirection costs a JUMP and a frame.
+    4. **A `public`/`external` FUNCTION NOBODY CALLS** — this is the expensive kind: it lands in
+       the dispatch table AND the bytecode. A `private`/`internal` orphan is usually free, because
+       the optimizer drops an unreferenced one — so an orphan's VISIBILITY decides how much its
+       survival actually costs, and it is worth checking before arguing about it.
+    🔴 **BUT CONSIDER THE INTENT BEFORE REMOVING (owner, 2026-09-07:** *"remove dead code but first
+    consider if its intent might have been relevant"*). Dead by reference count is not dead by
+    purpose. Three outcomes, all seen in one pass here:
+    · **Superseded** — the replacement is live and called ⇒ DELETE. (`freeAndDeliverBody`: its only
+      caller went in `19f7fabb`, and `swapOutDeleverPooled` does the same job pooled.)
+    · **PARKED ON PURPOSE** — it carries a note saying why it is kept ⇒ **KEEP, and do not
+      re-litigate it.** (`_repayPretransferred`: *"NO CALLER TODAY … kept as the repay half of the
+      ETH pre-transferred settle"*; `swapOutDeliverUnlevered`: deleting it silently reopens the
+      0-debt phantom-equity hole, booked as §M.1.)
+    · **A CAPABILITY THAT WAS NEVER REAL** ⇒ delete the code AND correct the claim. (`rangeUnwindDex`
+      was justified as *"GOV can repoint it"* while its setter was gated on RANGE, which GOV is not
+      and which never called it — and `DEFAULT_UNWIND_DEX` repeated the false "GOV-overridable"
+      claim in a second file. **THIS SYSTEM HAS NO GOVERNANCE KNOBS.**)
+    ⚠️ **DELETING A SYMBOL ORPHANS EVERY CITATION TO IT.** Removing `rangeUnwindDex` left FOUR
+    docblocks pointing at a name that resolves to nothing — worse than no citation, and the exact
+    "disguised tombstone" this file warns about. **Grep the name across `src`, `test` and `script`
+    after any deletion and destale every hit**, and move any still-live ARGUMENT the dead code
+    carried to where the hazard now lives, rather than losing it with the body.
+    ⛔ **DO NOT FOLD A FUNCTION THAT EXISTS TO BUY STACK DEPTH.** With `via_ir = false`, some
+    helpers are load-bearing precisely because they open a shallower frame — `_pullForExtract` says
+    so in its own docblock and MUST NOT be inlined away. If a fold produces `Stack too deep`, the
+    function was structural, not decorative: put it back and say so at the site.
+    ⚠️ **A DELETION IS A BYTECODE CHANGE**, never a comment-only edit: it needs a build, a test run,
+    and a before/after from `tools/check-contract-sizes.py`. Report the numbers.
+
+    ### 🔴 SCAN FOR ALGEBRAICALLY REMOVABLE VARIABLES ON EVERY PASS (owner, 2026-09-07:
+    *"there might be other variables that can be removed algebraically. make it a standing rule
+    to always scan for these and do other elegance adding changes as you work through tasks"*).
+    Ride this along with the comment pass — same sweep, same commit discipline, no separate task.
+    **THE SHAPE, from the case that produced the rule** (`px` in `swapOutDeleverPooled`): a value
+    was passed in, and its ONLY use was to UNDO a conversion the caller had already performed.
+    The caller turned ETH into USD with a `getTWAPforAsset` read; the callee turned USD back into
+    ETH with a SECOND read of the same oracle in the same tx. The parameter existed to carry a
+    round trip that cancels.
+    ⇒ **The tells, in the order they are cheap to check:**
+    1. A parameter used EXACTLY ONCE. Grep its uses in the body; one hit is the whole signal.
+    2. A value converted INTO a unit and back OUT of it across a call boundary — ETH→USD→ETH,
+       shares→assets→shares, wad→bps→wad. The pair cancels and the intermediate is scaffolding.
+    3. A local that only ever feeds one expression and is never re-read (fold it in), or that
+       re-derives something already in scope.
+    4. An argument whose value the callee could compute from arguments it ALREADY has.
+    🔴 **PROVE THE CANCELLATION NUMERICALLY BEFORE DELETING — "it should cancel" is not evidence.**
+    Print both forms across the range that matters and require **delta = 0**, not "close". The
+    `px` removal was checked at 100% / 50% / 13.7% funded: all three exactly 0 wei. An algebraic
+    identity that holds in ℝ can fail in integer arithmetic, where truncation order decides.
+    ⭐ **THIS IS A NET WIN ON THE BINDING CONSTRAINT, NOT JUST TIDINESS.** Removing `px` cut
+    LevManager by **109 bytes** (24,443 → 24,334, margin 133 → 242) because it deleted an external
+    call, a local and a branch. In a tree where the tightest contract has ~100-250 bytes of EIP-170
+    headroom, an elegance pass IS a size pass.
+    ⚠️ **AND IT REMOVES A REAL HAZARD, WHICH IS THE ACTUAL ARGUMENT.** Two oracle reads at two
+    moments in one tx CAN DISAGREE, and the round trip absorbed the difference silently. Prefer
+    the form that reads the oracle ONCE and scales by a ratio of quantities already in hand — it
+    cannot drift, and the single upstream read then BOUNDS the result.
+    ⛔ **STOP WHERE THE STACK DOES.** `via_ir = false`: a "cleaner" fresh local can be the change
+    that will not compile. If the tidy form is `Stack too deep`, REBIND a slot whose last read is
+    at that point and say so at the site — and pick a name TRUE IN BOTH BINDINGS (`ask`, not
+    `needUsd`), because a reader who sees a right-looking name and a comment calling it wrong
+    resolves the contradiction in favour of the name.
+    ⛔ **DO NOT FOLD AN ELEGANCE EDIT INTO AN UNRELATED COMMIT.** It changes bytecode, so it is
+    NOT a comment-only edit and it needs a build, a test run and a size measurement. State the
+    before/after size and do not land it if it grows.
+
     ### 🔴 A SYMBOL-LIVENESS GREP IS THE CHEAP HALF. THE DANGEROUS STALE NAMES ONLY LIVE SYMBOLS
     (owner, 2026-09-06: *"dont just look if they reference dead symbols. they might describe
     logic that no longer exists"*). Every identifier resolves, so it reads as current. Check the
