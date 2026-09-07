@@ -476,7 +476,7 @@ async fn swap_out_onchain_delivery_on_real_evm() {
     // PoolManager and reverts with EMPTY data on some fork blocks. 500 USDC ≈ 500k sats,
     // still well within the 8e6-sat channel.
     let usd_amount = U256::from(500_000_000u64);
-    let cd = encode_request_swap_out_onchain(usdc, usd_amount, 0, swap_id, &swapper_script);
+    let cd = encode_request_swap_out_onchain(usdc, usd_amount, 0, swap_id);
     let landed = mk_evm().send_tx(env.cfg.btc_channels, cd.clone(), env.cfg.gas_limit).expect("requestSwapOutOnchain send");
     if !landed {
         let from = mk_evm().address();

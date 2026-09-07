@@ -887,18 +887,25 @@ pub fn encode_register_channel_claim(channel_id: [u8; 32]) -> Vec<u8> {
 /// parameter: §E184 made the contract BUILD the payout script itself from
 /// `btcRecipientOf[msg.sender]`, whose curve membership (§E130) and control (§E138) it has
 /// already proven, so the P2TR shape is true by construction and there is no supplied blob to
-/// prefix-check. The trailing `Tok::Bytes(swapper_script)` below is a word the ABI does not
-/// declare. The call does not revert — the selector comes from the 4-type
-/// [`SIG_REQUEST_SWAP_OUT_ONCHAIN`] and all four declared parameters are static, so the
-/// decoder reads the head and ignores the tail — but `swapper_script` is SILENTLY DISCARDED.
-/// Nothing routes on it; do not treat it as reaching the chain. The parameter belongs deleted
-/// from this function and its callers.
+/// prefix-check.
+/// ✅ **§SESS-54 — THE FIFTH TOKEN IS GONE.** This encoded `Tok::Bytes(swapper_script)`, a word the
+/// ABI does not declare. It never reverted — the selector comes from the 4-type
+/// [`SIG_REQUEST_SWAP_OUT_ONCHAIN`] and all four declared parameters are STATIC, so the decoder reads
+/// a fixed-size head and never looks at the tail — so the caller believed it was sending something the
+/// chain silently discarded. **A defect that cannot fail loudly is the kind this repo's rules exist
+/// for**, and the parameter is now deleted rather than documented.
+/// 🔴 **AND THE TEST COULD NOT HAVE CAUGHT IT, WHICH IS THE MORE USEFUL HALF.** It asserted the
+/// selector and `len % 32 == 4` — **both of which FIVE words satisfy exactly as well as four.** That is
+/// the §VACUOUS-BOUNDS shape: an assertion that passes for the bug it is nominally guarding. The test
+/// now pins the EXACT length (`4 + 4*32 = 132`), which is the one thing an extra token cannot fake.
+/// ⚠️ `tools/check-client-abis.py` is blind here BY CONSTRUCTION and reported `0 drifted`: it matches
+/// declared SIGNATURES against `evm/out`, and the signature was always right — the drift was in the
+/// TOKEN LIST, which no signature check can see. **Found by a comment pass, not by a gate.**
 pub fn encode_request_swap_out_onchain(
     token: Address,
     usd_amount: U256,
     min_sats: u64,
     swap_id: [u8; 32],
-    swapper_script: &[u8],
 ) -> Vec<u8> {
     encode_call(
         SIG_REQUEST_SWAP_OUT_ONCHAIN,
@@ -907,7 +914,6 @@ pub fn encode_request_swap_out_onchain(
             Tok::Uint(usd_amount),
             Tok::Uint(U256::from(min_sats)),
             Tok::FixedBytes32(swap_id),
-            Tok::Bytes(swapper_script.to_vec()),
         ],
     )
 }
@@ -1407,11 +1413,15 @@ mod tests {
     #[test]
     fn request_swap_out_onchain_selector() {
         let cd = encode_request_swap_out_onchain(
-            Address::repeat_byte(0x11), U256::from(500_000u64), 0, [0xA1u8; 32], &[0x00, 0x14, 0x5A],
+            Address::repeat_byte(0x11), U256::from(500_000u64), 0, [0xA1u8; 32],
         );
         let sig = SIG_REQUEST_SWAP_OUT_ONCHAIN;
         assert_eq!(hex_encode(&cd[..4]), hex_encode(&keccak256(sig)[..4]));
-        assert_eq!(cd.len() % 32, 4);
+        // 🔴 **EXACT LENGTH, NOT `len % 32 == 4`.** Four STATIC params is a fixed 4 + 4*32 = 132 bytes.
+        //    The old modulo assertion passed for the five-token encoding this test now guards against —
+        //    an extra word keeps the remainder at 4 and only moves the total. **The assertion that
+        //    cannot fail for the bug is the assertion that let it ship.**
+        assert_eq!(cd.len(), 4 + 4 * 32, "requestSwapOutOnchain must encode EXACTLY four static params");
     }
 
     // ───────────────────── M7: taproot funding-output locator ─────────────────
