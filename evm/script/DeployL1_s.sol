@@ -29,7 +29,7 @@ import {MorphoEscrowVenue, MarketParams} from "../src/imports/LevVenueBase.sol";
 import {ISwap} from "../src/imports/Interfaces.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {AaveV3Venue} from "../src/imports/LevVenueBase.sol";
-import {RealRateBtcMorphoOracle} from "../src/imports/LevBase.sol";   // InverseRateMorphoOracle removed with the short subsystem (2026-07-24)
+// RealRateBtcMorphoOracle import removed with the vBTC market (owner ruling 2026-09-07).  // InverseRateMorphoOracle removed with the short subsystem (2026-07-24)
 
 interface IAaveV3AddrProvider { function getPoolDataProvider() external view returns (address); }
 
@@ -45,21 +45,16 @@ contract Deploy is Script {
     // — the setter is one-shot per stable.
     // USDC/USDT primaries (slot 0 + the SOR swap-source). Galaxy is the primary;
     // the other hardcoded curators are appended via setVault below (locked at
-    // finalize). USDC: Galaxy/Euler/Sky/Wintermute/Rockaway (5). USDT: Galaxy/
-    // Euler/Sky (3).
+    // finalize). USDC: Galaxy/Sky/Wintermute/Rockaway (4). USDT: Galaxy/Sky (2).
     address public morphoUsdcVault  = 0x91600E31fBeDc72433d4a57F16639cfe661Be7d8; // Galaxy USDC (primary)
     address public morphoUsdtVault  = 0x71ffB6a81786eC285D429d531Cf655107B9D878d; // Galaxy USDT (primary)
-    address constant eulerUsdc      = 0x797DD80692c3b2dAdabCe8e30C07fDE5307D48a9;
     address constant skyUsdc        = 0x56bfa6f53669B836D1E0Dfa5e99706b12c373ecf;
     address constant wintermuteUsdc = 0x5dc53a23AdC9f2Bed98de6F59F7F309a7c71FF2B;
     address constant rockawayUsdc   = 0xd65d6E8dbC3Cd3D12418199E6f4014dB3aaa0097;
-    address constant eulerUsdt      = 0x313603FA690301b0CaeEf8069c065862f9162162;
     address constant skyUsdt        = 0x23f5E9c35820f4baB695Ac1F19c203cC3f8e1e11;
-    // Gauntlet-curated Morpho vaults (appended as additional curators, same as euler/sky above).
+    // Gauntlet-curated Morpho vaults (appended as additional curators, same as sky above).
     address constant gauntletUsdc   = 0x9a1D6bd5b8642C41F25e0958129B85f8E1176F3e;
     address constant gauntletUsdt   = 0xE571B648569619566CF6ce1060C97B621CB635D3;
-    //  `gauntlet` slot + Vault immutable + supplyGauntlet wrapper, so it's counted/withdrawn/health-checked
-    //  identically to Galaxy/Euler. ETH venues are custodied on EthVenue, not via setVault.)
     // USDT0 (USD₮0) REMOVED (2026-07-22, on-chain verified): Tether's omnichain USDT is BY DESIGN not an
     // Ethereum-L1 ERC20 — L1 holds canonical USDT locked in the LayerZero OFT adapter; USDT0 tokens exist
     // only on the spoke chains. The previously-wired token (0x779Ded…3736) and "Gauntlet USDT0 vault"
@@ -69,9 +64,6 @@ contract Deploy is Script {
     address public morphoPyusdVault = 0xb576765fB15505433aF24FEe2c0325895C559FB2;
     address public morphoRlusdVault = 0x6dC58a0FdfC8D694e571DC59B9A52EEEa780E6bf;
     address public morphoUsdsVault  = 0xE15fcC81118895b67b6647BBd393182dF44E11E0; // Sky Money USDS Flagship
-    // ETH-side: WETH supplied to the Galaxy Morpho V2 vault. Standard
-    // machine.
-
     // GHO is AAVE's native stablecoin → routes directly through AAVE v4
     // rather than a third-party Morpho curator. Spoke + Hub addresses
     // below are AAVE v4 mainnet. The reserve id is resolved at Aux
@@ -123,24 +115,6 @@ contract Deploy is Script {
 
     address public stabilityPool = 0x5721cbbd64fc7Ae3Ef44A0A3F9a790A9264Cf9BF;
 
-    // ─── ETH backend: Galaxy Morpho V2 WETH vault ──────────────────────
-    // Mainstream ERC4626, Galaxy as curator, yield from Morpho V2
-    // adapter system (Aave / Morpho V1 markets / etc.). Single venue —
-    // no state machine, no fallback path. If Galaxy itself becomes
-    // unviable, the next deploy can swap the vault address; in the
-    // interim, ERC4626 share revaluation surfaces any underperformance
-    // through the standard deficit-reporting path.
-    // Galaxy vault uses WETH as its underlying asset (not ETH).
-    // Second WETH 4626 curator: Euler ETH (fungible with Galaxy in the ETH-venue
-    // set — counted/withdrawn/health-checked identically). Depositors elect it
-    // via VENUE_EULER (5).
-    // Third WETH 4626 curator: Gauntlet WETH Morpho (fungible with Galaxy/Euler in
-    // the ETH-venue set — counted/withdrawn/health-checked identically). Depositors
-    // elect it via VENUE_GAUNTLET.
-
-    // v3 router) is read from Aux's immutable constants at deploy (single source
-    // of truth), so it can never drift from what the offramp uses.
-    address constant NFPM = 0xC36442b4a4522E871399CD717aBDD847Ab11FE88;
     // ANGEL seed NFT: the Safe (deployer) MUST own Foundation tokenId Basket.ANGEL (16508). DeployLib approves
     // Aux for it mid-deploy and Basket's constructor requires that approval, so the commitment is enforced at
     // Basket's birth; Aux burns it (owner→DEAD) at finalize. No token-id/approve constants needed here.
@@ -324,7 +298,6 @@ contract Deploy is Script {
             morphoUsdcVault: morphoUsdcVault, morphoUsdtVault: morphoUsdtVault,
             morphoUsdsVault: morphoUsdsVault, sdai: address(SDAI), susde: address(SUSDE),
             aaveSpoke: aaveSpoke, aaveHub: aaveHub,
-            nfpm: NFPM,
             stables: STABLECOINS, vaults: VAULTS,
             hopOperator: operatorHop,
             spvCheckpointHeader: checkpointHeader,
@@ -448,10 +421,10 @@ contract Deploy is Script {
     /// @notice OPT-IN (`DEPLOY_LEV=1`) IL-protect overlay — deployed + wired IN THIS SAME SCRIPT (there is
     ///   NO separate deploy script). Stands up BOTH leverage managers and their escrow venues, and pins EVERY
     ///   link the running system needs so the feature is live the moment the deploy lands:
-    ///     ETH (weETH collateral): LevManager (folded SOR + ether.fi mint/redeem legs) → Morpho + Euler escrow
+    ///     ETH (weETH collateral): LevManager (folded SOR + ether.fi mint/redeem legs) → Morpho escrow
     ///       venues → `pinVenues` (frozen) → `setFlashProvider` (Morpho, zero-fee de-lever) →
     ///       `setQuidSyncHook` (Quid) → `Vault.setLevManager` (backing: rangeETH counts the book).
-    ///     BTC (vBTC collateral == the Vault): BtcLevManager → Morpho (and optional Euler) escrow venue →
+    ///     BTC (vBTC collateral == the Vault): BtcLevManager → Aave V3 WBTC escrow venue →
     ///       `pinVenue` (singular, frozen) → `setSyncHook`(Vault.syncLevBTC) → `Vault.setLevManager`
     ///       (backing: rangeBTC counts the book). No swapper / no flash — BTC acquisition is external+async.
     ///   Skipped when `DEPLOY_LEV` is unset, so a core / fork-e2e deploy needs no lev-infra env. External-infra
@@ -460,10 +433,10 @@ contract Deploy is Script {
     ///   ongoing power (allowlist + hooks frozen). ENV (only when DEPLOY_LEV=1) — EVERY external address has a
     ///   LIVE mainnet default (the constants above), so a bare `DEPLOY_LEV=1` deploys the whole overlay;
     ///   overrides: MORPHO, MORPHO_ORACLE/IRM/LLTV (weETH long), MORPHO_WETH_ORACLE/IRM/LLTV (plain-WETH long),
-    ///   MORPHO_VBTC_IRM/LLTV; optional YB_GOV. (The EULER_* pair vars and LEV_BTC_VENUE went with
-    ///   Euler v2 borrowing, 2026-08-13.)
-    ///   MORPHO_VBTC_ORACLE cannot pre-exist (it prices vBTC through AUX, deployed THIS broadcast) — unset ⇒ a
-    ///   RealRateBtcMorphoOracle is deployed inline. (Down-side short venues REMOVED 2026-07-24 — up-side-only;
+    ///   optional YB_GOV. (The BTC-lev env pair vars and LEV_BTC_VENUE went with
+    ///   borrowing venues, 2026-08-13.)
+    ///   (MORPHO_VBTC_* are gone with the vBTC market — owner ruling 2026-09-07.) — unset ⇒ a
+    ///   (Down-side short venues REMOVED 2026-07-24 — up-side-only;
     ///   the short subsystem was an LVR leak, see docs §J.4. A directional-short product, if shipped, is a normal
     ///   position on an inverse venue added to the allowlist, per §K — not the removed hedge.)
     /// (E135) Raw 80-byte headers following `spvCheckpointHeader`, oldest first, supplied as a
@@ -534,7 +507,7 @@ contract Deploy is Script {
         //    ether.fi adapter/redeemer (weETH↔WETH) — no bespoke swapper contract (RealWeethSwapper is gone). ──
         LevManager lm = new LevManager(weeth, address(AUX), address(WETH), gov, address(QUID));
         // ONE atomic pin-once: hook (Quid) + flash (Morpho, zero-fee de-lever) + the audited venues (weETH
-        // Morpho, weETH Euler, WETH Morpho, + optional WETH-debt short), then FROZEN. The venue array is built in
+        // Morpho, WETH Morpho, + optional WETH-debt short), then FROZEN. The venue array is built in
         // its own frame (_ethLevVenues) so this method stays within the legacy stack (no via_ir).
         lm.init(address(RANGE), morpho, _ethLevVenues(morpho, address(lm), weeth));
         // BACKING: rangeETH counts the ETH lev book. PINNED ON EthVenue, not the Vault — `_ethCfg`
@@ -544,31 +517,16 @@ contract Deploy is Script {
 
         // ── BTC lev: vBTC-collateral (vBTC == the Vault). External+async acquisition ⇒ no swapper/flash ──
         BtcLevManager bm = new BtcLevManager(address(ETH.VBTC()), address(AUX), address(WBTC), gov, address(QUID));
-        address mvB;
-        {
-            // The vBTC oracle prices the Vault through AUX (deployed THIS broadcast) — it can only
-            // exist inline. Env override kept for a re-deploy against an already-live stack.
-            address vbOracle = vm.envOr("MORPHO_VBTC_ORACLE", address(0));
-            if (vbOracle == address(0)) vbOracle = address(new RealRateBtcMorphoOracle(address(AUX), address(WBTC)));
-            MarketParams memory mpB = MarketParams({
-                loanToken: address(USDC),
-                // §J.2: the collateral is the vBTC TOKEN, not the Vault. The Vault deploys VBtc in its
-                // own constructor and no longer carries balances, so pointing this at `ETH` would give
-                // the market a collateral token where every balance reads zero.
-                collateralToken: address(ETH.VBTC()),
-                oracle: vbOracle, irm: vm.envOr("MORPHO_VBTC_IRM", ADAPTIVE_IRM),
-                lltv: vm.envOr("MORPHO_VBTC_LLTV", MORPHO_LLTV_86)
-            });
-            bytes32 idB = keccak256(abi.encode(mpB));
-            (,,,,uint128 luB,) = IMorphoMkt(morpho).market(Id.wrap(idB));
-            if (luB == 0) IMorphoMkt(morpho).createMarket(mpB);
-            mvB = address(new MorphoEscrowVenue(morpho, mpB, address(bm)));
-        }
-        // NO VENUE SELECTION. `LEV_BTC_VENUE` chose between Euler and Morpho; Euler v2 borrowing is
-        // removed (owner, 2026-08-13), so the switch had one arm and the env var was friction pretending
-        // to be configuration. Morpho is the BTC lev venue; Aave V3 remains for the WBTC fallback below.
-        address pin = mvB;
-        require(pin != address(0), "BTC lev venue not deployed");
+        // ⛔ NO MORPHO MARKET FOR OUR LIGHTNING BITCOIN — STANDING OWNER RULING (2026-09-07),
+        //    not a deployment convenience. Using Lightning-custodied BTC as collateral to borrow
+        //    dollars, then selling those dollars for more Lightning BTC, is a toxic loop: the
+        //    position's collateral and its acquisition target are the SAME asset, so a drawdown
+        //    margin-calls the very thing the borrow was used to buy.
+        //    ⇒ the market creation, its vBTC oracle and its escrow venue are DELETED, not disabled.
+        //    ⛔ Do not re-add a market whose `collateralToken` is the vBTC token.
+        //
+        // NO VENUE SELECTION EITHER: the env switch that chose a BTC lev venue had one arm and was
+        // friction pretending to be configuration. Aave V3 WBTC below is now the ONLY BTC lev venue.
         // WBTC-FALLBACK venue (#106/#81/#74): a REAL Aave v3 {collateral: WBTC, debt: <stable>} escrow — the
         // deepest WBTC book, so the SPA routes sizeable positions here. The keeper's atomic `rebalanceWbtc` folds
         // up / flash-repay-first de-levers it fully on-chain (no channel-vBTC, no acquirer). Allowlisted ALONGSIDE
@@ -599,7 +557,8 @@ contract Deploy is Script {
         address wbtcV = address(new AaveV3Venue(
             aaveV3Pool, IAaveV3AddrProvider(aaveV3AddrProvider).getPoolDataProvider(),
             address(WBTC), wbtcDebt, address(bm), vm.envOr("AAVE_V3_WBTC_LT_BPS", uint256(7800))));
-        address[] memory vsB = new address[](2); vsB[0] = pin; vsB[1] = wbtcV;
+        require(wbtcV != address(0), "BTC lev venue not deployed");
+        address[] memory vsB = new address[](1); vsB[0] = wbtcV;   // WBTC only — see the ruling above
         bm.init(address(ETH), morpho, vsB);                // atomic pin-once: hook + Morpho flash provider + venue allowlist, FROZEN
         ETH.setLevManager(address(bm));                 // BACKING: rangeBTC counts the BTC lev book
         // Both lev-manager slots are one-shot pins (`LevManagerPinned`) and are the Vault's ONLY
@@ -644,7 +603,7 @@ contract Deploy is Script {
         return address(new MorphoEscrowVenue(morpho, mp, mgr));
     }
 
-    /// @notice Build the ETH LevManager's frozen venue array in its own frame: [weETH Morpho, weETH Euler, WETH
+    /// @notice Build the ETH LevManager's frozen venue array in its own frame: [weETH Morpho, WETH
     ///         Morpho]. WETH is
     ///         ETH-denominated and shares POOLED_ETH with weETH; the manager derives collateral type from the
     ///         venue's collateral token (WETH ⇒ 1:1 valuation + SOR-only legs, no ether.fi mint/redeem).
@@ -687,7 +646,7 @@ contract Deploy is Script {
     ///    `create_sweep_tx` shape. Deleting them also means deleting the assertions in
     ///    `test/LevVenueMarketPins.t.sol` that pin them, which is a test edit and needs its own call.
     function _ethLevVenues(address morpho, address lm, address weeth) internal returns (address[] memory vs) {
-        // MORPHO ONLY. Euler v2 and Aave v4 BORROWING are removed; the BTC side keeps Aave V3 for WBTC.
+        // MORPHO ONLY. The v2/v4 BORROWING venues are removed; the BTC side keeps Aave V3 for WBTC.
         // RLUSD and PYUSD weETH markets — added because the market we shipped CANNOT LEND. Measured:
         //   weETH/USDC 86% (shipped)  supply $0.74M median, IDLE $0.17M, 100 of 100 weeks under $1M
         //   weETH/RLUSD 86%           supply $95.00M,       IDLE $9.66M
@@ -713,7 +672,7 @@ contract Deploy is Script {
         //    Morpho markets above — $9.66M and $4.32M idle — that is roughly **13x the entire ETH
         //    dollar leg**, on the one stable whose hub row is 3pool at ~1.7 bps.
         // ⛔ THIS IS A DELIBERATE DEPARTURE FROM "MORPHO ONLY" ABOVE, AND THE NOTE STAYS TRUE AS
-        //    WRITTEN: what that paragraph removed was Euler v2 and Aave **v4** borrowing, and the BTC
+        //    WRITTEN: what that paragraph removed was the v2 and Aave **v4** borrowing venues, and the BTC
         //    side has kept Aave **V3** throughout. Adding it here makes the two ranges symmetric
         //    rather than making an exception for one.
         // ⚠️ USDT IS 6-DEC AND RETURNS NO BOOLEAN. `_fromUsd`/`_toUsd18` read `decimals()` and every
@@ -798,28 +757,24 @@ contract Deploy is Script {
         sFeed[10] = 0x9A5a3c3Ed0361505cC1D4e824B3854De5724434A;   // cUSD/USD (Redstone AggregatorV3, 8-dec, ~$1.00)
         sFeed[11] = 0xEEf0C605546958c1f899b6fB336C20671f9cD49F;   // crvUSD/USD — Chainlink, description() == "CRVUSD / USD", 8-dec (verified on-chain 2026-08-16)
         sFeed[12] = 0xB9E1E3A9feFf48998E45Fa90847ed4D467E8BcfD;   // frxUSD/USD — Chainlink, description() == "FRAX / USD", 8-dec. NAME MISMATCH IS EXPECTED, see the frxUSD note above.
-        address[] memory vStable = new address[](10);
+        address[] memory vStable = new address[](8);
         vStable[0] = address(USDC);
         vStable[1] = address(USDC);
         vStable[2] = address(USDC);
-        vStable[3] = address(USDC);
-        vStable[4] = address(USDT);
+        vStable[3] = address(USDT);
+        vStable[4] = address(USDC);
         vStable[5] = address(USDT);
         vStable[6] = address(USDC);
         vStable[7] = address(USDT);
-        vStable[8] = address(USDC);
-        vStable[9] = address(USDT);
-        address[] memory vAddr = new address[](10);
-        vAddr[0] = eulerUsdc;
-        vAddr[1] = skyUsdc;
-        vAddr[2] = wintermuteUsdc;
-        vAddr[3] = rockawayUsdc;
-        vAddr[4] = eulerUsdt;
-        vAddr[5] = skyUsdt;
-        vAddr[6] = gauntletUsdc;   // + Gauntlet-curated Morpho (USDC: 6 curators)
-        vAddr[7] = gauntletUsdt;   // + Gauntlet-curated Morpho (USDT: 4 curators)
-        vAddr[8] = aaveSpoke;
-        vAddr[9] = aaveSpoke;
+        address[] memory vAddr = new address[](8);
+        vAddr[0] = skyUsdc;
+        vAddr[1] = wintermuteUsdc;
+        vAddr[2] = rockawayUsdc;
+        vAddr[3] = skyUsdt;
+        vAddr[4] = gauntletUsdc;   // + Gauntlet-curated Morpho (USDC: 6 curators)
+        vAddr[5] = gauntletUsdt;   // + Gauntlet-curated Morpho (USDT: 4 curators)
+        vAddr[6] = aaveSpoke;
+        vAddr[7] = aaveSpoke;
         AUX.configure(Aux.Wiring({
             assetTokens: aTok,   assetFeeds: aFeed,
             stableTokens: sTok,  stableFeeds: sFeed,

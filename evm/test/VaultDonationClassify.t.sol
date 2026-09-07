@@ -14,7 +14,7 @@ interface IERC20D { function transfer(address, uint256) external returns (bool);
 
 /// EMPIRICAL per-venue donation-inflation classification against LIVE mainnet vaults (no mocks). For each 4626
 /// the basket uses, donate 100% of its totalAssets and measure convertToAssets(1e18). A vault that tracks cash
-/// internally (Euler, sDAI's DSR) is IMMUNE — share price unchanged; a balanceOf-based 4626 (naive MetaMorpho
+/// internally (sDAI's DSR) is IMMUNE — share price unchanged; a balanceOf-based 4626 (naive MetaMorpho
 /// idle, sUSDe) INFLATES. This tells us EXACTLY which legs need a growth cap (finding #4), not a blanket claim.
 ///
 /// The classification is not decorative: `BasketLib._valueStable` values every stable leg through
@@ -29,13 +29,11 @@ contract VaultDonationClassify is ForkPin {
     // spoke legs (GHO/USDG, and the USDC/USDT spoke entries) are NOT 4626s and have no share price to
     // donate into, so they are out of scope here by construction.
     address constant galaxyUsdc     = 0x91600E31fBeDc72433d4a57F16639cfe661Be7d8; // MetaMorpho (USDC primary)
-    address constant eulerUsdc      = 0x797DD80692c3b2dAdabCe8e30C07fDE5307D48a9; // Euler v2
     address constant skyUsdc        = 0x56bfa6f53669B836D1E0Dfa5e99706b12c373ecf;
     address constant wintermuteUsdc = 0x5dc53a23AdC9f2Bed98de6F59F7F309a7c71FF2B;
     address constant rockawayUsdc   = 0xd65d6E8dbC3Cd3D12418199E6f4014dB3aaa0097;
     address constant gauntletUsdc   = 0x9a1D6bd5b8642C41F25e0958129B85f8E1176F3e; // MetaMorpho
     address constant galaxyUsdt     = 0x71ffB6a81786eC285D429d531Cf655107B9D878d; // MetaMorpho (USDT primary)
-    address constant eulerUsdt      = 0x313603FA690301b0CaeEf8069c065862f9162162;
     address constant skyUsdt        = 0x23f5E9c35820f4baB695Ac1F19c203cC3f8e1e11;
     address constant gauntletUsdt   = 0xE571B648569619566CF6ce1060C97B621CB635D3;
     address constant morphoPyusd    = 0xb576765fB15505433aF24FEe2c0325895C559FB2; // MetaMorpho
@@ -47,7 +45,7 @@ contract VaultDonationClassify is ForkPin {
     address constant STCUSD         = 0x88887bE419578051FF9F4eb6C858A951921D8888; // Cap USD
     address constant MORPHO_BLUE    = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb; // aUSD donation source
 
-    uint constant N = 17;
+    uint constant N = 15;
 
     struct Probe {
         uint a0;         // convertToAssets(1e18) before the donation
@@ -63,14 +61,14 @@ contract VaultDonationClassify is ForkPin {
 
     function test_ClassifyAllVenues() public {
         string[N] memory names = [
-            "galaxyUsdc (MetaMorpho)","eulerUsdc (Euler v2)","skyUsdc","wintermuteUsdc","rockawayUsdc",
-            "gauntletUsdc (MetaMorpho)","galaxyUsdt (MetaMorpho)","eulerUsdt","skyUsdt","gauntletUsdt",
+            "galaxyUsdc (MetaMorpho)","skyUsdc","wintermuteUsdc","rockawayUsdc",
+            "gauntletUsdc (MetaMorpho)","galaxyUsdt (MetaMorpho)","skyUsdt","gauntletUsdt",
             "morphoPyusd (MetaMorpho)","morphoRlusd (MetaMorpho)","morphoUsds (MetaMorpho)",
             "morphoAusd (MetaMorpho)","sDAI (Maker DSR)","sUSDe (Ethena)","stcUSD (Cap)"
         ];
         address[N] memory vs = [
-            galaxyUsdc, eulerUsdc, skyUsdc, wintermuteUsdc, rockawayUsdc,
-            gauntletUsdc, galaxyUsdt, eulerUsdt, skyUsdt, gauntletUsdt,
+            galaxyUsdc, skyUsdc, wintermuteUsdc, rockawayUsdc,
+            gauntletUsdc, galaxyUsdt, skyUsdt, gauntletUsdt,
             morphoPyusd, morphoRlusd, morphoUsds, morphoAusd, SDAI, SUSDE, STCUSD
         ];
         // Where the donated assets come from. address(0) = `deal` (works for every token whose

@@ -155,7 +155,7 @@ abstract contract LevVenueBase is ILevVenue {
 /// Minimal Morpho Blue surface used by the IL-protect.
 
 /// @title  MorphoEscrowVenue — generic (escrow-equivalent) collateral / stable-debt `ILevVenue` on Morpho Blue (weETH on ETH, vBTC on BTC)
-/// @notice The weETH lev venue. Since Euler v2 and Aave V4 borrowing were removed (2026-08-13) this is the
+/// @notice The weETH lev venue. Since the v2/V4 borrowing venues were removed (2026-08-13) this is the
 ///         ONLY ETH-side venue; it still implements `ILevVenue`, so `LevManager` stays venue-agnostic.
 /// 🔴 §POOL-VENUE (2026-08-24) — **ISOLATION IS NOT MORPHO-NATIVE HERE.** There is ONE Morpho position,
 ///         held under THIS ADAPTER's address (`onBehalf = address(this)` on every call); a liquidation
@@ -171,7 +171,7 @@ abstract contract LevVenueBase is ILevVenue {
 ///         INVARIANT #1 (rehypothecation): Morpho Blue supplied COLLATERAL is **not lent** — collateral
 ///         in Morpho is never borrowed against the supply side; it just secures the loan. So weETH as
 ///         Morpho collateral is escrow-equivalent (still earns ether.fi staking intrinsically, never
-///         re-lent) — the rehyp rule holds natively, no escrow-vault choice needed (unlike Euler).
+///         re-lent) — the rehyp rule holds natively, no escrow-vault choice needed.
 ///
 ///         Custody (per ILevVenue): `LevManager` sends weETH/stable to the adapter before `supply`/`repay`;
 ///         the adapter forwards borrowed stable / withdrawn weETH back to `LevManager`.
@@ -270,7 +270,7 @@ contract MorphoEscrowVenue is LevVenueBase {
     ///         reflects interest pending since `lastUpdate` (a `view` can't call `accrueInterest`). The keeper
     ///         either sends this before a health tick, or reads a fresh debt via `eth_call` on a wrapper that
     ///         calls this then `debtOf` — either way removing the pre-accrual drift `debtOf` documents.
-    ///         Harmless to call anytime (idempotent within a block). No effect on Euler (its adapter has none).
+    ///         Harmless to call anytime (idempotent within a block). No effect on an adapter that has none).
     /// 🔴 §DUST-BLOCKS-THE-LAST-EXIT — **THIS EXISTED AND NOTHING CALLED IT, AND THAT IS THE BUG.**
     ///    The docblock above already names the exact defect ("removing the pre-accrual drift `debtOf`
     ///    documents"), but it was written as advice to a KEEPER — *"either sends this before a health

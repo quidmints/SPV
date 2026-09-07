@@ -22,42 +22,6 @@ interface IEVaultGov {
 
 interface IChainlinkFeedT { function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80); }
 interface IWeETHRateT { function getEETHByWeETH(uint) external view returns (uint); }
-interface IVault4626T { function convertToAssets(uint) external view returns (uint); }
-
-/// EVK IPriceOracle (`getQuote(inAmount, base, quote)` → value of `inAmount` `base` in the USD unit of
-/// account, 1e18). NOT a mock — it prices weETH from REAL on-chain sources, exactly as QU!D does:
-///   weETH vault shares → weETH (`convertToAssets`) → ETH (ether.fi `getEETHByWeETH`) → USD (REAL Chainlink
-///   ETH/USD feed). No Redstone, no hardcoded price. A "crash" is driven by overriding the REAL ETH/USD feed
-///   (`vm`-level), which then moves BOTH this oracle AND our range oracle consistently — a single real ETH
-///   drawdown, not a per-oracle mock.
-contract RealRateEulerOracle {
-    address public COLL_VAULT;        // set after the coll vault is created (createProxy is circular)
-    address public immutable WEETH;
-    address public immutable USDC;
-    IChainlinkFeedT public immutable ETH_USD; // real Chainlink ETH/USD (8-dec)
-    constructor(address weeth, address usdc, address ethUsd) { WEETH = weeth; USDC = usdc; ETH_USD = IChainlinkFeedT(ethUsd); }
-    function setColl(address c) external { COLL_VAULT = c; }
-    function getQuote(uint inAmount, address base, address) public view returns (uint) {
-        if (base == COLL_VAULT) {
-            uint weeth = IVault4626T(COLL_VAULT).convertToAssets(inAmount);  // shares → weETH (1e18)
-            uint eth = IWeETHRateT(WEETH).getEETHByWeETH(weeth);            // weETH → ETH (1e18) via the staking rate
-            (, int256 p,,,) = ETH_USD.latestRoundData();                    // ETH/USD, 8-dec, REAL feed
-            return eth * uint(p) / 1e8;                                     // → USD 1e18
-        }
-        if (base == USDC) return inAmount * 1e12;                          // USDC 6-dec → USD 1e18
-        return 0;
-    }
-    function getQuotes(uint inAmount, address base, address quote) external view returns (uint, uint) {
-        uint q = getQuote(inAmount, base, quote); return (q, q);
-    }
-}
-
-/// A ZERO-RATE IRM — a valid REAL market config (some Euler markets run a flat/zero rate), not a mock price.
-/// Returns 0 so the test math is deterministic (no interest drift); a real contract so the vault's
-/// status-check IRM call succeeds (calling address(0) reverts).
-contract ZeroRateIRM {
-    function computeInterestRate(address, uint256, uint256) external pure returns (uint256) { return 0; }
-}
 
 interface IERC20R {
     function approve(address, uint) external returns (bool);
@@ -111,9 +75,7 @@ interface IWeethSubId { function subIdOf(address lp) external view returns (uint
 ///   basket's real Uniswap-ETH hops) + ether.fi adapter mint UP / v3-pool sale DOWN (WETH↔weETH) — NOT our internal
 ///   range. (No sims; the bespoke RealWeethSwapper is gone, folded into LevManager.)
 contract LevYbRealProbe is AllesFixture {
-    // KEPT when the Euler section was removed: this feed is the price anchor for the MORPHO tests
-    // (RealRateMorphoOracle + the staleness cases), not Euler-specific. It merely happened to be
-    // declared inside the Euler block.
+    // Price anchor for the MORPHO tests (RealRateMorphoOracle + the staleness cases).
     address constant CL_ETH_USD = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419; // real Chainlink ETH/USD, 8-dec
     // Real mainnet addresses (same fork Alles pins).
     address constant WEETH          = 0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee;
@@ -377,7 +339,7 @@ contract LevYbRealProbe is AllesFixture {
         assertLt(rvenue.collateralOf(LP), coll0, "de-lever must withdraw real Morpho collateral");
     }
 
-    /// @notice Morpho parity with the Euler capstone (#10): real range + real Morpho Blue + REAL liquidation
+    /// @notice Capstone #10: real range + real Morpho Blue + REAL liquidation
     ///   driven by the live Chainlink feed, basket isolation proven. Morpho liquidation is atomic (no
     ///   liquidator-health deferral, no EVC), so the liquidator just repays + seizes in one call.
     function testReal_Morpho_LiquidationLeavesBasketIntact() public {
@@ -452,8 +414,4 @@ contract LevYbRealProbe is AllesFixture {
         assertGe(AUX.rangeETH() + ETH.levBuf(LP), CORE.POOLED(),
             "real venue ETH + the debt-funded buffer must cover the range (honest LPs whole)");
     }
-
-    // EULER SECTION REMOVED 2026-08-13 — Euler v2 BORROWING is gone (owner), so `EulerEscrowVenue`,
-    // its EVK fixture (GenericFactory proxies, EVC, RealRateEulerOracle) and the two testReal_Euler_*
-    // cases have no subject. Morpho is the only ETH lev venue; Aave V3 remains for the WBTC fallback.
 }

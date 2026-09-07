@@ -78,7 +78,7 @@ contract LevVenueMarketPins is ForkPin, Deploy {
 
     /// The Aave ETH leg must be DEEP, not merely configured. A correctly-configured EMPTY market is the
     /// failure mode that has now appeared THREE times: two 86% weETH/WETH Morpho markets holding $0.0002
-    /// and $2,095, and Euler's eWETH-14 -- which accepts the eweETH-1 escrow at 67% LTVBorrow / 77%
+    /// and $2,095, and an eWETH-14 market -- which accepts the eweETH-1 escrow at 67% LTVBorrow / 77%
     /// LTVLiquidation with a renounced governor, and has totalAssets, cash AND totalBorrows all ZERO.
     /// Every structural check passes on all three. Only depth separates them, so only depth is asserted.
     /// \U0001f534 **§S12 — THIS USED TO ASSERT ON `supplied - debt` AND CALL IT "free WETH". IT IS NOT.**

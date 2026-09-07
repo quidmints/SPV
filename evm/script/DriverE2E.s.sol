@@ -105,7 +105,6 @@ contract Deploy is Script {
             morphoUsdcVault: morphoUsdcVault, morphoUsdtVault: morphoUsdtVault,
             morphoUsdsVault: morphoUsdsVault, sdai: SDAI, susde: SUSDE,
             aaveSpoke: aaveSpoke, aaveHub: aaveHub,
-            nfpm: address(0),
             stables: stables, vaults: vaults,
             hopOperator: hop,
             spvCheckpointHeader: REGTEST_GENESIS_HEADER,

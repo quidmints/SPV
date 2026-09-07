@@ -616,57 +616,25 @@ contract AllesFixture is ForkPin, ExitFixture {
         vm.deal(User03, 1000000000 ether);
 
         // ─── ONE canonical deploy + wiring — shared VERBATIM with DeployL1_s.sol
-        //     (production) and script/DriverE2E.s.sol via src/DeployLib.sol. Only
-        //     the environment differs: this mainnet-fork test injects LIQUID mock
-        //     WETH 4626s for the GALAXY/EULER venues (the real Galaxy Morpho-V2
-        //     vault has maxWithdraw=0 at the fork block, which would block every LP
-        //     withdraw + the redemption ETH-fallback), and it deploys NO Rover /
+        //     (production) and script/DriverE2E.s.sol via script/DeployLib.sol. Only
+        //     the environment differs: this mainnet-fork test deploys NO Rover /
         //     SPVGateway / BTCChannels here — individual tests stand up their own
-        //     doubles (setBTCChannels is pin-once). Basket's ctor now
-        //     REQUIRES the Safe's ANGEL approval to Aux (DeployLib commits it mid-
-        //     deploy), so setUp first hands the deployer (this) the real F8N ANGEL
-        //     NFT — identical to production, where the Safe owns it. ───
+        //     doubles (setBTCChannels is pin-once). Basket's ctor REQUIRES the Safe's
+        //     ANGEL approval to Aux (DeployLib commits it mid-deploy), so setUp first
+        //     hands the deployer (this) the real F8N ANGEL NFT — identical to
+        //     production, where the Safe owns it. ───
         //
-        // ETH-venue WETH 4626s: THE REAL MAINNET CURATOR VAULTS (user, 2026-07-26: "do not mock
-        // anything, use the real addresses that you have"). These are the same three constants
-        // `DeployL1_s` deploys against (`:137/:141/:145`), all fork-verified live: distinct
-        // addresses, `asset() == WETH`, and deep enough for these tests (totalAssets ≈ 8971 /
-        // 977 / 4720 WETH), so no injected liquidity is needed.
-        //
-        // This ALSO fixes a real bug: gauntlet used to ALIAS the euler mock, which (a) left the
-        // Gauntlet venue entirely untested and (b) made `QuidLib._rangeETH` (which SUMS
-        // galaxy+euler+gauntlet with no dedup) DOUBLE-COUNT that vault — a 10 ETH SPLIT deposit
-        // reported rangeETH == 14. `Vault`'s ctor now rejects aliased venue slots outright.
-        //
-        // Using real addresses also DELETES the whole nonce-prediction apparatus that existed
-        // only to place the mocks (computeCreateAddress ×N + a drift `require`). The NONCE
-        // ALIGNMENT concern it protected is unaffected: Core.setup derives its oracle mock-token
-        // addresses from CORE's address and `_initPool` orients the synthetic pools by an address
-        // comparison (`token1isVol = volMock > usdMock`), so the fork-price-sensitive RunSim
-        // invariants only need CORE at its usual deployer-nonce — and creating NOTHING extra here
-        // preserves that trivially.
-        // MEASURED 2026-07-26 (EthVenueDeliverable.t.sol, 10 ETH SPLIT deposit ⇒ 2 ETH per venue):
-        //   Euler    0xD8b2…84C2  convertToAssets 2.0  maxWithdraw 2.0  gap 0.0   ← WORKS
-        //   Galaxy   0x1878…824F  convertToAssets 2.0  maxWithdraw 0.0  gap 2.0   ← cannot deliver
-        //   Gauntlet 0x43fC…92da  convertToAssets 2.0  maxWithdraw 0.0  gap 2.0   ← cannot deliver
-        // Galaxy and Gauntlet are the SAME Morpho-V2 implementation (identical 43,619-byte code) and
-        // report ZERO withdrawable against a position we genuinely hold — so this is NOT the
-        // "maxWithdraw(owner) is 0 because we own nothing" artifact; supplying capacity does NOT make
-        // it withdrawable in them at this fork block. `_deliverableCap` then subtracts their whole
-        // position and `_pull4626`'s real `withdraw` cannot hand WETH back, so no amount of
-        // view-mocking helps — only a contract that actually holds and returns WETH does.
-        //
-        // ⇒ HYBRID, to keep as much REAL as possible: the REAL Euler vault is used (its exit path is
-        //   genuinely exercised, share price ≠ 1 and all), and liquid stand-ins are injected ONLY for
-        //   the two vaults that structurally cannot deliver here. Revisit if the fork block moves to
-        //   one where the Morpho-V2 vaults hold idle liquidity — then all three can be real.
-        // ALL THREE REAL (standing rule: do not mock, use the real addresses).
-        address _eulerV    = 0xD8b27CF359b7D15710a5BE299AF6e7Bf904984C2;
-        address _galaxyV   = 0x1878805799273d10aE96a58201A6f5254CF9824F;
-        address _gauntletV = 0x43fCd85E8D9D003D515f886891B7C742AC9f92da;
+        // NOTHING IS MOCKED AND NO VENUE ADDRESS IS PINNED HERE. §ETHVENUE-FOLD replaced the
+        // 4626 curator-vault set with the ether.fi adapter armed inside `Quid.setup`, so
+        // `QuidLib._rangeETH` now counts weETH/WETH/eETH balances plus the lev book — there is
+        // no venue slot left for this fixture to fill. Creating nothing extra also preserves the
+        // nonce alignment the fork-price-sensitive RunSim invariants need: `Core.setup` derives
+        // its oracle mock-token addresses from CORE's address and `_initPool` orients the
+        // synthetic pools by an address comparison (`token1isVol = volMock > usdMock`), so CORE
+        // only has to land on its usual deployer nonce.
         // ANGEL seed: hand the deployer (this) the live Foundation NFT so DeployLib's mid-deploy approve(Aux)
         // succeeds and Basket's constructor check passes — exactly as production, where the Safe owns ANGEL.
-        // (A prank'd transfer is a CALL, not a CREATE, so it doesn't disturb the _n0 nonce alignment above.)
+        // (A prank'd transfer is a CALL, not a CREATE, so it doesn't disturb the nonce alignment above.)
         {
             address _angelOwner = IAngelF8N(0x3B3ee1931Dc30C1957379FAc9aba94D1C48a5405).ownerOf(16508);
             vm.prank(_angelOwner);
@@ -684,7 +652,6 @@ contract AllesFixture is ForkPin, ExitFixture {
             morphoUsdcVault: morphoUsdcVault, morphoUsdtVault: morphoUsdtVault,
             morphoUsdsVault: morphoUsdsVault, sdai: address(SDAI), susde: address(SUSDE),
             aaveSpoke: aaveSpoke, aaveHub: aaveHub,
-            nfpm: address(0),
             stables: STABLECOINS, vaults: VAULTS,
             hopOperator: address(0),
             spvCheckpointHeader: "", spvCheckpointHeight: 0, spvCheckpointWork: 0,

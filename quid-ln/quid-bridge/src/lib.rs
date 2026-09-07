@@ -51,7 +51,7 @@ pub mod evm_validating_signer;
 pub mod freshness_ledger;
 /// YB IL-protect keeper: proactive de-lever loop so the venue's liquidation engine
 /// never fires (we build none of our own). Decision core; EVM I/O loop wires to the
-/// weETH-escrow Euler adapter once it lands.
+/// weETH-escrow adapter once it lands.
 pub mod oneinch;
 pub mod lev_keeper;
 pub mod lev_keeper_btc;

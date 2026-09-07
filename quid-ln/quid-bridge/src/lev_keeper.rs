@@ -8,7 +8,7 @@
 //! threshold.
 //!
 //! # Why this means we build NO liquidation engine of our own
-//! The collateral (weETH) lives on an EXTERNAL, isolated Euler/Morpho market that
+//! The collateral (weETH) lives on an EXTERNAL, isolated Morpho market that
 //! already has its own liquidation engine. Our keeper's contract is to de-lever
 //! PROACTIVELY — always a [`LevKeeperConfig::safety_margin_bps`] below the venue's
 //! liquidation LTV. So the venue's engine is a *never-triggered backstop*; we never
@@ -522,7 +522,7 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
                 .try_into()
                 .unwrap_or(u64::MAX);
             // PER-LP venue liquidation threshold (live) — pos(lp).venue → liqThresholdBps(), so it tracks an
-            // Euler/Morpho LLTV ramp instead of going stale. Falls back to the configured constant on any read
+            // Morpho LLTV ramp instead of going stale. Falls back to the configured constant on any read
             // failure (never widens the safety margin silently).
             let vliq: u32 = (|| -> Option<u32> {
                 let pw = evm.eth_read(lm, "pos(address)", Some(&a)).ok()?;

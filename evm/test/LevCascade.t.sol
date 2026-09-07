@@ -980,7 +980,7 @@ contract LevCascadeProbe is AllesFixture {
         lm.cascadeDelever(batch, mins, _dexes(batch.length), new uint256[](0), new bytes[](0));
         assertEq(QUID.totalSupply(), s2, "de-lever: leverage must not mint/burn QUID");
         // (closeLev's QUID-neutrality is the same code paths — no QUID.mint/burn anywhere in LevManager — and is
-        // exercised by LevYbReal's testReal_Euler_CloseUnwindsFully. It's omitted here because closing while the
+        // exercised by LevYbReal's real-venue close test. It's omitted here because closing while the
         // range feed is still CRASHED (no _realignRangeToReal, which LevYbReal does before its close) diverges from
         // real-Uniswap execution — a fork artifact, not a QUID/close bug.)
     }

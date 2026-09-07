@@ -83,7 +83,6 @@ library DeployLib {
         address aaveSpoke;
         address aaveHub;
         // ── ETH-venue WETH 4626s (mock in tests, real in prod) ──
-        address nfpm;
         // ── basket set (order load-bearing: BOLD LAST) ──
         address[] stables;
         address[] vaults;

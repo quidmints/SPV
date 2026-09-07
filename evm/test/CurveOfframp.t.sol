@@ -26,7 +26,7 @@ interface IOracle { function price() external view returns (uint256); }
 ///      offramp to the wait-NFT rung on every exit and never announce itself;
 ///   - execution is at or near fair, which is the entire reason for the switch;
 ///   - the pool is DEEP enough to matter — a correctly-formed empty pool is the failure mode that has
-///      already appeared three times in this repo (two 86% Morpho decoys, Euler's eWETH-14).
+///      already appeared three times in this repo (two 86% Morpho decoys, and an eWETH-14 twin).
 contract CurveOfframpPins is ForkPin {
     address constant POOL   = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;  // weETH/WETH-ng
     address constant WETH   = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
