@@ -779,6 +779,65 @@ contract VBtcLevFeeLane is AllesFixture {
         vm.clearMockedCalls();
     }
 
+    /// @notice 🔴 KNOWN POSITIVE FOR §WBTC-MODE-CANNOT-CLOSE. **THIS TEST FAILS ON THE CODE THAT SHIPPED
+    ///   BEFORE THE FIX** — that is the whole point of it, and no existing suite covered this path.
+    ///   `closeBtcLev` withdrew the collateral to the manager and then called `unexposeBtcFromLev`, whose
+    ///   first statement is `VBTC.burnFrom(manager, sats)`. `AaveV3Venue.withdraw` ends
+    ///   `e.withdrawColl(w, MANAGER)`, so after a WBTC-mode close the manager holds WBTC and the burn asks
+    ///   for vBTC it does not have ⇒ REVERT. Since `DeployL1_s` no longer creates the vBTC market
+    ///   (§NO-VBTC-MORPHO-MARKET), WBTC-mode is the ONLY position that can exist, so this was every BTC
+    ///   lev close in production.
+    /// ⇒ The exit now branches on the collateral token exactly as `openBtcLev` branches the entry: the LP
+    ///   brought this WBTC in, so the LP gets it back.
+    function testReal_WbtcLev_CloseReturnsTheLpsOwnWbtc() public {
+        _setupBtcLevWbtc();
+        address lp = makeAddr("wbtcCloseLp");
+        uint coll = 1e8;                                     // 1 WBTC (8-dec)
+
+        deal(address(WBTC), lp, coll);
+        vm.startPrank(lp);
+        IERC20V(address(WBTC)).approve(address(lmW), coll);
+        lmW.openBtcLev(coll, wvenue);                        // WBTC branch: transferFrom lp → venue
+        vm.stopPrank();
+        // PREMISE — the LP really parted with the WBTC, or "it came back" is a reading of nothing.
+        assertEq(IERC20V(address(WBTC)).balanceOf(lp), 0, "PREMISE: the open must take the LP's WBTC");
+        assertApproxEqAbs(wvenue.collateralOf(lp), coll, 1e4, "PREMISE: collateral is posted");
+        assertEq(wvenue.debtOf(lp), 0, "PREMISE: opens at zero debt, so close needs no unwind");
+
+        vm.prank(lp);
+        lmW.closeBtcLev();
+
+        assertApproxEqAbs(IERC20V(address(WBTC)).balanceOf(lp), coll, 1e4,
+            "the LP must get its OWN WBTC back: this is the assertion that reverted before the fix");
+        assertEq(wvenue.collateralOf(lp), 0, "position fully withdrawn from the venue");
+    }
+
+    /// @notice The OTHER half of the same defect, and it must stay a REVERT rather than become a silent
+    ///   truncation. `swapOutDelever` frees a CHANNEL-PROVEN delivered slice; a WBTC-mode position never
+    ///   exposed channel BTC, and its levered backing cannot be delivered as BTC without a conversion that
+    ///   is not built (§WBTC-MODE-CANNOT-CLOSE §2). Before the fix this fell through to `VBTC.burnFrom` and
+    ///   reverted with NO reason string, which reads as a vBTC accounting bug rather than an unbuilt leg.
+    function testReal_WbtcLev_SwapOutDeleverRefusesTheSliceLoudly() public {
+        _setupBtcLevWbtc();
+        address lp = makeAddr("wbtcSliceLp");
+        uint coll = 1e8;
+        deal(address(WBTC), lp, coll);
+        vm.startPrank(lp);
+        IERC20V(address(WBTC)).approve(address(lmW), coll);
+        lmW.openBtcLev(coll, wvenue);
+        vm.stopPrank();
+
+        // Zero `freeSats` is the funded-only case and must still be accepted (it is how a de-lever with
+        // nothing to un-encumber calls through) — assert that BEFORE asserting the refusal, so the revert
+        // below is attributable to the slice and not to the gate rejecting everything.
+        vm.prank(lmW.RANGE());
+        lmW.swapOutDelever(lp, 0, 0);
+
+        vm.prank(lmW.RANGE());
+        vm.expectRevert(BtcLevManager.WbtcSliceNotDeliverable.selector);
+        lmW.swapOutDelever(lp, 0, 5e7);
+    }
+
     /// The permissionless entrypoint must REJECT a native-vBTC (non-WBTC) venue — `rebalanceWbtc` would supply
     /// WBTC into a vBTC venue (collateral mismatch corrupting the position). The WBTC-venue gate (BadTarget)
     /// is the guard; here we point the WBTC manager's call at the vBTC position and expect the revert.
@@ -1169,6 +1228,11 @@ contract VBtcLevFeeLane is AllesFixture {
     ///    POOLED_USD is reconciled by the keeper's async `syncLev`, so an over-draw may be
     ///    transient. Both are recorded: the gap immediately after delivery, and the gap after
     ///    `syncLev`. A defect that self-heals and one that does not are different findings.
+    // ⛔ STORAGE, NOT LOCALS. Holding the before/after snapshots as locals overflows this test's
+    //    frame -- `Stack too deep`, the same legacy-stack limit the src side lives under. Storage
+    //    scratch costs no stack and the values are read-once per arm.
+    uint private _vsBefore; uint private _cBefore; uint private _lBefore;
+
     /// @dev Both sides of the solvency invariant at one instant, for the refill-funding question:
     ///      does `takeToSettle`'s SOFT backing check leave the pool worse off than it found it?
     ///      `takeToSettle` passes `softBacking = true` -> `tryCheckBacking()`, which repacks but
@@ -1179,6 +1243,7 @@ contract VBtcLevFeeLane is AllesFixture {
         liquid    = dd[14] > dpg ? dd[14] - dpg : 0;
         committed = CORE.committedUsd18();
         emit log_named_string("---- backing @", tag);
+        emit log_named_uint("     venue stable      ", IERC20V(venue.stable()).balanceOf(address(venue)));
         emit log_named_uint("     committed (18d)  ", committed);
         emit log_named_uint("     liquid    (18d)  ", liquid);
         emit log_named_uint("     headroom  (18d)  ", liquid > committed ? liquid - committed : 0);
@@ -1225,15 +1290,22 @@ contract VBtcLevFeeLane is AllesFixture {
         emit log_named_uint("venue debt before   (usd6) ", debtBefore);
 
         vm.prank(d.lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
-        (uint cBefore, uint lBefore) = _backingSnap("BEFORE delivery");
+        (_cBefore, _lBefore) = _backingSnap("BEFORE delivery");
+        _vsBefore = IERC20V(venue.stable()).balanceOf(address(venue));
         _deliverLevSwapOut(d.ch, d.channelId, d.fundingTxId, 54, d.lpPubkey, _levDelivSwapId(), d.sats,
                            _levDelivScript(address(d.ch)));
-        (uint cAfter, uint lAfter) = _backingSnap("AFTER delivery (pre-syncLev)");
+        _backingSnap("AFTER delivery (pre-syncLev)");
+        // 🔴 THE DISCRIMINATOR. Basket liquid fell ~$4,198.23 against ~$4,196.61 of debt retired.
+        //    d(venue stable) > 0  ⇒ STRANDED: stable arrived and exceeded the debt, `repayPool`'s
+        //                           min(amount, totalDebt) clamp left the remainder sitting there.
+        //    d(venue stable) == 0 ⇒ TRANSIT COST: the venue got only what it repaid; the gap is a
+        //                           take fee / depeg haircut and never reached the venue at all.
+        emit log_named_int("     d(venue stable)     ",
+            int(IERC20V(venue.stable()).balanceOf(address(venue))) - int(_vsBefore));
         // 🔴 THE QUESTION: the refill DRAINS basket stable to repay the venue. If the in-tx repay
         //    does not offset the drain, headroom shrinks and the dollars taken were dollars a
         //    redeemer could have needed. Report the DELTA of each side, not just the levels.
-        emit log_named_int("     d(committed)      ", int(cAfter) - int(cBefore));
-        emit log_named_int("     d(liquid)         ", int(lAfter) - int(lBefore));
+
 
         uint pooledMid = CORE.POOLED_USD();
         uint debtMid   = venue.debtOf(d.lp);
@@ -1271,6 +1343,85 @@ contract VBtcLevFeeLane is AllesFixture {
         assertGt(d.sats, 0, "no delivery - nothing was measured");
     }
 
+    /// @notice ⭐ §PRO-RATA-FALLBACK — WHAT HAPPENS WHEN THE VENUE'S OWN STABLE VAULT IS PAUSED?
+    /// 🔴 THE EXPOSURE. `_sourceRepayFree` clamps the take to `_heldUsd18(aux, stable)` and the
+    ///    comment says that is to "stay on the cherry-pick leg" -- so a SHORT vault cannot push it
+    ///    onto pro-rata. A PAUSED vault can: `_takePreferred` wraps `aux.withdrawSelf` in
+    ///    try/catch, a revert yields `sent = 0`, and the whole `needed` falls through to the
+    ///    PRO-RATA leg, which delivers OTHER stables -- ones the venue CANNOT REPAY WITH.
+    /// ⇒ The 1:1 measured on the happy path (liquidity consumed == debt retired, gap $0.00000133)
+    ///   has no reason to hold here: the basket pays out stables that cannot retire this venue's
+    ///   debt. This measures whether it breaks, and by how much.
+    /// ⚠️ MEASUREMENT ONLY. Whether the right answer is "revert instead of pro-rata" or "pro-rata is
+    ///    fine because `got` measures the OUTCOME" is a design call; this establishes the numbers.
+    function testReal_MEASURE_ProRataFallback_VenueStableVaultPaused() public {
+        LevDelivery memory d;
+        d.ch = _deployChannels();
+        _setupBtcLev();
+        (d.channelId, d.fundingTxId, d.lp, d.lpPubkey) = _open(d.ch, 54, 3e8);
+        _openLev(d.lp, 299_000_000);
+        _borrowMorpho(d.lp, (lm.collValueUsd(venue.collateralOf(d.lp)) / 10) / 1e12);
+        {
+            address seeder = makeAddr("basketSeeder2");
+            deal(address(USDC), seeder, 400_000 * USDC_PRECISION);
+            vm.startPrank(seeder);
+            USDC.approve(address(AUX), type(uint).max);
+            QUID.mint(seeder, 300_000 * USDC_PRECISION, address(USDC), 0);
+            vm.stopPrank();
+        }
+        BTC.syncLev(d.lp);
+        _snapLevPosition(d);
+        _requestLevSwapOut(d);
+        vm.prank(d.lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
+
+        // ⛔ PAUSE THE VENUE STABLE'S VAULTS. `FeeLib.multiVaultWithdrawBody` reaches them via
+        //    `IERC4626(vs[0]).redeem(...)`, so reverting `redeem` AND `withdraw` is what a paused
+        //    venue looks like from Aux's side -- held > 0, but nothing can come out.
+        address vStable = venue.stable();
+        address[] memory vs = AUX.getVaults(vStable);
+        emit log_named_address("venue stable            ", vStable);
+        emit log_named_uint("its vault count         ", vs.length);
+        for (uint i; i < vs.length; ++i) {
+            vm.mockCallRevert(vs[i], abi.encodeWithSignature("redeem(uint256,address,address)"), "PAUSED");
+            vm.mockCallRevert(vs[i], abi.encodeWithSignature("withdraw(uint256,address,address)"), "PAUSED");
+            emit log_named_address("  paused vault          ", vs[i]);
+        }
+
+        _backingSnap("BEFORE delivery (vault PAUSED)");
+        _vsBefore = IERC20V(vStable).balanceOf(address(venue));
+        uint debtBefore = venue.debtOf(d.lp);
+        try this.extDeliver(d) {
+            emit log("delivery SUCCEEDED with the venue stable vault paused");
+        } catch (bytes memory e) {
+            emit log_named_bytes("delivery REVERTED       ", e);
+        }
+        _backingSnap("AFTER delivery (vault PAUSED)");
+        emit log_named_int("     d(venue stable)     ",
+            int(IERC20V(vStable).balanceOf(address(venue))) - int(_vsBefore));
+        // 🔴 WHERE DID THE $1,377.97 GO? If the pro-rata leg sent OTHER stables to the venue, they
+        //    are sitting there in a denomination `repayPool` cannot use -- stranded, not spent.
+        //    Walk every basket stable and report the venue's balance of each.
+        {
+            address[] memory sts = AUX.getStables();
+            for (uint i; i < sts.length; ++i) {
+                uint b = IERC20V(sts[i]).balanceOf(address(venue));
+                if (b > 0) { emit log_named_address("  VENUE HOLDS stable   ", sts[i]);
+                             emit log_named_uint("    amount (native)    ", b); }
+            }
+        }
+        emit log_named_uint("     debt before  (usd6) ", debtBefore);
+        emit log_named_uint("     debt after   (usd6) ", venue.debtOf(d.lp));
+        assertGt(debtBefore, 0, "no debt - nothing was measured");
+    }
+
+    /// External wrapper so the delivery can be try/caught: a paused vault may legitimately revert
+    /// the settle (DeleverStableUnavailable), and that is a RESULT, not a test failure.
+    function extDeliver(LevDelivery memory d) external {
+        require(msg.sender == address(this), "self");
+        _deliverLevSwapOut(d.ch, d.channelId, d.fundingTxId, 54, d.lpPubkey, _levDelivSwapId(), d.sats,
+                           _levDelivScript(address(d.ch)));
+    }
+
     function testReal_MEASURE_DeliveryDrawVsDebtRetired_MidLtv_CONTROL() public {
         LevDelivery memory d;
         d.ch = _deployChannels();
@@ -1293,15 +1444,22 @@ contract VBtcLevFeeLane is AllesFixture {
         emit log_named_uint("venue debt before   (usd6) ", debtBefore);
 
         vm.prank(d.lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
-        (uint cBefore, uint lBefore) = _backingSnap("BEFORE delivery");
+        (_cBefore, _lBefore) = _backingSnap("BEFORE delivery");
+        _vsBefore = IERC20V(venue.stable()).balanceOf(address(venue));
         _deliverLevSwapOut(d.ch, d.channelId, d.fundingTxId, 54, d.lpPubkey, _levDelivSwapId(), d.sats,
                            _levDelivScript(address(d.ch)));
-        (uint cAfter, uint lAfter) = _backingSnap("AFTER delivery (pre-syncLev)");
+        _backingSnap("AFTER delivery (pre-syncLev)");
+        // 🔴 THE DISCRIMINATOR. Basket liquid fell ~$4,198.23 against ~$4,196.61 of debt retired.
+        //    d(venue stable) > 0  ⇒ STRANDED: stable arrived and exceeded the debt, `repayPool`'s
+        //                           min(amount, totalDebt) clamp left the remainder sitting there.
+        //    d(venue stable) == 0 ⇒ TRANSIT COST: the venue got only what it repaid; the gap is a
+        //                           take fee / depeg haircut and never reached the venue at all.
+        emit log_named_int("     d(venue stable)     ",
+            int(IERC20V(venue.stable()).balanceOf(address(venue))) - int(_vsBefore));
         // 🔴 THE QUESTION: the refill DRAINS basket stable to repay the venue. If the in-tx repay
         //    does not offset the drain, headroom shrinks and the dollars taken were dollars a
         //    redeemer could have needed. Report the DELTA of each side, not just the levels.
-        emit log_named_int("     d(committed)      ", int(cAfter) - int(cBefore));
-        emit log_named_int("     d(liquid)         ", int(lAfter) - int(lBefore));
+
 
         uint pooledMid = CORE.POOLED_USD();
         uint debtMid   = venue.debtOf(d.lp);
