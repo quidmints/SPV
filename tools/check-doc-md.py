@@ -25,6 +25,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FOLDS = {
     "QUEUE.md": ("§FROM-QUEUE", "deleted 2026-08-29; 150 work + 78 knowledge + 19 check rows re-triaged"),
     "BUILD-QUEUE-AND-107.md": ("§BUILD-QUEUE-FOLD", "folded in WHOLE 2026-08-29; -OPEN holds the 8 unique rows"),
+    "REFILL-AND-RESTORATION.md": ("§REFILL fold at :31659", "folded verbatim 2026-08-29 — found 2026-09-07 while working E48, which still says 'build from REFILL-AND-RESTORATION.md'"),
 }
 
 def tree_md():
