@@ -40466,7 +40466,7 @@ pre-change tree was 3847/0 green.
 
 | **E91-audit** | ✅ **ALL FOUR `withdrawBody` BRANCHES AUDITED — BOLD-SP WAS THE LONE EXCEPTION. NO SECOND INSTANCE. And this REVERSES my "elegant refactor" recommendation (2026-08-05).** ✅ **THE AUDIT** (`ChannelLib.withdrawBody`, every branch): **WETH `:248` — `IEthVenue(cfg.ethVenue).withdrawForAux(amount, to)` ✅ delivers** · **GHO/USDG `:258` — `aux._withdrawAaveUnsafe(reserveId, amount, to)` ✅ delivers** · **BOLD-SP `:266` — ❌ DID NOT (the bug; fixed `4b1eee8`)** · **multi-venue `:282` — `FeeLib.multiVaultWithdrawBody(vs, amount, to, …)` ✅ delivers.** **This confirms E91-ROOT exactly and closes the question of whether the same omission exists elsewhere: it does not.** ⛔ **REVERSAL — MY "SINGLE DELIVERY TAIL" PROPOSAL IS WITHDRAWN AS THE RECOMMENDATION.** I argued (E91-LANDED) that each branch delivering separately is what let one forget, and that unifying into one tail would make forgetting impossible. **The audit shows WHY the current shape exists: all three working branches pass `to` INTO the venue call, so the venue transfers DIRECTLY to the user — no hop through `Aux`.** **A single tail would force all three to route through `Aux` and pay an EXTRA TRANSFER. The current design is GAS-OPTIMAL; my "elegant" restructure would make three paths worse to protect against an omission that occurred once.** 📌 **THE OWNER'S TWO QUESTIONS WERE STILL RIGHT, AND THE ANSWER LANDS DIFFERENTLY THAN I FIRST GAVE IT:** *"is there a more elegant fix"* / *"does that code even belong in that function"* — **the transfer does belong at the call site (that is the pattern the other three follow); what does NOT belong is relying on FOUR authors to remember it.** ▶️ **SO THE CORRECT GUARD IS DETECTION, NOT RESTRUCTURE: the contract-side S16 check — assert a BALANCE DELTA at the recipient — catches an omission in ANY branch, present or future, without costing the three correct paths a hop.** ⚠️ **AND IT MUST READ AN ACTUAL BALANCE DELTA, NOT A RETURNED VALUE: my first attempt (`NothingDelivered`, reading `sent`) was INERT precisely because `withdrawFromSP` returned a non-zero `sent` while transferring nothing.** | ✅ audit closed; refactor withdrawn |
 
-| **E111** | 📌 **OWN SESSION REQUIRED — SAFE-COMPROMISE / MALICIOUS-IMAGE. Do not solve this inline; three designs died in one conversation (2026-08-06).** ⛔ **RULED OUT BY THE OWNER, do not re-propose:** (1) **hop quorum** (E109/E109-r) — attestation proves *"I run whitelisted code"*, not distinct operators, and registration is permissionless ⇒ one party stands up K enclaves on the HONEST image and clears any K. **Not Sybil-resistant.** (2) **per-LP delegation veto** — safe, but forces every passive LP to re-sign on each enclave upgrade, reversing a deliberate design choice (*"ONE Safe tx every fleet LP auto-follows with NO re-signing"*). **Owner: drop it.** (3) **threshold shares** — **owner: not better.** (4) **capacity weighting** — an LP's BTC is not the hop's stake; it lets a hop vote with money it does not own. 🔎 **THE ONE REFRAME WORTH CARRYING IN:** the whitelist is NOT where the catastrophe is. A rogue MRENCLAVE grants **standing**, and `btcRecipientOf` pinning already bounds that to churn (never theft, E95). **`MigrationAuth` grants THE SEED** — the honest enclave exports its sealed key to the authorized successor, and since the vault seed derives from the hop seed (E94), one export yields BOTH halves of every channel. ⇒ **Guard the export, not the whitelist.** A sketched-but-unbuilt option: stamp `mrenclaveWhitelistedAt[m]` and have the enclave refuse a successor younger than N blocks — the victim enforcing its own delay, using the same on-chain-state-as-truth pattern `freshness_ledger.rs` already relies on. ⚠️ Any delay is only worth what the window buys, and that needs (a) someone NOTICING — the E102 reproducible-build check nobody has ever run — and (b) an action available. **Those are the same project.** ▶️ Start that session from this row plus E94, E102, E105. | 📌 booked for a dedicated session  📌 **§SEQ-AUDIT: GATE 2 · lane L7. Reframe: guard the MigrationAuth export, not the whitelist - product decision** |
+| **E111** | 📌 **OWN SESSION REQUIRED — SAFE-COMPROMISE / MALICIOUS-IMAGE. Do not solve this inline; three designs died in one conversation (2026-08-06).** ⛔ **RULED OUT BY THE OWNER, do not re-propose:** (1) **hop quorum** (E109/E109-r) — attestation proves *"I run whitelisted code"*, not distinct operators, and registration is permissionless ⇒ one party stands up K enclaves on the HONEST image and clears any K. **Not Sybil-resistant.** (2) **per-LP delegation veto** — safe, but forces every passive LP to re-sign on each enclave upgrade, reversing a deliberate design choice (*"ONE Safe tx every fleet LP auto-follows with NO re-signing"*). **Owner: drop it.** (3) **threshold shares** — **owner: not better.** (4) **capacity weighting** — an LP's BTC is not the hop's stake; it lets a hop vote with money it does not own. 🔎 **THE ONE REFRAME WORTH CARRYING IN:** the whitelist is NOT where the catastrophe is. A rogue MRENCLAVE grants **standing**, and `btcRecipientOf` pinning already bounds that to churn (never theft, E95). **`MigrationAuth` grants THE SEED** — the honest enclave exports its sealed key to the authorized successor, and since the vault seed derives from the hop seed (E94), one export yields BOTH halves of every channel. ⇒ **Guard the export, not the whitelist.** A sketched-but-unbuilt option: stamp `mrenclaveWhitelistedAt[m]` and have the enclave refuse a successor younger than N blocks — the victim enforcing its own delay, using the same on-chain-state-as-truth pattern `freshness_ledger.rs` already relies on. ⚠️ Any delay is only worth what the window buys, and that needs (a) someone NOTICING — the E102 reproducible-build check nobody has ever run — and (b) an action available. **Those are the same project.** ▶️ Start that session from this row plus E94, E102, E105. | 📌 booked for a dedicated session  📌 **§SEQ-AUDIT: GATE 2 · lane L7. Reframe: guard the MigrationAuth export, not the whitelist - product decision** ⛔ **DROPPED 2026-09-07 — owner: *"we dont need the registry ever, drop it."* Four designs already rejected in-row, the whitelist deleted (0 refs, 0 tests, absent from disk), the sketched `mrenclaveWhitelistedAt` mechanism 0 refs and dependent on the deleted registry, and the surviving reframe collapsed into `verify_migration_auth`'s existing k-of-n. **No branch survives.** See `§E111-DROPPED`; the live residual is `§MSIG-GROWS-THEN-FREEZES`. |
 
 | **E110-r** | ✅ **E110's PREREQUISITE ANSWERED: LP CHANNELS ARE NOT ROUTABLE TODAY, SO THERE IS NO LIVE ACCOUNTING HOLE — AND ENABLING ROUTING IS WHAT WOULD CREATE ONE (2026-08-06).** `quid-hop/src/node.rs:611` `build_user_config()` starts from `UserConfig::default()` and sets ONLY handshake fields (`minimum_depth`, `our_to_self_delay`, `our_htlc_minimum_msat`, `our_max_accepted_htlcs`, in-flight cap, anchors, simple-taproot, pinned shutdown script). **Nothing sets `announced_channel`, `accept_forwards_to_priv_channels`, or any `forwarding_fee_*`.** ⚠️ **INFERENCE, FLAGGED AS SUCH:** on LDK defaults that means channels are PRIVATE (absent from public gossip, so strangers cannot path-find through them) and forwarding to private channels is not accepted. I read the handshake block, not the whole file, and the conclusion rests on those defaults rather than a direct read of an explicit `false`. ⇒ **Consistent with E108** (`PaymentForwarded` never handled): there is no routing revenue because there is no routing. ✅ **So `pooled` cannot currently desync via forwarding.** ⛔ **BUT THE OWNER'S ASK — spread routing fees to all LPs — REQUIRES ANNOUNCING CHANNELS, WHICH INTRODUCES EXACTLY THE HOLE E110 DESCRIBES:** an LP has ONE channel (`OneChannelPerLp`), so it can only ever be one LEG of a forward, and forwarding shifts its balance with no splice/deliver/close — the only three things that update `pooled`, which is what QUI is minted against. ▶️ **ORDER OF WORK: (1) a balance-sync mechanism for forwarded HTLCs; (2) announce channels; (3) observe `PaymentForwarded`; (4) credit `feesPerShareBTC` so it settles pro-rata exactly like range fees via `_settleBtcLp`.** Step 4 is the small one and must be LAST. | ✅ prereq answered; routing still gated on balance sync  📌 **§SEQ-AUDIT: GATE 2 · lane L2. Verified: announced_channel/forwarding_fee_* only in vendored LDK - owner decides whether to announce at all** |
 
@@ -52982,6 +52982,68 @@ against the live tree, prints the fold target for each FOLDED row, and **exits n
 FOLDED citation is still stale** — the one bucket that is actionable. Per this file's own rule, a gate
 with a binary result beats a disposition; and per the tooling-traps rule it fails loudly, exiting with
 a FATAL if the tree walk returns zero `.md` files rather than reporting a clean run.
+
+# ⛔ §E111-DROPPED — **NO REGISTRY EVER. WHAT REMAINS DOES NOT SURVIVE EXAMINATION EITHER (2026-09-07)**
+
+**Owner: *"we dont need the registry ever, drop it"*, plus the standing rule that a task which does not
+hold under examination from multiple angles must be dropped.** §E111 was carried as *"OWN SESSION
+REQUIRED — booked for a dedicated session."* Examined from every angle it has, **there is no session
+left to hold.**
+
+| what §E111 contained | state |
+|---|---|
+| four candidate designs — hop quorum, per-LP delegation veto, threshold shares, capacity weighting | ⛔ **all four already RULED OUT by the owner in the row itself** |
+| the whitelist it proposed guarding | ⛔ **does not exist** — `AttestedHopRegistry.sol` absent from disk, **0 refs in `evm/src`, 0 test files**; and now dropped by direction, permanently |
+| its sketched mechanism, `mrenclaveWhitelistedAt[m]` + a successor-age delay | ⛔ **0 references, and it is a WHITELIST TIMESTAMP — it cannot outlive the registry it indexes** |
+| the surviving reframe: *"`MigrationAuth` grants THE SEED — guard the export, not the whitelist"* | ⚠️ **true, and no longer a choice.** With no whitelist there is nothing to guard instead of; the sentence reduces to *"guard the export"*, which is what `verify_migration_auth`'s k-of-n already is |
+
+⇒ **DROPPED.** Four designs rejected, the object of the fifth deleted, its mechanism dependent on the
+deleted object, and its conclusion collapsed into an existing mechanism. **A row whose every branch is
+closed is not a dedicated session; it is a row nobody re-read.**
+
+📌 **WHAT ACTUALLY CARRIES THE RESIDUAL CONCERN, so dropping this loses nothing:**
+`§MSIG-GROWS-THEN-FREEZES` holds the live version — the owner set must become runtime state with a
+monotonic append and a freeze, and `verify_migration_auth` already takes `owners: &[Address]` plus a
+threshold. **That is the export guard, stated against the design that exists rather than against a
+registry that does not.**
+
+---
+
+# ✅ §THE-13-LOOP-IS-NECESSARY — **IT CANNOT BE FOLDED, BECAUSE MATURATION HAS NO TRANSACTION (2026-09-07)**
+
+**Owner asked what the loop is for and whether we need it. Answered from the code.**
+
+```solidity
+function currentMonth()   public view returns (uint) { return (block.timestamp - _deployed) / MONTH; }
+function immatureSupply() public view returns (uint s) {
+    uint cm = currentMonth();
+    for (uint m = cm + 1; m <= cm + 13; ++m) s += totalSupplies[m];      // Basket.sol:242
+}
+function matureSupply()   public view returns (uint) { return totalSupply() − immatureSupply(); }
+```
+
+**PURPOSE:** the basket mints DATED vintages (6909 ids are months). `matureSupply` is the supply whose
+term has elapsed, and it is the denominator of the redemption mark
+**`perShare = min($1, solvent / matureSupply)`**. **13 is the tenor cap** — the bond curve's
+`month − currentMonth` runs to 12, and the seed case mints at `nextMonth + 1`, so 13 forward slots
+covers every outstanding immature vintage.
+
+🔴 **AND IT CANNOT BE REPLACED BY AN ACCUMULATOR, WHICH IS THE OBVIOUS "FOLD IT INTO OTHER LOGIC"
+MOVE.** `currentMonth()` is **pure wall-clock** — `(block.timestamp − _deployed) / MONTH`. ⇒
+**MATURATION IS NOT AN EVENT. No transaction fires when a vintage matures.** A maintained
+`immatureTotal` could be incremented at mint, but nothing exists to decrement it at maturity, so it
+would need a roll-forward someone must call — **and if nobody calls it, `matureSupply` is stale, and a
+stale denominator misprices every redemption**: too high over-pays redeemers, too low under-pays them.
+
+⇒ **The loop is STATELESS AND CORRECT BY CONSTRUCTION where the accumulator is state that silently
+drifts from the clock.** Rule 17 exactly — *prefer making the bad state unconstructible over making it
+detectable* — and rule 23's test passed: **this is a declaration that cannot be removed and folded more
+elegantly**, because the fold trades a bounded 13-slot read for unbounded staleness on the redemption
+mark.
+
+✅ **COST, so the trade is explicit: 13 `SLOAD`s, `view`, and exactly ONE state-changing caller** —
+`Basket.sol:412` in `_finishMint`. Bounded, paid once per mint. **See `§A7-PREMISE-IS-FALSE`: that cost
+is already being paid, which is why A7's objection to `§E2` option ① is void.**
 
 # 🔬 §A7-PREMISE-IS-FALSE — **THE LOOP IT WARNS ABOUT IS ALREADY IN THE MINT PATH, SO ITS OBJECTION TO §E2 IS VOID (2026-09-07)**
 
