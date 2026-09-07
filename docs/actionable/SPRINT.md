@@ -138,6 +138,8 @@ ERC-7540** — shares are 7540's blocker, so `B8` cannot complete before the sha
 
 All 150 row slots, 137 sections, 19 check-rows and six clusters have been read against the tree.
 **This is the complete open set. Everything else in this file is evidence or archive.**
+⛔ **SUPERSEDED — the 150 was taken 2026-08-30, before §BTC-9's 49 items and §PLP's list folded in, so
+it was never the denominator it claims to be here. The open set is 213. See `§CENSUS-2026-09-07`.**
 
 ⛔ **`§FRESHNESS-RECOMMENDATION` — RETRACTED 2026-08-30 BEFORE IT WAS EXECUTED (owner: *"are you
 sure we are not giving up anything important with this deletion?"*). WE ARE. DO NOT DELETE IT.**
@@ -51199,9 +51201,13 @@ both times.**
 
 **461 rows in this file now carry a `§SEQ-AUDIT` marker and nothing defined the tag — a dangling
 reference is the slop rule 19 exists to remove, so this is the definition.**
+⛔ **THE 461 IS STALE AND THE DEFINITION IS NOT — wave 2 added 142 markers AFTER this was written.
+Today it is 653 markers over 651 rows: 408 closed, 213 open, 30 merged. See `§CENSUS-2026-09-07`.**
 
 **What was done:** six read-only agents took the ~669 open-marked rows outside `§MASTER-ORDER` and
-checked each row's own falsifiable claim **against code, not against comments** (rule 20). The
+checked each row's own falsifiable claim **against code, not against comments** (rule 20).
+⚠️ **The ~669 is the POPULATION AUDITED, not a task total — it is an input to this pass, not its
+result. The result is 408 closed / 213 open / 30 merged (`§CENSUS-2026-09-07`).** The
 verdicts were written into the rows themselves rather than into a new file, because a status living
 in two places is the drift this repo pays for every time.
 
@@ -52805,6 +52811,76 @@ floors would let a keeper pass the aggregate by over-delivering one leg and stea
 
 ---
 
+---
+
+# 🧮 §CENSUS-2026-09-07 — **ONE COUNT. IT SUPERSEDES EVERY EARLIER TOTAL IN THIS FILE.**
+
+**This file carried four different task totals — 150, ~400, 461 and ~669 — none marked superseded,
+all with plausible provenance, taken on three different dates over eight days.** That is the exact
+shape CLAUDE.md warns about: *a number with a plausible provenance is the hardest kind to catch.*
+⇒ **Every one of them is now annotated in place and points here. Do not add a fifth without
+retiring this one.**
+
+## The count, taken 2026-09-07 by classifying every `§SEQ-AUDIT` marker in the file
+
+| verdict | rows | what it means |
+|---|---|---|
+| ✅ **CLOSED** | **408** | done, or the row's premise is false. Wave 1 = 266, wave 2 = 142 |
+| 📌 **OPEN** | 🔴 **213** | genuinely open, each carrying its `GATE n · lane Lx` |
+| 🔁 **MERGED** | **30** | the same task stated twice; folded into another row |
+| | **651** | **and it reconciles exactly: 408 + 213 + 30 = 651** |
+
+⭐ **THE RESIDUAL IS TWO LINES AND BOTH ARE PROSE, NOT ROWS** — `:51198` and `:51200`, the
+`§SEQ-AUDIT` section's own header and its first sentence. **653 markers − 2 = 651 rows.** ⇒ nothing
+is hidden in an unclassified remainder, which is the only reason this table is worth trusting over
+the four it replaces.
+
+## ▶️ **213 IS THE OPEN SET. NOT ~400, AND NOT 73.**
+
+| by lane | | by gate | |
+|---|---|---|---|
+| **L7 · reads** | **66** | GATE 0 | 34 |
+| **L5 · range/swap** | **52** | GATE 1 | 15 |
+| **L6 · tests** | **45** | 🔴 **GATE 2** | **63** |
+| **L3 · btc** | **22** | GATE 3 | 13 |
+| **L2 · rust** | **20** | GATE 4 | 17 |
+| **L1 · prose** | 5 | GATE 5 | 12 |
+| **L4 · lever** | 3 | GATE 6 | 17 |
+| | | GATE 7 | 18 |
+| | | GATE 8 | 19 |
+| | | GATE 9 | 5 |
+
+⭐ **THE SHAPE THIS EXPOSES, AND IT IS THE USEFUL PART:** **66 of the 213 are `L7` — read-only
+determinations, which §LANES marks *"fully parallel with everything, including with itself."*** ⇒
+**31% of the open set needs no build, no lane and no serialisation at all**, and it is the largest
+single block. **`L4` is 3 rows and `L1` is 5** — the two lanes whose serialisers are strictest are
+nearly empty, so the 227-byte `LevManager` budget is not what is gating this list.
+⚠️ **`GATE 2` alone is 63 rows, 30% of everything open.** Whatever `GATE 2` is, it is the list.
+
+## ⛔ WHERE THE FOUR OLD NUMBERS CAME FROM, so none of them is mistaken for this one again
+
+| number | date | what it actually counted | why it is not the open set |
+|---|---|---|---|
+| **150** row slots | 2026-08-30 | §ORDER's census — *"the complete open set"* | taken **before** §BTC-9's 49 items and §PLP's list folded in |
+| **~669** open-marked | 2026-09-06 | the POPULATION six read-only agents audited | an input to the audit, not its result |
+| **461** markers | 2026-09-06 | markers present when that section was written | **a later pass added 142 more afterwards** |
+| **~400** slots | 2026-09-06 | an estimate of the open set | superseded by an actual count: **213** |
+
+📌 **AND ONE HONEST GAP RATHER THAN A DERIVED FIGURE:** 461 → 653 is a growth of 192. **Wave 2's 142
+accounts for most of it and the 30 `MERGED` markers for some more; ~20 I cannot attribute** to a
+recorded event. ⇒ **461 was either approximate when written or grew by an unlogged pass.** Stated
+rather than smoothed, because a reconciliation that comes out exact by construction is not evidence.
+
+⚠️ **THIS COUNT HAS THE SAME EXPIRY AS THE ONES IT REPLACES.** It is one command, so re-run it
+instead of quoting it:
+```bash
+grep -o '§SEQ-AUDIT.\{0,60\}' docs/actionable/SPRINT.md | \
+  sed -E 's/.*(MERGED into|GATE [0-9]).*/\1/;s/.*(verified against code|wave [0-9]).*/CLOSED/' | \
+  sort | uniq -c | sort -rn
+```
+
+---
+
 # 🛤️ §LANES-2026-09-06 — **THE EXECUTION PARTITION. READ THIS BEFORE STARTING ANY ITEM.**
 
 **Owner, 2026-09-06:** *"this is not an acceptable pace … rewrite the commands in such a way that
@@ -52815,6 +52891,9 @@ everything gets finished today."*
 **The open set is ~400 slots, not the 73 `§MASTER-ORDER` sequences.** §ORDER's own census — 150 row
 slots, 137 sections, 19 check-rows, six clusters — was taken 2026-08-30, **before** §BTC-9's 49 items
 and §PLP's list folded in. `§MASTER-ORDER` sequences the actionable subset; it is not the denominator.
+⛔ **THE ~400 IS SUPERSEDED BY A COUNT RATHER THAN AN ESTIMATE: 213 open, of which 66 are `L7`
+read-only and need no build at all. `§CENSUS-2026-09-07`, immediately above this section.** The point
+this paragraph makes — that §MASTER-ORDER is not the denominator — survives the correction intact.
 
 🔴 **AND BATCHING IS NOT THE LEVER, WHICH IS WORTH SAYING WITH THE ARITHMETIC.** A build+test cycle is
 ~6–9 min (warm compile ~105s, pinned suite ~250s). Testing after every one of ~400 items is **~2 days
