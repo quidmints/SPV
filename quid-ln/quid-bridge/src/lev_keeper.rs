@@ -914,6 +914,9 @@ pub fn pick_cheapest(qs: &[VenueQuote], horizon_days: u32) -> Option<(LpAddr, u1
 pub const WETH_ADDR:   LpAddr = [0xC0,0x2a,0xaA,0x39,0xb2,0x23,0xFE,0x8D,0x0A,0x0e,0x5C,0x4F,0x27,0xeA,0xD9,0x08,0x3C,0x75,0x6C,0xc2];
 pub const WBTC_ADDR:   LpAddr = [0x22,0x60,0xFA,0xC5,0xE5,0x54,0x2a,0x77,0x3A,0xa4,0x4f,0xBC,0xfe,0xDf,0x7C,0x19,0x3b,0xc2,0xC5,0x99];
 pub const USDC_ADDR:   LpAddr = [0xA0,0xb8,0x69,0x91,0xc6,0x21,0x8b,0x36,0xc1,0xd1,0x9D,0x4a,0x2e,0x9E,0xb0,0xcE,0x36,0x06,0xeB,0x48];
+/// §SESS-93 — USDS reaches USDC through Sky's 1:1 `DaiUsds` inside `LevMath._hubHop`, not through any
+/// pool, so the coverage matrix has to know about it explicitly: no venue query will ever find it.
+pub const USDS_ADDR:   LpAddr = [0xdC,0x03,0x5D,0x45,0xd9,0x73,0xE3,0xEC,0x16,0x9d,0x22,0x76,0xDD,0xab,0x16,0xf1,0xe4,0x07,0x38,0x4F];
 pub const USDT_ADDR:   LpAddr = [0xdA,0xC1,0x7F,0x95,0x8D,0x2e,0xe5,0x23,0xa2,0x20,0x62,0x06,0x99,0x45,0x97,0xC1,0x3D,0x83,0x1e,0xc7];
 pub const DAI_ADDR:    LpAddr = [0x6B,0x17,0x54,0x74,0xE8,0x90,0x94,0xC4,0x4D,0xa9,0x8b,0x95,0x4E,0xed,0xeA,0xC4,0x95,0x27,0x1d,0x0F];
 
@@ -1330,6 +1333,13 @@ fn v4_pool_has_liquidity<R: JsonRpc>(rpc: &R, a: LpAddr, b: LpAddr, fee: u32, ts
     enc.extend_from_slice(&u64_word(ts as u64));
     enc.extend_from_slice(&[0u8; 32]);                     // hooks = address(0), always
     let id = alloy_primitives::keccak256(&enc);
+    // ⚠️ §SESS-93 — `tools/check-client-abis.py` REPORTS THIS AS DRIFT AND IT IS A FALSE POSITIVE.
+    //    That tool compares every Rust signature against `evm/out`, i.e. against contracts WE
+    //    compile. `StateView` and `V4Quoter` are Uniswap's, deployed on mainnet and never built
+    //    here, so it reports `contract has: []` — absence of our artifact, not a mismatch.
+    //    ⇒ Verified by EXECUTION instead: these two calls are what produced the measured v4
+    //    liquidity for GHO/FRXUSD in the coverage matrix. Do not "fix" the signature to silence
+    //    the tool; a signature that answers on-chain is the stronger evidence.
     let Ok(r) = eth_call_raw(rpc, Address::from_slice(&V4_STATE_VIEW),
         "getLiquidity(bytes32)", Some(id.as_slice())) else { return false };
     r.len() >= 32 && U256::from_be_slice(&r[..32]) != U256::ZERO
@@ -1345,6 +1355,10 @@ fn v4_pool_has_liquidity<R: JsonRpc>(rpc: &R, a: LpAddr, b: LpAddr, fee: u32, ts
 fn best_direct<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Option<(Venue, U256)> {
     let mut best: Option<(Venue, U256)> = None;
     for v in venues_for(rpc, tin, tout, amt) {
+        // ⚠️ §SESS-93 — CURVE AND V4 CANDIDATES ARE STILL DISCOVERED, AND THAT IS NOT WASTE: they
+        //    are what lets the coverage matrix distinguish "no liquidity anywhere" from "liquidity
+        //    the KEEPER cannot address but the CONTRACT can" (`_hubRowOf`) or cannot (v4). What they
+        //    must not do is WIN a ranking, which is what the next line prevents.
         // 🔴 §SESS-86 — **A VENUE WE CANNOT ENCODE MUST NOT WIN, AND IT USED TO.** `best_plan_quoted`
         //    read `if let Some(w) = venue_word(v)`, so a V4 winner was dropped SILENTLY and the whole
         //    direct arm produced nothing — not "the best V3 instead", NOTHING. Ranking a venue we
@@ -1504,7 +1518,6 @@ pub fn plan_for_lp<R: JsonRpc, S: TxSigner>(
                 }
             }
         }
-        let _ = best_out;
         best
     });
     planned.unwrap_or(Plan { dex: dex_word(), dex2: [0u8; 32], hops: vec![dex_word()], fetched: Vec::new() })
@@ -1866,9 +1879,27 @@ mod tests {
         //   VISIBLE rather than absorbed into a pass. That distinction is the whole finding: the
         //   difference between "there is no venue" and "there is one and we cannot use it" is what
         //   tells you whether to go find liquidity or to go write an encoder.
+        // 🔴 §SESS-93 — **THIS MATRIX WAS UNDER-REPORTING AND I QUOTED THE WRONG NUMBER ALL DAY.**
+        //    It asked only "can the KEEPER encode a venue", so it read 7/14 — but the CONTRACT reaches
+        //    USDC for six more stables without any keeper help at all, through `LevMath._hubRowOf`'s
+        //    compile-time Curve rows (mirrored by `CURVE_SHORTLIST` here), plus USDS through Sky's 1:1
+        //    converter. Those legs execute keylessly; the keeper simply is not the one encoding them.
+        // ⇒ a leg counts if EITHER producer can serve it. Reporting only our own half made the
+        //   contract's own capability invisible, which is the same defect as §SESS-86's counting of
+        //   venues we cannot trade — one over-counted, this one under-counted, both from measuring a
+        //   proxy instead of the question.
+        let on_contract_table = |t: LpAddr| -> bool {
+            t == USDC_ADDR || t == USDS_ADDR
+                || CURVE_SHORTLIST.iter().any(|(x, y, _, _, _)| {
+                    (*x == t && *y == USDC_ADDR) || (*y == t && *x == USDC_ADDR)
+                })
+        };
         let tradeable = |x: LpAddr, y: LpAddr, amt: U256| -> (bool, bool) {
             let vs = venues_for(&rpc, x, y, amt);
-            (vs.iter().any(|v| venue_word(*v).is_some()), !vs.is_empty())
+            let keeper = vs.iter().any(|v| venue_word(*v).is_some());
+            // the contract's table only ever serves <stable> <-> USDC, never a volatile leg
+            let contract_side = y == USDC_ADDR && on_contract_table(x);
+            (keeper || contract_side, !vs.is_empty() || contract_side)
         };
         println!("{:<8} {:>26} {:>26}", "stable", "-> WETH", "-> WBTC");
         let (mut both, mut v4_only) = (0usize, 0usize);
@@ -1894,7 +1925,7 @@ mod tests {
             if cells.iter().all(|c| c == "direct" || c == "via USDC") { both += 1; }
             println!("{name:<8} {:>26} {:>26}", cells[0], cells[1]);
         }
-        println!("\n{both}/14 stables reach BOTH volatiles at $100k ON A VENUE WE CAN ENCODE");
+        println!("\n{both}/14 stables reach BOTH volatiles at $100k, keeper-encoded OR on the contract's own table");
         println!("{v4_only} legs have liquidity ONLY where we cannot route it (booked, not counted)");
         // A floor, not the exact set: the hub itself plus the deep majors must always route.
         assert!(both >= 4, "only {both}/14 stables reach both volatiles - that is below anything the \

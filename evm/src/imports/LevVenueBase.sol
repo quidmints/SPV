@@ -123,8 +123,14 @@ abstract contract LevVenueBase is ILevVenue {
     /// The lev manager for THIS range (`LevManager` on ETH, `BtcLevManager` on BTC) — the only caller
     /// the `onlyManager` legs accept. ⚠️ Not the only caller of the CONTRACT: `repayFor` is
     /// permissionless and caller-funded by design.
-    address public immutable MANAGER;   // the lev manager for this range
-    address public immutable STABLE;    // the debt asset this venue lends
+    // ⛔ §SESS-93 — **`public` KILLED ON BOTH: `.MANAGER()` AND `.STABLE()` HAVE ZERO CALLERS.**
+    //    Measured across `src/`, `script/`, `test/` and `quid-ln/`: `.STABLE()` 0, `.MANAGER()` 0,
+    //    `.stable()` 25. So the compiler was emitting two getters per venue for one value that is
+    //    read through a hand-written accessor anyway — dead bytecode in EVERY deployed venue.
+    // ⚠️ **`immutable` ITSELF STAYS.** Making these settable would be a governance knob, and the
+    //    owner's ruling is that this system has none; `stable()` remains the one public face.
+    address internal immutable MANAGER;   // the lev manager for this range
+    address internal immutable STABLE;    // the debt asset this venue lends
 
     /// @notice `borrowRateRay` was asked to price a draw the venue cannot fund.
     /// @dev    Aave's own rate view reverts on this (its virtual balance underflows); Morpho's does

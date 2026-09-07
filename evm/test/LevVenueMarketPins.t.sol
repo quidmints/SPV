@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {ForkPin} from "./utils/ForkPin.sol";
 import {IMorphoStaticTyping as IMorphoMarketRead, MarketParams, Id} from "../src/imports/Interfaces.sol";
 import {Deploy} from "../script/DeployL1_s.sol";
-import {IAaveV4Spoke, IAaveV4Hub} from "../src/imports/Interfaces.sol";
+import {IAaveV4Spoke, IAaveV4Hub, IERC20Min} from "../src/imports/Interfaces.sol";
 
 /// @notice Pins the LIVE Morpho market that `Deploy._ethLevVenues` joins for the ETH-denominated-debt
 ///         lev venue (collateral weETH, debt WETH).
@@ -119,5 +119,46 @@ contract LevVenueMarketPins is ForkPin, Deploy {
     function test_WeethWethVenue_LltvIsNotTheStableLegLltv() public pure {
         assertTrue(MORPHO_LLTV_945 != MORPHO_LLTV_86, "945 collapsed onto the 86% stable-leg LLTV");
         assertEq(MORPHO_LLTV_945, 0.945e18, "LLTV is not the market's actual 94.5%");
+    }
+
+    // ─── §SESS-93 — THE AAVE V3 USDT VENUE ────────────────────────────────────────────────────────
+    //
+    /// ⭐ **THE JUSTIFICATION FOR ADDING IT IS A MEASUREMENT, SO IT BELONGS IN A TEST.** `_ethLevVenues`
+    ///    gained `AaveV3Venue(weETH collateral, USDT debt)` on the strength of one number — the USDT
+    ///    aToken holding **$188.77M** idle against the two Morpho markets' $9.66M and $4.32M. ⛔ A
+    ///    number that lives only in a commit message is the "measured once, never re-checked" shape
+    ///    this file exists to prevent: `_mkMorphoVenue` silently creating an empty twin is the same
+    ///    failure with a different lender.
+    /// ⚠️ **THE aTOKEN IS DERIVED FROM THE POOL, NOT HARDCODED.** A pinned aToken address would pass
+    ///    forever after Aave migrated the reserve; asking the pool means the test follows the reserve.
+    address constant AAVE_V3_POOL = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2;
+    address constant USDT_TOK     = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
+    address constant WEETH_TOK    = 0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee;
+
+    function _aToken(address underlying) internal view returns (address a) {
+        (bool ok, bytes memory r) = AAVE_V3_POOL.staticcall(
+            abi.encodeWithSignature("getReserveData(address)", underlying));
+        require(ok && r.length >= 32 * 9, "aave: reserve unreadable");
+        assembly { a := mload(add(r, mul(32, 9))) }   // 9th word of ReserveData is aTokenAddress
+    }
+
+    /// The venue can actually FUND a hedge, and by a margin that justifies choosing it over Morpho.
+    function test_AaveV3UsdtVenue_HasTheDepthItWasChosenFor() public {
+        address aUsdt = _aToken(USDT_TOK);
+        assertTrue(aUsdt != address(0), "USDT is not a listed Aave V3 reserve - the venue cannot borrow");
+        uint256 idle = IERC20Min(USDT_TOK).balanceOf(aUsdt);
+        emit log_named_decimal_uint("Aave V3 USDT idle (borrowable)", idle, 6);
+        // ⇒ **$50M, not $188M.** The bound is what makes the CHOICE defensible, not what was measured
+        //    on one afternoon — pinning 188 would fail on ordinary utilisation and teach nothing.
+        //    Below $50M this venue stops dominating the Morpho pair and the decision needs re-taking.
+        assertGt(idle, 50_000_000e6,
+            "Aave V3 USDT idle fell below $50M - this venue was added BECAUSE it dominated the two "
+            "Morpho markets ($9.66M + $4.32M idle); at this depth that premise no longer holds");
+    }
+
+    /// weETH must be usable as COLLATERAL there, or the venue is a borrow with nothing behind it.
+    function test_AaveV3UsdtVenue_WeethIsListedCollateral() public view {
+        assertTrue(_aToken(WEETH_TOK) != address(0),
+            "weETH is not a listed Aave V3 reserve - the venue could supply no collateral");
     }
 }

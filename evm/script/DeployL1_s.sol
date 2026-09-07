@@ -706,7 +706,24 @@ contract Deploy is Script {
             oracle: PYUSD_WEETH_ORACLE, irm: vm.envOr("MORPHO_IRM", ADAPTIVE_IRM), lltv: MORPHO_LLTV_86
         }), lm, PYUSD_WEETH_MARKET_ID);
 
-        vs = new address[](2);
+        // ⭐ §SESS-93 — **AAVE V3 USDT: THE DOLLAR LEG THAT ACTUALLY HAS DEPTH.**
+        // 📊 MEASURED 2026-09-07, not carried over from a note: the Aave V3 USDT aToken
+        //    (0x23878914EFE38d27C4D67Ab83ed1b93A74D4086a) holds **$188.77M** of idle USDT, and weETH
+        //    IS a listed reserve (aToken 0xBdfa7b7893081B35Fb54027489e2Bc7A38275129). Against the two
+        //    Morpho markets above — $9.66M and $4.32M idle — that is roughly **13x the entire ETH
+        //    dollar leg**, on the one stable whose hub row is 3pool at ~1.7 bps.
+        // ⛔ THIS IS A DELIBERATE DEPARTURE FROM "MORPHO ONLY" ABOVE, AND THE NOTE STAYS TRUE AS
+        //    WRITTEN: what that paragraph removed was Euler v2 and Aave **v4** borrowing, and the BTC
+        //    side has kept Aave **V3** throughout. Adding it here makes the two ranges symmetric
+        //    rather than making an exception for one.
+        // ⚠️ USDT IS 6-DEC AND RETURNS NO BOOLEAN. `_fromUsd`/`_toUsd18` read `decimals()` and every
+        //    approval on this path goes through `forceApprove` (§SESS-84 — a typed `approve` reverts
+        //    on USDT's empty returndata, which is why USDT could never be `tokenIn` before).
+        address usdtV = address(new AaveV3Venue(
+            aaveV3Pool, IAaveV3AddrProvider(aaveV3AddrProvider).getPoolDataProvider(),
+            weeth, address(USDT), lm, vm.envOr("AAVE_V3_WEETH_LT_BPS", uint256(7300))));
+
+        vs = new address[](3);
         // LONG Morpho venue {collateral: weETH, debt: WETH} -- the ETH-DENOMINATED-DEBT leg. Every other venue
         // above borrows USDC, which is what makes an ETH IL-protect borrow pay a stable->WETH SOR round trip;
         // 🔴 THE WETH-DEBT VENUE {loanToken: WETH, collateralToken: weETH} WAS DELETED HERE. It could not
@@ -729,7 +746,7 @@ contract Deploy is Script {
         // hedge at any size — an allowlisted venue that reverts on borrow is worse than no venue,
         // because the keeper spends a rebalance discovering it. WETH-collateral went with it (dominated:
         // same delta, same IL offset, minus the ether.fi ratchet).
-        vs[0] = mvR; vs[1] = mvP;
+        vs[0] = mvR; vs[1] = mvP; vs[2] = usdtV;
     }
 
 
