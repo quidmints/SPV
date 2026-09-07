@@ -11,7 +11,7 @@ import {LevBase} from "./imports/LevBase.sol";
 
 
 /// @notice weETH↔WETH legs of the leverage swap (stable↔WETH is routed through CURVE —
-///         `LevMath._wethToStable` / `_hubSwap`; it was the basket SOR until 084bc5c).
+///         `LevMath._stableToWethSor` / `_wethToStableDex`, both hopping via `LevMath._hubHop`).
 ///         UP: MINT weETH via the ether.fi adapter at the fair rate (zero-slippage; never the thin pool).
 ///         DOWN: SELL weETH → WETH on the deep v3 pool (`LevMath._weethToWethDex`, two tiers cheapest-first,
 ///         floored at `getEETHByWeETH` − `SELL_SLIP_BPS`). ⚠️ THE LEGS ARE NOT SYMMETRIC: the up-leg mints at
@@ -47,22 +47,20 @@ contract LevManager is LevBase {
     // ether.fi weETH mint (up-leg only — the down-leg is the v3 pool; see the header). NOT our range.
     address   public immutable WETH;    // oracle key (getTWAPforAsset(WETH))
 
-    // ── leverage range ──
-    // QU!D policy ceiling on the LP's CHOSEN target LTV. 50% = 2× is the IL-NEUTRAL max (delta-1); above it is
-    // opt-in DIRECTIONAL (long-biased) leverage — the LP's own risk, isolated at the venue (buffer USD ≤ debt,
-    // deliverable excludes gross). 7500 = 75% LTV ≈ 4×. Conservative LPs still pass 5000 (2×). Tunable policy.
-    // ⚠️ The "~11% headroom below the 86% venue LLTV" this comment used to assert is NOT read from anywhere —
-    // the 0.86 is hardcoded three times over (this comment, the keeper's QUID_LEV_VENUE_LIQ_BPS env var, and
-    // the test's own permissionless `createMarket`). Morpho Blue markets are IMMUTABLE, so a market's LLTV is
-    // exactly knowable via `idToMarketParams(id).lltv` and should be READ, never configured. Until it is, the
-    // headroom this constant leaves is an assumption, not a fact — see QUEUE.md OPEN 19.
-    /// Min collateral to OPEN — keeps the `_openLps` book (iterated in rangeETH on every deposit/withdraw/swap)
-    /// from being Sybil-bloated by free zero-collateral opens (a gas-griefing DoS). ~0.05 weETH.
+    // ── leverage range (state and constants live in `LevBase`) ──
+    // The book-wide LTV ceiling is `LevBase.TARGET_LTV_CAP_BPS` = 7500 bps ≈ 4×. 50% = 2× is the
+    // IL-NEUTRAL point (delta-1); the headroom above it is directional exposure the protocol takes on
+    // behalf of the book, isolated at the venue (buffer USD ≤ debt, deliverable excludes gross).
+    // ⚠️ THE VENUE'S LIQUIDATION THRESHOLD IS READ ON-CHAIN AND HARDCODED OFF IT. `_bandBps` sizes the
+    // no-trade band off `ILevVenue.liqThresholdBps()` (Morpho converts its immutable `LLTV`, Aave
+    // returns its own), so nothing in `evm/src` assumes 0.86 any more — but the keeper still carries
+    // `QUID_LEV_VENUE_LIQ_BPS` (`quid-bridge/src/daemon.rs`), so a market whose LLTV differs makes the
+    // contract and the keeper disagree about where liquidation is. Read it there too before trusting
+    // a keeper margin.
 
-    /// @dev §E358 — this described `targetLtvCapBps` as "the LP's max-leverage LTV cap … 2× is the
-    ///      IL-neutral value, higher is opt-in directional". That field is DELETED: IL-protect is a
-    ///      protocol-wide liability, so no LP carries a debt-to-collateral ratio and there is no
-    ///      per-LP directional opt-in to carry one. `TARGET_LTV_CAP_BPS` bounds the book.
+    /// @dev §E358 — NO LP CARRIES A DEBT-TO-COLLATERAL RATIO OF ITS OWN. IL-protect is a
+    ///      protocol-wide liability, so there is no per-LP cap and no per-LP directional opt-in;
+    ///      `TARGET_LTV_CAP_BPS` bounds the whole book.
     ///      `ilBasisPx` = ETH/USD at open: the IL target is `1 − √(ilBasisPx/pxNow)` = the ETH the
     ///      range has sold since entry (capped). Opens at ZERO leverage and grows only with the
     ///      realized move — proven in test/LevYbPnl.t.sol.
@@ -81,12 +79,8 @@ contract LevManager is LevBase {
     error LenMismatch();   // batch arrays differ in length (custom error — no string-revert bytecode, EIP-170)
     error Auth();          // rebalanceOne/deleverOne caller ∉ {self, lp}
 
-    /// §RULE-8C — A MODIFIER'S BODY IS INLINED AT EVERY USE SITE, AND THIS ONE HAS **15**. The
-    /// check-and-set half is now ONE routine (15 jumps instead of 15 copies); the release stays
-    /// inline because it is a single `SSTORE` and a call would cost more than it saves.
-    /// ⚠️ THE STRUCTURE IS DELIBERATELY UNCHANGED — `_;` still sits between enter and release, so
-    /// every early return still releases the lock. Hoisting the RELEASE into a function would not.
-    /// §RULE-8C, same reason: this exact line appeared **5** times.
+    /// §RULE-8C — a modifier's body is inlined at every use site, so this gate is a FUNCTION: this
+    /// exact line has **5** call sites here, and that is 5 jumps rather than 5 copies.
     function _onlyRange() private view { if (msg.sender != RANGE) revert NotGov(); }
 
     /// @notice Governance — the ONLY party that can allow a venue. CRITICAL: a caller-supplied venue feeds
@@ -109,9 +103,7 @@ contract LevManager is LevBase {
     ///         venue), but pin-once keeps it off the governance attack surface entirely, matching the
     ///         venue-allowlist / renounce-everything posture. 0 = unset (de-lever disabled until pinned).
 
-    /// §E304-mintclose: a truncated docblock for the BOLD-close WETH reserve sat here and described the
-    /// event below it. The reserve, the mint-close mode and their venue (Liquity V2, `c11cb40f`) are gone;
-    /// the only WETH reserve left is `gasReserve`, which is keeper gas and documents itself.
+    /// §E304-mintclose — the ONLY WETH reserve this contract holds is `gasReserve`, and it is keeper gas.
     event FlashProviderSet(address provider);
     // flashProvider is pinned atomically alongside the range + venues in `init` (below).
 
@@ -140,8 +132,9 @@ contract LevManager is LevBase {
         emit FlashProviderSet(flash);
         for (uint i; i < venues.length; i++) {
             address v = venues[i];
-            // COLLATERAL-SET gate: a LONG venue's collateral is custodied + valued by `_collToEth`, which
-            // handles ONLY WETH (1:1) or weETH (rate) -- any other collateral silently misvalues into phantom ETH
+            // COLLATERAL-SET gate: a LONG venue's collateral is custodied + valued through
+            // `LevBase._collToBase`, which on this instance applies the ether.fi weETH rate and nothing
+            // else -- any other collateral silently misvalues into phantom ETH
             // backing (the rug the frozen allowlist stops). `LevMath.vetVenue` reverts an unvaluable one even for
             // GOV. (It also classifies a stable-collateral INVERSE venue as exempt — harmless if one is
             // allowlisted; the short subsystem that consumed it was removed, so the classification is unused.)
@@ -160,17 +153,17 @@ contract LevManager is LevBase {
     // ether.fi weETH<->WETH mint/redeem legs; every OTHER venue is the existing weETH path, byte-identical (the
     // weETH branch reduces to exactly what it did before this option existed).
 
-    /// @notice ALL COLLATERAL IS weETH. `_isWethVenue` and the WETH-collateral branch it selected are
-    ///         gone: raw WETH is STRICTLY DOMINATED — identical delta and identical IL offset, minus the
-    ///         ether.fi ratchet (+2.46%/yr, measured) for every block it sits as collateral. It is a
-    ///         worse way to buy the SAME hedge, not a different hedge, so there was never a reason to
-    ///         select it. The last WETH-collateral market left the allowlist with the USDC venues.
+    /// @notice ALL COLLATERAL IS weETH — this returns `COLL` unconditionally, and the venue argument
+    ///         is unnamed because nothing selects on it.
+    /// ⛔ DO NOT RE-ADD A WETH-COLLATERAL BRANCH. Raw WETH is STRICTLY DOMINATED — identical delta and
+    ///         identical IL offset, minus the ether.fi ratchet (+2.46%/yr, measured) for every block it
+    ///         sits as collateral. It is a worse way to buy the SAME hedge, not a different hedge.
     ///         ⚠️ Anything bought as WETH is minted straight into weETH (`LevMath._stableToWeeth`);
     ///         WETH is a TRANSIT asset here and never rests as collateral.
     function _collToken(ILevVenue) internal view returns (address) {
         return address(COLL);
     }
-    /// @notice Pull `amount` of the venue's equity collateral (weETH OR WETH) from `lp` and supply it as `lp`'s
+    /// @notice Pull `amount` of the venue's equity collateral (weETH — see `_collToken`) from `lp` and supply it as `lp`'s
     ///         isolated collateral. Own frame so `openLev` stays under the no-via_ir stack limit.
     function _supplyCollFrom(ILevVenue venue, address lp, uint256 amount) internal {
         address collTok = _collToken(venue);
@@ -190,12 +183,6 @@ contract LevManager is LevBase {
 
     /// @notice `lp`'s net equity in USD (1e18) = collateral − debt, floored at 0. The single clean read the
     ///         off-chain keeper uses to size the economic (gas-vs-benefit) floor.
-    /// @notice §FOLD-COLL — THE ETH SIDE'S ENTIRE PER-ASSET CONTRIBUTION TO THE VALUATION STACK.
-    ///         weETH units → ETH, at the ether.fi rate. Everything built on it (`collValueUsd`,
-    ///         `_collNative`, `debtUsd`, `getCurrentLtvBps`, `ilLtvBps`, `ilTargetLtvBps`) is shared
-    ///         in `LevBase`; this three-line override is what used to justify seven duplicated
-    ///         functions. Was `_collToEth(ILevVenue, uint)` whose venue parameter was never read.
-
     function netEquityUsd(address lp) public view returns (uint256) {
         if (!pos[lp].open) return 0;
         ILevVenue v = pos[lp].venue;
@@ -209,7 +196,8 @@ contract LevManager is LevBase {
 
     /// §PROTECT-FOLD — the two per-asset facts the shared `protectFromQuid` needs.
 
-    /// §PROTECT-FOLD — the guard is here (this contract owns `_lock`); the body is in `LevBase`.
+    /// §PROTECT-FOLD — the guard is on the ENTRYPOINT (`nonReentrant` and `_lock` are `LevBase`'s);
+    /// the body is `LevBase._protectFromQuidBody`, shared with `BtcLevManager`.
     function protectFromQuid(address lp, uint256 minStableOut) external nonReentrant returns (uint256) {
         return _protectFromQuidBody(lp, minStableOut);
     }
@@ -427,31 +415,20 @@ contract LevManager is LevBase {
     /// @notice De-lever ONE position toward target (down-leg only). The atomic unit of the cascade;
     ///         `external` so `cascadeDelever` can try/catch it. Callable by the contract itself (cascade) or
     ///         the LP.
-    /// @dev    🔴 §STALE (2026-09-01) — THIS DESCRIBED AN ITERATION THE BODY NO LONGER HAS. It read
-    ///         *"Iterates to within range … bounded by MAX_LOOPS; a no-progress chunk breaks early so
-    ///         a stuck position never spins"* — the iterate-and-chip design that a SINGLE
-    ///         flash-repay-first shot replaced. The body contains zero loops; `MAX_LOOPS` was left
-    ///         orphaned (0 reads in src, script or test) and is deleted with this sentence.
-    ///         ⇒ There is no unbounded loop here — there is no loop. `require(debtOf < debtBefore)`
-    ///         below is what makes a position that sources nothing fail fast instead of spinning.
+    /// @dev    ⇒ THERE IS NO UNBOUNDED LOOP HERE — THERE IS NO LOOP. A SINGLE flash-repay-first shot
+    ///         replaces the iterate-and-chip design, and `require(debtOf < debtBefore)` below is what
+    ///         makes a position that sources nothing fail fast instead of spinning.
     /// @dev NO `nonReentrant` BY DESIGN: `cascadeDelever` (which holds the guard) calls this via `this.deleverOne`,
     ///      so a guard here would revert the whole cascade. Safe without it — caller is self or the LP only, and
     ///      every token leg uses ACTUAL balance deltas (no nominal trust), so a re-entry can't mis-account.
-    /// @notice §E357 — ONE entrypoint, and it carries the route. The un-routed
-    ///         `deleverOne(address,uint256)` and its `deleverOneRouted` twin are FOLDED INTO THIS.
-    /// @dev ⛔ **THE TWIN EXISTED ON A PREMISE THAT WAS ALREADY FALSE, AND BOTH ITS CLAUSES WERE
-    ///      WRONG.** It said: *"A SEPARATE ENTRYPOINT, NOT AN EXTRA PARAMETER ON `deleverOne`.
-    ///      `deleverOne(address,uint256)` is pinned in the validating signer's allowlist
-    ///      (`evm_validating_signer.rs`)… `route` empty ⇒ identical behaviour to `deleverOne`
-    ///      (V3 fallback)."*
-    ///        · **`deleverOne` is NOT in that allowlist** — checked; it pins `cascadeDelever` and
-    ///          `rebalanceMany` and nothing else — so the compatibility it was protecting was
-    ///          imaginary, and the cost of the split was a real duplicate entrypoint.
-    ///        · **There is no V3 fallback.** §C2.1 removed it, so an empty route stopped being
-    ///          "identical behaviour" and became `NoVolatileRoute()`. The un-routed twin was not a
-    ///          gentler default; it was the one that could never work.
-    ///      ⇒ Two entrypoints for one action, one of which always reverts, is the fallback the owner
-    ///      ruled out. There is now one, and it fails closed.
+    /// @notice §E357 — ONE entrypoint, and it carries the route.
+    /// @dev ⛔ **DO NOT SPLIT OFF AN UN-ROUTED TWIN.** Both reasons one would be built are false here:
+    ///        · **`deleverOne` is NOT in the validating signer's allowlist** — `evm_validating_signer.rs`
+    ///          pins `cascadeDelever` and `rebalanceMany` and nothing else, so there is no pinned
+    ///          selector to preserve, only a duplicate entrypoint to pay for.
+    ///        · **There is no V3 fallback.** §C2.1 removed it, so an EMPTY route is not "the same call
+    ///          without a hint" — it is `NoVolatileRoute()`. An un-routed twin could never work.
+    ///      ⇒ One entrypoint, and it fails closed.
     function deleverOne(address lp, uint256 minOut, uint256 dex, uint256 dex2, bytes calldata route) external {
         _deleverOne(lp, minOut, dex, dex2, route);
     }
@@ -661,12 +638,12 @@ contract LevManager is LevBase {
     // the `ICurvePool` note forbids (integer-literal inference picking the wrong ABI).
     // ⇒ IT DID NOT NEED RECONCILING, IT NEEDED DELETING. §POOL-VENUE superseded it with
     //   `swapOutDeleverPooled(venue, …)`, which is self-contained (`repayPool` → `withdrawPool` →
-    //   `collToWethDeliver`) and is what `SwapLib:2127` actually calls. The per-LP form had ZERO
-    //   callers: the only two `swapOutDelever(` sites in the tree are `SwapLib:2021`/`:2042`, both
-    //   using the 3-arg BTC form via `ILevManagerDeliver` inside `_sourceRepayFree` — the BTC
-    //   swap-out path (channel BTC, splice-proven, vBTC debt). The remaining mentions are comments.
-    // ⇒ Only the BTC 3-arg signature survives, so `Vogue` can carry one `swapOutDelever` and no
-    //   overload exists to disambiguate.
+    //   `collToWethDeliver`) and is what `SwapLib.deleverEthOnDelivery` actually calls. The per-LP ETH
+    //   form had ZERO callers: every live `swapOutDelever(` site is in `SwapLib._sourceRepayFree`,
+    //   using the 3-arg BTC form via `ILevManagerDeliver` — the BTC swap-out path (channel BTC,
+    //   splice-proven, vBTC debt).
+    // ⇒ Only the BTC 3-arg signature survives, so one `swapOutDelever` declaration serves the tree and
+    //   no overload exists to disambiguate.
 
     /// @notice §POOL-VENUE — THE ONE-CALL DELIVERY-SIDE DE-LEVER. This is what SPRINT #1 exists for.
     ///
@@ -797,10 +774,9 @@ contract LevManager is LevBase {
     /// mode-0 (generic flash-stable) settle in its OWN frame (no via_ir): repay-first → withdraw → sell → return the
     /// flash + surplus to the LP. Sell + keeper-gas peel run in LevMath (bytecode outside this contract).
     function _deleverSettle(uint256 assets, address lp, address venueAddr, address stable, uint256 last, bytes calldata data) internal {
-        // §SESS-19 — **THE PAYLOAD NOW CARRIES `(dex, dex2, route)`, AND THE DECODE MOVED TO `LevMath`.**
-        // §C2.1's note here said *"pull the keeper's 1inch POOL WORD"* — singular, because that is all
-        // this leg could carry: `_delever` took `dex2`/`route` and handed on neither, so the CLOSE leg
-        // could reach only single-hop `unoswap` from EVERY entrypoint, direct calls included.
+        // §SESS-19 — **THE PAYLOAD CARRIES `(dex, dex2, route)` — ALL THREE.** `_delever` must hand on
+        // `dex2` and `route`, not just `dex`: dropping them confines the CLOSE leg to single-hop
+        // `unoswap` from EVERY entrypoint, direct calls included, and nothing reverts to say so.
         // ⚠️ Decoding here put this contract **93 bytes OVER EIP-170** (measured). The decode and the
         //    three `cfg` writes live in `deleverSettleBody` for that reason — the same "body in LevMath"
         //    remedy the rest of this path already uses.

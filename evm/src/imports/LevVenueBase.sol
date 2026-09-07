@@ -18,35 +18,29 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 /// Minimal ERC20 surface shared by both weETH lending-venue adapters.
 
-/// @title  LevVenueBase — shared scaffolding for the per-LP-isolated lending adapters
+/// @title  LevVenueBase — shared scaffolding for the lev venue adapters
 /// @notice What is ACTUALLY shared lives here and is small: the `MANAGER`-only auth, the reentrancy
 ///         guard, the `stable()` accessor and the custody convention.
 ///
-/// ⚠️ THIS HEADER USED TO SAY THE TWO ADAPTERS "differ ONLY in the venue's isolation mechanism".
-///    TRUE, AND MISLEADING — measured 2026-08-15. The isolation mechanism IS THE BODY OF EVERY
-///    FUNCTION, so they share a six-function SHAPE and NO CODE:
-///      • `supply`  — Morpho: `approve` + `supplyCollateral(_params(), amt, lp, "")`, `onBehalf = lp`.
+/// ⚠️ THE TWO ADAPTERS SHARE A SIX-FUNCTION SHAPE, AND THE VENUE MECHANISM IS THE BODY OF EACH ONE —
+///    so the shape is not itself evidence that more can be hoisted. Measured 2026-08-15:
+///      • `supply`  — Morpho: `approve` + `supplyCollateral(_params(), amt, address(this), "")`.
 ///                    Aave:   lazily `new AaveV3Escrow(...)`, transfer to it, `e.supplyColl(amt)`.
-///      • `borrow`  — Morpho: `isAuthorized(lp, this)` then debit the LP directly.
+///      • `borrow`  — Morpho: `MORPHO.borrow(..., address(this), address(this))` on the ONE position.
 ///                    Aave:   route through the per-LP escrow handle.
-///    ⇒ Hoisting them into an abstract with six abstract members SAVES ZERO BYTECODE. Do not read
-///    this file as evidence that a dedup is available; it was read that way once and the dedup was
+///    What IS shared sits above: the pooled unit ledger (`_mintUnits`/`_burnUnits`/`_unitSlice`),
+///    `positionOf`, `_to18`, the guard and the auth. `position()` is the per-venue half.
+///    ⇒ Hoisting the six BODIES into abstract members SAVES ZERO BYTECODE. Do not read this file as
+///    evidence that a further dedup is available; it was read that way once and the dedup was
 ///    refused on measurement (task #48). Nor is `AaveV3Venue` deletable in favour of a Morpho WBTC
-///    market: `DeployL1_s.sol:93` keeps it on a DEPTH measurement (deepest WBTC/USDC book), which is
+///    market: `DeployL1_s` keeps it on a DEPTH measurement (deepest WBTC/USDC book), which is
 ///    a REAL asymmetry, not drift.
 ///
-///         (⛔ `SorExchange` IS DELETED, AND SO IS THE PRODUCT IT ADAPTED. This block used to argue
-///         the opposite -- "a DISTINCT PRODUCT, NOT A DEPRECATED PATH -- do not delete it as an
-///         unmerged straggler" -- and it outlived both `SorExchange.sol` and `LiquityTroveVenue.sol`,
-///         which were removed with the Liquity-V2 directional long (owner: there is no way to borrow
-///         against weETH with Liquity, so the tests were testing something untestable). The text had
-///         also become duplicated mid-sentence, so it read as two overlapping claims.
-///         WHY THIS MATTERED ENOUGH TO REWRITE RATHER THAN DELETE: an instruction NOT to delete
-///         something is the one kind of stale comment that can resurrect dead code. A reader
-///         restoring `SorExchange` on its authority would bring back the BOLD/Liquity mint path with
-///         it. There is no BOLD mint anywhere in `evm/src` today -- no `withdrawBold`, no
-///         `BORROWER_OPS`, no `openTrove`, verified by structure 2026-08-15 -- and BOLD survives ONLY
-///         as basket stable slot 11, SUPPLIED to the Liquity Stability Pool. Held, never minted.)
+///         (⛔ THERE IS NO BOLD MINT ANYWHERE IN `evm/src`, AND DO NOT ADD ONE HERE. The Liquity-V2
+///         directional long was removed on the owner's finding that weETH cannot be borrowed against
+///         with Liquity at all, so a venue adapter for it would be testing something untestable.
+///         BOLD survives ONLY as basket stable slot 11, SUPPLIED to the Liquity Stability Pool —
+///         held, never minted.)
 abstract contract LevVenueBase is ILevVenue {
     using SafeERC20 for IERC20OZ;
 
@@ -100,7 +94,6 @@ abstract contract LevVenueBase is ILevVenue {
         return _mintUnits(amt, tot, bal);
     }
 
-    /// @dev the assets `u` units claim from a pool holding `bal` with `tot` units outstanding.
     /// @dev Lift `amt`, expressed with `dec` decimals, to 18. ONE conversion, because the
     ///      §DECIMAL-BASES trap is this repo's most common bug and a per-venue copy is how the
     ///      6-vs-18 mistake gets made twice with only one of them noticed.
@@ -122,11 +115,15 @@ abstract contract LevVenueBase is ILevVenue {
     /// @inheritdoc ILevVenue
     function position() public view virtual returns (VenuePosition memory);
 
+    /// @dev The assets `u` units claim from a pool holding `bal` with `tot` units outstanding.
     function _unitSlice(uint256 u, uint256 tot, uint256 bal) internal pure returns (uint256) {
         return u == 0 ? 0 : SoladyMath.fullMulDiv(u, bal + 1, tot + UNIT_OFFSET);
     }
 
-    address public immutable MANAGER;   // the only caller (LevManager)
+    /// The lev manager for THIS range (`LevManager` on ETH, `BtcLevManager` on BTC) — the only caller
+    /// the `onlyManager` legs accept. ⚠️ Not the only caller of the CONTRACT: `repayFor` is
+    /// permissionless and caller-funded by design.
+    address public immutable MANAGER;   // the lev manager for this range
     address public immutable STABLE;    // the debt asset this venue lends
 
     /// @notice `borrowRateRay` was asked to price a draw the venue cannot fund.
@@ -154,16 +151,13 @@ abstract contract LevVenueBase is ILevVenue {
 /// @title  MorphoEscrowVenue — generic (escrow-equivalent) collateral / stable-debt `ILevVenue` on Morpho Blue (weETH on ETH, vBTC on BTC)
 /// @notice The weETH lev venue. Since Euler v2 and Aave V4 borrowing were removed (2026-08-13) this is the
 ///         ONLY ETH-side venue; it still implements `ILevVenue`, so `LevManager` stays venue-agnostic.
-/// 🔴 §POOL-VENUE (2026-08-24) — **ISOLATION IS NO LONGER MORPHO-NATIVE, AND THIS PARAGRAPH USED TO SAY
-///         IT WAS.** It read: *"each LP's position lives under the LP's own address (`onBehalf = lp`), so
-///         it's isolated by construction — one liquidation hits that LP's Morpho account, never another
-///         LP and never the QU!D basket… every LP must `morpho.setAuthorization(thisAdapter, true)` ONCE
-///         before opening."* **All three clauses are now false.** There is ONE position under this
-///         adapter; a liquidation hits every LP pro-rata; and there is no authorization to grant.
-/// ⇒ **ISOLATION IS NOW PROTOCOL-ENFORCED, NOT VENUE-ENFORCED.** `cascadeDelever` and the ±3% LTV
-///         hysteresis are the only things keeping the aggregate off the liquidation threshold — Morpho
-///         will not do it per-LP any more. **Treat any change to that hysteresis as a change to the
-///         liquidation guarantee itself.**
+/// 🔴 §POOL-VENUE (2026-08-24) — **ISOLATION IS NOT MORPHO-NATIVE HERE.** There is ONE Morpho position,
+///         held under THIS ADAPTER's address (`onBehalf = address(this)` on every call); a liquidation
+///         hits every LP pro-rata; and there is no per-LP `setAuthorization` to grant, revoke or forget.
+/// ⇒ **ISOLATION IS PROTOCOL-ENFORCED, NOT VENUE-ENFORCED.** `cascadeDelever` and the DERIVED no-trade
+///         band (`LevBase._bandBps`, sized off this venue's own `liqThresholdBps`) are the only things
+///         keeping the aggregate off the liquidation threshold — Morpho will not do it per-LP.
+///         **Treat any change to that band as a change to the liquidation guarantee itself.**
 /// ✅ WHAT IT BOUGHT: the delivery-side de-lever is ONE `repayPool` call instead of one repay per LP, so
 ///         swap size is bounded by stable liquidity rather than by how many repays fit in a block
 ///         (§E342) — and the whole "stuck LP" class disappears with the authorization it depended on.
@@ -197,11 +191,10 @@ contract MorphoEscrowVenue is LevVenueBase {
     //
     // 🔴 THE PRICE, AND IT IS NOT THE ONE §E338 PRICED. §E338 costs the convexity of one hedge against
     // many entry prices (~13-15 bp typical, ~147 bp across a cycle). **The larger cost is that
-    // PER-LP LIQUIDATION ISOLATION IS GONE.** This contract's header used to say a liquidation "hits
-    // that LP's Morpho account, never another LP and never the QU!D basket" — with one position it
-    // hits EVERY LP pro-rata, and the position is protocol-side. Isolation moves from MORPHO-ENFORCED
-    // to PROTOCOL-ENFORCED: `cascadeDelever` plus the +/-3% LTV hysteresis must keep the aggregate away
-    // from the liquidation threshold, because Morpho no longer does it for us.
+    // PER-LP LIQUIDATION ISOLATION IS GONE.** With ONE position a liquidation hits EVERY LP pro-rata
+    // and the position is protocol-side, so isolation is PROTOCOL-ENFORCED rather than
+    // MORPHO-ENFORCED: `cascadeDelever` plus the derived no-trade band (`LevBase._bandBps`) must keep
+    // the aggregate away from the liquidation threshold, because Morpho no longer does it for us.
     // ⚠️ AND IT INTRODUCES A CROSS-LP SUBSIDY ON THAT AXIS: each LP's LTV differs by its pinned
     // `ilBasisPx`, so pooling averages them and a late high-LTV entrant is carried by an early one.
     // `LeverageCrossSubsidyProbe` is the test that should be taught to measure it.
@@ -210,7 +203,8 @@ contract MorphoEscrowVenue is LevVenueBase {
     // class, whose only reachable cause was a revoked or never-granted authorization.
     //
     // THE ACCOUNTING IS TWO LAYERS, AND THE SECOND ONE IS WHY A POOLED REPAY IS O(1):
-    //   • COLLATERAL is raw assets in Morpho (it never accrues), so a plain per-LP ledger is EXACT.
+    //   • COLLATERAL is raw assets in Morpho (it never accrues), but it is still tracked as UNITS
+    //     here — see the ⭐ below for why the exact-ledger shortcut does not survive.
     //   • DEBT accrues, so per-LP debt is held as UNITS of the pool, never as Morpho shares. An LP's
     //     Morpho shares are `poolShares * units[lp] / totalUnits`, so when a pooled repay burns pool
     //     shares, EVERY LP's implied share falls pro-rata with NO per-LP write. That is the whole
@@ -500,9 +494,10 @@ contract MorphoEscrowVenue is LevVenueBase {
 
 // ═══ folded from src/AaveV3Venue.sol (2026-08-15) ═══
 
-/// @title  AaveV3Escrow — a single LP's ISOLATED Aave V3 position, owned by the venue (mirror of AaveV4Escrow)
-/// @notice Aave V3, like V4, keys a position by the CALLER and has no sub-account/on-behalf-borrow, so the only way
-///         one LP's liquidation can never touch another's is a per-LP escrow. VARIABLE-rate borrow (mode 2).
+/// @title  AaveV3Escrow — the venue's Aave V3 position, owned by the venue
+/// @notice Aave V3 keys a position by the CALLER and has no sub-account/on-behalf-borrow, so a position IS an
+///         escrow. §POOL-VENUE: the venue deploys exactly ONE of these (`poolEscrow`) and tracks per-LP claims
+///         in units, so this holds the whole book rather than a single LP. VARIABLE-rate borrow (mode 2).
 contract AaveV3Escrow {
     using SafeERC20 for IERC20OZ;
 
@@ -563,12 +558,13 @@ contract AaveV3Escrow {
     }
 }
 
-/// @title  AaveV3Venue — per-LP isolated Aave V3 borrow venue as an `ILevVenue`
+/// @title  AaveV3Venue — pooled Aave V3 borrow venue as an `ILevVenue`
 /// @notice The WBTC lev venue, sibling of `MorphoEscrowVenue` (same `ILevVenue`, so the
 ///         managers stay venue-agnostic). Collateral (WBTC/vBTC/weETH) supplied, `stable()` (USDC) borrowed on Aave
 ///         V3 — the DEEPEST WBTC/USDC book (data-verified 2026-07: ~$14–19B TVL, deepest liquidity, vs Morpho's
-///         thin ~$14M-avail isolated market), so the SPA picks it for sizeable positions. ISOLATION: each LP gets
-///         its own `AaveV3Escrow`; a liquidation hits only that escrow, never another LP and never the QU!D basket.
+///         thin ~$14M-avail isolated market), so the SPA picks it for sizeable positions. ISOLATION: §POOL-VENUE —
+///         ONE `poolEscrow` holds the whole book, so a liquidation hits every LP pro-rata and isolation from the
+///         QU!D basket is what the escrow still buys. See the §POOL-VENUE note on `poolEscrow` below.
 ///
 ///         POSITION READS use the ProtocolDataProvider's per-asset `getUserReserveData` (Amp.sol's PROVEN source):
 ///         `currentVariableDebt` / `currentATokenBalance` are the exact block-fresh underlying-unit amounts — no
@@ -588,8 +584,8 @@ contract AaveV3Venue is LevVenueBase {
     // the CALLER, so an escrow IS a position; `mapping(address => AaveV3Escrow) escrowOf` therefore
     // WAS the per-LP isolation, exactly as `onBehalf = lp` was on Morpho. Same trade, same reasons:
     // the delever loop could not aggregate across N escrows, so swap size was capped by how many
-    // repays fit in a block. Isolation is now protocol-enforced (`cascadeDelever` + the LTV
-    // hysteresis), not venue-enforced.
+    // repays fit in a block. Isolation is now protocol-enforced (`cascadeDelever` + the derived
+    // no-trade band, `LevBase._bandBps`), not venue-enforced.
     // ⭐ THE UNIT MODEL FITS AAVE BETTER THAN MORPHO, WHICH IS WORTH SAYING: aTokens REBASE and the
     // variable-debt balance ACCRUES, so BOTH sides of the pool grow on their own. Units mean every
     // LP's slice grows with them through one conversion — there is no per-LP accrual bookkeeping to

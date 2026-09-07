@@ -27,10 +27,13 @@ import {LevMath} from "./LevMath.sol";
 ///           address-returning getter.
 ///         • `TARGET_LTV_CAP_BPS` was `internal` in one and `public` in the other. `internal` would
 ///           have DELETED BtcLevManager's existing public getter — an ABI break. `public` only adds a
-///           getter to LevManager, and measurement says it can afford one: 24,352 bytes with 224 to
-///           spare (CLAUDE.md's "70 bytes" line is stale). So `public` is both the compatible answer
-///           and the affordable one. ⚠️ Re-run tools/check-contract-sizes.py after any addition here:
-///           224 bytes is headroom, not licence, and `forge test` does NOT enforce EIP-170.
+///           getter to LevManager, which measured affordable AT THE TIME (24,352 bytes, 224 to
+///           spare). So `public` is both the compatible answer and the affordable one.
+///           🔴 **THAT NUMBER IS A READING WITH A TIMESTAMP, NOT A PROPERTY OF THE TREE, AND
+///           `LevManager` IS THE BINDING CONTRACT HERE.** Re-run `tools/check-contract-sizes.py`
+///           before AND after any addition to this base — everything here is `internal` or a
+///           constant, so it inlines into BOTH managers — and note that `forge test` does NOT
+///           enforce EIP-170, so a green suite says nothing about whether it still deploys.
 ///
 ///         ⚠️ `_openLps` / `_lpIdx` are `internal`, not `private`, ONLY because a derived contract
 ///         cannot see a `private` member. No ABI consequence — neither visibility emits a getter.
@@ -39,41 +42,41 @@ import {LevMath} from "./LevMath.sol";
 abstract contract LevBase {
     /// TWAP window both sides price against. Identical (1800) in each manager; PUBLIC here because
     /// BtcLevManager already exposed a getter and removing it would be an ABI break, while adding one
-    /// to LevManager is affordable (317 bytes of margin, measured).
+    /// to LevManager was affordable when measured (317 bytes of margin then — re-measure, see the
+    /// header: `LevManager`'s margin is the binding one and it moves).
     /// §SESS-42 — one declaration (`TWAP_WINDOW_SECS`); this stays PUBLIC because it is ABI.
     uint32 public constant TWAP_WINDOW = TWAP_WINDOW_SECS;
 
-    /// Max-leverage LTV ceiling an LP may set for itself: 7500 bps ≈ 4×.
+    /// Max-leverage LTV ceiling for the WHOLE BOOK — nobody sets a per-LP one: 7500 bps ≈ 4×.
     uint256 public constant TARGET_LTV_CAP_BPS = 7500;
     /// @notice Gas one `rebalance` actually costs, MEASURED — not a risk parameter.
     /// @dev    §DERIVED-BAND — the band below is a cube root of `g/(C·K)`, and `g` is the only term
     ///         that cannot be read from chain state at decision time: the rebalance has not run yet,
     ///         so `gasleft()` cannot price it and the call site is `view`. This is a fact about the
     ///         bytecode rather than a judgement about risk, which is why it is admissible as a
-    ///         literal where `RANGE_BPS` was not — and `LevDerivedBand.t.sol` measures a real
+    ///         literal AND WHY A BAND WIDTH IS NOT: a measured cost can be re-measured and falsified,
+    ///         a chosen deadband can only be argued about. `LevDerivedBand.t.sol` measures a real
     ///         rebalance and fails if the figure drifts below what one costs, so it cannot rot into
     ///         a guess. The live PRICE of that gas is never frozen: `block.basefee` and the ETH TWAP
     ///         both move underneath it.
-    /// @dev    🔴 **IT WAS `400_000`, AND THAT FIGURE WAS MEASURED ON A PATH THAT COULD NOT TRADE.**
-    ///         While the volatile leg took `bytes route` and every keeper passed an empty one, a
-    ///         rebalance reverted `NoVolatileRoute()` BEFORE the swap — so the "measured" cost
-    ///         covered the Morpho borrow and nothing downstream of it. With the venue leg actually
-    ///         executing (§C2.1 pool word) one real levered rebalance costs **1,248,673** on a
-    ///         mainnet fork: borrow + Curve hub hop + Uniswap V3 + supply.
-    ///         ⚠️ **THE DIRECTION OF THE ERROR IS THE DANGEROUS ONE AND IT WOULD NOT HAVE ANNOUNCED
-    ///         ITSELF.** Under-pricing `g` makes the band TIGHTER (`h = ∛(g/(C·K))`), so the book
-    ///         rebalances more often than the fees can cover — a slow bleed, not a revert. The
-    ///         docblock above named that exact failure while the constant was causing it.
+    /// @dev    🔴 **RE-MEASURE ONLY ON A PATH THAT ACTUALLY TRADES.** The figure is a WHOLE
+    ///         rebalance with the venue leg executing (§C2.1 pool word): **1,248,673** on a mainnet
+    ///         fork — borrow + Curve hub hop + Uniswap V3 + supply. A run that reverts
+    ///         `NoVolatileRoute()` before the swap prices the Morpho borrow and nothing downstream
+    ///         of it, and that number is roughly 3× too small.
+    ///         ⚠️ **UNDER-PRICING `g` IS THE DANGEROUS DIRECTION AND IT DOES NOT ANNOUNCE ITSELF.**
+    ///         It makes the band TIGHTER (`h = ∛(g/(C·K))`), so the book rebalances more often than
+    ///         the fees can cover — a slow bleed, not a revert.
     ///         ⇒ Since `h` is a CUBE ROOT, tripling `g` widens the band only ~1.46×, which is why
-    ///         a 3× error in the input was survivable long enough to go unnoticed.
+    ///         a 3× error in the input is survivable long enough to go unnoticed.
     uint256 internal constant GAS_REBALANCE = 1_250_000;
 
     /// @notice Half-width of the no-trade band around the IL target, in LTV bps, for a position of
     ///         `collUsdWad`. DERIVED — see `LevMath.noTradeBandBps` for the economics.
-    /// @dev    §DERIVED-BAND — replaces `uint256 internal constant RANGE_BPS = 300`. Three inputs,
-    ///         all read: the live cost of a rebalance, the size of the thing being hedged, and the
-    ///         range's own LVR coefficient. Nothing here is anyone's choice, so nothing here is
-    ///         anyone's lever — which is the property a constant could not have.
+    /// @dev    §DERIVED-BAND — THE BAND IS COMPUTED, NEVER CONFIGURED. Three inputs, all read: the
+    ///         live cost of a rebalance, the size of the thing being hedged, and the range's own LVR
+    ///         coefficient. Nothing here is anyone's choice, so nothing here is anyone's lever —
+    ///         which is the property a fixed deadband constant could not have.
     ///
     ///         `K` is read through the pinned `RANGE` in the same `try/catch` idiom as
     ///         `_rangePrice()`: `RANGE` is genuinely unset between deploy and `init`, and a revert
@@ -177,11 +180,9 @@ abstract contract LevBase {
 
     /// @notice weETH→ETH rate source. **ZERO MEANS `COLL` IS ALREADY BASE-DENOMINATED**, which is the
     ///         BTC case (vBTC IS sats, so the conversion is the identity).
-    /// @dev §SEAM — this immutable is what DELETES the `_collToBase` virtual and both of its
-    ///      overrides. They were `RATE.getEETHByWeETH(units)` and `return units` — a difference in
-    ///      DATA (is there a rate source?) that had been encoded as a difference in CODE. One
-    ///      immutable and one body replaces a virtual plus two overrides, and removes a seam point
-    ///      the merge would otherwise have to reconcile.
+    /// @dev §SEAM — THE PER-ASSET DIFFERENCE IS DATA, NOT CODE: "is there a rate source?" is a
+    ///      constructor argument, so `_collToBase` is ONE concrete body with no `virtual` and no
+    ///      per-manager override, and the merge has one seam point fewer to reconcile.
     IWeETH internal immutable RATE;
 
     /// Anti-Sybil floor on an open, in `COLL` units: 0.05e18 weETH on ETH, 50_000 sats (0.0005 BTC)
@@ -199,15 +200,18 @@ abstract contract LevBase {
 
     uint256 private _lock = 1;
 
-    /// @dev §RULE-8C — the GUARD IS A FUNCTION, THE MODIFIER IS TWO JUMPS. `BtcLevManager` still
-    ///      inlined `if (_lock != 1) revert Reentrancy(); _lock = 2;` at every use site; hoisting
-    ///      `LevManager`'s already-folded shape gives the BTC side the same win that measured
-    ///      **+440 bytes** on the ETH side when it was folded there.
+    /// @dev §RULE-8C — THE CHECK-AND-SET HALF IS A FUNCTION, SO EACH USE SITE COSTS A JUMP RATHER
+    ///      THAN A COPY of `if (_lock != 1) revert Reentrancy(); _lock = 2;`. Folding it out of the
+    ///      inline sites measured **+440 bytes** on the ETH side, and both managers inherit it here.
+    /// ⚠️ THE RELEASE STAYS INLINE, AND THE STRUCTURE IS LOAD-BEARING: `_;` sits BETWEEN enter and
+    ///      release, so every early return still releases the lock. Hoisting the release into a
+    ///      function would not — and it is one `SSTORE`, so a call would cost more than it saves.
     modifier nonReentrant() { _enter(); _; _lock = 1; }
     function _enter() private { if (_lock != 1) revert Reentrancy(); _lock = 2; }
 
     /// @notice `COLL` units → the range's base unit (ETH wei / sats).
-    /// @dev NO LONGER `virtual`: see `RATE`. Identity when there is no rate source.
+    /// @dev Not `virtual` — the per-asset difference is the `RATE` immutable, and this is the
+    ///      identity when there is no rate source.
     function _collToBase(uint units) internal view returns (uint) {
         if (units == 0 || address(RATE) == address(0)) return units;
         return RATE.getEETHByWeETH(units);
@@ -279,8 +283,8 @@ abstract contract LevBase {
     error BadTarget();
 
     /// §J.2 — ONE constructor for both instances. `rate == 0` means `coll` is already denominated in
-    /// the range's base unit (the BTC case: vBTC IS sats), which is the whole of what used to be a
-    /// `_collToBase` virtual with two overrides.
+    /// the range's base unit (the BTC case: vBTC IS sats), which is the whole of the per-asset
+    /// difference `_collToBase` has to carry.
     constructor(address aux, address oracleKey, address gov, address quid,
                 address coll, address rate, uint256 minOpen) {
         AUX = IAux(aux); ORACLE_KEY = oracleKey;
@@ -422,13 +426,13 @@ abstract contract LevBase {
     }
 
     /// @notice §POOL-VENUE — THE PINNED POOL. Set on the FIRST open and never cleared.
-    /// ⛔ THIS REPLACES `pos[_openLps[0]].venue`, WHICH CARRIED A SILENT UNDER-REPORT. Reading the
-    ///    book's first entry is correct only while the book is non-empty — and the pool can hold
-    ///    residual collateral or debt after the LAST position closes (a rounding remainder, or an
-    ///    LP closed while the pool was mid-de-lever). The book is then empty, the old `_pool()`
-    ///    returned `address(0)`, and EVERY aggregate — `totalDebtUsd`, `totalNetEquity`,
-    ///    `totalGrossCollateral`, `totalDeliverableDollars` — reported **0 for a pool that is not
-    ///    empty**. Nothing reverts; the backing math simply stops seeing the position.
+    /// ⛔ DO NOT DERIVE THE VENUE FROM THE BOOK (`pos[_openLps[0]].venue`) — THAT CARRIES A SILENT
+    ///    UNDER-REPORT. Reading the book's first entry is correct only while the book is non-empty,
+    ///    and the pool can hold residual collateral or debt after the LAST position closes (a
+    ///    rounding remainder, or an LP closed while the pool was mid-de-lever). The book is then
+    ///    empty, the read yields `address(0)`, and EVERY aggregate — `totalDebtUsd`,
+    ///    `totalNetEquity`, `totalGrossCollateral`, `totalDeliverableDollars` — reports **0 for a
+    ///    pool that is not empty**. Nothing reverts; the backing math simply stops seeing it.
     /// ⇒ A pinned venue cannot go stale that way: it is the pool's identity, not a fact about who
     ///   currently holds a claim on it. It also makes the one-venue-per-range assumption EXPLICIT
     ///   rather than incidental — see the warning below, which is now enforceable.
@@ -546,28 +550,24 @@ abstract contract LevBase {
     ///         when the position nears venue liquidation. Moves NO value to the caller.
     ///
     /// §PROTECT-FOLD (2026-08-22) — ONE body for both managers. The two copies were identical except
-    /// for (a) `QUID`'s DECLARED TYPE (`IERC20Min` on ETH, `address` on BTC) and (b) the ETH side
-    /// reimbursing the keeper. Both are now parameters, so the gate, the `LevMath.protectExec` call and
-    /// the event live once.
+    /// for the keeper reimbursement, which is now the `_afterProtect` seam — so the gate, the
+    /// `LevMath.protectExec` call and the event live once.
     /// ⚠️ **THE MECHANICS WERE ALREADY SHARED** — both copies delegated to the SAME
     /// `LevMath.protectExec`. What was duplicated was the WRAPPER, which is the part that drifts
     /// silently: a gate added to one side and not the other reads as a per-asset decision.
-    /// ⚠️ **`internal`, AND THE GUARD STAYS WITH THE CALLER — deliberately.** Each manager defines
-    /// its OWN `nonReentrant` (its own `_lock` slot); `LevBase` has none. Moving the guard here would
-    /// relocate that storage into the base and change the layout of BOTH deployed contracts, which is
-    /// not worth the four lines it would save. So the managers keep a thin `external nonReentrant`
-    /// wrapper and THE BODY — the gate, the `protectExec` call, the event — lives once, which is the
+    /// ⚠️ **`internal`, AND THE REENTRANCY GUARD SITS ON THE ENTRYPOINT, NOT HERE.** `_lock`,
+    /// `nonReentrant` and `_enter()` are all declared in this contract above; each manager exposes a
+    /// thin `external nonReentrant protectFromQuid` over this body. The guard belongs where the call
+    /// ENTERS, and the body — the gate, the `protectExec` call, the event — lives once, which is the
     /// part that drifts silently.
-    /// 🔎 `nonReentrant` itself IS duplicated across the two managers. Folding it is a storage-layout
-    /// change and is booked separately, not smuggled in here.
     function _protectFromQuidBody(address lp, uint256 minStableOut) internal returns (uint256 repaid) {
         if (!pos[lp].open) revert NotOpen();
         uint256 pull;
         (pull, repaid) = LevMath.protectExec(
             // §POOL-VENUE — **THE NEAR-LIQUIDATION GATE MUST READ THE POOL, NOT THE LP.**
-            // `protectExec` refuses unless `curLtvBps + PROTECT_MARGIN_BPS >= liqThresholdBps`
-            // (`LevMath:971`). Liquidation is POOLED: Morpho holds ONE position under the venue and
-            // seizes it whole, hitting every LP pro-rata (`LevVenueBase:117`). So gating on this
+            // `protectExec` refuses (`NotNearLiq`) unless `curLtvBps + PROTECT_MARGIN_BPS >=
+            // liqThresholdBps`. Liquidation is POOLED: Morpho holds ONE position under the venue and
+            // seizes it whole, hitting every LP pro-rata (see `LevVenueBase`'s header). So gating on this
             // LP's own ratio asks a question liquidation does not depend on — a comfortable LP
             // inside a stressed pool is refused protection right up until the pool is seized, and
             // then the loss lands on it anyway.
@@ -580,8 +580,6 @@ abstract contract LevBase {
         _afterProtect(msg.sender);
         emit ProtectedFromQuid(lp, pull, repaid);
     }
-
-    /// @dev QU!D as an address. ETH declares it `IERC20Min`, BTC `address` — one cast, one place.
 
     /// @dev Post-protect keeper settlement. ETH reimburses from the WETH gas reserve; BTC has no
     ///      reserve to draw on, so the default is a NO-OP and that asymmetry is REAL, not drift.
@@ -681,16 +679,13 @@ abstract contract LevBase {
     function _deliverableDollarsAt(address lp) internal view returns (uint) {
         Types.Pos memory p = pos[lp];
         if (!p.open) return 0;
-        // 🔴 **THE PER-LP TWIN OF THE POOL LEG, AND LEAVING IT BEHIND WAS A REAL DEFECT.** `bd8a174b`
-        //    moved `totalDeliverableDollars`'s pool leg onto `position()` and left this one on the
-        //    AUX oracle, so `VBtcLevFeeLane`'s invariant — *per-LP deliverable is within the book
-        //    aggregate* — compared **two different valuation sources** and failed by 2.2e11 on
-        //    1.17e21. Not a rounding artefact: a per-LP figure priced by our oracle against an
-        //    aggregate priced by the lender's.
-        //    ⚠️ THIS IS EXACTLY THE MISTAKE §POSITION-LEAVES-THREE-LOOSE-ENDS WARNED ABOUT — *"they
-        //    must be collapsed in ONE commit, not migrated caller-by-caller"* — written by me, then
-        //    made by me, and caught by a suite I had not run rather than by the three I had.
-        //    ⇒ BOTH LEGS NOW READ THE VENUE. Do not re-introduce an AUX price on either one.
+        // 🔴 **THIS LEG AND `totalDeliverableDollars`'S POOL LEG MUST SHARE ONE VALUATION SOURCE.**
+        //    Both read the VENUE; do not price either through AUX. `VBtcLevFeeLane` asserts that a
+        //    per-LP deliverable sits within the book aggregate, and pricing one side by our oracle
+        //    against the other by the lender's broke it by 2.2e11 on 1.17e21 — not rounding, two
+        //    different sources.
+        //    ⚠️ §POSITION-LEAVES-THREE-LOOSE-ENDS — *"they must be collapsed in ONE commit, not
+        //    migrated caller-by-caller"*. That is why moving one of these legs alone is never safe.
         VenuePosition memory vp = p.venue.positionOf(lp);
         uint netEq = vp.collateral > vp.debt ? vp.collateral - vp.debt : 0;
         return LevMath.deliverableDollars(netEq, vp.collateral,
@@ -724,8 +719,8 @@ abstract contract LevBase {
     // ⚠️ ONE `ILevEquity` NOW SERVES BOTH INSTANCES, so a handle pointed at the wrong manager no
     // longer reverts on a missing selector — it answers, with the other range's book. What stops
     // that is the ROOT gate, not a name: `Shares.setLevManager` refuses any manager whose
-    // `ORACLE_KEY` is not this range's own asset (`Shares.sol:91`), so a lev manager cannot be
-    // pinned to the wrong range at all. See the note above `grossCollateral` below.
+    // `ORACLE_KEY` is not this range's own asset (`Shares.setLevManager`), so a lev manager cannot be
+    // pinned to the wrong range at all. Full argument in the ⛔ under §LEV-FOLD-2 below.
 
     /// @notice Deliverable dollars for `lp` — oracle read ONCE.
     function deliverableDollars(address lp) public view returns (uint256) {
@@ -739,10 +734,10 @@ abstract contract LevBase {
     function openLpAt(uint256 i) external view returns (address) { return _openLps[i]; }
 
     /// @notice Live sum of every open position's debt (USD 1e18).
-    /// §POOL-VENUE — O(1). This walked every open LP summing `debtUsd(lp)`; with one pooled position
-    /// the pool's own total IS the sum, read in a single call. §E332 measured this function's siblings
-    /// at up to 18 callers apiece, each O(open LPs) and reachable from state-changing paths — the
-    /// cliff that got closer the more the protocol succeeded. It is gone by construction, not clamped.
+    /// §POOL-VENUE — NOT O(open LPs). Each venue holds ONE pooled position whose `totalDebt()` IS
+    /// the sum over its LPs, so the book is never walked. §E332 measured this function's siblings at
+    /// up to 18 callers apiece, each O(open LPs) and reachable from state-changing paths — the cliff
+    /// that got closer the more the protocol succeeded. It is gone by construction, not clamped.
     /// §MULTI-VENUE — a WALK, and each venue converts through ITS OWN `stable()`. Two venues
     /// denominated in different stables cannot share one conversion, which is why the `_toUsd18` is
     /// inside the loop rather than applied to a summed native total.
@@ -754,15 +749,14 @@ abstract contract LevBase {
         }
     }
 
-    /// @dev The IL target at the live price, for a position already in memory.
-    /// §MUTABILITY 2026-08-18 — `view` CASCADED here: it became restrictable only once
-    /// `LevMath.ilTargetLive` was, which is the same shape as the dead-variable cascade earlier
-    /// today. Tightening a callee is what lets the caller tighten.
+    /// @dev The IL target at the live price, for a position already in memory. Two reads and a cap:
+    ///      the position's ENTRY-PINNED basis `ilBasisPx` and the live price. It touches neither
+    ///      `RANGE` nor storage, which is what lets every caller above it be `view`.
     function _ilTargetLive(Types.Pos memory p, uint256 px) internal view returns (uint256) {
-        // §C22 — was `LevMath.ilTargetLive(RANGE, p.syncKeyPx, …)`. That function preferred
-        // `soldFractionWad(syncKeyPx)`, which is a CONSTANT (0.500750000 = f(RANGE_DELTA) alone —
-        // the range recentres on spot, so the price cancels out of the ratio). It is gone; the
-        // estimate on the entry-pinned basis is the target.
+        // ⛔ §C22 — THE TARGET IS THE ENTRY-PINNED ESTIMATE. Do not source it from the range's
+        // `soldFractionWad(syncKeyPx)`: that ratio is a CONSTANT in the price (0.500750000 =
+        // f(RANGE_DELTA) alone, because the range recentres on spot so the price cancels out).
+        // The full argument, with the measured divergence, is at `LevMath.ilTargetBps`.
         return LevMath.ilTargetBps(p.ilBasisPx, px, uint64(TARGET_LTV_CAP_BPS));
     }
 
@@ -788,7 +782,7 @@ abstract contract LevBase {
     }
 
     /// @notice LIVE sum of every open position's GROSS collateral, native unit.
-    /// §POOL-VENUE — O(1), same reasoning as `totalDebtUsd`.
+    /// §POOL-VENUE — NOT O(open LPs), same reasoning as `totalDebtUsd`.
     /// §MULTI-VENUE — a WALK. Collateral is the SAME asset across venues (the manager's `COLL`), so
     /// unlike debt these native amounts are directly additive.
     function totalGrossCollateral() external view returns (uint256 coll) {
@@ -797,11 +791,11 @@ abstract contract LevBase {
     }
 
     /// @notice LIVE sum of every open position's NET equity, native unit. Oracle read ONCE.
-    /// §POOL-VENUE — O(1), AND IT DISSOLVES §E333 RATHER THAN IMPLEMENTING IT.
+    /// §POOL-VENUE — NOT O(open LPs), AND IT DISSOLVES §E333 RATHER THAN IMPLEMENTING IT.
     /// §E333 refused to accumulate this because `LevMath.netEquityBase` floors PER POSITION, so a
-    /// running total would socialise one LP's underwater slice across the book. **With one pooled
-    /// position there is exactly ONE position to floor**, so the floor applies once, where it belongs —
-    /// the objection was to accumulating N floors, and there are no longer N of them.
+    /// running total would socialise one LP's underwater slice across the book. **The floor is now
+    /// applied to the POOLED TOTALS, not per LP**, so it applies once, where it belongs — the
+    /// objection was to accumulating N floors, and there are no longer N of them.
     /// ⚠️ AND THE SUM-OF-FLOORS WAS THE LIVE DEFECT, not merely a refused optimisation: summing
     /// per-LP floored equity over a POOLED position over-counts, which is what drove `committedUsd18`
     /// high enough to trip `checkBacking` on the BTC delivery path.
@@ -838,18 +832,18 @@ abstract contract LevBase {
     ///         the deposit having no separate unlevered range slice). Net-equity IS the delta-1 slice
     ///         now sitting in the recentered range; the next hedge cycle sizes from it at zero IL.
     /// @dev    The over-hedge fix still holds: `E0` tracks NET-EQUITY, never the growing collateral.
-    ///         IDENTICAL on both sides once `netEquity` replaced the two per-asset accessors — the
-    ///         bodies differed only in `uint` vs `uint256` spelling and comment framing.
-    /// @notice §FOLD-MEASURE — body in `RangeLib` (§FOLD-BOOK). `px` and `base` are computed HERE and passed BY
-    ///         VALUE because a library cannot reach the caller's immutables (`AUX`, `ORACLE_KEY`) or
-    ///         its virtuals (`netEquity` routes through `_collToBase`). That is the hard boundary on
-    ///         what can move, and it is why the guard is re-checked in the library rather than here:
-    ///         computing `px`/`base` for a closed position is wasted gas but never wrong, and one
+    ///         One body for both instances, because `netEquity` already carries the per-asset unit.
+    /// @notice §FOLD-MEASURE — body in `RangeLib` (§FOLD-BOOK). The new base is computed HERE and
+    ///         passed BY VALUE because a library cannot reach this contract's immutables (`AUX`,
+    ///         `ORACLE_KEY`) that `netEquity` reads through. That is the hard boundary on what can
+    ///         move, and it is why the `open` guard is re-checked in the library rather than only
+    ///         here: computing the base for a closed position is wasted gas but never wrong, and one
     ///         `open` check in the library is cheaper than two.
     function _reanchorIfReseated(address lp) internal {
-        if (!pos[lp].open) return;   // cheap pre-filter: skip the two oracle/equity reads entirely
-        // §C19 — the `getTWAPforAsset` argument is GONE with the `ilBasisPx` write it fed; the reseat
-        // re-bases the seat and the equity, never the entry price, so it needs no oracle read.
+        if (!pos[lp].open) return;   // cheap pre-filter: skip the equity read entirely
+        // §C19 — NO ORACLE READ ON THIS PATH. The reseat re-bases the seat (`syncKeyPx`) and the
+        // equity, never the entry price `ilBasisPx` — see the ⛔ in `RangeLib.reanchorIfReseated`
+        // for why writing that field makes the levered book inert.
         RangeLib.reanchorIfReseated(pos, RANGE, lp, netEquity(lp));
     }
 }
