@@ -52813,6 +52813,45 @@ floors would let a keeper pass the aggregate by over-delivering one leg and stea
 
 ---
 
+# ⛔ §NO-SAFE-STANDING-DECISION — **E121, E100 AND E119 ALL PLAN AROUND A SAFE THE OWNER RULED OUT. THE CODE RECORDS IT; THE ROWS DO NOT (2026-09-07)**
+
+**Found while discharging a GATE 1 free read, and it invalidates the recommendation I had drawn from
+all three rows.** `quid-ln/quid-hop/src/migration.rs:25-29`, verbatim:
+
+> ⛔ **NO SAFE. A PLAIN k-of-n msig, and that is the OWNER'S STANDING DECISION** (*"we are not using a
+> Safe anymore, just a simple msig"*). The block here used to be headed "WHY A SAFE"… **The MECHANISM
+> never depended on one and still does not:** `verify_migration_auth` takes an owner list and a
+> threshold and checks k-of-n EIP-712 signatures. **Nothing calls a Safe contract; nothing reads Safe
+> storage.**
+
+⛔ **AND THE LIVE-OWNER-SET READ IS WITHDRAWN, NOT DEFERRED** (`:38-42`): it *"proposed reading the
+LIVE owner set via an EVM STATE PROOF OF A SAFE, which requires a Safe's storage layout — the thing
+that is ruled out… **a plain msig exposes no owner-set storage to prove against.**"*
+
+⇒ **WHAT THIS DOES TO THE THREE ROWS:**
+| row | its plan | why it cannot stand |
+|---|---|---|
+| **E121** | *"building `OPERATOR_SAFE` is the one to build"* — Gnosis factory, deterministic proxy | **there is to be no Safe.** `OPERATOR_SAFE` survives at `migration.rs:68` pinned to `0x…dEaD`, a burn address — i.e. deliberately not a Safe |
+| **E100** | swap the sealed const for a proven-live owner set | the sealed snapshot is now the **design**, not a stopgap: *"Self-contained, no RPC trust"* |
+| **E119** | *"cheap form: read `Safe.getOwners()` via the existing EVM client"* | **there is no Safe to call `getOwners()` on** |
+
+🔴 **THE FAILURE IS MINE AND IT IS RULE 20 EXACTLY.** *"Never discharge a `SPRINT.md` question from
+prose — go to the code."* I read three rows, found their reasoning sound, and recommended ratifying
+them. **The rows were prose, and the code had moved underneath them.** The E119 argument — *the enclave
+already trusts a plain RPC read for anti-rollback, so demanding a state proof here is an incoherent
+bar* — is still internally valid; it is just an argument about a mechanism that is no longer the design.
+
+✅ **WHAT SURVIVES AND IS STILL WORTH DOING:** `verify_migration_auth` genuinely takes
+`owners: &[Address]` + a threshold (`migration.rs:309`), so **the k-of-n verification is unchanged and
+owner-set rotation is a config question, not a contract one.** The real open item is narrower than any
+of the three rows: **how a sealed owner-set snapshot is rotated without a re-attestation**, which is a
+msig question and needs re-deriving from scratch.
+
+⚠️ **TWO STALES THIS TURNED UP, BOOKED PER RULE 19:** `quid-ln/quid-bridge/src/bin/quid-migrate-auth.rs:232`
+still prints *"add this address as an owner of the operator multisig (OPERATOR_SAFE)"*, and the
+`OPERATOR_SAFE` / `OPERATOR_SAFE_CHAIN_ID` consts survive at `:68`/`:72` naming a design that is gone.
+**Not deleted here — they are in project-a0's crate and this sweep does not touch it.**
+
 # ⛔ §RANGEOP-IS-NOT-AN-ORPHAN — **A HANDOFF ITEM SAID "UNREACHABLE `IEthVenue.rangeOp` DECLARATION". IT IS REACHABLE, AND DELETING IT RE-OPENS TODAY'S WITHDRAWAL BUG (2026-09-07)**
 
 **Checked because it was handed over as a clean deletion, and it is the opposite of one.**
