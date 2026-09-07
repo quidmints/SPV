@@ -579,3 +579,63 @@ Excluded by the whitelist. **Forcing `dstReceiver = address(this)` would be stri
 `RouteTookAndGaveNothing` detecting a diversion after the fact**, and its descriptor is a STATIC struct
 so its fields are at fixed offsets. ▶️ Needs the exact v6 layout verified against the deployed router
 before patching — not guessed.
+
+---
+
+## ⭐ §SESS-68 — **THE SYNTHESIS. THE CLUES ADD UP TO ONE DESIGN AND I HAVE BEEN BUILDING PAST IT.**
+
+Owner: *"didnt you get many clues about how to redesign the feature so it does exactly what we want."*
+**Yes — twelve of them, and I answered each one incrementally instead of building the shape they
+describe.** Written down as one design so the next change is to it, not beside it.
+
+### 📊 THE MEASUREMENT THAT FORCED THE ISSUE — **4 OF 13 STABLES HAVE NO USABLE HUB ROUTE**
+Deepest pool to USDC, UniV3 (4 tiers) + Curve registry, stable-side holdings:
+| deep enough | thin / absent |
+|---|---|
+| USDT 47.9M · DAI 56.4M · RLUSD 27.9M · AUSD 17.5M · PYUSD 15.0M · crvUSD 13.7M · USDG 8.5M · BOLD 5.7M · USDe 1.25M | **USDS 10,928 · GHO 8,179 · CUSD NONE · FRXUSD NONE** |
+
+🔑 **AND THE GAP IS NOT A MISSING ROW — IT IS A MISSING *KIND OF ROUTE*.** Those four are not
+AMM-routed assets: `DeployL1_s` already says so in its own comments — *"cUSD — Cap USD (**native
+stcUSD 4626 vault**)"*, *"frxUSD — **native sfrxUSD 4626 vault**"*, and GHO's depth lives on
+**Balancer**, USDS behind Sky's **1:1 DAI converter**. ⇒ **a table of POOLS cannot be gapless, because
+some dollars do not have pools.** The table must be a table of ROUTES, where a route is an AMM pool
+**or** a 4626 mint/redeem **or** a par converter. **That is the redesign the gap measurement points at,
+and no amount of better pool-picking reaches it.**
+
+### 🔒 MEV — ALREADY TWO LAYERS, AND THE RESIDUAL IS THE FLOOR'S SLACK
+1. **The keeper does NOT use the public mempool.** `daemon.rs:84-88` sends through a **private relay**,
+   Flashbots Protect by default, `QUID_PROTECT_RPC_URLS` to override. So keeper txs are not front-runnable.
+2. **The oracle floor bounds the fill on a MEASURED balance delta**, so even a sandwiched fill cannot
+   pay short — it fails instead.
+⚠️ **THE RESIDUAL IS EXACTLY THE FLOOR'S SLACK, AND IT IS THE §SESS-23 BLEED WEARING A DIFFERENT
+HAT:** whatever gap sits between the oracle price and the floor is takeable by anyone who can land
+beside us. `CONSOL_SLIP_BPS` is a flat **100 bps** ⇒ **1% is takeable on every consolidation slice.**
+⇒ **tightening the floor IS the MEV work**; there is no separate MEV feature to build.
+⚠️ And note the permissionless entrypoints (`rebalance`, `protectFromQuid`) are called by third parties
+through the PUBLIC mempool — the private relay protects the keeper's own sends, not those.
+
+### 🦄 UNISWAP V4 — UNREACHABLE BY CONSTRUCTION, AND IT NAMES THE PIECE I DEFERRED
+**A v4 pool has no address.** v4 is a SINGLETON: pools live inside the `PoolManager` and are keyed by a
+`PoolKey`, so **a 160-bit pool word cannot name one** — the entire pool-word mechanism is v3/v2/Curve
+only, by construction and not by omission. §V4-CUT removed every v4 surface from `evm/src` (no
+`PoolManager`, no `PoolKey` outside comments).
+⇒ **v4 depth is reachable ONLY through 1inch's generic `swap()` executor**, which is precisely what
+`_retarget`'s whitelist excludes today. **So "there are plenty of deep v4 pools" and "the `swap()`
+descriptor is deferred" are the same item.**
+▶️ `swap()`'s descriptor is a STATIC struct, so `srcToken`/`dstToken`/`dstReceiver`/`amount`/
+`minReturnAmount` sit at fixed offsets and are patchable exactly like the unoswap family — and
+**forcing `dstReceiver = address(this)` is strictly stronger than `RouteTookAndGaveNothing` catching a
+diversion after the money moved.** Needs the exact v6 layout verified against the deployed router
+before patching, not guessed.
+
+### 🧭 THE DESIGN THE CLUES DESCRIBE, IN ONE PLACE
+1. **On-chain: a COMPLETE route table (pool | 4626 | converter), curated by depth, no quoting** — the
+   owner's *"dont quote, just hardcode the most liquid pools, no gaps."*
+2. **`_retarget` widened to `swap()`** so any venue 1inch reaches — v4, Balancer, anything — is
+   admissible, with `dstReceiver` forced to us. Covers *"any 1inch venue should be possible without
+   making it a vulnerability"* and *"no limit to how many hops"*.
+3. **The floor is the ONLY trust boundary**, on a measured delta. Tightening it is the MEV work.
+4. **All-or-nothing unless the swapper consents** (`loadBalance`, which exists and gates the wrong thing).
+5. **The keeper picks among table venues and may supply richer calldata; it submits privately.**
+6. **IL-protect borrows the cheapest dollar and hops** — blocked on `LevVenueBase.STABLE` being immutable.
+⇒ **Items 1, 2 and 4 are the build. 3 is a number to derive. 6 is a venue-shape change.**
