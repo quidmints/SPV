@@ -94446,6 +94446,49 @@ registry that does not.**
 
 ---
 
+# ✅ §GATE-0d-IS-GREEN — **ALL FOUR MONEY-PATH REDS PASS. THE EVIDENCE GATE'S BLOCKING ITEM IS CLOSED (2026-09-07)**
+
+**MEASURED, not inferred. `GATE 0d` reads: *"BOOK AND TRIAGE THE FOUR MONEY-PATH REDS FROM THE 0b
+CENSUS… they are the only failing assertions that are about the protocol rather than a stale fixture,
+and a red on a money path is evidence about the items downstream of it."* All four now pass.**
+
+| test | GATE 0d's recorded failure | measured 2026-09-07 |
+|---|---|---|
+| `test_E2_IncumbentIsNotHarmedByANewMint` | *"E2-#1 issues ~9% more QU!D per deposit into a short basket"* | ✅ **PASS** |
+| `test_E2_MintAtMark_RealRedeemMatchesTheMark` | **6.81% against a 2% tolerance** | ✅ **PASS** |
+| `test_E42_RedeemableIsInvariantToPureBtcTradingFlow` | **6.52e18 real delta against a 1e15 tolerance** | ✅ **PASS** |
+| `test_E45_CompoundCrankGasVsTheSelfFundingConstant` | **230,764 > 200,000** | ✅ **PASS** |
+
+## ✅ WHY THIS MEASUREMENT IS TRUSTWORTHY — ALL THREE CONTAMINATION TELLS CHECKED
+
+🔴 **NONE OF THE FOUR IS A FORK TEST.** Zero `createSelectFork` in either suite ⇒ **no RPC, so the
+403/429 class that has corrupted three censuses this week cannot touch it**, and it consumed none of
+the shared archive budget while two peer runs were live. ⇒ **`setUp` failures 0 · environmental errors
+0 · skipped 0**, and runtimes are NORMAL (129s, 156s, 156s) rather than the seconds-long signature of a
+run that never reached its fixture. **A fork-free pass is the strongest form available here** — it
+cannot be an artifact of an endpoint.
+
+## ⇒ WHAT THIS UNBLOCKS, AND WHAT IT DOES NOT
+
+✅ **`GATE 0d` closes.** It was the one BLOCKING item in `GATE 0` — `0b` and `0c` are already ✅ and
+`0a` is *"partially answered"*. ⇒ **the evidence gate's money-path objection is discharged**, and
+§MASTER-ORDER's *"a red on a money path is evidence about the items downstream of it"* no longer holds
+anything back.
+⚠️ **`E42` MATTERS BEYOND ITS OWN ROW: GATE 0d flags it as *"directly about `POOLED_USD` vs basket TVL,
+which is §PLP-Z/§#12 territory and therefore UPSTREAM of GATE 2.1 — triage it before ruling on option
+F."*** ⇒ **that triage is now discharged by measurement, so option F is no longer waiting on it.**
+⚠️ **AND `E45` WAS *"a `constant` that needs tuning, i.e. GATE 3 checklist item 4 in miniature"*** — the
+gas ceiling now clears at 200,000, so that miniature is closed too.
+
+⛔ **WHAT IT DOES NOT MEAN: `GATE 0a` IS STILL OPEN.** The fixture audit is *"upstream of the evidence
+itself"*, and a green test inside an unaudited fixture is still a statement about the fixture. **These
+four are unusually well protected — no fork, no mocks in their path — but 0a's scope is broader than
+§V4-CUT (σ² is a second superseded interpretation), so it stays open.**
+
+📌 **AND THE ROW ITSELF WAS NEVER RE-RUN.** GATE 0d has carried four specific failing numbers since the
+0b census; the fixes that closed them landed in between and nobody re-measured. **Same shape as every
+other stale in this file, arriving through a test result rather than a line number.**
+
 # 🔐 §UNGATED-VALUE-MOVE-SWEEP — **EVERY EXTERNAL VALUE-MOVING ENTRYPOINT ACCOUNTED FOR. ZERO OPEN (2026-09-07)**
 
 **Primary goal, and the shape that found today's two unauthenticated withdrawals (`53fe1e84`): an
