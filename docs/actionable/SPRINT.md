@@ -52983,6 +52983,40 @@ FOLDED citation is still stale** — the one bucket that is actionable. Per this
 with a binary result beats a disposition; and per the tooling-traps rule it fails loudly, exiting with
 a FATAL if the tree walk returns zero `.md` files rather than reporting a clean run.
 
+# ✂️ §DO-NOT-RE-ADD-EARNS-ITS-PLACE-OR-GOES — **A CATEGORY-3 COMMENT MUST PREVENT A DEFECT, NOT A REDUNDANCY (2026-09-07)**
+
+**Owner, on a comment I had just written: *"maybe the comment is useless and should be deleted."* It
+was, and the test that catches it sharpens the no-tombstones rule.**
+
+I removed a dead `pledge` parameter and left behind:
+> *"⛔ Do not re-add a `pledge`/LP parameter here: one existed, was read into a local, discarded, and
+> recorded nowhere."*
+
+**I classified that as category 3 — *"do not restore X because Y"*, which the rule says to KEEP
+verbatim.** ⛔ **It is not.** The rule's own justification is *"that is a live constraint on a future
+editor; **deleting it reopens the bug it prevents**."* ⇒ **ask what bug re-adding the thing would
+cause. If the answer is "none, it would just be useless again", the comment is a TOMBSTONE wearing
+category-3 clothing** — its subject is still the deletion, and category 1 says delete the passage.
+**Deleted.**
+
+## ✅ THE DISCRIMINATOR, APPLIED TO EVERY SUCH COMMENT ADDED IN THIS SWEEP
+
+| comment | re-adding it would cause | verdict |
+|---|---|---|
+| `BTCChannels` — *"do not add a second credit entrypoint, do not relax this to an assertion"* | credit resting on the hop's WORD ⇒ **unauthenticated credit of shared `POOLED_USD`** | ✅ **KEEP** |
+| `BTCChannels` — *"do not reintroduce a combined splice-and-credit entrypoint"* | pool sats commingled in an LP's UTXO ⇒ **every exit clamp returns** | ✅ **KEEP** |
+| `migration.rs` — *"the name is superseded, the value is load-bearing, do not delete"* | deleting the EIP-712 `verifyingContract` ⇒ **every migration and sweep signature breaks** | ✅ **KEEP** |
+| `QuidLib` — *"do not re-add a `pledge`/LP parameter"* | **nothing. It would be useless again.** | ⛔ **DELETED** |
+
+⭐ **THREE OF FOUR EARN IT AND ONE DID NOT, AND THE ONE THAT DID NOT IS THE ONE I WROTE ABOUT MY OWN
+CLEANUP.** That is the tell to carry: **a "do not re-add" written immediately after removing something
+is describing the removal, not protecting the code.** The three that survive were written about
+mechanisms whose absence is a security property; mine was written about tidiness.
+
+▶️ **THE RULE, stated so the next sweep does not repeat it: a `⛔ do not` comment earns its place ONLY
+if you can name the DEFECT that follows from ignoring it.** *"It would be redundant"* is not a defect.
+**Name the failure or delete the sentence.**
+
 # 🧹 §DEAD-PLEDGE-PARAM — **RULE 23 APPLIED TO CODE: A PARAMETER THREADED THROUGH TWO FUNCTIONS TO BE DISCARDED (2026-09-07)**
 
 **First no-op removal of the sweep, and it is the shape rule 23 describes exactly** (*"a declaration

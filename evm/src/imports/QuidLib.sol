@@ -90,9 +90,8 @@ library QuidLib {
     //  ETH deposit placement (body of Quid._depositETH). DELEGATECALL'd:
     //  msg.value/address(this) are Quid's, so the WETH wrap + the ether.fi
     //  placement leave from Quid. NO storage refs and NO per-LP attribution:
-    //  this writes no state, and it takes no LP identity — the caller keeps
-    //  every per-LP effect. ⛔ Do not re-add a `pledge`/LP parameter here: one
-    //  existed, was read into a local, discarded, and recorded nowhere.
+    //  this writes no state and takes no LP identity — the caller keeps every
+    //  per-LP effect.
     // ════════════════════════════════════════════════════════════════════
     function depositETH(
         address weth, address aux, address ev,
