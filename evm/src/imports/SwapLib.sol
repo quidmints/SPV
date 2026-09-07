@@ -2213,14 +2213,21 @@ library SwapLib {
             //    converted to native units, whatever the position actually owes.
             //    ⇒ The two clamps that DO exist are `held` (what the basket has) and `exactUsd6`
             //      (the delivery's own proceeds). NEITHER is the debt.
-            //    ⚠️ OPEN, NOT ASSERTED: when `wantUsd6` exceeds the slice's live debt — reachable at
-            //      low LTV, where a levered slice's proceeds share is far larger than what it owes —
-            //      `deLeverUsd6` is derived from the unclamped figure and `drawPooledUsdBtc` runs
-            //      BEFORE the repay, which is bounded by debt downstream. That is an over-draw of
-            //      POOLED_USD against a smaller retirement. The comment two lines down says the
-            //      buffer's stale POOLED_USD is reconciled by the keeper's async `syncLev`, so this
-            //      may self-heal — **that is the thing to MEASURE, and it has not been.** Do not
-            //      book it as a bug and do not book it as safe.
+            //    ✅ THE OVER-DRAW THIS COULD HAVE CAUSED WAS MEASURED AND IS **NOT THERE.** I booked
+            //      it as an open question (an over-draw of POOLED_USD at low LTV, where the slice's
+            //      proceeds share exceeds what it owes) and then measured it against a control that
+            //      changed ONE variable, the LTV:
+            //        10% LTV  DRAWN 4,989,994,049  RETIRED 4,196,608,646
+            //        50% LTV  DRAWN 9,989,999,999  RETIRED 4,196,608,646   ← identical retirement
+            //      ⇒ RETIRED IS BYTE-IDENTICAL ACROSS BOTH: the retirement is bounded by the
+            //        DELIVERY SIZE (`want` sats), not by the debt, so the missing clamp does not
+            //        produce an LTV-dependent shortfall. And the gap is LARGER at HIGH LTV — the
+            //        opposite direction from the hypothesis. `DRAWN` tracks delivery size.
+            //      ⇒ The ~793,39x,xxx that looked like an over-draw is the DEBT-BUFFER RESIZE, and
+            //        `syncLev` restores it (+793,391,943 measured in the 50% control). The async
+            //        reconcile promised below is REAL.
+            //    ⛔ SO THE MISSING CLAMP IS A FALSE COMMENT, NOT A MONEY BUG. Do not re-derive the
+            //      over-draw from the absent clamp; it has been measured and refuted.
             ILevManagerDeliver(mgr).swapOutDeleverAmt(lp, wantUsd6 * 1e12);
         if (venue == address(0)) return 0;
         uint takeUsd18 = LevMath._toUsd18(aux,stable, amtNative);

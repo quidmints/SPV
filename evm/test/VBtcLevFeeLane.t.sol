@@ -1155,6 +1155,117 @@ contract VBtcLevFeeLane is AllesFixture {
     ///   LTV improves, levPooled un-encumbered by ~want, QUI minted ONLY for the funded proceeds share (the
     ///   de-levered slice was paid via debt-reduction, not a second QUI mint), the obligation fully clears, and the
     ///   basket stays solvent. Real vBTC/USDC Morpho market - no mocks.
+    /// @notice ⭐ §UNCLAMPED-AMTNATIVE — DOES `drawPooledUsdBtc` TAKE MORE OUT OF POOLED_USD THAN
+    ///         THE DELIVERY ACTUALLY RETIRED? Measured, not argued.
+    /// 🔴 THE HYPOTHESIS. `LevBase.swapOutDeleverAmt` does NOT clamp to live debt — its body has
+    ///    ZERO references to debt, despite the call site having claimed *"amtNative clamped to LIVE
+    ///    debt"* (corrected in 50fab6e4). `deLeverUsd6` is derived from that unclamped figure and
+    ///    `drawPooledUsdBtc(deLeverUsd6)` runs BEFORE a repay that IS bounded by debt downstream
+    ///    (`LevVenueBase.repayPool` clamps `r = min(stableAmount, totalDebt)`). So when the levered
+    ///    slice's PROCEEDS SHARE exceeds what it OWES, the draw should exceed the retirement.
+    /// ⇒ WHY THIS TEST RUNS AT **LOW LTV** AND ITS SIBLING DOES NOT. The existing
+    ///   `testReal_DeliverSideDelever_SwapOutTapsLeveredSlice` borrows `collValueUsd / 2` — ~50% LTV
+    ///   — where debt is large relative to the slice and the over-draw cannot appear. The defect
+    ///   needs `wantUsd6 > debt`, which is a LOW-LTV condition. A sibling at the same LTV would
+    ///   have measured nothing and reported green.
+    /// ⚠️ AND IT MEASURES THE SELF-HEAL CLAIM SEPARATELY. `Vault.sol` says the debt-buffer's stale
+    ///    POOLED_USD is reconciled by the keeper's async `syncLev`, so an over-draw may be
+    ///    transient. Both are recorded: the gap immediately after delivery, and the gap after
+    ///    `syncLev`. A defect that self-heals and one that does not are different findings.
+    function testReal_MEASURE_DeliveryDrawVsDebtRetired_LowLtv() public {
+        LevDelivery memory d;
+        d.ch = _deployChannels();
+        _setupBtcLev();
+        (d.channelId, d.fundingTxId, d.lp, d.lpPubkey) = _open(d.ch, 54, 3e8);
+        _openLev(d.lp, 299_000_000);
+        // ⇒ ~10% LTV, not the sibling's ~50%: debt SMALL relative to the levered slice.
+        _borrowMorpho(d.lp, (lm.collValueUsd(venue.collateralOf(d.lp)) / 10) / 1e12);
+        BTC.syncLev(d.lp);
+        _snapLevPosition(d);
+        assertGt(d.debt, 0, "position must carry real Morpho debt or there is nothing to over-draw against");
+
+        _requestLevSwapOut(d);
+        assertGt(d.sats, d.funded, "swap-out must reach PAST the free range into the levered slice");
+
+        uint pooledBefore = CORE.POOLED_USD();
+        uint debtBefore   = venue.debtOf(d.lp);
+        emit log_named_uint("LTV bps (low by construction)", lm.getCurrentLtvBps(d.lp));
+        emit log_named_uint("POOLED_USD before           ", pooledBefore);
+        emit log_named_uint("venue debt before (native)  ", debtBefore);
+
+        vm.prank(d.lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
+        _deliverLevSwapOut(d.ch, d.channelId, d.fundingTxId, 54, d.lpPubkey, _levDelivSwapId(), d.sats,
+                           _levDelivScript(address(d.ch)));
+
+        uint pooledMid = CORE.POOLED_USD();
+        uint debtMid   = venue.debtOf(d.lp);
+        uint drawn     = pooledBefore > pooledMid ? pooledBefore - pooledMid : 0;
+        uint retired   = debtBefore  > debtMid    ? debtBefore  - debtMid    : 0;
+        emit log_named_uint("POOLED_USD after delivery   ", pooledMid);
+        emit log_named_uint("venue debt after delivery   ", debtMid);
+        emit log_named_uint("  DRAWN from POOLED_USD     ", drawn);
+        emit log_named_uint("  RETIRED debt (native)     ", retired);
+
+        // The async reconcile the Vault comment promises.
+        BTC.syncLev(d.lp);
+        emit log_named_uint("POOLED_USD after syncLev    ", CORE.POOLED_USD());
+        emit log_named_uint("venue debt after syncLev    ", venue.debtOf(d.lp));
+
+        // ⛔ NO INEQUALITY ASSERTED. `drawn` is usd6 and `retired` is the venue stable's NATIVE
+        //    units; they are only comparable once scaled, and asserting a relation between two
+        //    different units is how a measurement becomes a false finding. The numbers are the
+        //    output; the liveness guards below only prove the run reached the code.
+        assertGt(pooledBefore, 0, "POOLED_USD was zero - nothing was measured");
+        assertGt(d.sats, 0, "no delivery - nothing was measured");
+    }
+
+    function testReal_MEASURE_DeliveryDrawVsDebtRetired_MidLtv_CONTROL() public {
+        LevDelivery memory d;
+        d.ch = _deployChannels();
+        _setupBtcLev();
+        (d.channelId, d.fundingTxId, d.lp, d.lpPubkey) = _open(d.ch, 54, 3e8);
+        _openLev(d.lp, 299_000_000);
+        // ⇒ THE CONTROL, at the SIBLING's ~50% LTV. Identical instrumentation, one variable changed.
+        _borrowMorpho(d.lp, (lm.collValueUsd(venue.collateralOf(d.lp)) / 2) / 1e12);
+        BTC.syncLev(d.lp);
+        _snapLevPosition(d);
+        assertGt(d.debt, 0, "position must carry real Morpho debt or there is nothing to over-draw against");
+
+        _requestLevSwapOut(d);
+        assertGt(d.sats, d.funded, "swap-out must reach PAST the free range into the levered slice");
+
+        uint pooledBefore = CORE.POOLED_USD();
+        uint debtBefore   = venue.debtOf(d.lp);
+        emit log_named_uint("LTV bps (CONTROL, mid)      ", lm.getCurrentLtvBps(d.lp));
+        emit log_named_uint("POOLED_USD before           ", pooledBefore);
+        emit log_named_uint("venue debt before (native)  ", debtBefore);
+
+        vm.prank(d.lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
+        _deliverLevSwapOut(d.ch, d.channelId, d.fundingTxId, 54, d.lpPubkey, _levDelivSwapId(), d.sats,
+                           _levDelivScript(address(d.ch)));
+
+        uint pooledMid = CORE.POOLED_USD();
+        uint debtMid   = venue.debtOf(d.lp);
+        uint drawn     = pooledBefore > pooledMid ? pooledBefore - pooledMid : 0;
+        uint retired   = debtBefore  > debtMid    ? debtBefore  - debtMid    : 0;
+        emit log_named_uint("POOLED_USD after delivery   ", pooledMid);
+        emit log_named_uint("venue debt after delivery   ", debtMid);
+        emit log_named_uint("  DRAWN from POOLED_USD     ", drawn);
+        emit log_named_uint("  RETIRED debt (native)     ", retired);
+
+        // The async reconcile the Vault comment promises.
+        BTC.syncLev(d.lp);
+        emit log_named_uint("POOLED_USD after syncLev    ", CORE.POOLED_USD());
+        emit log_named_uint("venue debt after syncLev    ", venue.debtOf(d.lp));
+
+        // ⛔ NO INEQUALITY ASSERTED. `drawn` is usd6 and `retired` is the venue stable's NATIVE
+        //    units; they are only comparable once scaled, and asserting a relation between two
+        //    different units is how a measurement becomes a false finding. The numbers are the
+        //    output; the liveness guards below only prove the run reached the code.
+        assertGt(pooledBefore, 0, "POOLED_USD was zero - nothing was measured");
+        assertGt(d.sats, 0, "no delivery - nothing was measured");
+    }
+
     function testReal_DeliverSideDelever_SwapOutTapsLeveredSlice() public {
         LevDelivery memory d;
         d.ch = _deployChannels();
