@@ -54713,3 +54713,49 @@ whole run identically for every test.** `forge clean` + rebuild fixes it. `out/`
 the only cost is build time. ⚠️ Pair this with the OTHER forge trap booked today: `--force` is
 required to trust a security verification, and `--force` is also what produces this. Use it, then
 `clean` if linking starts failing.
+
+## §SESS-SILENT-SUCCESS — **TWO PAYABLE FALLBACKS DELETED, AND AN INERT CONSTANT WITH THEM.** (2026-09-07)
+
+✅ **`Quid`: `fallback() external payable {}` → `receive() external payable {}`.** The fallback was
+doing double duty — bare-ETH receipt AND swallowing every unknown selector. Measured: `Quid` had NO
+`receive()` at all, and the one legitimate bare-ETH inflow is `IWETH9(weth).withdraw(...)`
+(`QuidLib.sendEth`, and `LevMath` on the lev path), which returns ETH with **EMPTY CALLDATA** —
+exactly what `receive()` handles. So nothing legitimate is lost and unknown selectors now REVERT.
+
+✅ **`Vault`: `fallback() external payable {}` DELETED outright.** Strictly clearer than Quid's case:
+it sat on the line directly BELOW a `receive()` that already handled bare ETH, so its only effect
+was the swallow. `Aux` and `LevManager` already carry `receive()` alone — Quid and Vault were the
+two outliers, and now nothing in the tree has a catch-all payable fallback.
+
+🔑 **WHY THIS IS A MONEY-PATH FIX AND NOT TIDINESS.** CLAUDE.md records the SPA encoding a call to a
+removed `Quid.exitInstant` (§E154-client-ghosts), and `check-client-abis.py` exists because `tsc`
+cannot run in this tree. **With a payable fallback that call SUCCEEDS SILENTLY** — on an EXIT path,
+with any ETH sent swallowed. The fallback did not merely permit the mistake; it converted a loud
+failure into a silent one. ⇒ A client calling a deleted entrypoint now gets a revert.
+📌 It also restores a testing primitive: `assertFalse(ok)` was worthless for "is this selector gone"
+while the fallback stood, because ANY unknown selector returned success. That cost one wrong test
+result during the §SESS-OFFRAMP work.
+
+✅ **`Core.OBS_PUSH_MAX_BPS` DELETED (§SESS-COMMENTS-3 closed).** It bound nothing: both call sites
+pass `price = 0`, at which `twapResolve`'s `diff` equals `ext18`, so the deviation test trips
+identically for every bound under 10000. **Enumerated rather than assumed** — `0` and `50` give the
+same verdict at `ext18` ∈ {0, 1, 3e21}. The sites now pass `0`, which is the honest value: there is
+no internal price to deviate FROM on that path.
+🔴 **AND ITS DOCBLOCK CARRIED TWO RULES THAT HAD NOTHING TO DO WITH ITS VALUE.** Deleting the
+constant would have deleted both. They are rehomed onto `_observeIfSourced` — the ring's only
+writer — with a note saying why they moved:
+  · ⛔ **DO NOT RE-ADD A PERMISSIONLESS PUSH ENTRYPOINT.** A level band cannot constrain what such an
+    entrypoint is for: a ring exists to make an ENDOGENOUS price safe by forcing an attacker to HOLD
+    it across the window, and both premises are gone — no pool discovers a price here.
+  · ⛔ **§E343's MEASUREMENT MUST NOT BE RE-REFUTED.** *"A ring sourced from Chainlink would measure
+    σ² ≈ 0 through real volatility"* is FALSE: 60 consecutive ETH/USD rounds gave **57.3 updates/day,
+    20.5-min median gap, 0.53% median move, implied annualised σ = 95.5%.** The flat-line intuition
+    assumes a WALL-CLOCK sample; read PER ROUND every sample already cleared the 0.5% trigger.
+
+⚠️ **METHOD NOTE, BECAUSE I MADE THE SESSION'S OWN MISTAKE WHILE FIXING IT.** My replacement comment
+contained the literal string `OBS_PUSH_MAX_BPS = 50`, so a search for the declaration matched the
+COMMENT first and deleted two of its own lines; a later sloppy edit left `(see its declaration)`
+dangling and dropped half a sentence. Both were caught by the differential prose check (compare the
+detector's output against HEAD's own version of the file, report only what is NEW) and fixed by
+REVERTING rather than patching over. ⇒ **When deleting a symbol, match the DECLARATION FORM
+(`internal constant X`), never the bare name — your own new prose is in the search space.**
