@@ -61,36 +61,6 @@ contract EthVenueDeliverableProbe is AllesFixture {
         emit log_named_uint("    coverage bps", (deliv > own ? own : deliv) * 10_000 / own);
     }
 
-    function test_E101_PerVaultDeliverableCoverage() public {
-        Acc memory a;
-        address[] memory stables = AUX.getStables();
-        emit log_named_uint("stables in basket", stables.length);
-
-        for (uint i = 0; i < stables.length; i++) {
-            uint8 dec = IDecimals(stables[i]).decimals();
-            address[] memory vs = AUX.getVaults(stables[i]);
-            for (uint j = 0; j < vs.length; j++) {
-                if (vs[j] != address(0)) _scanVault(a, vs[j], 10 ** (18 - dec), dec);
-            }
-        }
-
-        emit log("---- AGGREGATE ----");
-        emit log_named_uint("vaults with a position", a.seen);
-        emit log_named_uint("  rationed (withdrawable < own)", a.rationed);
-        emit log_named_uint("  zero-withdrawable", a.empty);
-        emit log_named_uint("  maxWithdraw==0 ARTEFACTS", a.rawZero);
-        emit log_named_decimal_uint("own total    (18d)", a.own18, 18);
-        emit log_named_decimal_uint("withdrawable (18d)", a.deliv18, 18);
-        if (a.own18 > 0) {
-            emit log_named_uint("DELIVERABLE FRACTION bps", a.deliv18 * 10_000 / a.own18);
-            emit log_named_uint("  (naive maxWithdraw would say)", a.rawDeliv18 * 10_000 / a.own18);
-        }
-        emit log_named_decimal_uint("AUX.illiquidLoss()", AUX.illiquidLoss(), 18);
-
-        // ⚠️ Say out loud what this run can and cannot support.
-        if (a.seen == 0) emit log("VOID: no vault position - this run measured NOTHING");
-        if (a.seen < 4) emit log("NOTE: fixture holds few vault positions - NOT a sample of a live basket");
-    }
 
     function test_Diag_DeliverableBreakdownAfterSplitDeposit() public {
         vm.prank(User01);

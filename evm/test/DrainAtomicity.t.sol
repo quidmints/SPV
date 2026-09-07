@@ -345,51 +345,6 @@ contract DrainAtomicity is AllesFixture {
         return uint64(raw >> 128);
     }
 
-    function test_E101_DoesAnLpBurnMoveInventoryWithoutBumpingFlow() public {
-        _seedBasket();
-        vm.prank(lpA); ETH.deposit{value: 300 ether}(0, lpA);
-        _settle();
-        for (uint i = 0; i < 6; ++i) _drain(20_000 * 1e18);   // give flow a history
-        vm.warp(block.timestamp + 1 days);                    // let it decay so a bump is visible
-
-        uint invBefore  = CORE.POOLED();
-        uint flowBefore = CORE.flowEwmaUsd();
-        uint shares     = ETH.balanceOf(lpA);
-        emit log_named_uint("LP shares held           ", shares);
-
-        uint64 tsFast0 = _flowTs(false); uint64 tsSlow0 = _flowTs(true);
-        vm.prank(lpA);
-        ETH.withdraw(20 ether, lpA, lpA);   // §E102: no try/catch -- a revert must announce itself
-        vm.roll(block.number + 1);
-
-        uint invAfter  = CORE.POOLED();
-        uint flowAfter = CORE.flowEwmaUsd();
-        emit log_named_uint("POOLED before        ", invBefore);
-        emit log_named_uint("POOLED after         ", invAfter);
-        emit log_named_uint("flow before              ", flowBefore);
-        emit log_named_uint("flow after               ", flowAfter);
-
-        uint64 tsFast1 = _flowTs(false); uint64 tsSlow1 = _flowTs(true);
-        emit log_named_uint("flow.ts FAST before/after", tsFast0);
-        emit log_named_uint("                         ", tsFast1);
-        emit log_named_uint("flow.ts SLOW before/after", tsSlow0);
-        emit log_named_uint("                         ", tsSlow1);
-        if (tsFast1 == tsFast0 && tsSlow1 == tsSlow0) {
-            emit log("DIRECT READ: neither flow.ts moved -- E100/E101 CONFIRMED, not inferred.");
-        } else {
-            emit log("DIRECT READ: a flow.ts DID move -- the min() inference was masking it. E100/E101 WRONG.");
-        }
-        if (invAfter == invBefore) {
-            emit log("VOID: the burn did not move POOLED -- nothing to conclude.");
-        } else if (invAfter < invBefore && flowAfter <= flowBefore) {
-            emit log("HOLE CONFIRMED: a burn REDUCES inventory and does NOT bump flow -- E101's");
-            emit log("residual gap is real, and add-then-burn can break the continuity inference.");
-        } else if (invAfter < invBefore) {
-            emit log("BURN BUMPS FLOW: inventory fell AND flow rose -- then E101 has NO residual hole.");
-        } else {
-            emit log("UNEXPECTED: the burn INCREASED POOLED -- re-read before concluding.");
-        }
-    }
 
     function test_E100_DoesAnLpAddBumpTheFlowTimestamp() public {
         _seedBasket();
@@ -442,74 +397,7 @@ contract DrainAtomicity is AllesFixture {
         }
     }
 
-    function test_E99_DoesTheSkewSeePersistence() public {
-        _seedBasket();
-        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
-        _settle();
-        for (uint i = 0; i < 20; ++i) {
-            _drain(20_000 * 1e18);
-            if (CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30
-                < CORE.flowEwmaUsd()) break;
-        }
-        uint invFresh  = CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
-        uint skewFresh = AUX.wellSkew(address(WETH), 0);
-        uint flowFresh = CORE.flowEwmaUsd();
 
-        // 30 DAYS pass. No swap, no LP action -- inventory is UNCHANGED by construction.
-        vm.warp(block.timestamp + 30 days);
-        vm.roll(block.number + 1);
-        uint invAged  = CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
-        uint skewAged = AUX.wellSkew(address(WETH), 0);
-        uint flowAged = CORE.flowEwmaUsd();
-
-        emit log_named_uint("inv  fresh / aged (usd6)", invFresh);
-        emit log_named_uint("                        ", invAged);
-        emit log_named_uint("flow fresh              ", flowFresh);
-        emit log_named_uint("flow aged (30d decay)   ", flowAged);
-        emit log_named_uint("SKEW fresh              ", skewFresh);
-        emit log_named_uint("SKEW after 30 IDLE DAYS ", skewAged);
-
-        if (invFresh != invAged) {
-            emit log("VOID: inventory moved despite no trade -- comparison is not clean.");
-        } else if (skewFresh == skewAged) {
-            emit log("CONFIRMED: 30 idle days change the skew by NOTHING. Persistence is INVISIBLE.");
-        } else {
-            emit log("The skew DOES move with idle time -- my E93 premise was WRONG. Direction:");
-            emit log_named_uint("  aged/fresh x1e18", skewFresh == 0 ? 0 : skewAged * 1e18 / skewFresh);
-        }
-    }
-
-    function test_E97_SellLegTaxOnOrdinaryFlow() public {
-        uint SMALL = 3 ether;
-
-        // Reference: sell into a FRESH range (at/below target ⇒ `over == 0` ⇒ EXEMPT by construction).
-        uint snap = vm.snapshotState();
-        _seedBasket();
-        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
-        _settle();
-        uint refOut = _sell(SMALL);
-        vm.revertToState(snap);
-
-        // Now push the range ABUNDANT with someone else's sells, then send the SAME small ticket.
-        _seedBasket();
-        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
-        _settle();
-        for (uint i = 0; i < 15; ++i) _sell(20 ether);
-        uint heavyOut = _sell(SMALL);
-
-        emit log_named_uint("stable for 3 ETH @ fresh    ", refOut);
-        emit log_named_uint("stable for 3 ETH @ abundant ", heavyOut);
-        if (refOut == 0 || heavyOut == 0) {
-            emit log("VOID: a leg received nothing -- the sell path did not deliver.");
-            return;
-        }
-        if (heavyOut < refOut) {
-            emit log_named_uint("SELL-LEG TAX on ordinary flow, bps",
-                (refOut - heavyOut) * 10_000 / refOut);
-        } else {
-            emit log("NO SELL-LEG TAX: the ordinary sell was not penalised by standing abundance.");
-        }
-    }
 
     /// volatile → stable. Returns the trader's TOTAL stable receipt across every basket stable plus
     /// QUID — a balance delta, because reading one guessed token is how E69 mis-reported for two runs.
@@ -536,37 +424,6 @@ contract DrainAtomicity is AllesFixture {
         _settle();
     }
 
-    function test_E88_IsTheSentinelReachableAtAll() public {
-        _seedBasket();
-        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
-        _settle();
-
-        // Many TINY drains: enough to build a flow EWMA, each too small to be expected to move a tick.
-        for (uint i = 0; i < 25; ++i) _drain(50 * 1e18);
-        uint flow = CORE.flowEwmaUsd();
-        uint sig  = CORE.realizedVarianceWad();
-        uint inv  = CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
-        emit log_named_uint("flow EWMA (target)  ", flow);
-        emit log_named_uint("realizedVariance    ", sig);
-        emit log_named_uint("inv (usd6)          ", inv);
-
-        // §E88-REACH: `sig == 1` IS THE FIX FIRING. E88-r returns exactly 1 wei when the ring is
-        // populated and the raw variance computes to zero, precisely so 0 can mean UNMEASURED and
-        // nothing else. Testing `sig == 0` here would be testing for the PRE-FIX behaviour and would
-        // report "not reached" at the exact moment the fix works — which it did on the first run.
-        if (flow > 0 && sig == 1) {
-            emit log("E88-r FIRED: populated ring, raw variance 0 -> returned 1 wei. THE FIX IS LIVE.");
-            emit log("Without it this calm market would have hit the sentinel and paid the 3% CEILING.");
-        } else if (flow > 0 && sig == 0) {
-            emit log("REACHABLE: flow exists with ZERO variance -- the sentinel CAN fire. LIVE branch.");
-            emit log_named_uint("  and inv < target? (1=yes)", inv < flow ? 1 : 0);
-        } else if (flow == 0) {
-            emit log("NOT REACHED: tiny swaps built NO flow, so target==0 short-circuits first.");
-        } else {
-            emit log("NOT REACHED: any flow-building trade also moved the tick, so variance != 0.");
-            emit log("=> `if (sigmaSqWad == 0) return MAX_WELL_SKEW` looks UNREACHABLE in practice.");
-        }
-    }
 
     function test_E88_SigmaSentinelDiscriminatesUnmeasuredFromCalm() public {
         _seedBasket();
@@ -577,28 +434,53 @@ contract DrainAtomicity is AllesFixture {
         // `>= 2` test. Variance here must read 0 = "we have not measured", and the skew must charge
         // the conservative ceiling — that is E59's intent and it must survive E88-r.
         uint vFresh = CORE.realizedVarianceWad();
+        uint skewFresh = AUX.wellSkew(address(WETH), 0);   // reported, not asserted - see below
         emit log_named_uint("variance, FRESH ring (expect 0 = unmeasured)", vFresh);
-        emit log_named_uint("wellSkew, FRESH ring                        ", AUX.wellSkew(address(WETH), 0));
+        emit log_named_uint("wellSkew, FRESH ring                        ", skewFresh);
 
-        // Now trade so the ring populates and real price movement enters it.
-        for (uint i = 0; i < 8; ++i) _drain(20_000 * 1e18);
+        // 🔴 §SESS-87 — **`_drain` CANNOT POPULATE THE RING, AND THIS TEST USED IT FOR EIGHT ROUNDS.**
+        //    Measured when the log line became an assertion: after 160,000 of drain the traded ring
+        //    still reported σ² = 0. The cause is recorded 200 lines below in `_driveTick`'s own
+        //    docblock — *"the range executes AT oracle, so walking the Chainlink feed moves
+        //    NOTHING"* — and `_driveTick` is the helper that exists to fix exactly this.
+        // ⛔ **THE OLD LOG LINE WAS NOT MERELY SILENT, IT WAS WRONG.** With `vTraded == 0` it printed
+        //    *"every swap moves the tick, so a populated ring carries non-zero variance"* — a claim
+        //    the very number that selected the branch contradicts. That is what logging a verdict
+        //    costs: the string and the data can disagree and nothing notices.
+        _driveTick(20);
         uint vTraded = CORE.realizedVarianceWad();
+        uint skewTraded = AUX.wellSkew(address(WETH), 0);
         emit log_named_uint("variance, TRADED ring                       ", vTraded);
-        emit log_named_uint("wellSkew, TRADED ring                       ", AUX.wellSkew(address(WETH), 0));
+        emit log_named_uint("wellSkew, TRADED ring                       ", skewTraded);
 
-        if (vFresh == 0 && vTraded > 0) {
-            emit log("SENTINEL INTACT: 0 means UNMEASURED; a traded ring reports real variance.");
-        }
-        // The discriminating state is `cardinality >= 2` AND a computed variance of exactly 0 — i.e.
-        // a populated ring whose observations are all at the SAME tick. Report whether trading can
-        // even produce it, because that decides live-fix vs defensive-only.
-        if (vTraded == 1) {
-            emit log("REACHED: populated ring with genuine zero variance -> returned 1 wei. LIVE FIX.");
-        } else {
-            emit log("NOT REACHED by ordinary trading: every swap moves the tick, so a populated ring");
-            emit log("carries non-zero variance. E88-r is DEFENSIVE-ONLY on this path -- correct, but");
-            emit log("it guards a state ordinary flow does not produce. Record it that way.");
-        }
+        // ⭐ §SESS-87 — **THIS USED TO PRINT THE VERDICT AND ASSERT NOTHING.** It computed
+        //    `vFresh == 0 && vTraded > 0`, emitted "SENTINEL INTACT", and passed either way — so if
+        //    the sentinel were removed and a fresh ring started reporting real variance, the test
+        //    would go on passing and just print a different string. A test that names its own
+        //    discriminator and then logs it is strictly worse than no test: it reads as coverage.
+        assertEq(vFresh, 0,
+            "a FRESH ring must read 0 = UNMEASURED. A non-zero here means the `cardinality >= 2` "
+            "guard is gone and an unpopulated ring is being quoted as if it were a calm market");
+        assertGt(vTraded, 0,
+            "a TRADED ring must report real variance. Zero here means the ring is not accumulating, "
+            "and then 0 can no longer mean UNMEASURED - which is the whole distinction E88-r draws");
+        // ⛔ **NO `assertGe(skewFresh, skewTraded)` HERE, AND THE REASON IS THE POINT OF THIS FILE.**
+        //    I wrote that assertion, believing it expressed E59's intent — *unmeasured must never be
+        //    charged more cheaply than measured* — and it FAILED: `skewFresh` is **0** against a
+        //    traded 1451226984400. ⚠️ But 0 there does not MEAN "charged less": on a fresh range
+        //    there is no flow, and `wellSkew` short-circuits on a zero target long before the
+        //    variance sentinel is consulted. The deleted `test_E88_IsTheSentinelReachableAtAll` had
+        //    already recorded that branch — *"tiny swaps built NO flow, so target==0 short-circuits
+        //    first"* — and I asserted over it anyway.
+        // ⇒ **that is §VACUOUS-BOUNDS' discriminator failing on my own assertion**: does the extreme
+        //   value mean the thing the message says? It did not. The skew CONSEQUENCE needs a fixture
+        //   with flow AND an unmeasured ring, which is a different setup; asserting it here would
+        //   pin a number produced by an unrelated guard. Booked, not faked.
+        // 📌 RECORDED, NOT ASSERTED: `vTraded == 1` (a populated ring at a genuinely flat tick) is
+        //    NOT produced by ordinary trading — every swap moves the tick. E88-r is therefore
+        //    DEFENSIVE-ONLY on this path. That is a finding about the market, not a property of the
+        //    code, so it belongs in a log line and never in an assertion.
+        if (vTraded == 1) emit log("NOTE: reached the flat-tick sentinel state - E88-r fired live.");
     }
 
     /// §E103 — IS THE 15 bps A PROPERTY OF THE IMBALANCE, OR AN ARTIFACT OF MY TICKET SIZE? E96 read
@@ -787,147 +669,22 @@ contract DrainAtomicity is AllesFixture {
         if (twap1 == twap0) emit log("TWAP price UNCHANGED across the reseat.");
     }
 
-    function test_E116_TimeWeightedTickLagsTheSpot() public {
-        _seedBasket();
-        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
-        _settle();
-        for (uint d = 0; d < 6; ++d) _drain(20_000 * 1e18);   // establish a history
 
-        uint32[] memory ago = new uint32[](2);
-        ago[0] = 0; ago[1] = 3600;                            // 1-hour window
-        // §TICK-REMOVAL — price space. The property under test is unchanged: a time-weighted mean
-        // must LAG a fresh move, or the ring is not accumulating and persistence is unmeasurable.
-        uint192[] memory c0 = CORE.observe(ago);
-        (uint spot0,) = CORE.poolStats();
-        uint twap0 = uint(c0[0] - c0[1]) / 3600;
-        emit log_named_uint("BEFORE move: spot price ", spot0);
-        emit log_named_uint("BEFORE move: 1h TWAP px", twap0);
+    // ⛔ §SESS-87 — **`test_E116_TimeWeightedTickLagsTheSpot` DELETED: THE PROPERTY IS NOT MEASURABLE
+    //    IN THIS FIXTURE.** It compared `CORE.poolStats()`'s spot against `CORE.observe()`'s 1h mean
+    //    and printed "LIVE" or "design is DEAD" without asserting either. Turned into an assertion it
+    //    failed on its FIRST line: 360,000 of drain left the spot price bit-identical
+    //    (2470277425730000000000 both sides).
+    // 🔑 **AND THAT IS STRUCTURAL, NOT A MISSING `_driveTick`.** The two readings come from different
+    //    sources here — spot follows the ORACLE (the range executes at oracle, so swaps do not move
+    //    it) while the ring follows the INJECTED observation source `_driveTick` pins. Walking one
+    //    never moves the other, so "the mean lags the spot" cannot be posed, let alone answered.
+    // ⇒ the half that IS measurable — *does the ring accumulate at all* — is now asserted head-on by
+    //   `test_E88_SigmaSentinelDiscriminatesUnmeasuredFromCalm` (σ² > 0 after a driven tick) and by
+    //   `test_UNITA_FixtureDrivesRealVariance`. A second test that can only print is not a third.
 
-        for (uint d = 0; d < 6; ++d) _drain(60_000 * 1e18);   // a FRESH, larger move
 
-        uint192[] memory c1 = CORE.observe(ago);
-        (uint spot1,) = CORE.poolStats();
-        uint twap1 = uint(c1[0] - c1[1]) / 3600;
-        emit log_named_uint("AFTER  move: spot price ", spot1);
-        emit log_named_uint("AFTER  move: 1h TWAP px", twap1);
-        emit log_named_uint("frame lower price       ", _bLo(address(ETH)));
 
-        if (spot1 == spot0) { emit log("VOID: the move did not shift the spot tick."); return; }
-        if (twap1 == twap0) {
-            emit log("TWAP UNMOVED: the ring is NOT accumulating over this window -- design is DEAD.");
-        } else {
-            emit log("TWAP MOVED WITH LAG: the ring accumulates, so persistence is measurable. LIVE.");
-        }
-    }
-
-    function test_E115_NormalizedTickTracksComposition() public {
-        _seedBasket();
-        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
-        _settle();
-        for (uint round = 0; round < 5; ++round) {
-            for (uint d = 0; d < 4; ++d) _drain(20_000 * 1e18);
-            (uint ct, uint liq) = CORE.poolStats();
-            uint lo = _bLo(address(ETH)); uint hi = _bHi(address(ETH));
-            uint px = AUX.getTWAPforAsset(address(WETH), 1800);
-            uint volLeg = CORE.POOLED() * px / 1e30;
-            uint usdLeg = CORE.POOLED_USD();
-            uint norm = hi > lo && ct >= lo ? uint((ct - lo)) * 1e4 / uint((hi - lo)) : 0;
-            emit log_named_uint("normalized tick (1e-4)  ", norm);
-            emit log_named_uint("  vol:USD ratio (1e-4)  ", usdLeg == 0 ? 0 : volLeg * 1e4 / usdLeg);
-            emit log_named_uint("  frame lower price      ", _bLo(address(ETH)));
-            emit log_named_uint("  liquidity             ", liq);
-        }
-        emit log("Monotone normalized-vs-ratio WITHIN one frame => the instrument works.");
-        emit log("A jump where the range bounds change is a FRAME MOVE, not a composition change.");
-    }
-
-    function test_E109_DoesReseatMoveTheRatio() public {
-        _seedBasket();
-        vm.prank(lpA); ETH.deposit{value: 300 ether}(0, lpA);
-        _settle();
-        // §E110-r: the repack gate is `currentTick >= upPrice || currentTick < loPrice`, so the
-        // range must be driven OUT OF RANGE before a reseat does anything. 12 rounds of 20k moved
-        // price ~0.15% against a +/-0.2% range and never exited -- which is why E109 tested nothing.
-        // `reseatEpoch` incrementing IS the proof the range exited and re-centred, so no tick getter
-        // is needed: drain hard, then assert the epoch moved before reading any result.
-        // §E111 -> §E112: DRAINING cannot arm this test -- it empties the range, and the repack needs
-        // `myLiquidity > 0`, so the liquidity is destroyed in the act of moving the price. The MIRROR
-        // construction avoids that: SELLING ETH IN pushes price DOWN toward `loPrice`, where a
-        // concentrated position converts to 100% VOLATILE -- so the range exits the range while still
-        // HOLDING assets rather than being emptied. That is a range that is out-of-range AND liquid,
-        // which is exactly the state E108-EXPLAINED's mechanism needs to be testable.
-        uint sells;
-        for (uint d = 0; d < 40; ++d) {
-            deal(address(WETH), drainer, 30 ether);
-            vm.startPrank(drainer);
-            WETH.approve(address(AUX), 30 ether);
-            try AUX.swap(bold, address(WETH), false, 30 ether, 0, true) { sells++; }
-            catch { vm.stopPrank(); emit log_named_uint("sell path hit its limit after", sells); break; }
-            vm.stopPrank();
-            _settle();
-        }
-        emit log_named_uint("sells completed           ", sells);
-
-        // §E112 -> §E113 ANSWERED BY CONSTRUCTION, SO THE COMPARISON IS GONE. This used to recompute
-        // the v4 POSITION's true split from (sqrtPrice, loPrice, upPrice, liquidity) and diff it
-        // against `POOLED_*` to decide which of the two the ledger measured. There is no v4 position
-        // left to disagree with: the range settles against the oracle bounded by inventory, and
-        // `poolStats()` reports OUR OWN accounting. `POOLED_*` is the ledger -- not because the diff
-        // came out that way, but because there is nothing else for it to be. Recomputing a number
-        // from the same source it is being checked against is a control that CANNOT fail, which is
-        // worse than no control: it reads as coverage.
-        {
-            (uint px, uint liq) = CORE.poolStats();
-            emit log_named_uint("range price                ", px);
-            emit log_named_uint("range liquidity            ", liq);
-            emit log_named_uint("Core POOLED           ", CORE.POOLED());
-            emit log_named_uint("Core POOLED_USD       ", CORE.POOLED_USD());
-        }
-
-        uint px0   = AUX.getTWAPforAsset(address(WETH), 1800);
-        uint vol0  = CORE.POOLED() * px0 / 1e30;
-        uint usd0  = CORE.POOLED_USD();
-        uint eth0  = CORE.POOLED();
-        emit log_named_uint("BEFORE reseat: vol:USD (1e-4)", usd0 == 0 ? 0 : vol0 * 1e4 / usd0);
-        emit log_named_uint("BEFORE reseat: POOLED   ", eth0);
-
-        // §E110 — THE CONTROL E109 LACKED: did the reseat ACTUALLY RE-RANGE? If `LOWER_TICK`/
-        // `UPPER_TICK`/`reseatEpoch` are unchanged, the reseat was a NO-OP and E109 tested NOTHING —
-        // its "refutation" of the price-in-range mechanism would itself be void. I asserted a
-        // negative result without checking the operation under test had any effect.
-        uint lo0 = _bLo(address(ETH)); uint hi0 = _bHi(address(ETH));
-        ETH.reseat();
-        vm.roll(block.number + 1);
-        uint lo1 = _bLo(address(ETH)); uint hi1 = _bHi(address(ETH));
-        emit log_named_uint("LOWER_PRICE before/after   ", lo0);
-        emit log_named_uint("                          ", lo1);
-        emit log_named_uint("UPPER_PRICE before/after   ", hi0);
-        emit log_named_uint("                          ", hi1);
-        if (lo0 == lo1 && hi0 == hi1) {
-            emit log("RESEAT WAS A NO-OP -- E109 tested nothing and its refutation is VOID.");
-        } else {
-            emit log("RESEAT DID re-range -- E109's negative result is a REAL test of the mechanism.");
-        }
-
-        uint px1  = AUX.getTWAPforAsset(address(WETH), 1800);
-        uint vol1 = CORE.POOLED() * px1 / 1e30;
-        uint usd1 = CORE.POOLED_USD();
-        uint eth1 = CORE.POOLED();
-        emit log_named_uint("AFTER  reseat: vol:USD (1e-4)", usd1 == 0 ? 0 : vol1 * 1e4 / usd1);
-        emit log_named_uint("AFTER  reseat: POOLED   ", eth1);
-
-        if (usd0 == 0 || usd1 == 0) { emit log("VOID: a USD leg is zero."); return; }
-        uint r0 = vol0 * 1e4 / usd0; uint r1 = vol1 * 1e4 / usd1;
-        if (r1 != r0 && eth1 == eth0) {
-            emit log("PREDICTION HOLDS: the ratio moved with NO change in POOLED -- the reference");
-            emit log("moved, not the assets. Composition IS a function of price-in-range. NOT a repair.");
-        } else if (r1 == r0) {
-            emit log("PREDICTION FAILS: reseat did not move the ratio. My mechanism is WRONG and the");
-            emit log("0.758 identity needs another explanation -- do not build on E108-EXPLAINED.");
-        } else {
-            emit log("Ratio AND inventory both moved -- reseat is doing more than re-ranging; re-read.");
-        }
-    }
 
     function test_E108b_HowMuchRepairIsOptimal() public {
         // §E108b-r: the old sweep (10/40/100/200) never left a DEEPLY IMBALANCED window — 0.666 to
