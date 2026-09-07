@@ -131,6 +131,37 @@ contract DeleverEthBackingProbe is LevCascadeProbe {
         uint expect   = pooled18 > debt18 ? pooled18 - debt18 : 0;
         emit log_named_uint("post-redeem committedUsd18", CORE.committedUsd18());
         emit log_named_uint("post-redeem identity says ", expect);
+        // 🔬 DECOMPOSE THE GAP PER RANGE. `committedUsd18` is NOT computed live — it is
+        //    `AUX.committedTotal()`, the SUM OF THE LAST REPORTED figures
+        //    (`committedOf[CORE] + committedOf[BTC_CORE]`), pushed by `_reportEquity()`. So a
+        //    mismatch is either a STALE PUSH on one range or a genuine value gap, and only the
+        //    per-range split tells them apart.
+        address btcCore = address(BTC.CORE());
+        uint ethReported = AUX.committedOf(address(CORE));
+        uint btcReported = AUX.committedOf(btcCore);
+        uint ethLive = CORE.basketUsd() * 1e12;
+        uint btcLive = BTC.CORE().basketUsd() * 1e12;
+        emit log_named_uint("  ETH reported            ", ethReported);
+        emit log_named_uint("  ETH live basketUsd*1e12 ", ethLive);
+        emit log_named_uint("  BTC reported            ", btcReported);
+        emit log_named_uint("  BTC live basketUsd*1e12 ", btcLive);
+        emit log_named_uint("  debt term (totalDebtUsd)", debt18);
+        // 🔬 IS IT A STALE PUSH OR A VALUE GAP? `_reportEquity` fires on BOTH arms of
+        //    `_poolUsdInRange`, so ANY mint or burn on this range re-pushes. If the gap closes
+        //    after a trivial deposit, the accounting was never wrong — the aggregate had simply
+        //    not been told about a change that did not route through the reporting site.
+        vm.deal(address(this), 2 ether);
+        ETH.deposit{value: 1 ether}(0, address(this));
+        uint afterReport = AUX.committedOf(address(CORE));
+        uint liveAfter   = CORE.basketUsd() * 1e12 - lm.totalDebtUsd();
+        emit log_named_uint("  AFTER a 1-ETH deposit: reported", afterReport);
+        emit log_named_uint("  AFTER a 1-ETH deposit: live    ", liveAfter);
+        emit log_named_int ("  residual gap (reported - live) ",
+                            int256(afterReport) - int256(liveAfter));
+        // 🔴 §PLP-6-BACKING-DELTA, CLOSED: the pre-deposit gap is a STALE PUSH, not a value leak.
+        //    Any mint or burn on this range re-pushes and the aggregate becomes exact again.
+        assertEq(afterReport, liveAfter,
+                 "PLP-6-BACKING-DELTA: the reported aggregate must be exact once the range re-pushes");
         emit log_named_uint("lev debt after  (usd18)   ", debt18);
     }
 }

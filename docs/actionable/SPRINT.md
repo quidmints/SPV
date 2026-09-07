@@ -55666,3 +55666,33 @@ a grep that matches your own instrumentation is not evidence. The window now ope
 `basketUsd − debt` = **21,789.91**: a **$2,774.60** gap, with `totalDebtUsd` now **0**. It holds at
 the earlier checkpoints and throughout `BufferSwapDrain`. Recorded, not asserted — the probe does not
 guess whether a withdraw legitimately has a transient the identity does not model.
+
+## ✅ §PLP-6-BACKING-DELTA — **CLOSED. IT IS A STALE PUSH, NOT A VALUE LEAK — AND THE RESIDUAL IS THE SIBLING TERM.** (2026-09-07)
+
+The $2,774.60 separation between `committedUsd18()` and `basketUsd − debt` after the de-lever is
+**accounting lag, not missing value.** Measured, not argued:
+
+| | reported | live (`basketUsd·1e12 − debt`) | gap |
+|---|---|---|---|
+| after the withdraw | **19,015.32** | 21,789.88 | **2,774.60** |
+| after ANY mint/burn (a 1-ETH deposit) | **24,260.16** | 24,260.16 | **0** |
+
+🔑 **WHY.** `committedUsd18()` is NOT computed live — it returns `AUX.committedTotal()`, i.e.
+`committedOf[CORE] + committedOf[BTC_CORE]`, the last figures **PUSHED** by `_reportEquity()`. That
+push fires at exactly two sites, both arms of `_poolUsdInRange`. The de-lever moved `basketUsd` UP
+by 2,219.82 and debt DOWN by 554.78 — summing to the gap exactly — through a path that does not
+route through the reporting site, so the aggregate simply had not been told. Decomposed per range,
+**the whole gap sat on ETH** (BTC reported 0 / live 0), which is what ruled out a value leak.
+
+⛔ **AND THE BACKING GATE NEVER READS ITS OWN STALE FIGURE**, so this is not the over-permissive bug
+it first looks like: `_reportEquity()` runs on the line BEFORE
+`require(committedUsd18() <= haircutTvl, "backing")` — deliberately, per §BACKING-DEAD, *"so the gate
+sees THIS range's new equity, and the sibling's last pushed figure."*
+
+⚠️ **THE RESIDUAL, STATED NARROWLY:** the SIBLING term can be stale. Range B's backing gate reads
+range A's LAST PUSH, which lags a de-lever on A until A's next mint or burn. While stale the figure
+is LOW (19,015 vs 21,790), so the sum under-states commitment and the gate is MORE permissive than
+the live state warrants. **Not exercised here** — BTC was 0 throughout this fixture, so there was no
+sibling to be stale against. ▶️ To exercise it: an active BTC range, a de-lever on ETH, then a BTC
+mint before ETH re-pushes. That is a two-range fixture and it does not exist yet.
+📌 Now asserted in `DeleverEthBackingProbe`, so a future change that stops the re-push fails loudly.
