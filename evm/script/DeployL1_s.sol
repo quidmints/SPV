@@ -115,7 +115,7 @@ contract Deploy is Script {
 
     address public stabilityPool = 0x5721cbbd64fc7Ae3Ef44A0A3F9a790A9264Cf9BF;
 
-    // ANGEL seed NFT: the Safe (deployer) MUST own Foundation tokenId Basket.ANGEL (16508). DeployLib approves
+    // ANGEL seed NFT: the deployer msig MUST own Foundation tokenId Basket.ANGEL (16508). DeployLib approves
     // Aux for it mid-deploy and Basket's constructor requires that approval, so the commitment is enforced at
     // Basket's birth; Aux burns it (owner→DEAD) at finalize. No token-id/approve constants needed here.
 
@@ -250,6 +250,16 @@ contract Deploy is Script {
             address(SFRXUSD),           // 12 frxUSD -> sfrxUSD (native 4626, asset()==frxUSD)
             stabilityPool               // 13 BOLD   -> Liquity SP (LAST = SP-routed, per Aux convention)
         ];
+        // 🔴 THE TWO ARRAYS ARE POSITIONALLY PAIRED AND NOTHING ELSE ENFORCES IT. `vaults[i]` is the venue
+        //    for `stables[i]`, so a stable inserted or removed on one side re-points every venue after it —
+        //    silently, because both arrays still compile and the deploy still runs. §POSITIONAL-PIN-ROT
+        //    records the same shape breaking a fixture (`funders[13]` onto a shifted `vs`) and the only
+        //    reason THAT was caught is that a count assertion happened to exist.
+        require(STABLECOINS.length == VAULTS.length, "stables/vaults: positional pairing broken");
+        // §14-STABLES — the `uint[15]` layout is EXACTLY full at 14 stables (slot 0 = yield-weighted sum,
+        // 1..13 per-token, 14 = TVL total). A 15th writes slot 14 and silently overwrites the total that
+        // `FeeLib.calcFeeL1` divides by, so this is the one place the ceiling can be made loud.
+        require(STABLECOINS.length == 14, "stables: 14 is the uint[15] layout maximum");
         // GHO and USDG route through AAVE v4 (their native venue), not
         // Morpho 4626 vaults — their slots above are address(0)
         // intentionally and Aux.setVault rejects a re-wiring attempt
@@ -348,7 +358,7 @@ contract Deploy is Script {
         // Safe (owner) calls, each contract self-renouncing as its own owner (no _transferOwnership): AUX.finalize()
         // asserts EVERY cross-contract linkage equals Aux's owner-set view (a front-run malicious-but-non-zero pin
         // in an ungated setter reverts HERE), burns ANGEL (owner()→DEAD via Aux's approval), then renounces Aux;
-        // then the Safe renounces Basket. The assert runs FIRST, so a mis-wire reverts before anything renounces
+        // then the msig renounces Basket. The assert runs FIRST, so a mis-wire reverts before anything renounces
         // or burns → all-or-nothing. One-shot (ANGEL burned + owners zeroed) ⇒ renounced EXACTLY once. No skip:
         // the fork harness gives the deployer ANGEL up front, so this runs identically to production.
         // BTCChannels is NOT renounced: it owns rotateHopNode() — the operator's lever to replace a

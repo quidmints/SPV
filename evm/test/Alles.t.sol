@@ -619,10 +619,10 @@ contract AllesFixture is ForkPin, ExitFixture {
         //     (production) and script/DriverE2E.s.sol via script/DeployLib.sol. Only
         //     the environment differs: this mainnet-fork test deploys NO Rover /
         //     SPVGateway / BTCChannels here — individual tests stand up their own
-        //     doubles (setBTCChannels is pin-once). Basket's ctor REQUIRES the Safe's
+        //     doubles (setBTCChannels is pin-once). Basket's ctor REQUIRES the msig's
         //     ANGEL approval to Aux (DeployLib commits it mid-deploy), so setUp first
         //     hands the deployer (this) the real F8N ANGEL NFT — identical to
-        //     production, where the Safe owns it. ───
+        //     production, where the msig owns it. ───
         //
         // NOTHING IS MOCKED AND NO VENUE ADDRESS IS PINNED HERE. §ETHVENUE-FOLD replaced the
         // 4626 curator-vault set with the ether.fi adapter armed inside `Quid.setup`, so
@@ -633,7 +633,7 @@ contract AllesFixture is ForkPin, ExitFixture {
         // synthetic pools by an address comparison (`token1isVol = volMock > usdMock`), so CORE
         // only has to land on its usual deployer nonce.
         // ANGEL seed: hand the deployer (this) the live Foundation NFT so DeployLib's mid-deploy approve(Aux)
-        // succeeds and Basket's constructor check passes — exactly as production, where the Safe owns ANGEL.
+        // succeeds and Basket's constructor check passes — exactly as production, where the msig owns ANGEL.
         // (A prank'd transfer is a CALL, not a CREATE, so it doesn't disturb the nonce alignment above.)
         {
             address _angelOwner = IAngelF8N(0x3B3ee1931Dc30C1957379FAc9aba94D1C48a5405).ownerOf(16508);

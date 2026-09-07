@@ -66,9 +66,9 @@ contract Basket is ERC20, ERC6909,
     Aux public AUX;
     address payable public RANGE;
     // ─── Safe/deployer seed commitment: the Foundation (F8N) ANGEL NFT ───
-    // The Safe approves the already-deployed Aux for ANGEL (DeployLib, mid-deploy), and Basket's constructor
+    // The deployer msig approves the already-deployed Aux for ANGEL (DeployLib, mid-deploy), and Basket's constructor
     // REQUIRES that approval — so Basket can't be born unless the seed is committed (this IS the deployer gate).
-    // The Safe keeps owning ANGEL; Aux burns it (owner→DEAD via the approval) at finalize. No pull, no holding,
+    // The deployer msig keeps owning ANGEL; Aux burns it (owner→DEAD via the approval) at finalize. No pull, no holding,
     // no predicted address — Aux is already deployed when approved.
     address constant F8N = 0x3B3ee1931Dc30C1957379FAc9aba94D1C48a5405;
     uint public constant ANGEL = 16508; // NFT tokenId (public so the deploy reads the same id)
@@ -142,9 +142,9 @@ contract Basket is ERC20, ERC6909,
         return seeded;
     }
 
-    /// @notice Constructor wires Quid + Aux and REQUIRES the Safe's ANGEL approval to Aux (the seed commitment,
+    /// @notice Constructor wires Quid + Aux and REQUIRES the msig's ANGEL approval to Aux (the seed commitment,
     ///         made mid-deploy by DeployLib) — so Basket cannot exist unless the seed is committed. Aux burns
-    ///         ANGEL and renounces at finalize; Basket is renounced by the Safe there too.
+    ///         ANGEL and renounces at finalize; Basket is renounced by the msig there too.
     constructor(address _range, address _aux, address _lzEndpoint)
         ERC20("QU!D", "QUI")
         OApp(_lzEndpoint, msg.sender)
@@ -152,8 +152,8 @@ contract Basket is ERC20, ERC6909,
         RANGE = payable(_range);
         AUX = Aux(payable(_aux));
         _deployed = block.timestamp;
-        // The ANGEL commitment: the Safe must have approved Aux for the F8N ANGEL NFT BEFORE Basket is born —
-        // so Basket refuses to exist unless the seed is committed. The Safe still OWNS ANGEL (only approved, not
+        // The ANGEL commitment: the deployer msig must have approved Aux for the F8N ANGEL NFT BEFORE Basket is born —
+        // so Basket refuses to exist unless the seed is committed. The msig still OWNS ANGEL (only approved, not
         // moved); Aux burns it deployer→DEAD at finalize via this approval. No pull, no holding, no predicted
         // address: the already-deployed Aux is the approve target, and this check makes the commitment atomic
         // with Basket's birth. This IS the deployer gate — no separate owner check needed anywhere else.

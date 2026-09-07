@@ -693,7 +693,7 @@ contract Aux is // Auxiliary
     /// @notice Deploy-finalize (Safe/deployer only): assert EVERY cross-contract linkage EQUALS Aux's owner-set
     ///         view — catching a front-runner's malicious-but-non-zero pin in an ungated setter — then BURN the
     ///         committed ANGEL seed NFT and renounce Aux. Paired in DeployL1_s with `QUID.renounceOwnership()`
-    ///         (the Safe renounces Basket). Both are called BY THE DEPLOYER (each contract self-renounces as its
+    ///         (the msig renounces Basket). Both are called BY THE DEPLOYER (each contract self-renounces as its
     ///         own owner — ownership is never handed to a second address), and the assert runs FIRST,
     ///         so a mis-wired deploy reverts
     ///         before anything is burned/renounced (all-or-nothing). One-shot: ANGEL is gone + owner zeroed ⇒
@@ -701,8 +701,8 @@ contract Aux is // Auxiliary
     ///         Basket's constructor, so a Safe that didn't own it could never have produced a live Basket.
     function finalize() external onlyOwner {
         BasketLib.assertFullyWired(address(QUID), ethVenue, _btcChannels, address(CORE), address(RANGE));
-        // Burn the committed ANGEL seed NFT: the deploy approved THIS Aux for it (and the Safe/owner() still
-        // holds it — only approved, never moved), so we transfer the Safe's ANGEL straight to DEAD via that
+        // Burn the committed ANGEL seed NFT: the deploy approved THIS Aux for it (and the msig/owner() still
+        // holds it — only approved, never moved), so we transfer the msig's ANGEL straight to DEAD via that
         // approval. Runs BEFORE renounce (uses owner()); one-shot (ANGEL gone ⇒ a re-call reverts on transfer).
         ICollection(F8N).transferFrom(owner(), DEAD, QUID.ANGEL());
         renounceOwnership();

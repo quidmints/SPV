@@ -1213,7 +1213,7 @@ contract BTCChannels is Ownable {
     // ⛔ (§SPLICE-ROTATES-BOTH-FUNDING-KEYS, 2026-08-31) `rekey`, `_authorizeRekey`, `_finishRekey`
     // AND `ChannelRekeyed` STOOD HERE. **THE CAPABILITY IS NOT GONE — IT FOLDED INTO `splice`**,
     // which now re-pins `keysHash` itself, and whose no-op guard admits a rotation at constant
-    // size. §E182 built `rekey` so the Safe could whitelist a new MRENCLAVE and the hop half could
+    // size. §E182 built `rekey` so the msig could whitelist a new MRENCLAVE and the hop half could
     // rotate to that image's key WITHOUT CLOSING THE CHANNEL; that is a `splice` with
     // `amountSats` unchanged and a new `hopPubkey`, and `_applySplice`'s same-size branch was
     // already written for it.

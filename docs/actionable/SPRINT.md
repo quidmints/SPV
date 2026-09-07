@@ -97891,3 +97891,51 @@ de-levers are correlated and the second arrival finds the pool worse or empty. *
 is the mechanism that could HOLD THE LEGS APART by construction** — the thing tasks #47/#48 ask for.
 Design them together; building this first and the rule later would pin the choice the rule exists to
 make.
+
+## §VBTC-IS-ALREADY-TRANSFERABLE-2026-09-07 — ✅ crossed off, and the real blocker is the MINT
+
+**Owner, 2026-09-07:** *"we have to make vbtc transferrable to anyone other than our own contract to
+test this anyway."* **MEASURED AGAINST THE CODE (rule 20): the token already is, and has no gate.**
+· `VBtc.transfer` (`:99`) and `VBtc.transferFrom` (`:108`) are plain ERC-20 bodies — **no `onlyVault`,
+  no allowlist, no hook.** The `onlyVault` modifier gates exactly two functions, `mintTo` (`:131`) and
+  `burnFrom` (`:137`).
+⇒ **NOTHING STOPS A HOLDER FROM SENDING vBTC ANYWHERE. There are simply no holders.**
+
+🔴 **THE ACTUAL CONSTRAINT IS THE MINT DESTINATION, AND IT IS ONE LINE.** `VBtc.mintTo` has exactly ONE
+call site in `evm/src`: `Vault.exposeBtcToLev:280`, `VBTC.mintTo(msg.sender, sats)` — and that
+function is `if (msg.sender != LEV_MANAGER) revert NotLevManagerBtc()`. **So the sole address that can
+ever receive vBTC is the LevManager.**
+⛔ **AND THE DESIGN SAYS SO ON PURPOSE — `unexposeBtcFromLev`'s docblock: *"The LP never receives loose
+vBTC (that would double-claim the same channel BTC)."*** The LP already holds `LP.pooled` range depth
+for those sats; handing them the vBTC face too is the same claim twice. `exposeBtcToLev` mints against
+depth that is ALREADY BANKED (`LP.pooled` UNCHANGED, only `levPooled` grows), so the token is a
+RECLASSIFICATION, not new backing.
+⇒ **"Make vBTC transferable" is therefore not a transfer-gate change — there is no gate to remove. It
+is a decision to mint to a THIRD PARTY, and doing that naively re-creates the double-claim the
+docblock names.** This is §A.19b's open question restated in one line: *"the question is only what
+authorises it for a bearer rather than a swapper"* — and §A.19b already records that the mechanism
+exists on the delivery-side de-lever path (`testReal_DeliverSideDelever_SwapOutTapsLeveredSlice`), so
+a bearer path should be MODELLED ON THAT rather than invented.
+📌 ⇒ **For TESTING the any-dollar borrow, no token change is needed at all**: a fixture can `deal` or
+prank the LevManager. The transferability question is a PRODUCT question about bearer vBTC and belongs
+with §ANY-DOLLAR-BORROW, not ahead of it.
+
+## §MSIG-NOT-SAFE-DESTALE — ✅ the contracts said "the Safe"; the owner ruled it is a simple msig
+
+**Owner (recorded in §NO-SAFE-STANDING-DECISION):** *"we are not using gnosis safe but a simple msig
+that can grow after launch, never change after it reaches some number of signers."* **The DECISION was
+booked and the CODE still said "the Safe" in 14 comments** across `Basket`, `Aux`, `BTCChannels`,
+`DeployLib`, `DeployL1_s` and `Alles.t.sol` — rule 19 exactly: the decision landed, the prose did not,
+and prose is what the next reader trusts. Destaled to "the msig" / "the deployer msig".
+⚠️ **ONE HIT IS NOT OURS AND MUST SURVIVE ANY FUTURE SWEEP:** `SmartWalletLp.t.sol:100` — *"A Safe's
+ERC-1271 signature is ACCEPTED"* — is a **Gnosis Safe smart-contract WALLET acting as an LP
+counterparty**, which is a real integration and has nothing to do with our admin key. A blind
+`Safe`→`msig` pass would have corrupted it.
+✅ Verified comment-only (`tools/comment-only.sh`): bytecode byte-identical, no build required.
+
+## §STABLES-VAULTS-PAIRING-ASSERTED — ✅ closes the item §POSITIONAL-PIN-ROT left open
+`DeployL1_s` now asserts `STABLECOINS.length == VAULTS.length` and `== 14` right where the arrays are
+built. The first makes the positional pairing loud instead of silent; the second makes the §14-STABLES
+ceiling loud — a 15th stable writes slot 14 and overwrites the TVL total `FeeLib.calcFeeL1` divides
+by, which is the exact "plausible-but-wrong output" shape standing rule 3 says a check EARNS its place
+against. Deploy-time only, so it costs no runtime bytes on any contract.

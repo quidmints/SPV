@@ -14,7 +14,7 @@ import {Vault} from "../src/Vault.sol";
 import {SPVGateway} from "../src/spv/SPVGateway.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
 
-/// @dev The Foundation (F8N) ANGEL seed NFT: the Safe approves Aux for it mid-deploy (below), and Basket's
+/// @dev The Foundation (F8N) ANGEL seed NFT: the deployer msig approves Aux for it mid-deploy (below), and Basket's
 ///      constructor requires that approval — so the seed commitment is atomic with Basket's birth, with NO
 ///      predicted address (Aux is already deployed when approved). Aux burns it deployer→DEAD at finalize.
 interface IF8N { function approve(address to, uint256 tokenId) external; }
@@ -167,7 +167,7 @@ library DeployLib {
             aaveSpoke: cfg.aaveSpoke, aaveHub: cfg.aaveHub,
             stables: cfg.stables, vaults: cfg.vaults
         }));
-        // Seed commitment: the Safe (this deploy's caller, ANGEL's owner) approves the now-deployed Aux for the
+        // Seed commitment: the deployer msig (this deploy's caller, ANGEL's owner) approves the now-deployed Aux for the
         // ANGEL NFT — no predicted address needed. Basket's constructor requires this approval, so it can't be
         // born without the seed committed; Aux burns ANGEL deployer→DEAD at finalize via the same approval.
         IF8N(F8N_COLLECTION).approve(address(aux), ANGEL_ID);
