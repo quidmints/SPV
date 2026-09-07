@@ -52983,6 +52983,49 @@ FOLDED citation is still stale** — the one bucket that is actionable. Per this
 with a binary result beats a disposition; and per the tooling-traps rule it fails loudly, exiting with
 a FATAL if the tree walk returns zero `.md` files rather than reporting a clean run.
 
+# 🔴 §SLIP-BASE-IS-BELOW-MEASURED-COST — **A DOCBLOCK'S OWN INVARIANT, FALSIFIED BY ITS OWN TEST (2026-09-07)**
+
+**Handed over by `project-0c` from a full-suite run (1123 passed / 7 failed / 1 skipped) with the A/B
+against HEAD still pending. Booked because the finding does NOT depend on that A/B.**
+
+`evm/test/FillerCallback.t.sol::test_TheSlipBudgetMustCoverWhatTheBestVenueActuallyCosts` fails
+**`25 < 37`**, and the test's own docblock says a failure here is *"a finding about `_slipBps`, never
+about the block."* **It was written to report exactly this.**
+
+⛔ **AND IT CONTRADICTS THE CALIBRATION'S STATED INVARIANT, IN THE SAME FILE.** `LevMath.sol:506-508`:
+> *"📌 **Base and slope are set ABOVE the measured cost of the worse tier at each size** (25 bps covers
+> USDC→WETH's 44 bps only from ~\$1M; below that the honest cost is a few bps), so an honest keeper
+> routing through a sane pool clears it with margin."*
+
+with `SLIP_BASE_BPS = 25` at `:517` (*"small-trade floor"*). ⇒ **the docblock asserts the base sits
+ABOVE measured cost and claims the honest small-trade cost is "a few bps". The measurement says 37.**
+**The floor rejects an honest fill**, which is the failure mode the docblock says cannot happen.
+
+## ⚠️ WHAT THIS IS AND IS NOT — THE FIX IS NOT TO RAISE 25
+
+🔴 **DO NOT "FIX" IT BY RAISING THE CONSTANT TO CLEAR 37.** That is rule 4 exactly — *a tolerance that
+makes the failure go away leaves the defect* — and `§V-R11` already records this class on the adjacent
+floor (*"do NOT implement by weakening the floor"*). **The question is why an honest small trade costs
+37 bps when the calibration was written against "a few bps".** Two candidates, neither measured:
+① **the calibration is STALE** — it was set against a venue/route mix that has since changed (the
+routing work has moved repeatedly this week); ② **the route being priced is not the one the
+calibration assumed** — a thin or wrong pool, which is `§E211`'s measured shape on the Curve side
+(*"3 of 4 registry answers were empty pools"*).
+
+▶️ **THE DISCRIMINATOR IS ONE MEASUREMENT: what does the best venue actually cost for a SMALL trade
+today, and against which pool?** If it is genuinely ~37, the base is stale and must be re-derived **with
+the measurement recorded next to it**, per this row's own *"sized from measurement, not taste"*. If the
+37 comes from a thin pool, the defect is routing and the base is fine.
+
+📌 **PROVENANCE, STATED BECAUSE IT IS NOT MINE:** run by `project-0c`, who flagged it as *"a genuine
+open finding rather than flake"* and handed it over rather than booking it, and who is running the A/B
+against HEAD now. ⚠️ **The A/B decides ATTRIBUTION (did an in-flight change cause it), not VALIDITY —
+`SLIP_BASE_BPS = 25` and the docblock's claim are both in HEAD and contradict each other regardless.**
+**Four of the seven failures are RPC `429`s and are not findings.** The other two
+(`ConvertToRouted::test_OneStableAlone`, `::test_TwoStablesConvertToWethThroughRealRoutes`, both
+*"0 <= 0"*) are NOT booked here — they are route-path tests and an in-flight `SwapLib` edit is a live
+candidate cause. **Await the A/B before treating those as findings.**
+
 # ⛔ §E111-DROPPED — **NO REGISTRY EVER. WHAT REMAINS DOES NOT SURVIVE EXAMINATION EITHER (2026-09-07)**
 
 **Owner: *"we dont need the registry ever, drop it"*, plus the standing rule that a task which does not
