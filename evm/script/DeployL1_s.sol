@@ -280,12 +280,12 @@ contract Deploy is Script {
         // constructor below; Aux resolves and caches both reserve ids
         // there.
         //
-        // Stables that don't yet have a Morpho vault (PYUSD, RLUSD if
-        // those slots are address(0)) start unwired. Once Morpho lists
-        // them, anyone can call `AUX.setVault(stable, vaultAddress)`,
-        // which validates the vault implements the ERC4626 surface,
-        // then sets it permanently. The setter is one-shot per stable
-        // and blocks GHO/USDG explicitly.
+        // 🔴 Stables that don't yet have a Morpho vault (PYUSD, RLUSD if those slots are
+        // address(0)) start unwired AND CAN NEVER BE WIRED. `setVault` is `onlyOwner`, and
+        // `finalize()` RENOUNCES — so the venue set is frozen at this transaction, permanently.
+        // ⛔ Do not read this as "Morpho can list them later and someone wires it up": there is
+        // no post-renounce path, and the setter is one-shot per stable regardless. If a stable
+        // needs a venue, it has to be in the batch below or it never gets one.
 
         // ─── ONE canonical deploy + wiring (shared VERBATIM with test/Alles.t.sol
         //     setUp and script/DriverE2E.s.sol) — the single source of truth for
@@ -353,67 +353,7 @@ contract Deploy is Script {
         // against docs.chain.link before mainnet — a wrong-but-live feed feeds
         // bad prices (it won't "defer"). ETH/USD + BTC/USD are the canonical
         // mainnet aggregators; add setStableFeed(<stable>, <USD feed>) per stable.
-        AUX.setAssetFeed(address(WETH), CL_ETH_USD);                                 // ETH/USD
-        AUX.setAssetFeed(address(WBTC), 0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c); // BTC/USD
-        // Per-stable USD feeds — the CRE-INDEPENDENT depeg backstop (FeeLib.liveDepegBps;
-        // riskFactor = max(CRE severity, owner override, liveDepegBps)). This is NOT just
-        // a fallback for missing CRE coverage: it works immediately at launch (no CRE
-        // first-report dependency) and survives a CRE outage on the DEPOSIT path (creStale
-        // only halts redemption). 10 of the 11 basket stables have a Chainlink USD feed —
-        // ALL pinned here. Only BOLD has none (Liquity redemption floor; it does not
-        // market-depeg → CRE-only is fine). The feed ADDRESSES come from two sources:
-        //   • USDC/USDT/DAI: canonical EAC proxies, description()- AND historical-depeg-
-        //     verified (USDC $0.907 / DAI $0.932 @ SVB blk 16,805,000, USDT $0.988 @ UST).
-        //   • PYUSD/GHO/USDS/USDE: Chainlink Feed Registry getFeed(stable,USD).
-        //   • RLUSD/USDG/AUSD: PROXY-ONLY feeds — they exist but are NOT in the legacy Feed
-        //     Registry (getFeed reverts), so they're resolved from Chainlink's canonical
-        //     data.eth ENS namespace (<feed>.data.eth) and verified on-chain (description +
-        //     decimals + ~$1 spot, 2026-06). This is WHY they're pinned here rather than
-        //     resolved from the Chainlink Feed Registry — which can't see proxy-only feeds.
-        //     NOTE AUSD/USD reports 18 decimals (not 8); liveDepegBps reads decimals()
-        //     dynamically, so the scaling is correct.
-        // OPERATOR: re-verify every address against docs.chain.link before mainnet — a
-        // wrong-but-live feed feeds bad prices (it won't "defer").
-        AUX.setStableFeed(address(USDC),  0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6); // USDC/USD (canonical proxy)
-        AUX.setStableFeed(address(USDT),  0x3E7d1eAB13ad0104d2750B8863b489D65364e32D); // USDT/USD (canonical proxy)
-        AUX.setStableFeed(address(DAI),   0xAed0c38402a5d19df6E4c03F4E2DceD6e29c1ee9); // DAI/USD  (canonical proxy)
-        AUX.setStableFeed(address(PYUSD), 0x39E31761911b9aaBAEF5fb81B18Fd1C24a60E884); // PYUSD/USD
-        AUX.setStableFeed(address(GHO),   0xff221Bf2E61B62182210b3d42dE7f77da5b5b41F); // GHO/USD
-        AUX.setStableFeed(address(USDS),  0x592700e4FcDd674dC54d2681DED3B63f54F63f9A); // USDS/USD
-        AUX.setStableFeed(address(USDE),  0xcC16f670129f965b396f2e81312F6e339FFDB18e); // USDe/USD
-        AUX.setStableFeed(address(RLUSD), 0x26C46B7aD0012cA71F2298ada567dC9Af14E7f2A); // RLUSD/USD (proxy-only, via ENS)
-        AUX.setStableFeed(address(USDG),  0x14f0737d6b705259e521EA6E9E3506AC78dBd311); // USDG/USD  (proxy-only, via ENS)
-        AUX.setStableFeed(address(AUSD),  0xB00341502DfEA6Ced8A5786b4059d29dA5E4D1FD); // AUSD/USD  (proxy-only, 18-dec, via ENS)
-        AUX.setStableFeed(address(CUSD),  0x9A5a3c3Ed0361505cC1D4e824B3854De5724434A); // cUSD/USD (Redstone AggregatorV3, 8-dec, ~$1.00)
-        AUX.setStableFeed(address(CRVUSD), 0xEEf0C605546958c1f899b6fB336C20671f9cD49F); // crvUSD/USD — Chainlink, description() == "CRVUSD / USD", 8-dec (verified on-chain 2026-08-16)
-        AUX.setStableFeed(address(FRXUSD), 0xB9E1E3A9feFf48998E45Fa90847ed4D467E8BcfD); // frxUSD/USD — Chainlink, description() == "FRAX / USD", 8-dec. NAME MISMATCH IS EXPECTED, see the frxUSD note above.
-        // BOLD: no Chainlink feed exists → CRE-only (+ owner severityOverride). It does not
-        // market-depeg (Liquity redemption floor), so the absence is fine. The basket set is
-        // frozen at finalize, so no other stable can ever appear needing a feed — hence no
-        // post-renounce feed-binding mechanism is needed.
-
-        // ─── Hardcoded curator set (frozen at finalize) ─────────────────────
-        // Galaxy primaries are wired via the VAULTS array at construction; append
-        // the remaining hardcoded curators (USDC: +Euler/Sky/Wintermute/Rockaway
-        // = 5; USDT: +Euler/Sky = 3). setVault is onlyOwner + self-checks
-        // asset()==stable; the finalize renounce then freezes the set — no vaults
-        // can be added after deployment.
-        AUX.setVault(address(USDC), eulerUsdc);
-        AUX.setVault(address(USDC), skyUsdc);
-        AUX.setVault(address(USDC), wintermuteUsdc);
-        AUX.setVault(address(USDC), rockawayUsdc);
-        AUX.setVault(address(USDT), eulerUsdt);
-        AUX.setVault(address(USDT), skyUsdt);
-        AUX.setVault(address(USDC), gauntletUsdc);   // + Gauntlet-curated Morpho (USDC: 6 curators)
-        AUX.setVault(address(USDT), gauntletUsdt);   // + Gauntlet-curated Morpho (USDT: 4 curators)
-
-        // ─── DUAL-VENUE: add the AAVE-v4 spoke as a router venue for USDC/USDT ──
-        // The automatic least-full router can now route USDC/USDT to AAVE-v4 in
-        // ADDITION to their 4626 curators (curator-risk diversification). The
-        // spoke is SHARED across GHO/USDG/USDC/USDT; setVault resolves the
-        // per-stable reserve-id and approves the spoke. Not a depositor choice.
-        AUX.setVault(address(USDC), aaveSpoke);
-        AUX.setVault(address(USDT), aaveSpoke);
+        _wireBasketFeedsAndVenues();
 
         // ─── IL-protect leverage overlay (opt-in, SAME script) ────────────
         // The ONE deploy script also stands up the ETH (weETH) + BTC (vBTC) leverage
@@ -787,4 +727,82 @@ contract Deploy is Script {
         vs[0] = mvR; vs[1] = mvP;
     }
 
+
+    /// @notice §SETTER-FOLD — the whole basket wiring, in ONE `AUX.configure` call.
+    /// @dev In its own function ON PURPOSE: the six array locals blow the stack when inlined
+    ///      into the deploy body (`Stack too deep` — this repo builds with `via_ir = false`,
+    ///      so that is a hard limit, not a tuning knob).
+    function _wireBasketFeedsAndVenues() private {
+        // ─── ONE CALL: every feed and every venue, all-or-nothing ─────────────
+        // §SETTER-FOLD — this was 25 separate owner-only calls (13 setStableFeed, 10 setVault,
+        // 2 setAssetFeed). Each was its own chance to reorder, omit, or stop halfway, and a
+        // half-wired deploy leaves a LIVE contract with a partially-pinned oracle set that nothing
+        // on-chain distinguishes from a finished one. `configure` keeps EVERY per-entry pin-once
+        // guard, so one already-pinned entry reverts the WHOLE batch — a re-run fails loudly
+        // instead of reporting success for work it skipped.
+        // OPERATOR: VERIFY every feed address against docs.chain.link before mainnet. A
+        // wrong-but-live feed feeds bad prices; it does not "defer".
+        address[] memory aTok = new address[](2);
+        aTok[0] = address(WETH);
+        aTok[1] = address(WBTC);
+        address[] memory aFeed = new address[](2);
+        aFeed[0] = CL_ETH_USD;   // ETH/USD
+        aFeed[1] = 0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c;   // BTC/USD
+        address[] memory sTok = new address[](13);
+        sTok[0] = address(USDC);
+        sTok[1] = address(USDT);
+        sTok[2] = address(DAI);
+        sTok[3] = address(PYUSD);
+        sTok[4] = address(GHO);
+        sTok[5] = address(USDS);
+        sTok[6] = address(USDE);
+        sTok[7] = address(RLUSD);
+        sTok[8] = address(USDG);
+        sTok[9] = address(AUSD);
+        sTok[10] = address(CUSD);
+        sTok[11] = address(CRVUSD);
+        sTok[12] = address(FRXUSD);
+        address[] memory sFeed = new address[](13);
+        sFeed[0] = 0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6;   // USDC/USD (canonical proxy)
+        sFeed[1] = 0x3E7d1eAB13ad0104d2750B8863b489D65364e32D;   // USDT/USD (canonical proxy)
+        sFeed[2] = 0xAed0c38402a5d19df6E4c03F4E2DceD6e29c1ee9;   // DAI/USD  (canonical proxy)
+        sFeed[3] = 0x39E31761911b9aaBAEF5fb81B18Fd1C24a60E884;   // PYUSD/USD
+        sFeed[4] = 0xff221Bf2E61B62182210b3d42dE7f77da5b5b41F;   // GHO/USD
+        sFeed[5] = 0x592700e4FcDd674dC54d2681DED3B63f54F63f9A;   // USDS/USD
+        sFeed[6] = 0xcC16f670129f965b396f2e81312F6e339FFDB18e;   // USDe/USD
+        sFeed[7] = 0x26C46B7aD0012cA71F2298ada567dC9Af14E7f2A;   // RLUSD/USD (proxy-only, via ENS)
+        sFeed[8] = 0x14f0737d6b705259e521EA6E9E3506AC78dBd311;   // USDG/USD  (proxy-only, via ENS)
+        sFeed[9] = 0xB00341502DfEA6Ced8A5786b4059d29dA5E4D1FD;   // AUSD/USD  (proxy-only, 18-dec, via ENS)
+        sFeed[10] = 0x9A5a3c3Ed0361505cC1D4e824B3854De5724434A;   // cUSD/USD (Redstone AggregatorV3, 8-dec, ~$1.00)
+        sFeed[11] = 0xEEf0C605546958c1f899b6fB336C20671f9cD49F;   // crvUSD/USD — Chainlink, description() == "CRVUSD / USD", 8-dec (verified on-chain 2026-08-16)
+        sFeed[12] = 0xB9E1E3A9feFf48998E45Fa90847ed4D467E8BcfD;   // frxUSD/USD — Chainlink, description() == "FRAX / USD", 8-dec. NAME MISMATCH IS EXPECTED, see the frxUSD note above.
+        address[] memory vStable = new address[](10);
+        vStable[0] = address(USDC);
+        vStable[1] = address(USDC);
+        vStable[2] = address(USDC);
+        vStable[3] = address(USDC);
+        vStable[4] = address(USDT);
+        vStable[5] = address(USDT);
+        vStable[6] = address(USDC);
+        vStable[7] = address(USDT);
+        vStable[8] = address(USDC);
+        vStable[9] = address(USDT);
+        address[] memory vAddr = new address[](10);
+        vAddr[0] = eulerUsdc;
+        vAddr[1] = skyUsdc;
+        vAddr[2] = wintermuteUsdc;
+        vAddr[3] = rockawayUsdc;
+        vAddr[4] = eulerUsdt;
+        vAddr[5] = skyUsdt;
+        vAddr[6] = gauntletUsdc;   // + Gauntlet-curated Morpho (USDC: 6 curators)
+        vAddr[7] = gauntletUsdt;   // + Gauntlet-curated Morpho (USDT: 4 curators)
+        vAddr[8] = aaveSpoke;
+        vAddr[9] = aaveSpoke;
+        AUX.configure(Aux.Wiring({
+            assetTokens: aTok,   assetFeeds: aFeed,
+            stableTokens: sTok,  stableFeeds: sFeed,
+            vaultStables: vStable, vaultAddrs: vAddr,
+            quid: address(0), ethVenue: address(0), btcChannels: address(0)
+        }));
+    }
 }

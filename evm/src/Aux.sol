@@ -195,6 +195,12 @@ contract Aux is // Auxiliary
     error FeedPinned();
 
     function setStableFeed(address token, address feed) external onlyOwner {
+        _setStableFeed(token, feed);
+    }
+
+    /// @dev The pin-once write, shared by the singular setter and `configure`. Kept in ONE place
+    ///      so a batch can never diverge from what a single call does.
+    function _setStableFeed(address token, address feed) private {
         if (stableFeed[token] != address(0)) revert FeedPinned();
         stableFeed[token] = feed;
     }
@@ -221,6 +227,11 @@ contract Aux is // Auxiliary
     uint public constant TWAP_MAX_DEVIATION_BPS = 500; // 5% = manipulation territory
 
     function setAssetFeed(address asset, address feed) external onlyOwner {
+        _setAssetFeed(asset, feed);
+    }
+
+    /// @dev See `_setStableFeed` — one write, two entrypoints.
+    function _setAssetFeed(address asset, address feed) private {
         if (assetPriceFeed[asset] != address(0)) revert FeedPinned();
         assetPriceFeed[asset] = feed;
     }
@@ -242,6 +253,14 @@ contract Aux is // Auxiliary
 
 
     error LengthMismatch();
+
+    /// @notice Parallel-array wiring payload for `configure`. Pairs must match in length.
+    struct Wiring {
+        address[] assetTokens;   address[] assetFeeds;
+        address[] stableTokens;  address[] stableFeeds;
+        address[] vaultStables;  address[] vaultAddrs;
+        address quid; address ethVenue; address btcChannels;
+    }
     error QuidPinned();
     error NoBtcRecipient();
     error NotSelf();
@@ -523,6 +542,13 @@ contract Aux is // Auxiliary
         // locks ownership permanently — no vaults can be added after deployment.
         // GHO + USDG route via AAVE, wired at construction. Block here
         // to prevent partial-wiring footgun.
+        _setVault(stable, vault);
+    }
+
+    /// @dev The GHO/USDG guard and the delegatecall body, shared with `configure`. The guard MUST
+    ///      stay outside `ChannelLib.setVaultBody` — it is the partial-wiring footgun, not a
+    ///      storage concern.
+    function _setVault(address stable, address vault) private {
         if (stable == GHO || stable == USDG) revert GHOIsAaveWired();
         // Body extracted to ChannelLib.setVaultBody to free Aux bytecode.
         // onlyOwner gate + GHO/USDG early-revert stay HERE; the DELEGATECALL runs
@@ -631,6 +657,44 @@ contract Aux is // Auxiliary
     ///         last — so a fixed-arity call demanding all three at once is unsatisfiable. Each field
     ///         stays INDEPENDENTLY pin-once, so calling `wire` in phases is correct and re-pinning
     ///         any single field still reverts.
+    /// @notice ONE deploy-time wiring call: every price feed, every 4626/AAVE venue, and the
+    ///         three cross-contract pins, in a single transaction.
+    ///
+    /// ⭐ **WHY THIS EXISTS.** `DeployL1_s` made 25 separate owner-only calls to wire the basket —
+    ///    13 `setStableFeed`, 10 `setVault`, 2 `setAssetFeed` — each its own transaction to get
+    ///    wrong, reorder, or omit. A deploy that stops halfway leaves a LIVE contract with a
+    ///    partially-pinned oracle set, and nothing on-chain says which half.
+    ///
+    /// 🔴 **ALL-OR-NOTHING, DELIBERATELY, AND THAT IS A REAL BEHAVIOUR DIFFERENCE FROM 25 CALLS.**
+    ///    Every write here keeps its own pin-once guard (`FeedPinned`, `VaultAlreadySet`), so ONE
+    ///    already-pinned entry reverts the WHOLE batch. That is the point: pin-once exists so a
+    ///    feed cannot be silently repointed, and a batch that skipped pinned entries would report
+    ///    success for a wiring it did not perform. ⛔ Do not "improve" this by skipping pinned
+    ///    entries — a loud revert on a re-run is the behaviour that makes a half-finished deploy
+    ///    visible.
+    ///
+    /// @dev Arrays are parallel and each pair must match in length (`LengthMismatch`). The three
+    ///      address fields are OPTIONAL — zero means "leave unpinned", exactly as `wire` treats
+    ///      them — because `DeployLib` must pin the ETH venue only AFTER `ETH.setup`, so wiring
+    ///      is legitimately two-phase and cannot be folded in here.
+    function configure(Wiring calldata w) external onlyOwner {
+        uint n = w.assetTokens.length;
+        if (n != w.assetFeeds.length) revert LengthMismatch();
+        for (uint i; i < n; ++i) _setAssetFeed(w.assetTokens[i], w.assetFeeds[i]);
+
+        n = w.stableTokens.length;
+        if (n != w.stableFeeds.length) revert LengthMismatch();
+        for (uint i; i < n; ++i) _setStableFeed(w.stableTokens[i], w.stableFeeds[i]);
+
+        n = w.vaultStables.length;
+        if (n != w.vaultAddrs.length) revert LengthMismatch();
+        for (uint i; i < n; ++i) _setVault(w.vaultStables[i], w.vaultAddrs[i]);
+
+        if (w.quid != address(0))        _pinQuid(w.quid);
+        if (w.ethVenue != address(0))    _pinEthVenue(w.ethVenue);
+        if (w.btcChannels != address(0)) _pinBtcChannels(w.btcChannels);
+    }
+
     function wire(address quid_, address ethVenue_, address btcChannels_) public onlyOwner {
         if (quid_ != address(0))        _pinQuid(quid_);
         if (ethVenue_ != address(0))    _pinEthVenue(ethVenue_);
