@@ -52813,6 +52813,37 @@ floors would let a keeper pass the aggregate by over-delivering one leg and stea
 
 ---
 
+# ⛔ §RANGEOP-IS-NOT-AN-ORPHAN — **A HANDOFF ITEM SAID "UNREACHABLE `IEthVenue.rangeOp` DECLARATION". IT IS REACHABLE, AND DELETING IT RE-OPENS TODAY'S WITHDRAWAL BUG (2026-09-07)**
+
+**Checked because it was handed over as a clean deletion, and it is the opposite of one.**
+
+✅ **IT HAS TWO LIVE CALLERS**, neither of them a declaration counting itself:
+`QuidLib._venueBalanceLib:296` — `IEthVenue(ev).rangeOp(0, 2)` · `QuidLib.sendEth:429` —
+`IEthVenue(ev).rangeOp(needed - inWETH, 1)`. Plus `evm/test/RangeOpIsSelfGated.t.sol:46,55`.
+
+🔴 **AND THE `external` FORM IS THE SAFETY PROPERTY, NOT AN ARTEFACT — THIS IS THE PART THAT MAKES
+THE DELETION DANGEROUS RATHER THAN MERELY WRONG.** `QuidLib` is DELEGATECALLED from `Quid`, so
+`IEthVenue(ev).rangeOp(...)` with `ev == address(this)` is a **genuine external self-call**, and that
+is the only thing that makes `msg.sender == address(this)` true inside the callee. `Quid.sol:233`:
+```solidity
+function rangeOp(uint amount, uint8 op) public returns (uint sent) {
+    if (msg.sender != address(this)) revert NotSelf();
+```
+⇒ **that gate is what closes an unauthenticated WETH withdrawal of up to `rangeETH()` by any caller**
+— one of the two withdrawals fixed today in `53fe1e84`. **"Simplifying" the external self-call into an
+internal one silently disarms the gate and re-opens the bug**, while every test that does not model an
+external attacker stays green.
+
+⚠️ **AND THE ROW'S OWN DOCBLOCK ALREADY CARRIES THE LIVE CONSTRAINT — keep it verbatim per the
+no-tombstones rule 3:** *"⛔ Do not move this bound into `SwapLib`: the library cannot tell an internal
+re-entry from an external call, because delegatecall gives it the same `msg.sender`."*
+
+📌 **THE GENERAL LESSON, AND IT IS `check-orphans.py`'s FAILURE MODE INVERTED.** That tool once
+reported *"0 orphans on a tree that had three"* because a declaration counted as its own caller. This
+is the mirror: **an interface member reported as an orphan that has two real callers**, because the
+callers reach it through the interface rather than by a bare name. ⇒ **before deleting any
+`Interfaces.sol` member, grep `IFace(...).member`, not `member`.**
+
 # 🧮 §CENSUS-2026-09-07 — **ONE COUNT. IT SUPERSEDES EVERY EARLIER TOTAL IN THIS FILE.**
 
 **This file carried four different task totals — 150, ~400, 461 and ~669 — none marked superseded,
