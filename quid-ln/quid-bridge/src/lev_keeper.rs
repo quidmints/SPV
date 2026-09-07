@@ -1046,7 +1046,15 @@ const FEE_TIERS: [u32; 4] = [100, 500, 3000, 10000];
 /// `<stable>/USDC`; USDT is here because it is the deepest dollar pair on V3 and, measured, the winner
 /// alternates with the block. ⚠️ **Being a short list is fine BECAUSE IT IS PRICED, NOT TRUSTED** — an
 /// unhelpful hub simply loses the comparison, where an unhelpful TABLE ROW used to be taken on faith.
-const HUBS: [LpAddr; 2] = [USDC_ADDR, USDT_ADDR];
+/// ⭐ §SESS-95 — **WETH JOINS, AND IT IS THE ONLY NON-DOLLAR HUB THAT CAN.** A hub is priced, never
+/// trusted, so adding one costs two quotes and can only improve the max. WETH earns the slot because
+/// `stable → WETH → WBTC` is a real shape the dollar hubs cannot express: the deepest WBTC pairs on
+/// mainnet are WBTC/WETH, not WBTC/USDC, so a BTC leg forced through a dollar hub pays the thinner
+/// side. ⚠️ Measured this session: 1inch beat our planner by **+60 to +84 bps on WBTC at $1M** across
+/// four stables while WETH at the same size was a wash — a gap concentrated entirely on the BTC leg,
+/// which is exactly what a missing WETH hub looks like.
+/// ⛔ `hub == tin || hub == tout` is skipped by the loop, so WETH costs nothing on a WETH leg.
+const HUBS: [LpAddr; 3] = [USDC_ADDR, USDT_ADDR, WETH_ADDR];
 
 /// A 32-byte ABI word for a `uint256`.
 fn u256_word(v: U256) -> [u8; 32] { v.to_be_bytes::<32>() }
@@ -1122,11 +1130,28 @@ fn quote_hop<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256, fee: u32
 ///    did answer; being conservative under load is the safe direction here.
 const DEPTH_MULTIPLE: u64 = 4;         // never sell more than 25% of a pool's holding of that token
 
-fn deep_enough<R: JsonRpc>(rpc: &R, pool: LpAddr, token: LpAddr, amt: U256) -> bool {
+/// 🔴 §SESS-95 — **CONSTANT PRODUCT NEEDS A DIFFERENT MULTIPLE, AND ASSUMING OTHERWISE COST A
+///    MEASURED 18%.** `DEPTH_MULTIPLE = 4` is calibrated for CONCENTRATED liquidity: a V3 pool
+///    holding 4x the trade quotes tightly because its liquidity sits AT the price. A constant-product
+///    pool holding 4x quotes `x*y=k` across the whole curve, so the same 4x is roughly a **20% price
+///    impact**. ⚠️ MEASURED: with V2 admitted under the shared gate, DAI→WETH at $1M found the V3
+///    tiers depth-gated out and the V2 pair left as the ONLY candidate — it won the ranking at
+///    328.58 WETH against ~399 available, an 18% loss the on-chain floor would then have REVERTED.
+///    ⇒ admitting a venue made the planner WORSE, which is the opposite of what more venues should do.
+/// 🔑 For `x*y=k`, impact ≈ `amt / (reserve + amt)`. Holding **100x** bounds it near 1%, which is the
+///    same order as the V3 tiers this competes against — so the gate now asks each family for the
+///    depth that family needs to quote comparably, rather than one number for both.
+const V2_DEPTH_MULTIPLE: u64 = 100;    // x*y=k: ~1% impact, comparable to a depth-gated V3 tier
+
+fn deep_enough_mult<R: JsonRpc>(rpc: &R, pool: LpAddr, token: LpAddr, amt: U256, mult: u64) -> bool {
     let Ok(b) = eth_call_raw(rpc, Address::from_slice(&token), "balanceOf(address)",
                              Some(&addr_word(pool))) else { return false };
     if b.len() < 32 { return false; }
-    U256::from_be_slice(&b[..32]) >= amt.saturating_mul(U256::from(DEPTH_MULTIPLE))
+    U256::from_be_slice(&b[..32]) >= amt.saturating_mul(U256::from(mult))
+}
+
+fn deep_enough<R: JsonRpc>(rpc: &R, pool: LpAddr, token: LpAddr, amt: U256) -> bool {
+    deep_enough_mult(rpc, pool, token, amt, DEPTH_MULTIPLE)
 }
 
 /// A Curve hop word the contract can execute: `proto | j | i | pool` (see `Interfaces.sol`).
@@ -1256,7 +1281,16 @@ pub enum Venue {
     V2 { pool: LpAddr },
 }
 
-type CacheKey = (LpAddr, LpAddr);
+/// 🔴 §SESS-95 — **THE SIZE IS PART OF THE KEY, AND LEAVING IT OUT WAS A REAL DEFECT.** Discovery
+/// DEPTH-GATES on `amt`, so the candidate set is a function of size — but the key was the pair alone,
+/// so whichever size was asked FIRST defined the set for the whole TTL. ⚠️ Measured: the A/B quotes
+/// $100k then $1M for each pair; DAI→WETH cached at $100k (where a constant-product pool clears the
+/// gate) and the $1M row reused it un-regated, planning **339.17 WETH against ~400 available** — and
+/// byte-identical across every run, which is the tell that a "quote" is not a function of its input.
+/// 🔑 Bucketed by BIT LENGTH, not by exact amount: sizes within a factor of two share a cache entry,
+/// so the cache still does its job (one discovery per pair per magnitude) while a 10x change in size
+/// re-gates. Keying on the exact `amt` would make every distinct trade a cache miss.
+type CacheKey = (LpAddr, LpAddr, u32);
 static VENUE_CACHE: OnceLock<Mutex<HashMap<CacheKey, (Instant, Vec<Venue>)>>> = OnceLock::new();
 
 fn cache() -> &'static Mutex<HashMap<CacheKey, (Instant, Vec<Venue>)>> {
@@ -1268,7 +1302,8 @@ fn cache() -> &'static Mutex<HashMap<CacheKey, (Instant, Vec<Venue>)>> {
 ///    derives direction itself, so caching both directions separately would double the RPC cost to
 ///    store the same fact twice.
 fn venues_for<R: JsonRpc>(rpc: &R, a: LpAddr, b: LpAddr, amt: U256) -> Vec<Venue> {
-    let key: CacheKey = if a <= b { (a, b) } else { (b, a) };
+    let bucket = 256 - amt.leading_zeros() as u32;         // order of magnitude, base 2
+    let key: CacheKey = if a <= b { (a, b, bucket) } else { (b, a, bucket) };
     if let Some((at, v)) = cache().lock().unwrap().get(&key) {
         if at.elapsed() < VENUE_CACHE_TTL { return v.clone(); }
     }
@@ -1281,7 +1316,7 @@ fn venues_for<R: JsonRpc>(rpc: &R, a: LpAddr, b: LpAddr, amt: U256) -> Vec<Venue
     // §SESS-94 — the V2 family, now that `proto = 0` is measured to fill.
     for (_name, f) in V2_FACTORIES {
         if let Some(pool) = v2_pair(rpc, f, a, b) {
-            if deep_enough(rpc, pool, a, amt) { out.push(Venue::V2 { pool }); }
+            if deep_enough_mult(rpc, pool, a, amt, V2_DEPTH_MULTIPLE) { out.push(Venue::V2 { pool }); }
         }
     }
     for (x, y, pool, ia, ib) in CURVE_SHORTLIST {
@@ -1905,21 +1940,28 @@ mod tests {
             let b = alloy_primitives::hex::decode(h.trim_start_matches("0x")).expect("bad address hex");
             let mut o = [0u8; 20]; o.copy_from_slice(&b); o
         }
-        let stables: [(&str, LpAddr, u32); 14] = [
+        // 🔴 §SESS-95 — **THIRTEEN, AND THE FOURTEENTH WAS A PHANTOM.** This list carried BOLD, which
+        //    is NOT in the protocol's basket: `DeployL1_s.sol:727` builds `sTok = new address[](13)`
+        //    and BOLD is not one of them. It quoted "via USDC" happily, so it INFLATED every coverage
+        //    number I reported today — the denominator was wrong and the numerator counted a token
+        //    the protocol never holds.
+        // ⇒ mirrored from `sTok` in deploy order, so a basket change shows up here as a diff rather
+        //   than as a slowly drifting number nobody re-derives. ⚠️ DAI and USDS are SEPARATE rows
+        //   (`sTok[2]`, `sTok[5]`); Sky's converter links them for ROUTING, not for membership.
+        let stables: [(&str, LpAddr, u32); 13] = [
             ("USDC",   a("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"), 6),
             ("USDT",   a("0xdAC17F958D2ee523a2206206994597C13D831ec7"), 6),
             ("DAI",    a("0x6B175474E89094C44Da98b954EedeAC495271d0F"), 18),
             ("PYUSD",  a("0x6c3ea9036406852006290770BEdFcAbA0e23A0e8"), 6),
             ("GHO",    a("0x40D16FC0246aD3160Ccc09B8D0D3A2cD28aE6C2f"), 18),
-            ("RLUSD",  a("0x8292Bb45bf1Ee4d140127049757C2E0fF06317eD"), 18),
-            ("USDG",   a("0xe343167631d89B6Ffc58B88d6b7fB0228795491D"), 6),
             ("USDS",   a("0xdC035D45d973E3EC169d2276DDab16f1e407384F"), 18),
             ("USDE",   a("0x4c9EDD5852cd905f086C759E8383e09bff1E68B3"), 18),
+            ("RLUSD",  a("0x8292Bb45bf1Ee4d140127049757C2E0fF06317eD"), 18),
+            ("USDG",   a("0xe343167631d89B6Ffc58B88d6b7fB0228795491D"), 6),
             ("AUSD",   a("0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a"), 6),
             ("CUSD",   a("0xcCcc62962d17b8914c62D74FfB843d73B2a3cccC"), 18),
             ("CRVUSD", a("0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E"), 18),
             ("FRXUSD", a("0xCAcd6fd266aF91b8AeD52aCCc382b4e165586E29"), 18),
-            ("BOLD",   a("0x6440f144b7e50D6a8439336510312d2F54beB01D"), 18),
         ];
         let wbtc = a("0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599");
         // 🔴 §SESS-86 — **THIS MATRIX USED TO COUNT VENUES THE PROTOCOL CANNOT TRADE.** A cell read
@@ -1977,10 +2019,10 @@ mod tests {
             if cells.iter().all(|c| c == "direct" || c == "via USDC") { both += 1; }
             println!("{name:<8} {:>26} {:>26}", cells[0], cells[1]);
         }
-        println!("\n{both}/14 stables reach BOTH volatiles at $100k, keeper-encoded OR on the contract's own table");
+        println!("\n{both}/13 stables reach BOTH volatiles at $100k, keeper-encoded OR on the contract's own table");
         println!("{v4_only} legs have liquidity ONLY where we cannot route it (booked, not counted)");
         // A floor, not the exact set: the hub itself plus the deep majors must always route.
-        assert!(both >= 4, "only {both}/14 stables reach both volatiles - that is below anything the \
+        assert!(both >= 4, "only {both}/13 stables reach both volatiles - that is below anything the \
                             lever could operate on, so it is a broken search or a dead endpoint");
     }
 
@@ -2402,5 +2444,6 @@ mod tests {
         // Higher gas raises the bar: the same pending that cranked at 20 gwei is skipped at 200 gwei.
         assert!(!compound_pays_for_itself(2 * gas_cost, gas_price * 10), "10x gas ⇒ same fees no longer cover it");
     }
+
 
 }
