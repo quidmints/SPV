@@ -52983,6 +52983,41 @@ FOLDED citation is still stale** — the one bucket that is actionable. Per this
 with a binary result beats a disposition; and per the tooling-traps rule it fails loudly, exiting with
 a FATAL if the tree walk returns zero `.md` files rather than reporting a clean run.
 
+# ⚠️ §BTC-2.4b.1-FIX-MAY-NOT-REACH-THE-ROW — **A ✅ FIX AND AN OPEN ROW UNDER ONE ID, ANSWERING DIFFERENT QUESTIONS (2026-09-07)**
+
+**GATE 3, and it is the self-closing shape with a twist: the ✅ and the open row share an ID but not a
+subject.**
+
+- **`:48584` — `§BTC-2.4b.1` ✅ *"THE FIX — an LP-signed keep-alive refresh, on machinery that
+  exists"***. Its argument: `bf5aa5ff` refuted 2-of-2 freshness on the ground that *"the LP is
+  offline"*; push-woken background signing removes that premise, and a refresh is one signature, no
+  on-chain tx, no fees. **The entrypoint is already built** — `emitDeadManExit`.
+- **`:49173` — the OPEN GATE 3 row for the same ID:** *"atomicity invariant — **must be the
+  CONTRACT**; as a daemon rule a breached hop ignores it."*
+
+⇒ **These are different claims.** The ✅ answers *"can the LP refresh while offline?"* The open row asks
+*"where is the invariant ENFORCED?"* **A fix for the first does not close the second.**
+
+🔴 **AND THE TWO MAY ACTUALLY COLLIDE, STATED AS A QUESTION BECAUSE I HAVE NOT READ THE FULL FIX:**
+`emitDeadManExit` is gated by **`_onlyHop()`** — measured, it is the function's first statement, and
+the gate is `MAIN_HOP` or `FALLBACK_HOP`, two immutable addresses (`:802`). ⇒ **an LP-signed keep-alive
+that can only be SUBMITTED by a hop is exactly as live as the hop's willingness to submit it.** A
+breached hop does not need to forge anything; it withholds. **That is the same failure the open row
+names — *"a daemon rule is unenforceable against a breached hop"* — arriving through the relay rather
+than through the rule.**
+
+▶️ **WHAT WOULD SETTLE IT, and it is a read, not a build: does the refresh have a path that does not
+pass through a hop-gated entrypoint?** If it does, the ✅ stands and the row closes with it. If it does
+not, **the ✅ is answering the offline problem while leaving the enforcement problem exactly where the
+row says it is.** ⚠️ **Do not close `:49173` on the strength of the ✅ until that is checked** — it is
+the third time in this sweep that a ✅ in one place and an open row in another turned out to be about
+different things (cf. `§SELF-CLOSING-ROWS-SWEEP`'s A7 and T2 collisions).
+
+📌 **AND ONE THING THE SWEEP CAN STATE OUTRIGHT: `§BTC-2.6`'s fulfilment record IS UNBUILT.** Zero
+occurrences of `fulfil`/`fulfill` in `BTCChannels.sol`. Its row says *"needs on-chain state, not an
+event… storage shape is immutable at deploy"* ⇒ **same pre-deploy class E99 was in, and unlike E99 it
+is NOT dissolved by the no-multidaemon ruling.** It stays open and it is deadline-bearing.
+
 # ✂️ §DO-NOT-RE-ADD-EARNS-ITS-PLACE-OR-GOES — **A CATEGORY-3 COMMENT MUST PREVENT A DEFECT, NOT A REDUNDANCY (2026-09-07)**
 
 **Owner, on a comment I had just written: *"maybe the comment is useless and should be deleted."* It
