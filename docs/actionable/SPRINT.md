@@ -54237,3 +54237,15 @@ positives got through anyway and BOTH were caught by agents checking rather than
     substring hit as "check by hand", never as an answer.**
   · `openparams_abi_ground_truth` — live as `test_openparams_abi_ground_truth` at
     `evm/test/BTCChannelsAuth.t.sol:107`.
+
+📌 **§SESS-COMMENTS-2 addendum — ONE DELETION TO RECONSIDER, AND ONE FUNCTION WITH NO CALLERS.**
+· `QuidLib.supplyVenueBody` carried *"⚠️ SUPPLY ONLY. The withdraw ladder below is DELIBERATELY
+  UNTOUCHED so existing positions in those venues stay pullable. Do not remove the withdraw rungs
+  until the balances are drained."* That reads like a rule-3 keep and was deleted anyway, after
+  verifying `withdrawETH` no longer pulls from ANY 4626/AAVE venue — its only sources are idle WETH
+  and the opportunistic Curve sale. ⇒ **The rungs the note protects are already gone, so keeping it
+  would assert a ladder that does not exist.** ⚠️ If those venue rungs are meant to come back, this
+  is the note to restore first — restore it BEFORE re-adding a rung, not after.
+· `LevMath._repayPretransferred` has **ZERO callers** (grep-verified); its named caller
+  `swapOutDeleverBody` is gone. Recorded in its docblock only — removing the function is a code
+  change and outside the comment pass.
