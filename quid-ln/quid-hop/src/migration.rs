@@ -55,10 +55,12 @@ use secp256k1::{
 };
 use serde::{Deserialize, Serialize};
 
-/// The foundation's operator Gnosis **Safe** address — the EIP-712
-/// `verifyingContract` a [`MigrationAuth`] is bound to (so an auth can't be
-/// replayed against a different Safe), and the anchor for the target (A)
-/// state-proof owner-set verification.
+/// The operator msig address — the EIP-712 `verifyingContract` a
+/// [`MigrationAuth`] is bound to, so an auth cannot be replayed against a
+/// different deployment. ⛔ **NOT a Gnosis Safe**: see the module header's
+/// standing owner decision ("a plain k-of-n msig"). It is also NOT the anchor
+/// for a state-proof owner-set read — that target is WITHDRAWN, not deferred,
+/// because a plain msig exposes no owner-set storage to prove against.
 ///
 /// The EIP-712 domain's `verifyingContract` — it SCOPES the signature domain so an operator
 /// signature for this deployment cannot be replayed against another. ⚠️ **It is NOT a Safe and
