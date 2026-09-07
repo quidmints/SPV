@@ -1050,14 +1050,17 @@ contract AllesFixture is ForkPin, ExitFixture {
     address constant ETH_FEED = address(0xE7F0FEED);
 
     /// Mock the WETH Chainlink feed at `usd8` (8-dec). Re-mock to move it.
+    /// ⚠️ §SETTER-FOLD renamed the pinning call: `AUX.setAssetFeed` is DELETED as an external
+    ///    entrypoint — `Aux.configure(Wiring)` is the only one — and fixtures reach it through the
+    ///    `_auxSetAssetFeed` shim on this contract. The pin is unchanged; only the spelling is.
     /// 🔴 §E310 — MOCK THE FEED THE PROTOCOL ACTUALLY READS. `_setEthFeed` targets the
     ///    `0xE7F0FEED` SENTINEL, which only becomes the anchor after a fixture calls
-    ///    `AUX.setAssetFeed(WETH, ETH_FEED)` (this file does so at two sites). A fixture that never
+    ///    `_auxSetAssetFeed(WETH, ETH_FEED)` (this file does so at two sites). A fixture that never
     ///    pins it reads REAL Chainlink, and `_setEthFeed` is then completely INERT.
     /// ⛔ **THE THREE FIXTURES THIS NOTE NAMED ALL PIN IT NOW, AND THE STALE LIST COSTS A WRONG
     ///    DIAGNOSIS — IT COST ONE TODAY.** It read *"a fixture that never pins it -- `LevYbReal`,
     ///    `LevCascade`, `LeverageCrossSubsidyProbe` --"*. Re-measured 2026-08-23: `LevCascade:94`
-    ///    and `LeverageCrossSubsidyProbe:78` both call `AUX.setAssetFeed(WETH, ETH_FEED)`, and
+    ///    and `LeverageCrossSubsidyProbe:78` both call `_auxSetAssetFeed(WETH, ETH_FEED)`, and
     ///    `LevYbReal:151` pins `CL_ETH_USD` behind an `if (assetPriceFeed(WETH) == address(0))`
     ///    guard. **All three are pinned.**
     /// ⚠️ WHY IT MATTERS MORE THAN AN ORDINARY STALE COMMENT: the sentence below is a complete,
@@ -1070,9 +1073,10 @@ contract AllesFixture is ForkPin, ExitFixture {
     ///    `grep -L setAssetFeed evm/test/*.t.sol`. The bare `AllesFixture` itself leaves
     ///    `assetPriceFeed(WETH)` at `address(0)` — that part is live, and it is what made §E345's
     ///    variance sampler read 0 across eight injected 2% moves.
-    /// ⚠️ THE FAILURE IS SILENT AND LANDS ON ANOTHER CONTRACT. `Core.pushObservation` validates the
-    ///    pushed price against `AUX.assetPriceFeed(ASSET)` within `OBS_PUSH_MAX_BPS = 50`, and
-    ///    RETURNS (never reverts) when it is outside. So an inert `_setEthFeed` leaves the anchor at
+    /// ⚠️ THE FAILURE IS SILENT AND LANDS ON ANOTHER CONTRACT. This named `Core.pushObservation`
+    ///    and a ±`OBS_PUSH_MAX_BPS = 50` validation; NEITHER EXISTS — the function is deleted and
+    ///    so is the constant. The live writer is `Core._observeIfSourced` behind `onlyUs`, which
+    ///    RETURNS rather than reverting when it has no fresh anchor. So an inert `_setEthFeed` leaves the anchor at
     ///    real Chainlink while the pushed price ramps away from it, every push is refused with no
     ///    signal, the ring never moves, `ilTargetBps` stays 0, and `venue.borrow` is never invoked --
     ///    which reads as "Morpho will not lend" (§C18).
@@ -2770,20 +2774,20 @@ contract Alles is AllesFixture {
         // GUARD 1: cannot self-refund before the timeout.
         vm.prank(swapper);
         vm.expectRevert(BTCChannels.NotExpired.selector);
-        ch.refundExpiredSwapOut(swapId, address(USDC), 0);
+        ch.refundExpiredSwapOut(swapId, 0);
 
         // Age past SWAPOUT_REFUND_BLOCKS (7200) — warp time too so the TWAP tracks.
         vm.roll(block.number + 7201); vm.warp(block.timestamp + 1 days);
 
         // GUARD 2: only the recorded swapper can call (no one can grief the payee).
         vm.prank(User01);
-        vm.expectRevert(BTCChannels.NotLP.selector);
-        ch.refundExpiredSwapOut(swapId, address(USDC), 0);
+        vm.expectRevert(BTCChannels.NotSwapper.selector);
+        ch.refundExpiredSwapOut(swapId, 0);
 
         // The swapper self-refunds with NO hop involvement and recovers principal.
         uint usdcBefore = USDC.balanceOf(swapper);
         vm.prank(swapper);
-        ch.refundExpiredSwapOut(swapId, address(USDC), 0);
+        ch.refundExpiredSwapOut(swapId, 0);
         assertGt(USDC.balanceOf(swapper), usdcBefore, "swapper recovered principal with NO hop");
         assertEq(BTC.CORE().pendingSwapOutUsd(), pendingAfterReq - owedUsd, "pending obligation unwound");
         { (address sw,,,,,) = ch.pendingOnchainSwapOut(swapId);
@@ -2792,7 +2796,7 @@ contract Alles is AllesFixture {
         // GUARD 3: double-refund reverts (the obligation is consumed).
         vm.prank(swapper);
         vm.expectRevert(BTCChannels.SwapOutReplay.selector);
-        ch.refundExpiredSwapOut(swapId, address(USDC), 0);
+        ch.refundExpiredSwapOut(swapId, 0);
     }
 
 
@@ -4315,9 +4319,11 @@ contract Alles is AllesFixture {
         // `Core.drawPooledUsdBtc` states the rule outright: a mint unmatched by a draw leaves
         // QU!D unbacked. Whether that makes the fee leg a double-count turns entirely on
         // whether collecting fees MOVES the pooled accounting.
-        // Reading says no — `_handleCollect` passes `inRange = false` (`Core.sol:1060`), so the
-        // `if (inRange) _poolUsdInRange(...)` write never fires. **This asserts it instead of
-        // trusting that**, because the deciding fact is an ARGUMENT at the call site, not
+        // ⚠️ THE READING THIS RELIED ON IS GONE TWICE OVER: it said `_handleCollect` passes
+        // `inRange = false` so the guarded `_poolUsdInRange` write never fires. `_handleCollect`
+        // does not exist, and neither does the `inRange` flag — every delta now takes the
+        // in-range path unconditionally. **The assertion below is the load-bearing part and it
+        // still stands on its own**, which is exactly why it was written to assert rather than
         // anything visible in the function being read.
         uint pooledBtc0 = BCORE().POOLED();
         uint pooledUsdBtc0 = BCORE().POOLED_USD();

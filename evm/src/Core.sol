@@ -391,9 +391,9 @@ contract Core {
         // still pin a low non-zero reading UNDER the anchor's, which is the same drain-for-cheap
         // trade with one extra step.
         // ⚠️ Residual, named rather than implied: a pinned source can still INFLATE σ² and widen the
-        // spread other traders pay. ⛔ Do not read `OBS_PUSH_MAX_BPS` as bounding that — it does not
-        // (see its declaration). What bounds it is that inflation is the direction an attacker pays
-        // for rather than profits by.
+        // spread other traders pay. ⛔ NOTHING ON THIS PATH BOUNDS THAT — the deviation argument
+        // is 0 and the pinned-source branch applies no check at all. What bounds it is that
+        // inflation is the direction an attacker pays for rather than profits by.
         //
         // 0 from BOTH still means UNMEASURED and still charges the ceiling — the fail-conservative
         // default is unchanged, and it is now the ONLY thing 0 can mean.
@@ -474,8 +474,11 @@ contract Core {
         // handling and its ×1e10 WBTC lift — instead of adding a second `latestRoundData` to Core.
         // That reuse is not tidiness: hand-rolling the scaling is how an 8↔18 decimal gap becomes a
         // price ten orders of magnitude out, which `seedRing`'s header records happening once already.
+        // maxDevBps = 0 because THERE IS NO INTERNAL PRICE TO DEVIATE FROM here: the price argument
+        // below is 0, so `twapResolve`'s `diff` equals `ext18` and the deviation test trips for any
+        // bound under 10000 - 0 and the deleted 50 are arithmetically identical on this path.
         (uint px,) = SwapLib.twapResolve(
-            AUX.assetPriceFeed(ASSET), 0, VOL_DECIMALS != 18, OBS_PUSH_MAX_BPS, 1 days);
+            AUX.assetPriceFeed(ASSET), 0, VOL_DECIMALS != 18, 0, 1 days);
         if (px == 0) return;                          // no fresh anchor ⇒ nothing to sample
         uint prev = _varPx;
         // 🔴 §E345-ANCHOR — THE `px == prev` EARLY RETURN MOVED **BELOW** `dt`, AND THAT IS THE FIX.
@@ -897,8 +900,8 @@ contract Core {
     ///   `token = address(0)`, so neither value of it can change what happens. A zero `deltaUSD`
     ///   therefore carries no second meaning: it is an omission wearing the look of a choice.
     ///
-    /// ⚠️ THIS IS THE IN-RANGE PATH, and today it is the ONLY kind there is: every `_handleDelta`
-    ///   call site in this file passes `inRange = true`, so the `false` arm is currently unreached.
+    /// ⚠️ THIS IS THE IN-RANGE PATH, and it is the ONLY kind there is: `_handleDelta` has no
+    ///   out-of-range mode any more — the flag that selected one is deleted, see its docblock.
     ///   Entering moves (`delta < 0`) must supply both legs because they are depositing both.
     function modLP(int256 delta, int256 deltaUSD, address sender)
         public onlyUs returns (uint sent) {
@@ -917,14 +920,15 @@ contract Core {
         //   it was still not the best SOLUTION, because "best" includes not breaking a second
         //   property. A root fix that trades one defect for a worse one is not a root fix.
         Delta memory d = Delta(deltaUSD, delta);
-        _handleDelta(d, true, deltaUSD == 0, sender, address(0), true);
+        _handleDelta(d, deltaUSD == 0, sender, address(0), true);
         sent = 0;   // nothing is refused, so nothing comes back
     }
 
 
 
     /// @notice §E258 — settle ONE filled boundary order, both legs, at the order's own price.
-    /// @dev    `inRange = true` HERE, AND THAT IS THE POINT rather than an oversight. A resting
+    /// @dev    THIS SETTLES ON THE IN-RANGE PATH, AND THAT IS THE POINT rather than an oversight.
+    ///         (It used to say `inRange = true` here; that flag is deleted.) A resting
     ///         order has no on-chain footprint at all until it fills (§OOR-BOOK-DELETED: they are
     ///         signed intents), so it cannot inflate the in-range depth every LP claim is priced
     ///         against. Filling it is the moment its funded side JOINS that depth and the other side
@@ -943,7 +947,7 @@ contract Core {
     ///        in time.
     function settleOor(address owner, int256 usdDelta, int256 volDelta, bool loadBalance)
         external onlyUs {
-        _handleDelta(Delta(usdDelta, volDelta), true, false, owner, address(0));
+        _handleDelta(Delta(usdDelta, volDelta), false, owner, address(0));
         if (loadBalance) _shortfallLoadBalance(owner);
     }
 
@@ -1037,7 +1041,7 @@ contract Core {
         _sampleAnchorVariance();
 
         // (2) SETTLEMENT. Without this `POOLED_USD`/`POOLED` never move and nobody is paid.
-        _handleDelta(delta, true, false, recipient, token);
+        _handleDelta(delta, false, recipient, token);
 
         // (3) FLOW EWMA — LOAD-BEARING, AND ITS ABSENCE WOULD HAVE BEEN SILENT. `flowEwmaUsd` decays
         // with no replenishment if this is missing, and it is the swap half of `skewTargetUsd()`,
@@ -1158,11 +1162,21 @@ contract Core {
     struct Delta { int256 usd; int256 vol; }
 
     /// @dev The 5-arg form: `basketLeg = false`. Used by `swap` and `settleOor`.
-    function _handleDelta(Delta memory d, bool inRange, 
+    function _handleDelta(Delta memory d, 
         bool keep, address who, address token) internal {
-        _handleDelta(d, inRange, keep, who, token, false);
+        _handleDelta(d, keep, who, token, false);
     }
 
+    /// ⛔ **THERE IS NO `inRange` FLAG, AND RE-ADDING ONE IS A DESIGN DECISION, NOT A RESTORE.**
+    ///      It was a parameter threaded from here into `_settleUsdSide`, gating four operations —
+    ///      two on `POOLED`, two on `_poolUsdInRange`. Every call site passed `true`, so all four
+    ///      `false` arms were unreachable; §OOR-BOOK-DELETED had orphaned the out-of-range path
+    ///      that once passed `false`, and §OOR-AS-INTENT's replacement does not go through here.
+    ///      The guards are now unconditional, which is what the code always did.
+    ///      ⚠️ If an intent fill ever needs the out-of-range behaviour, it needs a NEW decision
+    ///      about what that behaviour is — the deleted arms encoded the OLD book's semantics and
+    ///      are not a specification for the new one. Do not resurrect them from git as if they
+    ///      were.
     /// @dev `basketLeg` is TRUE only where the USD leg IS the basket's own contribution — `modLP`,
     ///      i.e. an `addLiq`/burn. A swap or an OOR fill passes FALSE, so it moves the mirror
     ///      (`POOLED_USD`) without CREDITING `basketUsd` on the mint arm. ⚠️ The burn arm debits
@@ -1170,13 +1184,13 @@ contract Core {
     ///      Each leg settles in its OWN frame: the USD leg is the big one, with `_poolUsdInRange`
     ///      under it, and keeping it out of this frame is what holds the legacy stack under the
     ///      limit. Naming the legs is also what removed the per-leg re-derivation of which was which.
-    function _handleDelta(Delta memory d, bool inRange, bool keep,
+    function _handleDelta(Delta memory d, bool keep,
         address who, address token, bool basketLeg) internal {
-        _settleUsdSide(d.usd, inRange, keep, who, token, basketLeg);
+        _settleUsdSide(d.usd, keep, who, token, basketLeg);
         int256 tokDelta = d.vol;
         if (tokDelta > 0) {
             uint tokAmount = uint(tokDelta);
-            if (inRange) POOLED -= Math.min(tokAmount, POOLED);   // clamp: see the ABSENT BY DECISION note
+            POOLED -= Math.min(tokAmount, POOLED);   // clamp: see the ABSENT BY DECISION note
             // ⚠️ THE ASYMMETRY IS REAL AND IT LIVES IN THE RANGE MANAGER, NOT IN A FLAG HERE:
             // `Quid.deliverVolatile` sends real ether, `Vault.deliverVolatile` is a no-op because the
             // BTC range settles by Lightning cooperative close rather than an on-chain transfer. One
@@ -1184,7 +1198,7 @@ contract Core {
             if (who != address(0)) RANGE.deliverVolatile(tokAmount, who);   // BTC: no-op (LN close)
         } else if (tokDelta < 0) {
             uint tokAmount = uint(-tokDelta);
-            if (inRange) POOLED += tokAmount;
+            POOLED += tokAmount;
         }
     }
 
@@ -1199,11 +1213,11 @@ contract Core {
     ///      MINIMUM of the two.
     /// ⚠️ THE USD LEG HAS NO TOKEN OF ITS OWN, and nothing here mints or burns one. `AUX.take` below
     /// is where value actually moves; everything else on this path is accounting.
-    function _settleUsdSide(int256 usdDelta, bool inRange, bool keep,
+    function _settleUsdSide(int256 usdDelta, bool keep,
         address who, address token, bool basketLeg) private returns (uint usdAmount) {
         if (usdDelta > 0) {
             usdAmount = uint(usdDelta);
-            if (inRange) _poolUsdInRange(usdAmount, false, basketLeg);
+            _poolUsdInRange(usdAmount, false, basketLeg);
             if (!keep && token != address(0))
                 // §A.50/C2 — UNITS: `usdAmount` is the 6-dec USD leg; `AUX.take` wants the payout
                 // token's NATIVE units. Every other `take`/`takeToSettle` site converts too
@@ -1214,7 +1228,7 @@ contract Core {
                 AUX.take(who, BasketLib.from6(usdAmount, token), token, 0);
         } else if (usdDelta < 0) {
             usdAmount = uint(-usdDelta);
-            if (inRange) _poolUsdInRange(usdAmount, true, basketLeg);
+            _poolUsdInRange(usdAmount, true, basketLeg);
         }
     }
 
@@ -1601,6 +1615,37 @@ contract Core {
         observationSource = src; OBS_CALLDATA = call_;
     }
 
+    /// 🔴 THE TWO STANDING PROHIBITIONS BELOW OUTLIVED `OBS_PUSH_MAX_BPS`, WHICH WAS DELETED
+    ///      as inert (it bound nothing: both call sites passed `price = 0`). They are about the
+    ///      RING, not about that constant's value, so they moved here — onto the ring's only
+    ///      writer — rather than going with it.
+    /// @dev ⛔ **DO NOT RE-ADD A PERMISSIONLESS PUSH ENTRYPOINT.** One existed, bounded by a ±50 bps
+    ///      band against a fresh anchor, and the band could never constrain what it was there for: a
+    ///      cumulative-price ring exists to make an ENDOGENOUS, atomically manipulable price safe by
+    ///      forcing an attacker to HOLD a manipulated price across the window, and BOTH premises are
+    ///      gone — no pool discovers a price here, and `_observeIfSourced` writes a feed no trader can
+    ///      move within a block. A level band also says nothing about σ², which is a property of the
+    ///      PATH. Anything pushed by an untrusted party is a standing grant to shape the variance
+    ///      series; see the §E345 block at `_varSq`.
+    ///      ⛔ **AND THE SENTENCE THAT JUSTIFIED THAT PUSH — *"a ring sourced from [Chainlink] would
+    ///      measure σ² ≈ 0 through real volatility"* — IS REFUTED BY MEASUREMENT (§E343, 2026-08-23)
+    ///      AND MUST NOT BE RESTORED.** It is a reasoned assertion; §E343 sampled 60 consecutive
+    ///      ETH/USD rounds via `getRoundData` on an archive endpoint and got **57.3 updates/day,
+    ///      20.5-min median gap, 0.53% median absolute move, implied annualised σ = 95.5%** — the
+    ///      right order for ETH, not ≈ 0. **The flat-line intuition fails because it assumes a
+    ///      WALL-CLOCK sample: read on a fixed grid, the gaps ARE flat and σ² collapses; read
+    ///      PER ROUND, every sample is a move that already cleared the 0.5% deviation trigger.**
+    ///      ⚠️ I expected the trigger to starve the estimate by censoring quiet periods. It does
+    ///      not — the 61-min heartbeat forces an update through them, so quiet times are sampled
+    ///      and the censoring bias is bounded rather than open-ended.
+    ///      ⇒ **CONSEQUENCE FOR ANYONE SIZING THIS WORK: σ² NEEDS NO INDEPENDENT SOURCE.** §E222's
+    ///      independent-source rule is scoped to `twapResolve`'s deviation test and
+    ///      `BasketLib.isManipulated` — guards that need two sources able to DISAGREE. σ² is a
+    ///      property of ONE series, so estimating it from the anchor is not the self-reference
+    ///      §E222 forbids. Reading that refuted sentence as "Chainlink cannot feed σ²" is what sends
+    ///      the next builder back to an off-chain keeper, whose CADENCE is the one manipulation a
+    ///      level band does not bound at all.
+    ///
     /// @dev THE READ MUST NOT BE ABLE TO HALT THE RANGE. `OracleLib.oneInchRateWad` reverts on a
     ///      zero/failed read, and this sits on the SWAP path — using it directly would turn an
     ///      oracle outage into "every swap and repack reverts", trading a silent measurement fault
@@ -1627,8 +1672,11 @@ contract Core {
         //   TriCrypto, which is removed from this codebase entirely — as a venue AND as a read.
         //   And NOT 1inch's `getRate`: §E232 measured it at 31.7M gas, past a whole block.
         if (src == address(0)) {
+            // maxDevBps = 0 because THERE IS NO INTERNAL PRICE TO DEVIATE FROM here: the price argument
+            // below is 0, so `twapResolve`'s `diff` equals `ext18` and the deviation test trips for any
+            // bound under 10000 - 0 and the deleted 50 are arithmetically identical on this path.
             (uint anchorPx,) = SwapLib.twapResolve(
-                AUX.assetPriceFeed(ASSET), 0, VOL_DECIMALS != 18, OBS_PUSH_MAX_BPS, 1 days);
+                AUX.assetPriceFeed(ASSET), 0, VOL_DECIMALS != 18, 0, 1 days);
             if (anchorPx != 0) _writeObservationPrice(anchorPx);
             return;
         }
@@ -1663,50 +1711,6 @@ contract Core {
         if (priceWad != 0) _writeObservationPrice(priceWad);
     }
 
-    /// @notice The internal-vs-anchor deviation tolerance this contract passes to
-    ///         `SwapLib.twapResolve`, in bps.
-    ///
-    /// @dev ⚠️ IT BOUNDS NOTHING TODAY, AND THAT IS WORTH KNOWING BEFORE YOU REASON FROM IT. Both
-    ///      call sites (`_observeIfSourced`, `_sampleAnchorVariance`) pass `price = 0`, and at
-    ///      `price == 0` `twapResolve`'s test is `diff == ext18`, so ANY value below 10000 trips it
-    ///      and returns the RAW anchor. It is the argument that makes those two reads say "give me
-    ///      Chainlink", not a guard on anything. Nothing else in the tree reads it.
-    ///      ⛔ In particular it does NOT bound the pinned-source branch of `_observeIfSourced`: that
-    ///      branch decodes whatever the source returns and writes it, with no deviation check. If a
-    ///      source is ever pinned and a band is wanted, the band has to be WRITTEN there.
-    ///
-    /// @dev ⛔ **IT IS NOT `Aux.TWAP_MAX_DEVIATION_BPS` (500), AND MUST NOT BE MADE TO INHERIT IT.**
-    ///      That one is calibrated for a 30-minute window against a pushed feed. A per-observation
-    ///      tolerance and a TWAP-vs-anchor tolerance are different questions, and giving this one the
-    ///      looser number would let a future ring source move the level ten times as far.
-    ///
-    /// @dev ⛔ **DO NOT RE-ADD A PERMISSIONLESS PUSH ENTRYPOINT.** One existed, bounded by a ±50 bps
-    ///      band against a fresh anchor, and the band could never constrain what it was there for: a
-    ///      cumulative-price ring exists to make an ENDOGENOUS, atomically manipulable price safe by
-    ///      forcing an attacker to HOLD a manipulated price across the window, and BOTH premises are
-    ///      gone — no pool discovers a price here, and `_observeIfSourced` writes a feed no trader can
-    ///      move within a block. A level band also says nothing about σ², which is a property of the
-    ///      PATH. Anything pushed by an untrusted party is a standing grant to shape the variance
-    ///      series; see the §E345 block at `_varSq`.
-    ///      ⛔ **AND THE SENTENCE THAT JUSTIFIED THAT PUSH — *"a ring sourced from [Chainlink] would
-    ///      measure σ² ≈ 0 through real volatility"* — IS REFUTED BY MEASUREMENT (§E343, 2026-08-23)
-    ///      AND MUST NOT BE RESTORED.** It is a reasoned assertion; §E343 sampled 60 consecutive
-    ///      ETH/USD rounds via `getRoundData` on an archive endpoint and got **57.3 updates/day,
-    ///      20.5-min median gap, 0.53% median absolute move, implied annualised σ = 95.5%** — the
-    ///      right order for ETH, not ≈ 0. **The flat-line intuition fails because it assumes a
-    ///      WALL-CLOCK sample: read on a fixed grid, the gaps ARE flat and σ² collapses; read
-    ///      PER ROUND, every sample is a move that already cleared the 0.5% deviation trigger.**
-    ///      ⚠️ I expected the trigger to starve the estimate by censoring quiet periods. It does
-    ///      not — the 61-min heartbeat forces an update through them, so quiet times are sampled
-    ///      and the censoring bias is bounded rather than open-ended.
-    ///      ⇒ **CONSEQUENCE FOR ANYONE SIZING THIS WORK: σ² NEEDS NO INDEPENDENT SOURCE.** §E222's
-    ///      independent-source rule is scoped to `twapResolve`'s deviation test and
-    ///      `BasketLib.isManipulated` — guards that need two sources able to DISAGREE. σ² is a
-    ///      property of ONE series, so estimating it from the anchor is not the self-reference
-    ///      §E222 forbids. Reading that refuted sentence as "Chainlink cannot feed σ²" is what sends
-    ///      the next builder back to an off-chain keeper, whose CADENCE is the one manipulation a
-    ///      level band does not bound at all.
-    uint256 internal constant OBS_PUSH_MAX_BPS = 50;
 
 
     function _writeObservationPrice(uint price) internal {

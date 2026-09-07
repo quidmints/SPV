@@ -211,8 +211,10 @@ pub async fn run(
 ) -> anyhow::Result<()> {
     cfg.validate().map_err(|e| anyhow::anyhow!("invalid BridgeConfig: {e}"))?;
 
-    // The hot-key address — must equal the on-chain hopNode or every settle/reversal
-    // reverts NotLP (I-3). The EVM client (quorum reads + private-relay sends + the hot
+    // The hot-key address — must equal one of BTCChannels' two immutable hop addresses or
+    // every settle/reversal reverts `NotChannelHop` (I-3). ⚠️ This said `NotLP`, which
+    // `_onlyHop` has never raised — and `NotLP` is now deleted outright, its one raiser (a
+    // SWAPPER check, not a hop one) having been renamed `NotSwapper`. The EVM client (quorum reads + private-relay sends + the hot
     // key's serialized nonce) is built by `build_daemon_evm` in `main` and shared here
     // AND with the freshness committer — one hot key ⇒ one nonce source.
     // The shared quorum transport (for the read-only watcher loops below) — the SAME

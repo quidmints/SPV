@@ -178,8 +178,16 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         AUX = Aux(payable(_aux));
         VBTC = new VBtc(address(this), address(Aux(payable(_aux)).WBTC()));
     }
+    /// @notice Bare-ETH receipt, and NOTHING ELSE.
+    /// 🔴 **A `fallback() external payable {}` STOOD ON THE NEXT LINE AND HAS BEEN DELETED.**
+    ///      It sat directly beside this `receive()`, which already handles every bare-ETH send —
+    ///      so the fallback's ONLY effect was to swallow calls carrying a selector this contract
+    ///      does not implement and return SUCCESS. That converts a client calling a deleted
+    ///      entrypoint from a loud revert into a silent no-op, on a custody contract. CLAUDE.md
+    ///      records exactly that happening to `Quid.exitInstant` (§E154-client-ghosts).
+    ///      ⛔ Do not restore it. `receive()` is what bare ETH needs; a fallback is what hides
+    ///      a mistake.
     receive() external payable {}
-    fallback() external payable {}
 
     /// @notice BTC-side init (formerly BtcVault.setup): pin QUID, read the BTC
     ///         pool slot0 (needs CORE.setup done) and seed `RANGE_ANCHOR`. AUX/

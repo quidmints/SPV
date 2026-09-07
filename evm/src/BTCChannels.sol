@@ -460,7 +460,7 @@ contract BTCChannels is Ownable {
     error NotPubkeyHash();
 
     // ─── Errors / Events ─────────────────────────────────────────────
-    error NotLP();
+    error NotSwapper();
     error NotChannelHop();       // caller is neither MAIN_HOP nor FALLBACK_HOP (a channel
                                  // records no hop of its own — §E164)
     error OutpointReused();      // this funding UTXO already backs a channel
@@ -2149,17 +2149,24 @@ contract BTCChannels is Ownable {
     ///         beyond the ~1-2h honest SPV-proven delivery window). The `swapInUsed`
     ///         mark makes a refund and a later (stale) delivery mutually exclusive,
     ///         exactly like the hop reversal path.
-    function refundExpiredSwapOut(bytes32 swapId, address token, uint minDeliveredUsd)
+    /// 🔴 **NO `token` PARAMETER — THE ASSET COMES FROM THE RECORD (§T1-d / M1#3).** It USED to
+    ///         take one, which contradicted the invariant its sibling `reverseSwapOut` states in
+    ///         those very words: *"payee, amount AND asset now all come from the record"*. The
+    ///         payee was pinned here and the ASSET was not, so the docblock's "no one can
+    ///         misdirect it" was only half true — the recorded swapper could refund themselves in
+    ///         a DIFFERENT asset than the one they committed, which is the re-denomination
+    ///         `PendingOnchainSwapOut.token` exists to prevent.
+    function refundExpiredSwapOut(bytes32 swapId, uint minDeliveredUsd)
         external nonReentrant {
         PendingOnchainSwapOut memory so = pendingOnchainSwapOut[swapId];
         if (so.sats == 0) revert SwapOutReplay();                 // nothing pending
-        if (msg.sender != so.swapper) revert NotLP();             // only the swapper recovers their own principal
+        if (msg.sender != so.swapper) revert NotSwapper();        // only the swapper recovers their own principal
         if (block.number < uint(so.requestBlock) + SWAPOUT_REFUND_BLOCKS) revert NotExpired();
         if (swapInUsed[swapId]) revert SwapInReplay();            // already delivered/reversed
         swapInUsed[swapId] = true;
         delete pendingOnchainSwapOut[swapId];
         btc.subPendingSwapOut(so.usd);
-        btc.creditSwapIn(so.swapper, so.sats, token, minDeliveredUsd);   // pinned to the recorded swapper
+        btc.creditSwapIn(so.swapper, so.sats, so.token, minDeliveredUsd);  // payee AND asset from the record
     }
 
     // ═════════════════════════════════════════════════════════════════

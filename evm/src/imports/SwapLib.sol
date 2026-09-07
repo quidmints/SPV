@@ -911,9 +911,9 @@ library SwapLib {
         // SAY IT WAS (*"the ring's permissionless writer … bounded by the ±50 bps push range"*).
         // MEASURED: `Core.pushObservation` does not exist; the ring's ONLY writer is
         // `Core._observeIfSourced`, behind `onlyUs`, and that branch *"decodes whatever the source
-        // returns and writes it, with no deviation check"* (`Core.sol:1675`). `OBS_PUSH_MAX_BPS` is
-        // inert — both `twapResolve` call sites pass `price = 0`, at which the deviation test returns
-        // the raw anchor regardless. What actually bounds the residual is that inflation is the
+        // returns and writes it, with no deviation check"* (`Core.sol:1675`). The ±50 bps bound is
+        // DELETED, not merely inert: both `twapResolve` call sites pass `price = 0`, at which the
+        // deviation test returns the raw anchor for any bound, so the constant was removed. What actually bounds the residual is that inflation is the
         // direction an attacker PAYS for rather than profits by; there is no writer to bound today.
         // LVR = σ²/8 per unit time (Milionis-Moallemi-Roughgarden-Zhang arXiv:2208.06046 eq.16: for a
         // constant-product pool the loss per unit time as a fraction of pool value is exactly σ²/8).
@@ -1020,7 +1020,7 @@ library SwapLib {
     ///         skew is a TAIL layer that only bites past that). ⚠️ THE BAND IS `RANGE_DELTA = 20`,
     ///         i.e. **±20 bps / ±0.2%** — this line said "±50-bps" and no live constant holds 50 for
     ///         a range half-width. (`RESEAT_MIN_BPS` is 50 and is the RESEAT threshold, a different
-    ///         quantity; `OBS_PUSH_MAX_BPS` is 50 and is inert.)
+    ///         quantity; the ±50 bps observe bound is deleted — it never bound anything.)
     ///
     ///         Inputs (all 6-dec USD except σ²), asset-agnostic — the signature is
     ///         `skewWad(poolVolUsd, flowUsd, sigmaSqWad, rk, drainUsd6)`:
@@ -1380,8 +1380,8 @@ library SwapLib {
         //     ⚠️ THE PREMISE THAT USED TO CARRY THAT — *"`Core.pushObservation` is PERMISSIONLESS
         //     within ±50 bps of the anchor"* — IS FALSE TODAY AND THE RULE SURVIVES IT ANYWAY.
         //     MEASURED: `pushObservation` does not exist; the ring's only writer is
-        //     `Core._observeIfSourced`, behind `onlyUs`, and `OBS_PUSH_MAX_BPS` bounds nothing (both
-        //     `twapResolve` call sites pass `price = 0`). ⇒ The hazard is now the PINNED-SOURCE case
+        //     `Core._observeIfSourced`, behind `onlyUs`, and the ±50 bps bound is DELETED
+        //     (both `twapResolve` call sites pass `price = 0`, so it never bound anything). ⇒ The hazard is now the PINNED-SOURCE case
         //     `Core.sol:1675` names — that branch writes what the source returns with NO deviation
         //     check — so the day a source is pinned this floor would be exactly the wrong thing to add.
         // ⚠️ `observe` has exactly ONE consumer in the tree — `twapBody`'s TWAP price — and it never
@@ -2275,7 +2275,11 @@ library SwapLib {
     ///         reverted, so nothing was moved; `false` = the draw SUCCEEDED and the repay/deliver
     ///         reverted, which means stable has already left the basket for the venue. **They are not
     ///         the same incident and must not share a flag** — the second leaves state to reconcile.
-    event DeliverDeleverSkipped(address indexed lp, address indexed venue, uint fundUsd, bool takeFailed);
+    /// @notice A de-lever leg was skipped. ⚠️ **NO `lp` TOPIC, ON PURPOSE.** It had one, and both
+    ///         emit sites passed `venue` for it — so the topic was permanently the venue address
+    ///         and an indexer filtering by LP got nothing meaningful. §POOL-VENUE left no per-LP
+    ///         identity on this path to emit, so the honest event is the one without it.
+    event DeliverDeleverSkipped(address indexed venue, uint fundUsd, bool takeFailed);
 
     /// @notice §M.1 ETH swap-out DELIVERY-SIDE de-lever ORCHESTRATOR (aggregate; the ETH mirror of BTC
     ///   `deleverOnDelivery`). DELEGATECALL'd by Quid (address(this)==Quid==the LevManager's `RANGE`) from
@@ -2339,7 +2343,7 @@ library SwapLib {
         uint poolDebtUsd = LevMath._toUsd18(aux, stable, ILevPooled(venue).totalDebt());
         uint amtNative = poolDebtUsd == 0 ? 0 : LevMath._fromUsd(aux, stable,
                             needUsd > poolDebtUsd ? poolDebtUsd : needUsd);
-        if (venue == address(0) || amtNative == 0) return 0;
+        if (amtNative == 0) return 0;   // venue == 0 already returned above
         uint fundUsd = LevMath._toUsd18(aux, stable, amtNative);
         if (fundUsd > needUsd) fundUsd = needUsd;
         if (fundUsd == 0) return 0;
@@ -2349,8 +2353,8 @@ library SwapLib {
         try IAux(aux).takeToSettle(venue, BasketLib.scaleTokenAmount(fundUsd, stable, false), stable) returns (uint) {
             try ILevEthDeliver(mgr).swapOutDeleverPooled(venue, fundUsd, recipient, 0) returns (uint, uint w) {
                 deliveredEth = w;
-            } catch { emit DeliverDeleverSkipped(venue, venue, fundUsd, false); }
-        } catch { emit DeliverDeleverSkipped(venue, venue, fundUsd, true); }
+            } catch { emit DeliverDeleverSkipped(venue, fundUsd, false); }
+        } catch { emit DeliverDeleverSkipped(venue, fundUsd, true); }
     }
 
     // ── In-range burn ─────────────────────────────────────────────────

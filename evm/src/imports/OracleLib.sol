@@ -284,10 +284,14 @@ library OracleLib {
     ///
     /// ⛔ **DO NOT "FIX" THIS WITH THE §E88 ONE-WEI FLOOR THAT `Core.anchorVarianceWad` USES. IT IS
     ///    BOTH UNSAFE AND INERT, AND THE INERTNESS IS WHAT MAKES IT DANGEROUS TO TRY.**
-    ///   • UNSAFE: **this ring is PERMISSIONLESS.** `Core.pushObservation` is `external` with no
-    ///     auth, bounded only to ±`OBS_PUSH_MAX_BPS` (50 bps) of the Chainlink anchor — and a
-    ///     CONSTANT price is trivially inside that bound. So exit 7 is not merely reachable, it is
-    ///     cheaply ATTACKER-CONSTRUCTIBLE. Flooring it to 1 would hand that attacker a free
+    ///   • UNSAFE: ⚠️ **THIS PARAGRAPH'S PREMISE IS GONE, AND THE CONCLUSION IS NOT.** It read
+    ///     *"this ring is PERMISSIONLESS — `Core.pushObservation` is `external` with no auth,
+    ///     bounded only to ±`OBS_PUSH_MAX_BPS` (50 bps)"*. Measured: `pushObservation` does not
+    ///     exist, `OBS_PUSH_MAX_BPS` is DELETED, and the ring's only writer is
+    ///     `Core._observeIfSourced` behind `onlyUs`. So exit 7 is NOT attacker-constructible by
+    ///     that route. ⛔ But the pinned-source branch writes what the source returns with NO
+    ///     deviation check at all, so a compromised or wrong PINNED source reaches the same
+    ///     state — the hazard moved, it did not close. Flooring it to 1 would hand that attacker a free
     ///     "declare the market calm" primitive: `SwapLib`'s `if (sigmaSqWad == 0) return
     ///     UNKNOWN_VARIANCE_SKEW` stops firing and the 3% unknown-variance drain charge switches
     ///     off. That is EXACTLY the §E345 attack, re-entering through the floor instead of through

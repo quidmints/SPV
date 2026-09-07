@@ -412,7 +412,23 @@ contract Quid is Shares,
         DEPLOYER = msg.sender;
         OOR_CHAINID = block.chainid;
         OOR_DOMAIN_SEP = _computeOorDomain();
-    }   fallback() external payable {}
+    }
+
+    /// @notice Bare-ETH receipt, and NOTHING ELSE.
+    /// 🔴 **THIS WAS A `fallback() external payable {}` AND THAT SWALLOWED UNKNOWN SELECTORS.**
+    ///      A call carrying ANY selector this contract does not implement landed here and
+    ///      returned SUCCESS. CLAUDE.md records the SPA encoding a call to a removed
+    ///      `Quid.exitInstant` (§E154-client-ghosts) — with a payable fallback that call
+    ///      succeeded silently, on an EXIT path, and any ETH sent with it was swallowed. The
+    ///      fallback did not merely permit the mistake; it converted a loud failure into a
+    ///      silent one on a money path.
+    ///      ⇒ `receive()` covers the ONE legitimate bare-ETH inflow — `IWETH9.withdraw`, which
+    ///      returns ETH with EMPTY CALLDATA (`QuidLib.sendEth`, and `LevMath` on the lev path).
+    ///      Empty calldata routes to `receive()` when one exists, so nothing legitimate is lost
+    ///      and every unknown selector now REVERTS.
+    ///      ⛔ Do not restore a fallback to "be permissive": permissive here means a client
+    ///      calling a deleted entrypoint cannot tell success from a no-op.
+    receive() external payable {}
 
     function _computeOorDomain() private view returns (bytes32) {
         return keccak256(abi.encode(SwapLib.OOR_DOMAIN_TYPEHASH,

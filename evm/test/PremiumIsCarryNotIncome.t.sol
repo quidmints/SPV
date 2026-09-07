@@ -127,7 +127,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         // §E134-skew — WHERE DOES THE DRAINER'S USD LAND? E125 measured POOLED_USD NOT growing
         // while POOLED fell 400->103, which is why the level comparison was wrong. Reading the
         // RANGE's usd leg and the BASKET's total backing across the same drain settles it by
-        // measurement rather than by tracing `inRange`-guarded delta accounting.
+        // measurement rather than by tracing the delta accounting.
         uint rangeUsd0 = CORE.POOLED_USD();
         (uint[15] memory d0,,,) = AUX.get_deposits();
         // DO NOT `break` THE INSTANT THE RANGE TURNS SCARCE — that was this fixture's third
