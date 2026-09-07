@@ -1247,7 +1247,6 @@ contract Core {
             _reportEquity();
             require(committedUsd18() <= haircutTvl, "backing");
         } else {
-            uint pooledPre = POOLED_USD;
             POOLED_USD -= Math.min(usdAmount, POOLED_USD);   // clamp: see the ABSENT BY DECISION note
             // §#12/E28-r — THE HAZARD THIS ARM IS CHECKED AGAINST, and it is checked below rather
             // than avoided here. The USD leg is ONE undivided balance holding basket dollars AND the
@@ -1289,7 +1288,8 @@ contract Core {
             // ALREADY sized `usdAmount` as the basket's own share, so releasing it in full leaves the
             // LP increment `POOLED_USD - basketUsd` unchanged; a swap passes FALSE and is the case
             // §E230-PHANTOM measured. `min` also covers "the whole leg left" — `b <= POOLED_USD`, so
-            // when `usdAmount >= pooledPre` it returns `b` — one branch instead of a nested pair.
+            // when `usdAmount` covers the whole pre-decrement `POOLED_USD` it returns `b` — one
+            // branch instead of a nested pair.
             // 🔴 §COMMITTED-DRIFTS-UP — WHY THIS IS `min` AND NOT PROPORTIONAL. **A PROPORTIONAL
             //    RELEASE UNDER-DEBITS BY EXACTLY `usdAmount × increment / POOLED_USD`, AND THAT IS
             //    THE WHOLE DRIFT** — it shipped, and it was measured out by
@@ -1317,7 +1317,8 @@ contract Core {
             //    `POOLED_USD -= usdAmount`, so the increment FALLS by `usdAmount − b` — the LP
             //    increment funding the remainder, which is exactly what happened. It cannot grow the
             //    increment in any regime, which is what §E28-r's note feared.
-            // ⛔ AND IT SUBSUMES THE `pooledPre <= usdAmount` BRANCH: `b <= POOLED_USD` makes `min`
+            // ⛔ AND IT SUBSUMES THE "pre-decrement `POOLED_USD` <= `usdAmount`" BRANCH:
+            //    `b <= POOLED_USD` makes `min`
             //    return `b` exactly there. Three branches become one.
             uint out_ = b < usdAmount ? b : usdAmount;
             basketUsd = b - out_;               // §ISBTC-SPLIT: both arms were identical

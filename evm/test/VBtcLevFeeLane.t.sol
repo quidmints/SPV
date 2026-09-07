@@ -999,7 +999,7 @@ contract VBtcLevFeeLane is AllesFixture {
         _openLev(lpEth, 5_000_000); // expose 0.05 BTC of the 0.3 BTC channel
         assertEq(lm.netEquity(lpEth), 5_000_000, "net-equity == principal (zero leverage)");
         assertEq(lm.totalNetEquity(), 5_000_000, "book total == principal");
-        assertEq(BTC.totalNetEquity(), 5_000_000, "rangeBTC counts the leveraged book's net-equity");
+        assertEq(BTC.totalNetEquity(), 5_000_000, "BTC lev book total == principal at zero leverage");
         assertEq(CORE.POOLED_USD(), pooledUsd0, "open: basket POOLED_USD untouched (no range pairing)");
         _assertSolvent("open: solvent with lev backing");
 
@@ -1011,7 +1011,7 @@ contract VBtcLevFeeLane is AllesFixture {
         _borrowMorpho(lpEth, (collUsd / 2) / 1e12);            // ~50% LTV of real Morpho debt
         uint neqBefore = lm.netEquity(lpEth);
         assertLt(neqBefore, 5_000_000, "debt reduces net-equity below the collateral");
-        assertEq(BTC.totalNetEquity(), neqBefore, "rangeBTC counts the (now-levered) live net-equity");
+        assertEq(BTC.totalNetEquity(), neqBefore, "BTC lev book total tracks live net-equity once levered");
         _seizeRealBtc(lpEth, 1, 2);                            // REAL Morpho liquidation (repay half the debt)
         assertLt(lm.netEquity(lpEth), neqBefore, "seized: net-equity backing REDUCED by the real liquidation");
         assertEq(BTC.totalNetEquity(), lm.netEquity(lpEth), "seized: rangeBTC tracks the reduced live net-equity");
