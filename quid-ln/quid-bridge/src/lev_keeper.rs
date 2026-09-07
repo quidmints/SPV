@@ -1133,13 +1133,38 @@ fn curve_word(pool: LpAddr, i: u8, j: u8) -> [u8; 32] {
 /// 📌 **BOOKED, NOT BUILT: the offline enumerator that REFRESHES this shortlist** — walk
 ///    `find_pools_for_coins`, reject metapools, quote every survivor at three sizes, keep the winners.
 ///    That is exactly how the on-chain rows were built by hand; it belongs in a tool, run rarely.
-const CURVE_SHORTLIST: [(LpAddr, LpAddr, LpAddr, u8, u8); 2] = [
-    // (tokenA, tokenB, pool, indexA, indexB) — 3pool: DAI 0, USDC 1, USDT 2 (read from mainnet).
+const CURVE_SHORTLIST: [(LpAddr, LpAddr, LpAddr, u8, u8); 6] = [
+    // (tokenA, tokenB, pool, indexA, indexB) — **THE SAME SIX ROWS `LevMath._hubRowOf` HOLDS.**
+    // 🔴 §SESS-81 — this had TWO of them, and the coverage matrix caught it: crvUSD reported
+    //    ** NONE ** to both volatiles while the CONTRACT has had a crvUSD Curve row all along.
+    //    ⇒ **the keeper was blind to venues the contract can already execute** — the planner's search
+    //    space was narrower than the executor's reach, which is the worst direction for that gap to
+    //    run: unroutable-by-omission looks exactly like unroutable-by-market.
+    // ⚠️ Indices are copied from `Interfaces.sol` per pool, NOT shared: the two USDC pairs are ordered
+    //    OPPOSITELY on mainnet (RLUSD is coin 1, PYUSD is coin 0), and a shared constant would be a
+    //    wrong-pair swap at size with no revert.
     (USDT_ADDR, USDC_ADDR, [0xbE,0xbc,0x44,0x78,0x2C,0x7d,0xB0,0xa1,0xA6,0x0C,
-                            0xb6,0xfe,0x97,0xd0,0xb4,0x83,0x03,0x2F,0xF1,0xC7], 2, 1),
+                            0xb6,0xfe,0x97,0xd0,0xb4,0x83,0x03,0x2F,0xF1,0xC7], 2, 1),   // 3pool
     (DAI_ADDR,  USDC_ADDR, [0xbE,0xbc,0x44,0x78,0x2C,0x7d,0xB0,0xa1,0xA6,0x0C,
-                            0xb6,0xfe,0x97,0xd0,0xb4,0x83,0x03,0x2F,0xF1,0xC7], 0, 1),
+                            0xb6,0xfe,0x97,0xd0,0xb4,0x83,0x03,0x2F,0xF1,0xC7], 0, 1),   // 3pool
+    // RLUSD: coins(0)=USDC coins(1)=RLUSD
+    ([0x82,0x92,0xBb,0x45,0xbf,0x1E,0xe4,0xd1,0x40,0x12,0x70,0x49,0x75,0x7C,0x2E,0x0f,0xF0,0x63,0x17,0xeD],
+     USDC_ADDR, [0xD0,0x01,0xaE,0x43,0x3f,0x25,0x42,0x83,0xFe,0xCE,
+                 0x51,0xd4,0xAC,0xcE,0x8c,0x53,0x26,0x3a,0xa1,0x86], 1, 0),
+    // PYUSD: coins(0)=PYUSD coins(1)=USDC
+    ([0x6c,0x3e,0xa9,0x03,0x64,0x06,0x85,0x20,0x06,0x29,0x07,0x70,0xBE,0xdF,0xcA,0xbA,0x0e,0x23,0xA0,0xe8],
+     USDC_ADDR, [0x38,0x3E,0x6b,0x44,0x37,0xb5,0x9f,0xff,0x47,0xB6,
+                 0x19,0xCB,0xA8,0x55,0xCA,0x29,0x34,0x2A,0x85,0x59], 0, 1),
+    // USDG
+    ([0xe3,0x43,0x16,0x76,0x31,0xd8,0x9B,0x6F,0xfc,0x58,0xB8,0x8d,0x6b,0x7f,0xB0,0x22,0x87,0x95,0x49,0x1D],
+     USDC_ADDR, [0xc0,0x61,0xca,0xa0,0x73,0xf3,0xd9,0x5F,0x80,0xf8,
+                 0xe5,0x42,0x8d,0x32,0xD2,0xd7,0x6F,0x5e,0x16,0x22], 0, 1),
+    // crvUSD: coins(0)=USDC coins(1)=crvUSD
+    ([0xf9,0x39,0xE0,0xA0,0x3F,0xB0,0x7F,0x59,0xA7,0x33,0x14,0xE7,0x37,0x94,0xBe,0x0E,0x57,0xac,0x1b,0x4E],
+     USDC_ADDR, [0x4D,0xEc,0xE6,0x78,0xce,0xce,0xb2,0x74,0x46,0xb3,
+                 0x5C,0x67,0x2d,0xC7,0xd6,0x1F,0x30,0xbA,0xD6,0x9E], 1, 0),
 ];
+
 
 /// Quote the shortlist for `tin -> tout` and return the best `(hop word, out)`.
 fn curve_best<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Option<([u8; 32], U256)> {
@@ -1231,7 +1256,19 @@ fn venues_for<R: JsonRpc>(rpc: &R, a: LpAddr, b: LpAddr, amt: U256) -> Vec<Venue
             out.push(Venue::V4 { fee, tick_spacing: ts });
         }
     }
-    cache().lock().unwrap().insert(key, (Instant::now(), out.clone()));
+    // 🔴 **NEVER CACHE AN EMPTY RESULT. THIS BUG BIT WITHIN AN HOUR OF THE CACHE LANDING.**
+    //    `deep_enough` REJECTS on a failed read — conservative for value, because a throttled endpoint
+    //    must not be read as depth. But combined with a one-hour TTL that turns a transient rate limit
+    //    into **an hour of blindness to that pair**, silently.
+    // ⚠️ **MEASURED, NOT FEARED:** the §SESS-81 coverage matrix reported USDe as `** NONE **` to both
+    //    volatiles while its UniV3 0.01% pool holds **1,596,391 USDe against a 400,000 gate** — it
+    //    passes comfortably. The venue was there; the read was not.
+    // ⇒ an empty discovery is treated as UNKNOWN rather than as an answer: nothing is stored, so the
+    //   next lookup retries. **A cache may remember what it learned; it must not remember what it
+    //   failed to learn.**
+    if !out.is_empty() {
+        cache().lock().unwrap().insert(key, (Instant::now(), out.clone()));
+    }
     out
 }
 
@@ -1668,6 +1705,74 @@ mod tests {
     /// `direct_pool` was a four-entry table and could plan exactly **USDT and DAI** of the basket's
     /// **fourteen** (`DeployL1_s:240-250`). Asking the factory covers whatever exists, including
     /// tokens nobody has written down. ⚠️ **This asserts COVERAGE, not a price** — how many bps a
+    /// ⭐ §SESS-81 — **THE COVERAGE MATRIX: ALL FOURTEEN BASKET STABLES x {WETH, WBTC}.**
+    ///
+    /// 🔴 **EVERY EARLIER TEST IN THIS FILE CHECKED A SAMPLE** — USDT, DAI, GHO, USDe — and a sample
+    ///    cannot answer the question the lane actually has, which is *"can the protocol convert ANY
+    ///    stable it holds into the two volatiles it hedges with?"* The basket is fourteen stables
+    ///    (`DeployL1_s:240-250`) and the lever needs WETH and WBTC. **This is that grid.**
+    /// ⚠️ It ASSERTS a floor and REPORTS the rest, because coverage is market state: a pair with no
+    ///    venue today may have one next month and vice versa. Asserting the exact set would be the
+    ///    §POINT-IN-TIME mistake this session has already made three times.
+    /// ⛔ **A HUB ROUTE COUNTS.** `stable -> USDC -> volatile` is what the planner actually emits, so
+    ///    a stable with no DIRECT pool is still covered. Reporting only direct pairs would understate
+    ///    coverage badly — and reporting only hub routes would hide that some stables have neither.
+    #[test]
+    fn coverage_every_basket_stable_to_both_volatiles() {
+        let Some(rpc) = live_rpc() else { println!("SKIP coverage: no RPC"); return };
+        // 🔴 **ADDRESSES ARE PARSED FROM HEX, NOT HAND-TYPED AS BYTES — AND THIS IS WHY.**
+        //    The first version wrote each address as a 20-element byte literal and I got USDe wrong:
+        //    `…086C759E` **8BC98B325b866Df3** against the real **8383e09bff1E68B3**. The RPC answered
+        //    correctly, `getPool` returned zero for an address that does not exist, and the coverage
+        //    matrix reported **USDe as unroutable to both volatiles** — a fabricated tail wearing a
+        //    market finding's clothes. ⚠️ It would have propagated: I was about to publish 11/14.
+        //    ⇒ **hex strings are diffable against `DeployL1_s` by eye; byte arrays are not.**
+        fn a(h: &str) -> LpAddr {
+            let b = alloy_primitives::hex::decode(h.trim_start_matches("0x")).expect("bad address hex");
+            let mut o = [0u8; 20]; o.copy_from_slice(&b); o
+        }
+        let stables: [(&str, LpAddr, u32); 14] = [
+            ("USDC",   a("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"), 6),
+            ("USDT",   a("0xdAC17F958D2ee523a2206206994597C13D831ec7"), 6),
+            ("DAI",    a("0x6B175474E89094C44Da98b954EedeAC495271d0F"), 18),
+            ("PYUSD",  a("0x6c3ea9036406852006290770BEdFcAbA0e23A0e8"), 6),
+            ("GHO",    a("0x40D16FC0246aD3160Ccc09B8D0D3A2cD28aE6C2f"), 18),
+            ("RLUSD",  a("0x8292Bb45bf1Ee4d140127049757C2E0fF06317eD"), 18),
+            ("USDG",   a("0xe343167631d89B6Ffc58B88d6b7fB0228795491D"), 6),
+            ("USDS",   a("0xdC035D45d973E3EC169d2276DDab16f1e407384F"), 18),
+            ("USDE",   a("0x4c9EDD5852cd905f086C759E8383e09bff1E68B3"), 18),
+            ("AUSD",   a("0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a"), 6),
+            ("CUSD",   a("0xcCcc62962d17b8914c62D74FfB843d73B2a3cccC"), 18),
+            ("CRVUSD", a("0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E"), 18),
+            ("FRXUSD", a("0xCAcd6fd266aF91b8AeD52aCCc382b4e165586E29"), 18),
+            ("BOLD",   a("0x6440f144b7e50D6a8439336510312d2F54beB01D"), 18),
+        ];
+        let wbtc = a("0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599");
+        println!("{:<8} {:>26} {:>26}", "stable", "-> WETH", "-> WBTC");
+        let mut both = 0usize;
+        for (name, addr, dec) in stables {
+            let amt = U256::from(100_000u64) * U256::from(10u64).pow(U256::from(dec));
+            let mut cells = Vec::new();
+            for vol in [WETH_ADDR, wbtc] {
+                let direct = !venues_for(&rpc, addr, vol, amt).is_empty();
+                let hub = addr != USDC_ADDR
+                    && !venues_for(&rpc, addr, USDC_ADDR, amt).is_empty()
+                    && !venues_for(&rpc, USDC_ADDR, vol, amt).is_empty();
+                cells.push(match (direct, hub) {
+                    (true, _) => "direct".to_string(),
+                    (false, true) => "via USDC".to_string(),
+                    _ => "** NONE **".to_string(),
+                });
+            }
+            if cells.iter().all(|c| c != "** NONE **") { both += 1; }
+            println!("{name:<8} {:>26} {:>26}", cells[0], cells[1]);
+        }
+        println!("\n{both}/14 stables reach BOTH volatiles at $100k");
+        // A floor, not the exact set: the hub itself plus the deep majors must always route.
+        assert!(both >= 4, "only {both}/14 stables reach both volatiles - that is below anything the \
+                            lever could operate on, so it is a broken search or a dead endpoint");
+    }
+
     /// ⭐ §SESS-80 — **THE CACHE'S ACCEPTANCE TEST: THE SECOND LOOKUP MUST NOT RE-DISCOVER.**
     ///
     /// 🔑 The point is that discovery is rare and quoting is per-plan, so the property to assert is
