@@ -1940,15 +1940,17 @@ mod tests {
             let b = alloy_primitives::hex::decode(h.trim_start_matches("0x")).expect("bad address hex");
             let mut o = [0u8; 20]; o.copy_from_slice(&b); o
         }
-        // 🔴 §SESS-95 — **THIRTEEN, AND THE FOURTEENTH WAS A PHANTOM.** This list carried BOLD, which
-        //    is NOT in the protocol's basket: `DeployL1_s.sol:727` builds `sTok = new address[](13)`
-        //    and BOLD is not one of them. It quoted "via USDC" happily, so it INFLATED every coverage
-        //    number I reported today — the denominator was wrong and the numerator counted a token
-        //    the protocol never holds.
-        // ⇒ mirrored from `sTok` in deploy order, so a basket change shows up here as a diff rather
-        //   than as a slowly drifting number nobody re-derives. ⚠️ DAI and USDS are SEPARATE rows
-        //   (`sTok[2]`, `sTok[5]`); Sky's converter links them for ROUTING, not for membership.
-        let stables: [(&str, LpAddr, u32); 13] = [
+        // ⭐ §SESS-96 — **FOURTEEN, MIRRORED FROM `STABLECOINS` — AND I GOT THIS WRONG TWICE.**
+        //    §SESS-95 dropped BOLD after mistaking `DeployL1_s.sol:727`'s `sTok = new address[](13)`
+        //    for the basket. It is not: `sTok` is the CHAINLINK-FEED subset, and BOLD is absent from
+        //    it because `Aux.sol:175` records that BOLD alone has no feed — *"it doesn't
+        //    market-depeg"*. The basket is `STABLECOINS` (`DeployL1_s:217`), 14 entries, BOLD last.
+        // ⛔ **AND 15 IS THE ARRAY WIDTH, NOT THE STABLE COUNT.** §14-STABLES fixes the `uint[15]`
+        //    contract: slot 0 is the yield-weighted sum, slots 1..13 the per-token deposits, slot 14
+        //    the raw TVL total. *"At 14 stables that is 1..13 — EXACTLY full. A 15th would write slot
+        //    14 and silently overwrite the total."* So 14 is a LAYOUT MAXIMUM, not a round number.
+        // ⚠️ DAI and USDS are separate rows; Sky's converter links them for ROUTING, not membership.
+        let stables: [(&str, LpAddr, u32); 14] = [
             ("USDC",   a("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"), 6),
             ("USDT",   a("0xdAC17F958D2ee523a2206206994597C13D831ec7"), 6),
             ("DAI",    a("0x6B175474E89094C44Da98b954EedeAC495271d0F"), 18),
@@ -1962,6 +1964,7 @@ mod tests {
             ("CUSD",   a("0xcCcc62962d17b8914c62D74FfB843d73B2a3cccC"), 18),
             ("CRVUSD", a("0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E"), 18),
             ("FRXUSD", a("0xCAcd6fd266aF91b8AeD52aCCc382b4e165586E29"), 18),
+            ("BOLD",   a("0x6440f144b7e50D6a8439336510312d2F54beB01D"), 18),   // SP-routed, MUST stay last
         ];
         let wbtc = a("0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599");
         // 🔴 §SESS-86 — **THIS MATRIX USED TO COUNT VENUES THE PROTOCOL CANNOT TRADE.** A cell read
@@ -2002,12 +2005,22 @@ mod tests {
             let mut cells = Vec::new();
             for vol in [WETH_ADDR, wbtc] {
                 let (direct, direct_any) = tradeable(addr, vol, amt);
+                // 🔴 §SESS-96 — **THE SECOND LEG IS PRICED IN USDC, NOT IN THE STABLE'S OWN UNITS.**
+                //    This passed `amt` — the stable-denominated size — to `USDC -> volatile`. For an
+                //    18-decimal stable that is 1e23 read as 6-decimal USDC: **$100 quadrillion**, so
+                //    the depth gate rejected every venue and the leg reported unroutable.
+                // ⚠️ IT WAS MASKED BY A SECOND BUG. While the venue cache ignored trade size
+                //    (§SESS-95), `venues_for(USDC, WETH, absurd)` reused whatever entry a SANE size
+                //    had cached, so the wrong amount never reached a depth gate. Fixing the cache
+                //    made the instrument tell the truth about itself: coverage read 11/14, then
+                //    5/14, and neither was the protocol's — both were the measuring tool's.
+                let usdc_mid = U256::from(100_000u64) * U256::from(1_000_000u64);   // $100k, 6-dec
                 let hub = addr != USDC_ADDR
                     && tradeable(addr, USDC_ADDR, amt).0
-                    && tradeable(USDC_ADDR, vol, amt).0;
+                    && tradeable(USDC_ADDR, vol, usdc_mid).0;
                 let (hub_any, _) = (addr != USDC_ADDR
                     && tradeable(addr, USDC_ADDR, amt).1
-                    && tradeable(USDC_ADDR, vol, amt).1, ());
+                    && tradeable(USDC_ADDR, vol, usdc_mid).1, ());
                 cells.push(match (direct, hub, direct_any || hub_any) {
                     (true, _, _) => "direct".to_string(),
                     (false, true, _) => "via USDC".to_string(),
@@ -2019,10 +2032,10 @@ mod tests {
             if cells.iter().all(|c| c == "direct" || c == "via USDC") { both += 1; }
             println!("{name:<8} {:>26} {:>26}", cells[0], cells[1]);
         }
-        println!("\n{both}/13 stables reach BOTH volatiles at $100k, keeper-encoded OR on the contract's own table");
+        println!("\n{both}/14 stables reach BOTH volatiles at $100k, keeper-encoded OR on the contract's own table");
         println!("{v4_only} legs have liquidity ONLY where we cannot route it (booked, not counted)");
         // A floor, not the exact set: the hub itself plus the deep majors must always route.
-        assert!(both >= 4, "only {both}/13 stables reach both volatiles - that is below anything the \
+        assert!(both >= 4, "only {both}/14 stables reach both volatiles - that is below anything the \
                             lever could operate on, so it is a broken search or a dead endpoint");
     }
 

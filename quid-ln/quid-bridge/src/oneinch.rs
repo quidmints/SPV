@@ -216,4 +216,47 @@ mod tests {
             "every single pair returned nothing from BOTH producers - that is not a market reading, \
              it is a broken client, a dead key, or a dead endpoint");
     }
+    /// ⭐ §SESS-96 EXPERIMENT #1 — **DOES THE FETCHED ROUTE ACTUALLY GET TAKEN?**
+    ///
+    /// 🔴 `plan_for_lp` prefers 1inch calldata only `if out > best_out`. Two things can make that a
+    ///    no-op and BOTH are silent: the condition never holding in practice, or `route_bytes`
+    ///    ignoring `fetched` once it is set. Either way the API would look integrated, the A/B would
+    ///    still print 1inch ahead, and we would ship the self-planned route forever.
+    /// ⛔ Not a mock of `plan_for_lp` — that needs canned `pos()`/`stable()`/`netEquityUsd()` reads
+    ///    and would assert my own scaffolding back at me. This tests the two HALVES that can break.
+    #[test]
+    fn the_fetched_route_is_preferred_and_the_condition_actually_fires() {
+        // ── half 1: the preference is honoured. Pure, no network.
+        let hops = vec![[7u8; 32]];
+        let mut p = crate::lev_keeper::Plan {
+            dex: [7u8; 32], dex2: [0u8; 32], hops: hops.clone(), fetched: Vec::new() };
+        let self_planned = p.route_bytes();
+        assert_eq!(&self_planned[..4], &[0x83, 0x80, 0x0a, 0x8e], "no fetch ⇒ unoswap from our words");
+        p.fetched = vec![0x07, 0xed, 0x23, 0x79, 0xAA];
+        assert_eq!(p.route_bytes(), p.fetched,
+            "`fetched` was set and IGNORED - the API would be integrated and unused");
+        assert_ne!(p.route_bytes(), self_planned, "the two arms produced identical bytes");
+
+        // ── half 2: the condition fires on the leg where it matters. Needs both credentials.
+        let Some(_) = api_key() else { println!("SKIP half 2: no ONEINCH_API_KEY"); return };
+        let Ok(url) = std::env::var("ETH_RPC_URL").or_else(|_| std::env::var("ANKR_RPC_URL"))
+            else { println!("SKIP half 2: no RPC"); return };
+        let rpc = crate::transport::HttpJsonRpc::new(url);
+        let wbtc = a("0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599");
+        let amt = U256::from(1_000_000u64) * U256::from(1_000_000u64);     // $1M USDC, where it bit
+        let ours = crate::lev_keeper::best_plan_quoted_for_test(&rpc, USDC_ADDR, wbtc, amt)
+            .map(|(_, o)| o).unwrap_or(U256::ZERO);
+        let theirs = quote(USDC_ADDR, wbtc, amt).unwrap_or(U256::ZERO);
+        println!("USDC->WBTC $1M   ours {ours}   1inch {theirs}");
+        // ⚠️ ASSERTED AS A CONDITION THAT CAN FIRE, NOT AS "1inch WINS". Which one leads is a fact
+        //    about two markets on one afternoon (§POINT-IN-TIME-IS-NOT-AN-INVARIANT); measured
+        //    repeatedly it is +57 to +68 bps to 1inch on this leg. What must hold is that BOTH
+        //    producers answer, because a zero on either side makes the comparison vacuous and
+        //    `plan_for_lp` would be choosing between a number and nothing.
+        assert!(!theirs.is_zero(),
+            "1inch quoted ZERO on USDC->WBTC at $1M - the fetch arm is dead, so `out > best_out` can never fire");
+        assert!(!ours.is_zero(),
+            "our planner quoted ZERO on USDC->WBTC at $1M - the comparison is vacuous and a fetched route would win by default, not on merit");
+    }
+
 }
