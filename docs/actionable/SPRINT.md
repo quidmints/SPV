@@ -20,6 +20,19 @@
 >
 > **The per-lane worktree recipe (branch per lane, so git REFUSES a double checkout) is CLAUDE.md
 > §THE-RECIPE. The collision-domain partition — who owns what — is `§LANES-2026-09-06` below.**
+>
+> 🛤️ **AND A LANE NO LONGER FORKS THIS FILE AT ALL (2026-09-07).** `tools/lane.sh` gives a lane
+> SYMLINKS to the parent's `CLAUDE.md` and `SPRINT.md` instead of copies, so rule 3 above stops being
+> a thing anyone has to remember. **The measurement that forced it: 831 of 2,249 commits in 30 days —
+> 37% — touch these two files, and `lane/VERIFY` forked at 09:39 and was 26 commits behind by the
+> afternoon.** ⇒ **no branch of any lifetime stays current on them, so the lane gets no copy to go
+> stale.** (A lane at a PAST ref keeps real copies — a control run must not be handed today's docs.)
+>
+> ⛔ **AND THE ONE THIS FILE'S PARTITION STILL DOES NOT COVER: `§COMPILE-COUPLING` below.** Two lanes
+> that stage no common path can still COMPILE a common header — `imports/LevMath.sol` is L4's and
+> three of L5's files import it; `Interfaces.sol` (21 importers) and `Types.sol` (20) are owned by
+> **nobody**. **That break merges CLEAN and lands in the parent.** Additions to those headers are
+> free; a signature change is not — announce it first.
 
 > ## ▶️ HANDOFF — READ THIS FIRST (2026-08-29). SUPERSEDES THE 2026-08-26 BLOCK BELOW ON EVERY NUMBER.
 >
@@ -52834,10 +52847,107 @@ Topic adjacency is irrelevant; `6e` and `7a` are both "lever" and both must seri
 | **L1 · prose** | `.md` + comment-only edits in `evm/src` | GATE 9a–9g · §BTC-7's 15 sites · §PLP-9's 11 rows · D1's 145 comments · D3 · B2 | **no compile at all** — the cheapest lane and the largest item count |
 | **L2 · rust/enclave** | `quid-ln/`, `quid-hop`, `quid-bridge`, `quid-enclave` | GATE 5 (A1→A6, 21a, 22, 23) · 4a/4g/4h/4i · D2.1–D2.10 · B1's gdrive script | separate toolchain, **zero Solidity collision**; `cargo test -p <crate>`, never `check` |
 | **L3 · btc contracts** | `BTCChannels.sol`, `ChannelLib.sol`, `BitcoinTx.sol` | GATE 3's six checklist items · 4d/4e/4f · 7e/7f | `ChannelLib` has headroom; **GATE 3 is one attempt and does not belong in a hurry** |
-| **L4 · lever** | `LevManager.sol`, `LevMath.sol`, `LevBase.sol` | 7a · 7i · 6e | 🔴 **`LevManager` = 227 BYTES. Strictly serial, and measure before every landing** |
-| **L5 · range/swap** | `Quid.sol`, `Core.sol`, `SwapLib.sol`, `QuidLib.sol` | 6a–6d · 6g/6h · 7d · 7g · 2.3 | 🔴 **`SwapLib` 1,172 · `Quid` 1,589, and rule 10 means ONE money-path change per run.** Strictly serial |
+| **L4 · lever** | `LevManager.sol`, `LevMath.sol`, `LevBase.sol` | 7a · 7i · 6e | 🔴 **`LevManager` = 227 BYTES. Strictly serial, and measure before every landing.** ⛔ **AND SERIAL WITH L5** — three of L5's files import `LevMath`; see §COMPILE-COUPLING below |
+| **L5 · range/swap** | `Quid.sol`, `Core.sol`, `SwapLib.sol`, `QuidLib.sol` | 6a–6d · 6g/6h · 7d · 7g · 2.3 | 🔴 **`SwapLib` 1,172 · `Quid` 1,589, and rule 10 means ONE money-path change per run.** Strictly serial. ⛔ **AND SERIAL WITH L4** — `Quid`/`SwapLib`/`QuidLib` all import L4's `LevMath`; see §COMPILE-COUPLING below |
 | **L6 · tests** | `evm/test/` only | 8a–8c · F2/F5/F6/F8/F10–F14 | additive; **cannot collide with `src` by construction** |
 | **L7 · reads** | nothing — read-only | 0a · 1h · every remaining determination | fully parallel with everything, including with itself |
+
+### 🔴 §COMPILE-COUPLING — THE PARTITION IS CUT ON FILES. THE COMPILER IS NOT. (measured 2026-09-07)
+
+**The table above prevents two lanes STAGING the same path. It does not prevent two lanes COMPILING
+the same header, and that second failure is worse, because it merges CLEAN and breaks the PARENT.**
+
+`evm/src/imports/LevMath.sol` is **L4's** file. Its eight importers are not:
+
+| importer | lane |
+|---|---|
+| `LevManager.sol`, `imports/LevBase.sol` | **L4** — its own, fine |
+| `Quid.sol`, `imports/SwapLib.sol`, `imports/QuidLib.sol` | 🔴 **L5** — a different lane |
+| `BtcLevManager.sol`, `imports/BtcLib.sol`, `imports/RangeLib.sol` | ⛔ **no lane owns these at all** |
+
+⇒ **L4 changes a `LevMath` signature; L5's lane keeps building GREEN against its own stale copy; the
+merge is clean; the parent is what breaks.** This is not hypothetical — it happened on 2026-09-07 and
+CLAUDE.md §MANY-THREADS books it: *"a warning that four `LevMath` signatures had changed under me
+mid-edit."* **It was caught by `SendMessage`, not by git**, which is the whole point: nothing in the
+tooling was watching, and nothing in this table said to look.
+
+⛔ **AND THE LARGER HOLE — THE HOTTEST HEADERS BELONG TO NOBODY:**
+```
+imports/Interfaces.sol   21 importers      imports/BasketLib.sol   7 importers
+imports/Types.sol        20 importers      imports/RangeLib.sol    5 importers
+                                           imports/FeeLib.sol      5 importers
+```
+**Not one of these appears in any lane's `owns` column.** A change to `Types.sol` is concurrent with
+every lane simultaneously, and it is the only file class here where the collision-domain rule — *two
+items may run concurrently iff they cannot touch the same file* — is silent rather than satisfied.
+
+### ⚠️ AND IT IS LIVE AS THIS IS WRITTEN — `LevMath` CHANGED FOUR SIGNATURES TODAY (2026-09-07)
+
+**Reported by the owning thread over `SendMessage` and then VERIFIED in-tree, not taken on trust:**
+
+| was | is now | where |
+|---|---|---|
+| `_hubHop(stable, amt, toUsdc, minOut)` | `_hubHop(stable, amt, toUsdc, minOut, **word**)` — 5 args | `LevMath.sol:1174` |
+| `_quoteOf` | `_hubRowOf` — rename | `LevMath.sol:1245`, commit `cc5d7e5b` |
+| `_routableStable(aux, t)` | `_routableStable(t)`, and `pure` again | `LevMath.sol:1269` |
+| `_routeOf` | **DELETED** | absent from the file |
+
+All four are **committed** (`cc5d7e5b` → `a320683f` → `d320b1c1`), the tree compiles, and 109 tests
+pass — **which is exactly the danger.** 🔴 **A lane forked before `cc5d7e5b` that touches `Quid.sol`,
+`SwapLib.sol` or `QuidLib.sol` is holding the OLD `LevMath` and will merge CLEAN into a parent where
+`_routeOf` no longer exists.** The lane's green build proves nothing about the parent's.
+📌 **The peer message is what surfaced this, before any merge.** That is CLAUDE.md §MANY-THREADS'
+"open with what you own" earning its place a second time, on the same file, within one day.
+
+### ⛔ THE UNOWNED HEADERS NEED A RULE, NOT AN OWNER — ADDITIONS ONLY
+
+**`Interfaces.sol` is the file every routing change today had to touch** (its owner's words), and it
+cannot be assigned to a lane without serialising every lane behind it. ⇒ **the rule that lets it stay
+shared:**
+▶️ **ADDITIONS TO `Interfaces.sol` / `Types.sol` ARE FREE. A SIGNATURE OR CONSTANT *CHANGE* IS NOT —
+announce it over `SendMessage` before landing it.** Adding `UNOSWAP3_SELECTOR`, `PROTO_CURVE`,
+`HOP_I_OFFSET`, `HOP_J_OFFSET` (lines 172, 183–185, landed today) breaks nobody: no existing importer
+reads a symbol it has never seen. **Changing one breaks all 21 importers at once, silently, at merge.**
+⇒ **append-only is compatible with every lane; edit-in-place is compatible with none.**
+
+✅ **THE RULE THIS GENERATES, and it costs one command before you touch any header:**
+```bash
+grep -rl 'imports/<TheFile>' evm/src --include='*.sol'   # every lane in the blast radius
+```
+▶️ **If the answer names a file another lane owns, the two lanes are SERIAL with respect to each
+other**, no matter how disjoint their `owns` columns look. **A shared header is a shared file arriving
+through the compiler instead of through `git add`.** ⚠️ **Editing `Types.sol` or `Interfaces.sol` at
+all is a parent-tree action, one author, like a doc edit** — they have no lane because they belong to
+every lane.
+
+📌 **AND NOTE WHAT THIS IS NOT: a sync cadence.** Periodically merging the integration branch into
+every live lane would also catch it, and it is the expensive option on this box — **one `forge build`
+per lane per sync, strictly serialised because a second build OOMs.** N lanes paying a build
+repeatedly, to catch a break that surfaces once at merge-back. ⇒ **Bound the lane's LIFETIME and let
+merge-back be the single integration point instead** — one lane at a time, one build, one author
+reading the failure. A four-hour lane's merge-back break is readable; `lane/VERIFY`'s was a bisect.
+
+### 🔴 AND THE MECHANISM FOR "BOUND THE LIFETIME" IS: **DELETE THE LANE.** THE ABANDONED ONE IS THE HAZARD
+
+**It is not forking a lane that costs anything — it is leaving one lying around after the run is
+done.** ⚠️ **`lane/VERIFY` was this section's own example, live, for most of 2026-09-07:** created in
+the morning for a control run, finished, and left. By the time it was removed it was **28 commits
+behind** and holding the **OLD `LevMath`** — `_routeOf` still present, `_hubHop` at four args,
+`_quoteOf` not yet renamed. ⇒ **had anyone worked in it and merged, it would have merged CLEAN and
+taken `_routeOf` back out of the parent's future.**
+
+📌 **AND NOTE WHICH FIX APPLIES TO WHICH HALF, because they are different problems:**
+| the lane's DOCS drift | mechanical — the symlink; nothing to remember |
+| the lane's CODE drift | 🔴 **nothing fixes it but deleting the lane** |
+
+**No tooling can know a lane is finished. Only the thread that created it knows**, which makes this
+the one rule here that stays a rule:
+```bash
+git worktree remove ../spv-L<n> && git branch -d lane/L<n>   # THE SAME TURN the run ends
+```
+⭐ **A lane you are done with is not idle, it is a loaded merge**, and it gets more loaded every hour
+at 40–67 commits/day. ✅ **The control that says it is clean: `git worktree list` returns ONE entry.**
+
 
 ### 🔑 The one change that makes the partition actually hold
 
@@ -52847,11 +52957,24 @@ repo — that is the collision that ate `fe9720ac`.**
 merge pass folds them at the end. Rule 12 is satisfied (the finding is booked the same turn), rule 14
 is satisfied (nobody stages a shared file), and a lane's commit can no longer swallow another's.
 
+⚠️ **THE SNIPPET THAT WAS HERE PRESCRIBED `--detach`, AND `tools/lane.sh` REPLACED IT (2026-09-06).**
+`--detach` lets two lanes share a branch and clobber each other; a branch per lane makes that
+*unconstructible* — git refuses the second checkout outright. Use the script, which also warm-starts
+the lane (~35s first build, not ~342s) and populates the 11 forge submodules that `worktree add`
+leaves empty:
 ```
-git worktree add --detach ../spv-L2 HEAD     # per lane; their work is committed, so HEAD is clean
-cp evm/.env ../spv-L2/evm/.env               # gitignored, does not travel with the worktree
+tools/lane.sh L2                             # worktree + BRANCH lane/L2 + warm artifacts + .env
 cd ../spv-L2 && <lane's items> && git commit -- <paths by name>
 ```
+🛤️ **AND THE LANE GETS NO COPY OF `CLAUDE.md` OR THIS FILE — THEY ARE SYMLINKS TO THE PARENT**
+(measured 2026-09-07: **831 of 2,249 commits in 30 days, 37%, touch those two files**, and
+`lane/VERIFY` forked at 09:39 and was 26 commits behind by the afternoon). ⇒ **there is nothing to
+sync, because there is only one of each.** Verified: the lane reads the parent's current copy with
+zero sync, `git status` in the lane stays clean, and `git merge --no-ff lane/L2` does **not** clobber
+the parent's docs — the lane's side is unchanged from the merge base.
+⚠️ **Do NOT `git checkout <branch> -- CLAUDE.md` inside a lane**: it silently swaps the symlink for a
+copy, and you are back to catching up. **An edit through the symlink writes into the PARENT** — which
+is correct, because doc edits are a parent-tree action with one author. **Book in `lanes/L<n>.md`.**
 ⚠️ **`git worktree add` from a shared tree takes `HEAD`, so any UNCOMMITTED work in the parent is
 excluded BY CONSTRUCTION** — which is the property CLAUDE.md's 2026-08-10 note relies on, and it means
 a lane cannot inherit another lane's half-finished edit.
