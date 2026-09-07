@@ -53012,8 +53012,37 @@ routing work has moved repeatedly this week); ② **the route being priced is no
 calibration assumed** — a thin or wrong pool, which is `§E211`'s measured shape on the Curve side
 (*"3 of 4 registry answers were empty pools"*).
 
-▶️ **THE DISCRIMINATOR IS ONE MEASUREMENT: what does the best venue actually cost for a SMALL trade
-today, and against which pool?** If it is genuinely ~37, the base is stale and must be re-derived **with
+## 🔬 EXAMINED FURTHER — **IT IS NOT A FIXTURE ARTEFACT. THE PROTOCOL'S OWN ROUTER CANNOT CLEAR THE PROTOCOL'S OWN FLOOR.**
+
+`_quoteBestVenue`'s docblock says it **mirrors `plan_route`'s own shape** — *"direct, else two hops
+through the hub — so the number this returns is a route the protocol can actually take, **not an
+abstract market best**."* ⇒ **`best` is the best route the ROUTER can reach, and `need = 37` is measured
+against oracle parity from that route.** ⛔ **So this is not "a thin pool the fixture happened to
+find": an honest keeper using the protocol's own routing is rejected by the protocol's own floor.**
+**The router and the floor disagree about what a fill costs, and they disagree because they are
+computed independently of each other.**
+
+### ⚠️ AND THE OBVIOUS ELEGANT FIX IS FORBIDDEN, WHICH IS WHY THIS NEEDS A DECISION RATHER THAN A PATCH
+
+**The rule-17 move would be to derive the floor FROM the router's quote** — one number instead of two
+that can drift. ⛔ **It cannot be done here.** The floor exists to catch a fill that is bad *relative to
+an independent reference*; deriving it from the router's own search means **a manipulated venue moves
+the quote and the floor together, and the floor stops protecting anything.** **The independence is the
+mechanism.** ⇒ two numbers that must stay independent and must stay consistent is a calibration
+problem by construction, not a duplication to fold.
+
+▶️ **SO THE FIX HAS EXACTLY ONE SHAPE: re-derive `SLIP_BASE_BPS` from a measurement of what the ROUTER
+can reach at small size, and record that measurement beside the constant** — which is what this row's
+own neighbouring docblock already demands of `ROUTE_GAS_CAP` (*"sized from measurement, not taste"*).
+📌 **The evidence that this was once done and has since rotted is in the docblock itself: it cites
+USDC→WETH at 44 bps for the worse tier and "a few bps" below \$1M.** Both are measurements of a route
+mix that has changed repeatedly this week. **The constant did not drift; the routing moved under it.**
+
+⚠️ **WHAT I CANNOT DO IN THIS SWEEP: take the measurement.** It needs the builder, and the owner has
+this session on a single verification run at the end. **Queued in `§END-RUN-MANIFEST`.**
+
+▶️ **THE ORIGINAL DISCRIMINATOR, now answered in part: what does the best venue actually cost for a
+SMALL trade today, and against which pool?** If it is genuinely ~37, the base is stale and must be re-derived **with
 the measurement recorded next to it**, per this row's own *"sized from measurement, not taste"*. If the
 37 comes from a thin pool, the defect is routing and the base is fine.
 
@@ -53052,7 +53081,32 @@ registry that does not.**
 
 ---
 
-# ✅ §THE-13-LOOP-IS-NECESSARY — **IT CANNOT BE FOLDED, BECAUSE MATURATION HAS NO TRANSACTION (2026-09-07)**
+# ✅ §THE-13-LOOP-IS-NECESSARY — **AND IT IS ALREADY THE OPTIMISATION, NOT THE THING TO OPTIMISE (2026-09-07)**
+
+**Owner asked whether something more elegant exists. Three alternatives examined; all are worse, and
+the reason is that the loop already sums the SMALL side.**
+
+⭐ **THE STRUCTURAL FACT THAT DECIDES IT: the immature window is BOUNDED at 13 and the mature history is
+UNBOUNDED.** `matureSupply = totalSupply − immatureSupply` sums forward 13 slots. The direct form —
+summing every elapsed month — grows without limit as the protocol ages. **Subtracting the bounded side
+from a value already in storage IS the optimisation**, and flipping it is the only "simpler" shape
+available. Minting confirms the bound: every `_mint` takes `month`/`nextMonth`/`nextMonth + 1`
+(`Basket.sol:224`, `:333`, `:474`) — **there is no path that mints into a past month**, so nothing can
+ever sit outside the forward window.
+
+| alternative | why it loses |
+|---|---|
+| **maintain `immatureTotal`, increment on mint** | ⛔ **nothing decrements it.** `currentMonth()` is `(block.timestamp − _deployed) / MONTH` — pure wall-clock, so **maturation is not an event** and no transaction fires when a vintage matures |
+| **amortised roll: `while (lastRolled < cm) immatureTotal -= totalSupplies[++lastRolled];`** | genuinely cheaper in gas (1 iteration in the common case vs 13). ⛔ **But it adds two storage slots and a NEW bad state — "unrolled" — that a `view` cannot fix**, since `matureSupply()` is `view` and cannot roll before answering. Rule 17 inverted: it makes a bad state CONSTRUCTIBLE where none existed |
+| **prefix sums / Fenwick over months** | O(log n) reads for a **13-element** window, paid for with O(13) writes and a second array. **Strictly more machinery for a smaller constant** |
+
+⇒ **RULE 23'S TEST, APPLIED HONESTLY: the amortised version would DELETE nothing and ADD two slots plus
+a drift invariant, to save ~12 warm `SLOAD`s on a path taken once per mint.** *"It reads better"* and
+*"it is fewer opcodes"* are not on the list of things that earn a declaration. **The loop is stateless
+and correct by construction; every alternative trades that for state that can silently disagree with
+the clock, and the quantity it would disagree about is the redemption mark.**
+
+📌 **THE ORIGINAL ANALYSIS, kept because it is the load-bearing half:**
 
 **Owner asked what the loop is for and whether we need it. Answered from the code.**
 
