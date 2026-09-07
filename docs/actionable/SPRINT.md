@@ -52813,6 +52813,48 @@ floors would let a keeper pass the aggregate by over-delivering one leg and stea
 
 ---
 
+# 🗂️ §MD-CITATIONS-2026-09-07 — **52 OF THE 84 `.md` FILES THIS DOC CITES DO NOT EXIST. HALF OF THOSE CITATIONS POINT AT LIVE CONTENT.**
+
+**`tools/check-doc-symbols.py` covers `Something.sol` and nothing covers `Something.md`.** Measured:
+**84 distinct `.md` files cited here, 52 absent, 286 citations.** ⚠️ **AND THE COUNT IS NOT THE
+POINT — the CLASSIFICATION is**, exactly as the RENAMES section learned on the `.sol` side
+(*"TOMBSTONE is WRONG for a third of them — the binary in that sentence is the defect"*).
+
+| bucket | citations | what it means | what to do |
+|---|---|---|---|
+| 🔴 **FOLDED** | **144** | the file was folded INTO this one and deleted; **the content is LIVE under a § anchor** | **destale the coordinate** |
+| ⚠️ **RENAMED** | 8 | a case variant of a file that exists (`sprint.md`, `todo.md`) | fix the spelling |
+| ✅ **TOMBSTONE** | 134 | deleted, no successor | **leave it** — the citation is history |
+
+## 🔴 THE FOLD TABLE — the bucket that misleads, because the grep is indistinguishable from a tombstone
+
+| cited | it is now | fold |
+|---|---|---|
+| **`QUEUE.md`** — **116 citations** | **`§FROM-QUEUE`** (`:23517`) | deleted 2026-08-29, rows re-triaged against the code: **150 work · 78 knowledge · 19 check** |
+| **`BUILD-QUEUE-AND-107.md`** — **28 citations** | **`§BUILD-QUEUE-FOLD`** (`:23825`) | folded in WHOLE 2026-08-29; `-OPEN` (`:23844`) holds the 8 rows unique to it, `-ARCHIVE` (`:23858`) the rest verbatim |
+
+⇒ **A reader who greps `QUEUE.md`, finds nothing, and concludes the queue was abandoned is wrong by
+247 re-triaged rows sitting in this same file.** That is the RENAMES section's stated failure mode
+arriving through a `.md` name instead of a `.sol` one, and it is why this table exists rather than a
+count.
+
+⛔ **DO NOT MASS-REWRITE THE 144, AND THE REASON IS NOT CAUTION — IT IS THAT SOME OF THEM ARE FROZEN
+BY CONSTRUCTION.** `§BUILD-QUEUE-FOLD-ARCHIVE` is *"the archive, verbatim"*, and rewriting a citation
+inside a verbatim block makes it no longer verbatim — the same rule that keeps
+`wip/UNIT-A-derive-fee-bound.patch` saying `BtcVaultLib` (*"it is a diff; rewriting a symbol inside it
+means it no longer applies"*). **Destale a citation when you walk past it in LIVE prose; leave the
+archive alone.**
+
+⚠️ **AND DO NOT "FIX" A TOMBSTONE**, per the RENAMES rule: turning `BTC-CUSTODY-OPEN.md` into a name
+that resolves to nothing is strictly worse than an obviously-old name — the old name announces its own
+age, the new one does not. **The 134 stay as they are.**
+
+✅ **MECHANICAL FROM NOW ON: `tools/check-doc-md.py [doc …]`.** It classifies into the three buckets
+against the live tree, prints the fold target for each FOLDED row, and **exits non-zero ONLY when a
+FOLDED citation is still stale** — the one bucket that is actionable. Per this file's own rule, a gate
+with a binary result beats a disposition; and per the tooling-traps rule it fails loudly, exiting with
+a FATAL if the tree walk returns zero `.md` files rather than reporting a clean run.
+
 # ⛔ §NO-SAFE-STANDING-DECISION — **E121, E100 AND E119 ALL PLAN AROUND A SAFE THE OWNER RULED OUT. THE CODE RECORDS IT; THE ROWS DO NOT (2026-09-07)**
 
 **Found while discharging a GATE 1 free read, and it invalidates the recommendation I had drawn from
