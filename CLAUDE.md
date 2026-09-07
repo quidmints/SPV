@@ -369,6 +369,20 @@ environment actually is*. Every line below was verified in-repo, not recalled.
     "disguised tombstone" this file warns about. **Grep the name across `src`, `test` and `script`
     after any deletion and destale every hit**, and move any still-live ARGUMENT the dead code
     carried to where the hazard now lives, rather than losing it with the body.
+    🔴 **DO NOT "CACHE THE DUPLICATE EXTERNAL CALL" AS A CLASS — MEASURED 2026-09-07, ONLY 1 OF 7
+    REPEATED EXTERNAL CALLS IN `evm/src` WAS A GENUINE REDUNDANCY.** The other five repeat because
+    **SOMETHING BETWEEN THE TWO READS CHANGES THE ANSWER**, so folding them feeds a STALE value
+    forward — and every one of those four defects WOULD HAVE GONE GREEN, because a stale read is
+    still a plausible number.
+    · `ChannelLib.depositBody` calls `aux.trancheTotal()` twice with `aux.get_metrics(false)`
+      BETWEEN them, and `get_metrics`/`get_deposits` are NOT view — the second read is deliberately
+      post-refresh, and folding it feeds a stale tranche total into `seedFee`.
+    · `BasketLib.backingCoreBody` reads `committedUsd18()` three times, each after a `repack()` —
+      which is exactly what moves the value.
+    ⇒ **Before folding a repeated call, read what sits BETWEEN the two reads and prove it cannot
+      change the result.** Two syntactically identical calls are the same expression only if the
+      state they read is unchanged; "it looks identical" is the trap, not the evidence.
+
     ⛔ **DO NOT FOLD A FUNCTION THAT EXISTS TO BUY STACK DEPTH.** With `via_ir = false`, some
     helpers are load-bearing precisely because they open a shallower frame — `_pullForExtract` says
     so in its own docblock and MUST NOT be inlined away. If a fold produces `Stack too deep`, the
