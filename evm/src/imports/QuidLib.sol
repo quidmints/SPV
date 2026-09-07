@@ -193,7 +193,11 @@ library QuidLib {
         return SoladyMath.fullMulDiv(prem6 * PREMIUM_ANNUALIZE, 1e18, pooled6);
     }
 
-    /// @notice θ derived live: **range fee yield** / (K·σ²), clamped to <=1.
+    /// @notice θ derived live: **range fee yield** / (K·σ²). NOT clamped at 1e18 — the returned
+    ///         value may exceed it, so the external views report HOW FAR above the no-throttle
+    ///         threshold the range sits. Every consumer treats `θ >= 1e18` as a no-op
+    ///         (`SwapLib.applyTheta`), and the real bound on range depth is the PHYSICAL
+    ///         `backing − pooled` headroom in `clampByBacking` (audit #8), which θ never gates.
     ///
     /// @dev #107/D3 (2026-07-26): the numerator is the RANGE's realized market-making yield, NOT the
     ///      reserve `avgYield` it used to read. θ is Merton's `μ/(K·σ²)` — the optimal fraction of
@@ -218,9 +222,6 @@ library QuidLib {
     ///      than unbounded because `SwapLib.clampByBacking` applies the PHYSICAL
     ///      `backing − pooled` headroom independently — audit #8 was closed so that "every path
     ///      stays bounded at the real backing even when θ fails open".
-    /// @dev `aux` was DROPPED (2026-07-27): the only thing that read it was the old `avgYield`
-    ///      numerator, which #107/D3 replaced with the range-fee premium EWMA read off `core`. The
-    ///      parameter has been dead since that change — the compiler flagged it as unused.
     function derivedThetaWad(address core, uint loPrice, uint upPrice) public view returns (uint) {
         uint sigmaSq = ICore(core).realizedVarianceWad();   // §E59: ONE source, read from Core
         if (sigmaSq == 0) return 1e18;
@@ -228,22 +229,10 @@ library QuidLib {
         if (kWad == 0) return 1e18;
         uint work = SoladyMath.fullMulDiv(kWad, sigmaSq, 1e18);
         if (work == 0) return 1e18;
-        // The `theta > 1e18 ? 1e18 : theta` clamp that used to close this function is DELETED — it
-        // adds no safety. EVERY consumer already short-circuits at the same threshold:
-        // `SwapLib.applyTheta:1299` is `if (thetaEff >= 1e18) return available;` (so 1e18 and 12e18
-        // are byte-identical no-ops), `QuidLib:470` and `BtcLib:136` both document and treat
-        // ">= 1e18 ⇒ no-op / fail-open", and the real bound on range depth is the PHYSICAL
-        // `backing − pooled` headroom in `clampByBacking` (audit #8), which θ never gates.
-        // Removing it also makes the external views (`Quid.derivedThetaWad`,
-        // `Vault.derivedThetaWadBtc`) strictly MORE informative: they now report HOW FAR above the
-        // no-throttle threshold the range is, instead of flattening everything to exactly 1.0 — which
-        // matters more post-#107/D3, since a range earning real premium in a calm tape clears 1e18
-        // routinely where the old reserve-`avgYield` numerator rarely did.
-        // FAIL OPEN on an unmeasured premium register. This was MISSING (fixed 2026-07-26): the
-        // docstring above already promised it, and `_rangeFeeYieldWad` returns 0 for both
-        // `premium == 0` and `pooled == 0`, so `mulDiv(0, ...)` made θ fail CLOSED — the exact
-        // deadlock the docstring warns about (no depth ⇒ no fees ⇒ no premium ⇒ no depth, forever).
-        // A cold range could never bootstrap. Matches every other unmeasured path here
+        // FAIL OPEN on an unmeasured premium register: `_rangeFeeYieldWad` returns 0 for both
+        // `premium == 0` and `pooled == 0`, and dividing that through would make θ fail CLOSED —
+        // the deadlock the docstring warns about (no depth ⇒ no fees ⇒ no premium ⇒ no depth,
+        // forever), so a cold range could never bootstrap. Matches every other unmeasured path here
         // (`sigmaSq == 0`, `kWad == 0`, `work == 0`), and is safe for the same reason they are:
         // `SwapLib.clampByBacking` applies the PHYSICAL `backing − pooled` headroom independently.
         uint rangeFeeYield = _rangeFeeYieldWad(core);
@@ -251,19 +240,17 @@ library QuidLib {
         return SoladyMath.fullMulDiv(rangeFeeYield, 1e18, work);
     }
 
-    /// @notice Annualized realized variance (WAD) from Core's oracle ring.
-
     // ════════════════════════════════════════════════════════════════════
-    //  addLiq body (in-range pairing sizer). Clamps deltaTok to the three
-    //  bounds: SOLVENCY surplus (+BTC policy cap via SwapLib.sizeBySurplus),
-    //  PHYSICAL inventory, and the live θ-budget. View-ish (no state written).
-    //  Extracted for EIP-170 headroom; the onlyUs guard stays in the Quid
-    //  forwarder. Byte-identical to the in-Quid body.
+    //  addLiq body (in-range pairing sizer). TWO clamps, both inside
+    //  `SwapLib.addLiqBody`: the SOLVENCY surplus (`sizeBySurplus`, which is
+    //  surplus-only — no asset-specific policy cap), then `clampByBacking` —
+    //  the PHYSICAL `backing − pooled` headroom AND the live θ-budget. Writes
+    //  no state. Extracted for EIP-170 headroom; the onlyUs guard stays in the
+    //  Quid forwarder.
     // ════════════════════════════════════════════════════════════════════
     /// @dev §E270 — `wantTok` is the REQUEST and is never written; `deltaTok` is the evolving value
     ///      (surplus-sized, then theta/backing-capped). Mirrors the BTC range, which already kept its
-    ///      request in `sats`. Before this the ETH PARAMETER was overwritten, so past `sizeBySurplus`
-    ///      the requested amount existed nowhere in the frame.
+    ///      request in `sats`.
     function addLiq(address core, address aux, uint wantTok, uint price, uint grossBuffer)
         public returns (uint usdOut, uint outDelta) {
         // §DELTATOK-FOLD — THE BODY IS `SwapLib.addLiqBody`, SHARED WITH `BtcLib.addLiqChannel`.
@@ -285,12 +272,11 @@ library QuidLib {
     }
 
     // ════════════════════════════════════════════════════════════════════
-    //  Body of Quid._rebalance (ETH side) — the fee/yield HARVEST cluster
-    //  (_syncYield + SwapLib.rebalanceCore + _calcYield/_distributeV4Fees).
-    //  Mutates ONLY value-type accumulators (no per-LP Deposit / lpShares /
-    //  pooled / native-ETH), returned as INCREMENTS/flags the thin Quid
-    //  forwarder applies — so `_rebalance()`'s callers are byte-unchanged.
-    //  The dead `_calcYield` yield return (discarded in _rebalance) is dropped.
+    //  Body of Quid._rebalance (ETH side) — the venue-yield sync plus
+    //  `SwapLib.rebalanceCore`. Mutates ONLY value-type accumulators (no per-LP
+    //  Deposit / lpShares / pooled / native-ETH), returned as INCREMENTS/flags
+    //  the thin Quid forwarder applies — so `_rebalance()`'s callers are
+    //  byte-unchanged. No trading-fee distribution runs in here.
     // ════════════════════════════════════════════════════════════════════
     struct RebalIn {
         address core; address aux; address ev; address weth;
@@ -303,8 +289,9 @@ library QuidLib {
         bool setLastRepack; bool reseatBump;
     }
 
-    /// @dev Plain-venue ETH balance = rangeETH − lev net-equity (replica of Quid._venueBalance; that one STAYS in
-    ///      Quid for its _withdraw/_depositImpl callers). No-op subtraction when no leverage.
+    /// @dev Plain-venue ETH balance = rangeETH − lev net-equity. §FOLD-VENUEBAL: this is the ONE
+    ///      definition — `Quid._venueBalance` is a thin forwarder to it, so its `_withdraw`/
+    ///      `_depositImpl` callers read exactly this. No-op subtraction when no leverage.
     function _venueBalanceLib(address ev, address aux) internal returns (uint total) {
         total = IEthVenue(ev).rangeOp(0, 2);
         address lm = levManager(aux);
@@ -329,23 +316,13 @@ library QuidLib {
         SwapLib.Rebalanced memory r = SwapLib.rebalanceCore(
             c.core, c.aux, c.weth, c.upPrice, c.loPrice);   // `c` is RebalIn here, which keeps `weth`
         if (r.didRepack) {
-            // _calcYield's live effect: reorder to token-canonical + _distributeV4Fees; the APY `yield` it also
-            // computed was discarded by _rebalance, so it is dropped. LAST_REPACK := block.timestamp (forwarder).
-            // §DE-TICK: the ordering ternary reordered TWO ZEROS -- `repack`/`reseat` both return
-            // `(price, 0, 0, 0, 0)` now that v4 collects nothing, so the fee legs are identically 0
-            // and the canonical (USD, tok) order the comment below names is taken directly. The fee
-            // LANE is untouched: whether per-share accrual returns is the deferred decision recorded
-            // at `Core._fillDelta` (fees currently compound into POOLED_* instead).
-            // §V4-CUT-RESIDUE — the two fee lines here are DELETED. They read `r.fees1`/`r.fees0`,
-            // which nothing assigns, and ASSIGNED (not `+=`) the zero result to the increments,
-            // which are already zero-valued. ⚠️ The branch itself STAYS: `setLastRepack` is its
-            // live effect, and the `else if (r.jitFees)` below depends on this arm claiming the
-            // repack case first.
+            // The branch's ONE live effect: LAST_REPACK := block.timestamp, applied by the forwarder.
+            // NO trading-fee distribution happens here — `repack`/`reseat` report no fees at all, so
+            // `feesPerShareInc`/`usdFeesInc` leave this body at zero. The fee LANE is DORMANT, not
+            // removed: whether per-share accrual comes back is the deferred decision recorded at
+            // `Core._fillDelta` (fees currently compound into POOLED_* instead).
             o.setLastRepack = true;
         }
-        // (§V4-CUT) The `else if (r.jitFees)` distribution arm is gone with the collect that fed it;
-        // it computed `feeIncrements(0, 0, …)`. `setLastRepack` above is still the live effect of the
-        // repack arm, which is why THAT branch stays.
         if (r.loPrice != c.loPrice || r.upPrice != c.upPrice) o.reseatBump = true; // ticks recentered → re-anchor
         o.spotPrice = r.spotPrice; o.loPrice = r.loPrice; o.upPrice = r.upPrice;
         o.myLiquidity = r.myLiquidity; o.resolvedTwap = r.resolvedTwap;
@@ -414,27 +391,6 @@ library QuidLib {
         _refreshBookmarksLib(autoManaged, levPooled, levBuf, venueBm, to, feesPerShare, usdFees, venueFeesPerShare);
     }
 
-    // ════════════════════════════════════════════════════════════════════
-    //  Body of Quid.pull — reduce/close a self-managed boundary order. VERBATIM
-    //  relocation: owner + maturity + percent guards, liquidity slice, the
-    //  full-close array swap-pop cleanup, and the V4.outOfRange burn. Storage
-    //  refs (selfManaged/positions) mutate in place; the nonReentrant guard stays
-    //  in the Quid forwarder. `owner` = msg.sender (preserved through delegatecall).
-    // ════════════════════════════════════════════════════════════════════
-
-    // ════════════════════════════════════════════════════════════════════
-    //  Self-managed boundary-order sizing (body of Quid._sizeOutOfRange):
-    //  deposit the position's backing (ETH at the chosen venue, or a stable via
-    //  AUX) and size the single-sided liquidity. pledge==0 -> no wall attribution.
-    //  Ticks bundled to keep the Quid forwarder off the legacy stack.
-    // ════════════════════════════════════════════════════════════════════
-    // §A.54: `OorTicks` was byte-identical to `SwapLib.Oor` — same four fields, same order, same
-    // types — i.e. one concept under two names. Collapsed onto `SwapLib.Oor`, which is the better home:
-    // it already owns the `SwapLib.oorBounds(...)` factory that CONSTRUCTS the value, and this library
-    // already imports SwapLib.
-
-
-
     /// @dev DEPLOY-TIME ONLY — the body of `Quid.setup`, moved here for the same
     ///      reason `Core.setup`'s body moved to OracleLib (E32): one-shot wiring was
     ///      billing Quid's RUNTIME bytes against a hard EIP-170 deficit. Quid keeps
@@ -456,7 +412,10 @@ library QuidLib {
     ///      proceeds, turning §M phantom depth into real deliverable ETH.
     ///      VALUE-NEUTRAL per LP, and NOT the removed toxic arbETH (which spent shared
     ///      basket surplus): `deleverEthOnDelivery` repays each LP's OWN debt.
-    ///      Fork-proved by testReal_DeleverEthBacking_SwapOutTapsLeveredSlice.
+    ///      ⚠️ NOT fork-proved. `SwapLib.deleverEthOnDelivery`'s own docblock marks this leg
+    ///      🔴 UNVERIFIED (forge OOM), and the test that would close it —
+    ///      `testReal_DeleverEthBacking_SwapOutTapsLeveredSlice`, booked in SPRINT.md — has never
+    ///      been written. Do not cite this path as proved.
     ///
     ///      A failed send REVERTS so the unlock rolls back atomically — the old
     ///      swallow left unwrapped ETH stranded at the contract while reporting 0.
@@ -484,27 +443,13 @@ library QuidLib {
     }
 
     // ══════════════════════════════════════════════════════════════════════════════
-    // §VAULTLIB-FOLD (2026-08-18) — QuidLib merged in and DELETED.
-    //
-    // Its name had become a lie: `Vault` is the BTC range manager and does not call it. Every
-    // non-`Quid` reference to EITHER library across `Core`, `Vault`, `RangeLib` and `BtcLib` is a
-    // COMMENT — checked one by one — so both were the ETH range manager's libraries and only one
-    // of them said so. `Quid` called them 28 and 11 times respectively.
-    //
-    // Folded whole rather than split: 12,232 + 5,703 = 17,935 against the 24,576 limit, so it fits
-    // in one envelope with ~6,600 to spare and needs no boundary judgement. Zero function-name
-    // collisions between the two. The alternative — spreading across RangeLib and this — would have
-    // required deciding a range-vs-venue line that the CALLERS do not draw.
+    //  ETH-VENUE CUSTODY. `Quid` IS the ETH venue: the bodies below run under its
+    //  delegatecall, so `address(this)` is Quid and the weETH/eETH/WETH they value and move are
+    //  Quid's own. `Vault` is the BTC range manager and calls none of them.
     // ══════════════════════════════════════════════════════════════════════════════
 
-    /// §E57: moved with the offramp body — its only emitter.
-
-
-    // Mirror Vault's custom errors so reverts from delegatecalled bodies carry
-    // the SAME 4-byte selector (selector = keccak(name+args), name-derived).
-
-    /// @dev Vault's ETH-venue immutables, gathered so the delegatecalled library
-    ///      can operate on them (it can't read Vault's immutable slots).
+    /// @dev Quid's ETH-venue addresses, gathered by `Quid._ethCfg()` so the delegatecalled library
+    ///      can operate on them (it cannot read Quid's own constant/immutable slots).
     struct EthCfg {
         address weth;
         address aux;
@@ -514,26 +459,26 @@ library QuidLib {
         address levManager;
     }
 
-    /// ether.fi deposit adapter — the SAME compile-time constant Vault pins (ETHERFI_ADAPTER); kept here so
-    /// supplyVenueBody (kind 1) needs no extra EthCfg field across its 12 build sites.
+    /// ether.fi deposit adapter — the SAME compile-time constant `Quid.ETHERFI_ADAPTER` pins; kept
+    /// here so `supplyVenueBody` needs no extra `EthCfg` field.
     address internal constant ETHERFI_ADAPTER_VL = 0xcfC6d9Bd7411962Bfe7145451A7EF71A24b6A7A2;
 
     // ── Venue valuation ───────────────────────────────────────────────────
 
 
-    /// @dev Body of Vault.rangeETH — AGGREGATE ETH-equivalent backing across the
-    ///      depositor-chosen venues.
+    /// @dev Body of Quid.rangeETH — AGGREGATE ETH-equivalent backing: weETH valued in ETH, idle
+    ///      WETH, transient eETH, plus the levered book's net-equity.
     function _rangeETH(EthCfg memory c) internal view returns (uint total) {
         if (c.weeth != address(0)) {
             uint w = IERC20(c.weeth).balanceOf(address(this));
             if (w > 0) total += IWeETH(c.weeth).getEETHByWeETH(w);
         }
-        // Idle WETH is still ETH backing — count it at BOTH the Vault (venue
+        // Idle WETH is still ETH backing — count it at BOTH Quid (venue
         // custody, evacuated remainders) AND Aux (transient swap/deposit legs).
         total += IERC20(c.weth).balanceOf(address(this));
         total += IERC20(c.weth).balanceOf(c.aux);
         // Raw eETH transiently sits here mid wait-NFT withdrawal — real backing,
-        // counted at BOTH Vault and Aux so a partial failure never strands it.
+        // counted at BOTH Quid and Aux so a partial failure never strands it.
         if (c.eeth != address(0)) {
             total += IERC20(c.eeth).balanceOf(address(this));
             total += IERC20(c.eeth).balanceOf(c.aux);
@@ -554,30 +499,22 @@ library QuidLib {
     }
 
 
-    /// @notice Body of Vault.deliverableETH — SOLVENCY-side ETH backing with PARTIAL liquidity haircuts.
+    /// @notice Body of Quid.deliverableETH — SOLVENCY-side ETH backing with PARTIAL liquidity haircuts.
     ///
     /// @dev    READ THE NAME NARROWLY (§A.5c, re-derived 2026-07-27). This is NOT a promptness
-    ///         guarantee and NOT a view-twin of the withdraw ladder. It bounds the WETH-4626 side and
-    ///         subtracts the levered net equity, but it counts the weETH at the venue and raw eETH at
-    ///         FULL FACE — neither of which is instantly convertible (the ether.fi legs need the offramp
-    ///         ladder, whose rung 1 is a CURVE `weETH/WETH-ng` sale at up to the 0.5% slippage cap and
-    ///         whose rung 2 is a multi-day wait NFT — there is NO deterministic-cost tier between them
-    ///         since the instant-redeem was removed 2026-08-06).
-    ///         🔴 **DESTALED 2026-09-05, TWO WAYS.** (a) This said *"caps the three WETH-4626 venues via
-    ///         `_deliverableCap`"*; `_deliverableCap` has **0 code references** — the three venue caps
-    ///         were removed and re-derived to the Curve bound on 2026-08-13, which `deliverableETH`'s own
-    ///         body notes below already record. (b) It said rung 1 is *"a v3 pool sale"*; v3 was removed
-    ///         2026-08-09 and rung 1 is Curve — measured 17–25 bps better at every realistic size, so
-    ///         this was not a naming slip but a claim about the WRONG VENUE'S execution cost.
+    ///         guarantee and NOT a view-twin of the withdraw ladder. It haircuts the weETH side by
+    ///         what CURVE can pay and subtracts the levered net equity, but it counts the raw eETH at
+    ///         FULL FACE — which is not instantly convertible (the ether.fi legs need the offramp
+    ///         ladder, whose rung 1 is a CURVE `weETH/WETH-ng` sale floored at 25 bps below the
+    ///         ether.fi rate and whose rung 2 is a multi-day wait NFT — there is NO
+    ///         deterministic-cost tier between them since the instant-redeem was removed 2026-08-06).
     ///
-    ///         WHY THAT IS SAFE RATHER THAN A BUG — it is not load-bearing for delivery. Its two
-    ///         consumers both tolerate over-statement:
-    ///           • `Quid` uses it ONLY to cap `firstBurn`, i.e. how much of a withdrawal is sourced
-    ///             from the in-range range burn before the venue ladder takes the remainder. The
-    ///             shortfall is then derived from the ACTUAL `sent`, never from this number, so an
-    ///             over-statement shifts the sourcing ORDER and self-corrects.
-    ///           • `SwapLib.deleverEthOnDelivery` gates the swap-out de-lever; under-triggering there
-    ///             is caught downstream by `minOut` + deferral (§A.29).
+    ///         WHY OVER-STATEMENT IS SAFE RATHER THAN A BUG — it is not load-bearing for delivery.
+    ///         It has exactly ONE reader (`Quid._withdraw`, via the `Aux.deliverableETH` forwarder),
+    ///         and that reader tolerates over-statement: it uses this ONLY to cap `firstBurn`, i.e.
+    ///         how much of a withdrawal is sourced from the in-range burn before the venue ladder
+    ///         takes the remainder. The shortfall is then derived from the ACTUAL `sent`, never from
+    ///         this number, so an over-statement shifts the sourcing ORDER and self-corrects.
     ///         Measured: exit fairness holds to 1%, and a full exit strands < 1 gwei
     ///         (`test_RunSim_AllExit_Normal`). Do NOT "fix" this by rebuilding it as a ladder twin
     ///         without first re-establishing a harm — the previous attempt to do so rested on a
@@ -621,7 +558,7 @@ library QuidLib {
             //
             // Fall back to the share value, which is exactly what the `liquidityAdapter` branch
             // above uses for Morpho-V2. It is an UPPER bound on what the venue can pay if the vault
-            // is illiquid — but `_pull4626` already clamps the pull to `min(need, maxOut)` and the
+            // is illiquid — but every caller clamps its pull to what it actually needs and the
             // withdraw itself reverts on real illiquidity, so an over-estimate degrades to a failed
             // pull, whereas 0 silently strands the position. Prefer the recoverable failure.
             try IERC20(vault).balanceOf(holder) returns (uint shares) {
@@ -640,24 +577,20 @@ library QuidLib {
     ///      ⚠️ MEASURED BOTH WAYS. Removing it does not merely under-report: the `amount > 0` fallback in
     ///      `Quid`'s exit then OVER-delivers against backing the offramp cannot source, so nothing
     ///      defers and both test_RunSim_B_LiquidityRace_* fail "deferral recovers: 0 <= 0" -- there is
-    ///      no deferral left to recover. It replaces the three per-venue `_deliverableCap` bounds that
-    ///      went with the ETH venues, and serves the same purpose: virtual burn == real delivery.
-    ///      (Superseded framing, 2026-08-13.) The three `_deliverableCap` venue bounds
-    ///      removed with the ETH venues existed because a 4626 curator could hold value that was
-    ///      genuinely UNREACHABLE — `maxWithdraw` short of the position with no other exit. weETH has no
-    ///      such state: if Curve cannot absorb it the wait-NFT redeems it at fair value from ether.fi, so
-    ///      the value is SLOWER, never stuck. A cap here would model an unreachable state that cannot
-    ///      occur, and would understate backing on every read.
+    ///      no deferral left to recover. Its purpose: virtual burn == real delivery.
+    ///      ⚠️ Do NOT add a further per-venue cap on top. weETH has no genuinely-unreachable state:
+    ///      if Curve cannot absorb it the wait-NFT redeems it at fair value from ether.fi, so the
+    ///      value is SLOWER, never stuck. Such a cap would model a state that cannot occur, and
+    ///      would understate backing on every read.
     function deliverableETH(EthCfg memory c) public view returns (uint total) {
         total = _rangeETH(c);
-        // WEETH IS ONLY DELIVERABLE TO THE EXTENT CURVE CAN PAY FOR IT.
-        // RE-DERIVED 2026-08-13, replacing the three `_deliverableCap` venue caps removed with the ETH
-        // venues. Those caps were what made an undeliverable slice DEFER; deleting them without a
-        // replacement left `_rangeETH` counting weETH at full oracle value while the exit can realise at
-        // most the pool's WETH, so delivery was overstated and the deferral machinery never engaged.
-        // (Measured: that regression broke test_SETTLE_LvrResidualIsDeferralNotLeak,
-        // test_RunSim_B_LiquidityRace_* and testRT_DeliveredPlusRetainedEqualsPrincipal, all of which
-        // pass on stock main — a control run, not an inference.)
+        // WEETH IS ONLY DELIVERABLE TO THE EXTENT CURVE CAN PAY FOR IT — this is what makes an
+        // undeliverable slice DEFER. Without it `_rangeETH` counts weETH at full oracle value while
+        // the exit can realise at most the pool's WETH, so delivery is overstated and the deferral
+        // machinery never engages. (Measured: removing it breaks
+        // test_SETTLE_LvrResidualIsDeferralNotLeak, test_RunSim_B_LiquidityRace_* and
+        // testRT_DeliveredPlusRetainedEqualsPrincipal, all of which pass on stock main — a control
+        // run, not an inference.)
         // Bound only the weETH-sourced portion: idle WETH and eETH are already deliverable as-is.
         if (c.curvePool != address(0) && c.weeth != address(0)) {
             uint w = IERC20(c.weeth).balanceOf(address(this));
@@ -667,8 +600,8 @@ library QuidLib {
                 if (weethEth > payable_) total -= (weethEth - payable_);          // the surplus DEFERS
             }
         }
-        // The leverage net-equity is solvency backing (now counted in rangeETH as net) but NOT deliverable
-        // from this Vault (unwind-only via closeLev -- the LP gets it back by repaying debt + withdrawing coll,
+        // The leverage net-equity is solvency backing (counted in rangeETH as net) but NOT deliverable
+        // from here (unwind-only via closeLev -- the LP gets it back by repaying debt + withdrawing coll,
         // not from redemption). Exclude the same net-equity term rangeETH added, so deliverableETH == base
         // (non-levered venue ETH), byte-identical to the prior gross-in/gross-out result. Redemptions never draw it.
         if (c.levManager != address(0)) {
@@ -684,14 +617,13 @@ library QuidLib {
 
 
 
-    /// @notice Consolidated venue-supply body — the `transferFrom` + venue call for every ETH supply wrapper, so the
-    ///         Vault forwarders keep ONLY their `NotQuidCore`/`NotAux` gate (bytecode OUTSIDE the EIP-170-critical
-    ///         Vault). `from` = the approver the WETH is pulled from (V4 for the venue wrappers, AUX for
-    ///         `supplyFromAux`).
-    /// @dev THE `kind` SELECTOR IS GONE (2026-08-13). It was already ignored — every value routed to the
-    ///      ether.fi adapter — and its own docblock said to remove it once the routing decision was
-    ///      final. It is: there are no WETH-holding venues left to select, so the parameter had
-    ///      nothing left to choose between.
+    /// @notice Consolidated venue-supply body — the `transferFrom` + adapter call for every ETH supply
+    ///         wrapper, so the Quid forwarders keep only their gate (bytecode OUTSIDE the
+    ///         EIP-170-critical Quid). `from` = the approver the WETH is pulled from: Quid itself for
+    ///         `Quid.supplyEtherFi` (which needs no gate — the caller is the contract), AUX for
+    ///         `Quid.supplyFromAux` (`NotAux`).
+    /// @dev There is NO venue selector. Every value routes to the ether.fi adapter, so there is
+    ///      nothing to choose between.
     function supplyVenueBody(EthCfg memory c, uint amount, address from) public returns (uint) {
         if (amount == 0) return 0;
         // ALL ETH SUPPLY IS weETH: it earns the ether.fi ratchet, measured at +0.674 bps/day =
@@ -702,27 +634,24 @@ library QuidLib {
         // rate curve says. Supplying WETH there is a strict loss of ~2.46 points, and the only thing
         // it buys is borrow capacity against the collateral — which is encumbrance (the offramp
         // design), not yield.
-        //
-        // ⚠️ SUPPLY ONLY. The withdraw ladder below is DELIBERATELY UNTOUCHED so existing positions in
-        // those venues stay pullable. Do not remove the withdraw rungs until the balances are drained.
         if (ETHERFI_ADAPTER_VL == address(0)) return 0;
         IERC20(c.weth).transferFrom(from, address(this), amount);
         IDepositAdapter(ETHERFI_ADAPTER_VL).depositWETHForWeETH(amount, address(this));
         return amount;
     }
 
-    // ── Withdraw ladder ─────────────────────────────────────────────────────
+    // ── Withdraw ────────────────────────────────────────────────────────────
 
-
-
-    /// @notice Body of Vault._withdrawETH — idle-then-ether.fi(opportunistic)-then
-    ///         ladder. Only WETH is served.
+    /// @notice Body of Quid._withdrawETH. TWO sources, in order: idle WETH (swept from Aux, then
+    ///         held here), and — only if that is short — ONE opportunistic weETH→WETH Curve sale.
+    ///         There is no venue-pull rung beyond those: whatever WETH is on hand after them is what
+    ///         gets served, and a short serve is a PARTIAL fill, not a revert. Only WETH is served.
     function withdrawETH(EthCfg memory c, SwapLib.OfframpCfg memory off,
         address token, uint amount, address to) public returns (uint sent) {
         if (amount == 0) return 0;
         require(token == c.weth, "ethv:notWeth");
-        // Sweep any idle WETH from Aux into the Vault first (Aux approved the Vault),
-        // preserving the idle-first ladder (rangeETH counts Aux idle as backing).
+        // Sweep any idle WETH from Aux in first (Aux approved us), preserving the
+        // idle-first order (rangeETH counts Aux idle as backing).
         uint auxIdle = IERC20(c.weth).balanceOf(c.aux);
         if (auxIdle > 0) {
             try IERC20(c.weth).transferFrom(c.aux, address(this), auxIdle) {} catch {}
@@ -744,16 +673,9 @@ library QuidLib {
         return sent;
     }
 
-    // ── Vault-health evacuate ────────────────────────────────────────────────
-
-
-
-    // ── ether.fi OFFRAMP (moved from SwapLib, §E57) ──────────────────────────────────────────
-    //  Its ONE caller is `Vault.offrampEtherFi` (`Vault.sol:444`), so it was always a VAULT
-    //  concern living in a SWAP library. Moving it is not just tidiness: SwapLib was the binding
-    //  EIP-170 contract at +14 bytes while QuidLib had 15,040 spare, and E55/E53 need room in
-    //  SwapLib specifically. Put the code where the room is — the same trade as E32.
-    /// @notice Body of Aux.offrampEtherFi — the exit ladder. Rung 1 = Curve pool sale; rung 2 = wait NFT.
+    // ── ether.fi OFFRAMP ────────────────────────────────────────────────────────────────────
+    //  Its ONE caller is `Quid.offrampEtherFi` (`Quid.sol:206`).
+    /// @notice Body of Quid.offrampEtherFi — the exit ladder. Rung 1 = Curve pool sale; rung 2 = wait NFT.
     ///         HONEST SERVING: when the held weETH covers less than `amount`
     ///         (clamped balance), both rungs report the
     ///         pro-rata `covered` slice, never the full ask — so the caller's
@@ -808,8 +730,8 @@ library QuidLib {
                 return covered;
             }
         }
-        // There is deliberately NO ether.fi instant-redeem rung: `totalRedeemableAmount` measures ZERO
-        // at every sampled block, because the pool absorbs the flow first.
+        // There is deliberately NO ether.fi instant-redeem rung: ether.fi's instant-redeem buffer
+        // measured ZERO at every sampled block, because the pool absorbs the flow first.
         // RUNG 2 (last) — no-fee withdrawal NFT, minted to the WITHDRAWER.
         //
         // ⚠️ THE LADDER IS TWO RUNGS, AND THE INTENDED FIRST RUNG IS MISSING. Today it sells weETH on
@@ -817,13 +739,11 @@ library QuidLib {
         // against the weETH, deliver that, and repay from the redemption — with the pool SALE as the
         // borrow's ONLY alternative (owner, 2026-08-09). Under that design `waitNft` stops being a way
         // to serve an LP and becomes the REPAYMENT of the borrow.
-        // 🔴 **DESTALED 2026-09-05: this read "v3" in both places**, contradicting the `RUNG 1 — CURVE`
-        // note ~25 lines above it in this same function. v3 was removed on 2026-08-09 — the SAME DATE
-        // this owner quote is dated — so the sentence was stale the day it was written.
         //
-        // The ~25.6 bps sale is charged ONLY on the slice `weethIn` covers — i.e. the weETH this contract
-        // holds FREE (`:452-457` clamps to `balanceOf(address(this))`). Levered collateral sits in per-LP
-        // venue escrows and is untouchable here, so the sale is a bounded slice, NOT the whole withdrawal.
+        // The sale is charged ONLY on the slice `weethIn` covers — i.e. the weETH this contract holds
+        // FREE (the `if (weethIn > bal)` clamp at the top of this function pins it to
+        // `balanceOf(address(this))`). Levered collateral sits in per-LP venue escrows and is
+        // untouchable here, so the sale is a bounded slice, NOT the whole withdrawal.
         // ⚠️ That makes it LARGEST IN BOOTSTRAP, when little is levered and most weETH is free.
         //
         // ▶️ Building it is NOT deploy config (an earlier note here said so, wrongly). Venue `borrow` is
@@ -840,12 +760,11 @@ library QuidLib {
     ///         minted to `recipient`. Returns the ETH-worth actually covered
     ///         (honest: a clamped weETH balance covers proportionally less).
     ///         Used by offrampBody — the LP-exit down-leg fallback when the CURVE
-    ///         pool sale above it fails its 0.5% floor (v3 was removed 2026-08-09;
-    ///         this said "v3" until 2026-09-05) (the redemption-side
-    ///         wrapper was removed: redemption is stables-only). ⚠️ It is the ONLY
-    ///         thing under rung 1: there is no instant-redeem buffer to exhaust
-    ///         first, so a pool that cannot fill puts the withdrawer straight
-    ///         into a multi-day queue.
+    ///         pool sale above it fails its 25 bps floor (`covered * 9975 / 10_000`),
+    ///         or when this contract holds no free weETH to sell. Redemption never
+    ///         reaches here: redemption is stables-only. ⚠️ It is the ONLY thing under
+    ///         rung 1 — there is no instant-redeem buffer to exhaust first, so a pool
+    ///         that cannot fill puts the withdrawer straight into a multi-day queue.
     function waitNft(uint amount, address recipient, SwapLib.OfframpCfg memory c)
         internal returns (uint) {
         if (amount == 0 || c.weeth == address(0) || c.lp == address(0)) return 0;
