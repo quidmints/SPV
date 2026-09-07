@@ -1198,9 +1198,9 @@ contract BTCChannels is Ownable {
         // withdrawal against the stale-close guard and reject legitimate closes.
         _armLadder(channelId, p, exits);
         // (T1-f) THE CLAIM, decided here rather than inside `_applySplice`: an ordinary grow is
-        // funded BY this LP, so it is a deposit and earns the LP its shares. The grow that did
-        // NOT credit — the pool buying sats on a swap-in — no longer exists, so this is the only
-        // decision made about a grown slice anywhere.
+        // funded BY this LP, so it is a deposit and earns the LP its shares — and this is the
+        // ONLY place a grown slice is decided about. Every grow reaching here is LP-funded;
+        // there is no uncredited grow path, so no second rule is needed.
         if (grewBy != 0) btc.requestDeposit(channels[channelId].lpEth, grewBy);
         // FEE-INTO-CHANNEL: the hop may mark up to `grewBy` of this grow as BTC-leg fees it is FUNDING in —
         // they compound into the LP's position (requestDeposit already grew pooled by the full delta, so `delivered`
@@ -1773,13 +1773,13 @@ contract BTCChannels is Ownable {
     ) external nonReentrant {
         _whenOpen(channelId);
         // (E153) THE SPLICE-VS-CLOSE DISCRIMINATOR, REPLACING THE PARTICIPANT GATE.
-        // This used to read: "recordClose has no on-chain splice-vs-close discriminator (it
-        // can't reconstruct the rotated 2-of-2 keys of the splice's CONTINUING output)" — and
-        // therefore restricted recording to the hop or the LP, because a third party could
-        // otherwise replay the hop's confirmed SPLICE tx here to force-retire an OPEN channel
-        // (delivered=0, splice()/deliver() bricked on whenOpen, an in-flight swap-out stranded).
-        // `BitcoinTx` reconstructs exactly those keys (E129/E142), so the ambiguity is gone:
-        // a SPLICE leaves a continuing 2-of-2 output; a CLOSE does not.
+        // `BitcoinTx` reconstructs the rotated 2-of-2 keys of a splice's CONTINUING output
+        // (E129/E142), so a SPLICE and a CLOSE are distinguishable on-chain: a splice leaves a
+        // continuing 2-of-2 output, a close does not.
+        // 🔴 THE ATTACK THIS DISCRIMINATOR IS WHAT STOPS, so do not weaken it to a participant
+        //    check: without it a third party replays the hop's confirmed SPLICE tx here to
+        //    force-retire an OPEN channel — delivered=0, splice()/deliver() bricked on whenOpen,
+        //    and an in-flight swap-out stranded.
         // ⇒ Attacking the cause means the gate no longer trusts WHO calls, so recording is
         //   PERMISSIONLESS — a channel can be retired once Bitcoin confirms the close, with no
         //   dependence on hop OR LP liveness. Same shape as every other liveness fix here:

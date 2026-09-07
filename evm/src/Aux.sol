@@ -282,10 +282,9 @@ contract Aux is // Auxiliary
                                              // revert→catch→0.
          && msg.sender != CORE.btc()   // BTC range manager: same delegatecall shape on the
                                              // BTC side (BtcLib/SwapLib run as the Vault).
-                                             // ⚠️ TWO ENTRIES, NOT ONE, SINCE THE VENUE CARVE —
-                                             // this used to read "one address (ethVenue) covers
-                                             // ETH and BTC arb", true only while they WERE one
-                                             // address. Read from Core so there is no second pin.
+                                             // ⚠️ TWO ENTRIES, NOT ONE: the venue carve gave ETH
+                                             // and BTC separate addresses, so one entry cannot
+                                             // cover both. Read from Core — never pin a second.
          && msg.sender != address(this))
             revert Unauthorized();
     }

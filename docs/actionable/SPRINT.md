@@ -52978,6 +52978,32 @@ FOLDED citation is still stale** — the one bucket that is actionable. Per this
 with a binary result beats a disposition; and per the tooling-traps rule it fails loudly, exiting with
 a FATAL if the tree walk returns zero `.md` files rather than reporting a clean run.
 
+# 🔴 §THE-CODE-ENFORCES-THE-OVERSHOOT — **`SwapLib:679` MAKES `§UNIT-BOUND-NOT-DELETE` UNIMPLEMENTABLE BY THE NEXT EDITOR (2026-09-07)**
+
+**Found while sweeping tombstones, and it is why that sweep is not tidying.** `SwapLib.sol:679-684` is
+a **category-3 comment — a live *"do not restore X because Y"* constraint — so it is KEPT verbatim**
+under the no-tombstones rule. But read against `§UNIT-BOUND-NOT-DELETE`, what it constrains is wrong:
+
+> *"That design was REJECTED and its implementation REMOVED (`payRefillBonus`, 2026-07-22): paying a
+> swapper a bonus is exactly what the removal was meant to stop, so that the retained drain premium
+> STAYS with LPs as backing."*
+
+⛔ **`§UNIT-BOUND-NOT-DELETE` establishes from the record that the 2026-07-22 decision said BOUND the
+bonus — twice — and never said delete it**, and that `:675` shipped *"payRefillBonus REMOVAL"* entire.
+⇒ **this comment states the OVERSHOOT as the intent**, and it is the mechanism by which §E6 came to
+restate an implementation accident as a first-principles rule. **A principle inferred from an
+overshoot, now enforced at the call site.**
+
+🔴 **THE CONSEQUENCE IS OPERATIONAL, NOT HISTORICAL: if the owner ratifies restoring the bounded
+asymmetric form (`S_in < S_out`, self-funding by construction), the next editor arrives at this line
+and it tells them not to.** A comment that forbids the thing the owner just approved is worse than a
+stale one — **it is a veto with no author.**
+
+▶️ **DO NOT EDIT IT NOW.** It is correct as a record of the *current* rule, and rewriting it before the
+decision would be pre-empting the owner. **Book it as coupled to that decision: whichever way
+`§UNIT-BOUND-NOT-DELETE` lands, this comment changes in the same commit — restored-bounded means it
+must say so, unchanged means it stays.** ⚠️ **Same for §E6's derivation, which rests on it.**
+
 # 🔎 §COMMENT-SWEEP-2026-09-07 — **TWO CLASSES SWEPT AGAINST THE CODE. ONE FOUND NOTHING, AND THE OTHER FOUND THE SWEEP'S OWN TRAP.**
 
 Owner direction: *"docblocks can be stale. check everything against code and update or delete stale
