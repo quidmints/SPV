@@ -647,13 +647,8 @@ contract AllesFixture is ForkPin, ExitFixture {
             ethFeed: 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419,   // Chainlink ETH/USD
             btcFeed: 0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c,   // Chainlink BTC/USD
             weth: address(WETH), wbtc: address(WBTC), gho: address(GHO), usdg: address(USDG),
-            usdc: address(USDC), usdt: address(USDT), dai: address(DAI),
-            usde: address(USDE), usds: address(USDS),
-            morphoUsdcVault: morphoUsdcVault, morphoUsdtVault: morphoUsdtVault,
-            morphoUsdsVault: morphoUsdsVault, sdai: address(SDAI), susde: address(SUSDE),
             aaveSpoke: aaveSpoke, aaveHub: aaveHub,
             stables: STABLECOINS, vaults: VAULTS,
-            hopOperator: address(0),
             spvCheckpointHeader: "", spvCheckpointHeight: 0, spvCheckpointWork: 0,
             spvCheckpointFollowers: new bytes[](0),   // (E135) tests build their own short chains
             allowUnburiedCheckpoint: true,   // (E135-b) tests build their own short chains -- burial waived deliberately

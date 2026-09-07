@@ -131,11 +131,11 @@ library BtcLib {
     /// @dev resize/resizeBtcLpTail output as ONE struct (single memory pointer) rather than four
     ///      stack-slot returns — keeps both off the legacy-pipeline stack (no via_ir). The Vault
     ///      forwarder applies `lpShares = lpShares + feeCompounded - sharesRemoved` and
-    ///      `totalBuffer -= bufRemoved`. `owed` is inert: no body writes it and no caller reads it.
+    ///      `totalBuffer -= bufRemoved`.
     /// @dev `feeCompounded` (E145): sats the BTC fee leg compounded into `LP.pooled` during
     ///      this resize. The forwarder must ADD it to `lpShares` alongside subtracting
     ///      `sharesRemoved`, or the sum drifts from the positions it totals.
-    struct ResizeOut { uint sharesRemoved; bool cleared; uint owed; uint bufRemoved; uint feeCompounded; }
+    struct ResizeOut { uint sharesRemoved; bool cleared; uint bufRemoved; uint feeCompounded; }
 
     /// @notice The tail of `resize` below — its only caller — picking up after that body's
     ///         funded/lev prologue and repack. Settles fees, pays the swap-out proceeds,

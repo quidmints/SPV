@@ -1675,7 +1675,7 @@ library SwapLib {
     /// `s + s'(1−s)` while LPs were credited only `s`.
     /// ⇒ **The producer-side decline still earns its place** — it makes the count irrelevant, and
     /// §E279 removed a consumer rather than proving consumers cannot reappear.
-    /// ⚠️ Reverting here means a QUOTE read can revert (`quoteDrain`/`quoteFill` below). Intended:
+    /// ⚠️ Reverting here would mean a quote read can revert. The intent was:
     /// at this scarcity there is no fillable price, and a solver
     /// that asked for one needs to route that leg elsewhere rather than receive a number it cannot
     /// trade on.
@@ -2864,81 +2864,21 @@ library SwapLib {
     }
 
 
-    // ═══ §E310 — `SwapLib` FOLDED IN; the file is deleted ═══
-    // 270 lines whose only live consumers were its own test plus one `_applySkew` reference.
-    // ⛔ SUPERSEDED 2026-08-24 (`9bf33b9f`) — THE PARKED SURFACE IS GONE, AND THE NOTE BELOW IS
-    //    KEPT ONLY TO EXPLAIN WHY DELETING IT WAS NOT THE `create_sweep_tx` MISTAKE. `quoteFill`,
-    //    `quoteDrain`, `enforce`, `_quote` and `assertConserved` were removed BY DECISION: the
-    //    keep-note's own condition was "awaiting the 'paid against 1inch' decision", and the owner
-    //    MADE that decision — 1inch — so the surface was no longer awaiting anything. A keep-note
-    //    is only load-bearing while its stated condition is unresolved; resolve the condition and
-    //    the note expires with it. ⇒ DO NOT restore these functions from the text below.
-    //    (Original note, now historical:) "FOLDED, NOT DELETED. Measured: `quoteFill`, `quoteDrain`,
-    //    `enforce`, `of` and `assertConserved` have ZERO callers — but this is the PARKED
-    //    firm-quote surface the design depends on, awaiting the 'paid against 1inch' decision, not
-    //    dead code. Rule 1 removes UNREACHABLE code; it does not remove a maintained primitive
-    //    awaiting a wiring, which is the mistake this repo has already reverted twice
-    //    (`create_sweep_tx`)." It imported `SwapLib`; folding it here dissolves that edge.
-    //
-    // ✅ VERDICT 2026-08-23 — KEEP, AND THE REASON HAS CHANGED: IT IS NO LONGER BLOCKED.
-    //    RE-MEASURED in `evm/src` / `evm/test` / `evm/script`: `quoteDrain` and `quoteFill` appear
-    //    only at their own `function` lines; `assertConserved` likewise; **`enforce(` has exactly ONE
-    //    hit repo-wide, its own declaration**; the errors `QuoteExpired`, `SizeExceedsInventory` and
-    //    `ConservationViolated` are declared and never revert; `NoQuote` reverts only inside the two
-    //    quoters. Zero production callers, confirmed — and the `of` named above no longer exists.
-    //    ⚠️ READ THAT PARAGRAPH AS A DATED MEASUREMENT, NOT AS THE TREE'S STATE: `9bf33b9f` then
-    //    deleted the surface, and none of those five errors is declared in `evm/src` today. The
-    //    argument is kept for the ⛔ rule above it, not as a census.
-    // ⭐ **AND THE COST OF KEEPING IT IS ZERO BYTES, MEASURED — WHICH RETIRES THE ONE ARGUMENT THAT
-    //    COULD OUTWEIGH THE KEEP.** `quoteDrain`, `quoteFill`, `enforce` and `assertConserved` are
-    //    `internal`, `_applySkew` is `private`, and an uncalled internal library function is inlined
-    //    into nothing: **none of them appears in `out/SwapLib.sol/SwapLib.json`'s
-    //    `methodIdentifiers`**, which lists exactly the 16 `public`/`external` bodies the deployed
-    //    library dispatches. So this surface is not paid-for bytecode — it costs source lines only.
-    //    ⚠️ **CONTRAST, BECAUSE THE TWO KEEP/DELETE QUESTIONS LOOK ALIKE AND ARE NOT: `FeeLib.calcFeeL1`
-    //    IS `public` WITH ZERO PRODUCTION CALLERS, SO IT *IS* IN ITS LIBRARY'S SELECTOR TABLE AND IS
-    //    DEPLOYED.** The discriminator between an unwired primitive that is free to park and one that
-    //    is billed every deployment is VISIBILITY, not caller count — check the artifact's
-    //    `methodIdentifiers` before arguing either from "zero callers" alone.
-    // ⭐ THE BLOCKER THIS SURFACE WAS PARKED BEHIND IS RESOLVED, IN THE DIRECTION THAT MAKES IT
-    //    REQUIRED. The stated wait was *"the 'paid against 1inch' decision"* (§E293 #2 vs #3).
-    //    That resolved to **#3 — the taker routes their own remainder; `AggregationRouterV6` is not
-    //    our dependency at all.** #3 is precisely the reading that NEEDS a firm quote: a solver
-    //    routing a multi-hop through us must be handed a committed rate with a TTL and a size bound,
-    //    and §E298's rule that *"a revert hands the solver nothing"* is a statement about this
-    //    surface. §E300 then built `_fillableDrain` so a quote can be steep-but-fillable instead of
-    //    unfillable. ⇒ **The surface is wire-READY, not blocked.** What remains is an entrypoint on
-    //    `Aux`/`Core` to expose it, which is a cross-contract change, not a change here.
-    // 🔴 AND THE TRAP TO CLEAR FIRST, WHICH WENT LIVE YESTERDAY AND IS NOT THE ONE THE HEADER WARNS
-    //    ABOUT. `_applySkew` folds the skew into `q.rateWad` (`base ± base·skew/1e18`). The
-    //    SETTLEMENT path already charges the skew by a different mechanism: `retainSkewPremium`
-    //    subtracts the premium from the INPUT before `routeSwap` derives `pooled` from it. **Wiring
-    //    these quoters into a live path that also settles through `retainSkewPremium` re-creates the
-    //    §E279 double-charge exactly** — `f5499659` deleted the twin of this in `Core._fillDelta`
-    //    on 2026-08-23, where the realised rate was `s + s'(1−s)` and only `s` reached LPs, the
-    //    excess sitting in the pool as unattributed backing. The quote surface is the SECOND way in
-    //    to the same defect and nothing currently prevents it. ⇒ **Decide which layer owns the
-    //    charge — the quoted rate or the retained premium — BEFORE either quoter has a caller.**
-    //    The existing *"DECIDE BEFORE WIRING `_applySkew` INTO A LIVE PATH"* below is about a
-    //    different question (final price vs estimate-plus-true-up); this one is arithmetic, and it
-    //    has a measured precedent.
-    // ⚠️ `assertConserved` IS NOT PART OF THIS SURFACE AND MUST NOT BE JUDGED WITH IT. It is a
-    //    settlement-time conservation PROOF, not a quote primitive, and its own docblock argues it
-    //    under standing rule 3 — the failure it catches is SILENT (a plausible balance with a wrong
-    //    `POOLED_*`, compounding into share pricing where nobody can attribute it later). Its wiring
-    //    is independent of the 1inch question and always was.
-    /// @notice THE FIXED-RATE FILL PRIMITIVE (was `FixedRateFill`'s @title). It describes THIS
-    ///         SECTION, not `SwapLib` as a whole -- the §E310 fold carried the header across and the
-    ///         rename made it read as a title for the whole library, which it is not.
-    /// ⚠️      THE FUNCTIONS THIS HEADER ONCE INTRODUCED WERE DELETED IN `9bf33b9f`; what follows is
-    ///         the DESIGN RATIONALE for how our fill differs from an AMM, which is still live and
-    ///         still correct (the skew, the no-traversal quote, why √P and the tick grid left).
-    ///         Read it as the argument for the CURRENT swap path, not as documentation of a
-    ///         `quoteFill` function — there is none. ✅ `error NoQuote()` IS GONE TOO: this said it
-    ///         was *"below … a candidate for removal on the next pass that can BUILD"*, and MEASURED
-    ///         there is no `error NoQuote` declaration anywhere in `evm/src` — the only two hits in
-    ///         the tree are this sentence and the §E310 enumeration above it. Nothing to remove.
-    ///
+    // ═══ §E310 — `FixedRateFill` FOLDED IN HERE; its own file is deleted ═══
+    // 🔴 THE SKEW CHARGE HAS EXACTLY ONE OWNER, AND A SECOND OWNER IS A DOUBLE-CHARGE. `_applySkew`
+    //    folds the skew INTO a rate (`base ± base·skew/1e18`). The settlement path already charges it
+    //    by a DIFFERENT mechanism: `retainSkewPremium` subtracts the premium from the INPUT before
+    //    `routeSwap` derives `pooled` from it. Wiring `_applySkew` into a live path that also settles
+    //    through `retainSkewPremium` re-creates §E279 exactly — `f5499659` deleted that twin from
+    //    `Core._fillDelta` on 2026-08-23, where the realised rate was `s + s'(1−s)`, only `s` reached
+    //    LPs, and the excess sat in the pool as unattributed backing.
+    //    ⇒ **DECIDE WHICH LAYER OWNS THE CHARGE — the rate or the retained premium — BEFORE
+    //    `_applySkew` GETS A CALLER.** Nothing in the code prevents the second way in.
+    //    ⚠️ This is NOT the *"DECIDE BEFORE WIRING `_applySkew` INTO A LIVE PATH"* note below: that
+    //    one is about final price vs estimate-plus-true-up. This one is arithmetic, and it has a
+    //    measured precedent.
+    /// @notice The design rationale below is for the CURRENT swap path — how our fill differs from an
+    ///         AMM (the skew, the no-traversal quote, why √P and the tick grid left).
     /// @notice ONE PRICE, NO TRAVERSAL. The swapper is quoted a SINGLE rate for a SINGLE size, bounded by
     ///         inventory, and that rate is what settles. There is no curve to walk, no tick to cross, and
     ///         no average-execution-across-a-range — which is precisely why √P and the tick grid leave in
@@ -3007,30 +2947,6 @@ library SwapLib {
     ///         has been burned by. An estimate-plus-true-up is honest but needs somewhere to hold the
     ///         difference. DECIDE BEFORE WIRING `_applySkew` INTO A LIVE PATH.
     ///
-    /// @dev    ⚠️ A QUOTE IS ONLY AS FRESH AS THE BLOCK IT WAS TAKEN IN. `sellSkew`'s own docblock says
-    ///         so and says the binding must carry its own staleness bound — so `Quote.deadline` is NOT
-    ///         optional garnish, it is the thing that stops a quote taken in a calm block from settling
-    ///         in a violent one. A committed rate with no expiry is a FREE OPTION written to the swapper,
-    ///         and the range is the counterparty who paid for it.
-    /// A rate committed before execution, with the two bounds that make committing safe.
-    /// @param rateWad     volatile↔USD rate INCLUSIVE of the skew charge. What settles.
-    /// @param maxSizeIn   inventory bound — the largest input this quote is valid for.
-    /// @param skewWad     the imbalance charge folded into `rateWad`, surfaced so the swapper can
-    ///                    see what they are being charged for the imbalance THEY create.
-    /// @param deadline    unix seconds after which this quote is void. See the staleness note above.
-    struct Quote {
-        uint256 rateWad;
-        uint256 maxSizeIn;
-        uint256 skewWad;
-        uint64  deadline;
-    }
-
-
-
-
-
-
-
     /// @dev The skew moves the rate AGAINST the swapper in both directions — it is a spread, not a
     ///      directional view. On a drain the range parts with scarce inventory and charges MORE per
     ///      unit; on a fill the range absorbs unwanted inventory and pays LESS per unit. Symmetric by

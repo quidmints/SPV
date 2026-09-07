@@ -8,18 +8,6 @@ import {LevManager} from "../src/LevManager.sol";
 import {ILevVenue} from "../src/imports/Interfaces.sol";
 import {MorphoEscrowVenue} from "../src/imports/LevVenueBase.sol";
 
-interface IGenericFactory {
-    function createProxy(address impl, bool upgradeable, bytes calldata trailingData) external returns (address);
-}
-interface IEVaultGov {
-    function setInterestRateModel(address) external;
-    function setLTV(address collateral, uint16 borrowLTV, uint16 liquidationLTV, uint32 rampDuration) external;
-    function setHookConfig(address newHookTarget, uint32 newHookedOps) external; // 0,0 ⇒ all ops enabled
-    function deposit(uint256 amount, address receiver) external returns (uint256);
-    function asset() external view returns (address);
-    function governorAdmin() external view returns (address);
-}
-
 interface IChainlinkFeedT { function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80); }
 interface IWeETHRateT { function getEETHByWeETH(uint) external view returns (uint); }
 
@@ -51,24 +39,6 @@ contract RealRateMorphoOracle {
 // in src/imports/LevBase.sol (imported below) — DeployL1_s deploys it inline; this test fork-proves it.
 // It reads the SAME real Chainlink ETH/USD the crash mock drives, so the short's Morpho health and
 // the sizing move together as the fork feed is stepped.
-
-/// Real EVC liquidation surface — a liquidator enables the controller/collateral then liquidates an unhealthy
-/// sub-account through the EVC (on-behalf-of itself).
-interface IEVCLiq {
-    struct BatchItem { address targetContract; address onBehalfOfAccount; uint256 value; bytes data; }
-    function enableController(address account, address vault) external payable;
-    function enableCollateral(address account, address vault) external payable;
-    function batch(BatchItem[] calldata items) external payable;
-}
-interface IEVaultLiq {
-    function liquidate(address violator, address collateral, uint256 repayAssets, uint256 minYieldBalance) external;
-    function repay(uint256 amount, address receiver) external returns (uint256);
-    function checkLiquidation(address liquidator, address violator, address collateral)
-        external view returns (uint256 maxRepay, uint256 maxYield);
-    function accountLiquidity(address account, bool liquidation)
-        external view returns (uint256 collateralValue, uint256 liabilityValue);
-}
-interface IWeethSubId { function subIdOf(address lp) external view returns (uint8); }
 
 /// @notice REAL-FORK proof of the YB IL-protect production swap route. Proves the folded `LevManager` legs
 ///   perform a genuine stable↔weETH round-trip over LIVE markets — caller-funded SOR (stable→WETH via the
