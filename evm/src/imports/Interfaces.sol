@@ -188,6 +188,50 @@ bytes4 constant UNOSWAP3_SELECTOR = 0x19367472;
 // by a `PoolKey` inside the PoolManager — so a 160-bit pool word cannot name one. Balancer, Maverick
 // and anything else 1inch reaches are in the same position.
 bytes4 constant SWAP_SELECTOR   = 0x07ed2379;
+
+// ═══════════ §SESS-79 — UNISWAP V4 THROUGH THE UNIVERSAL ROUTER, NO AGGREGATOR, NO API KEY ═══════════
+// ⭐ **WHY V4 AT ALL, MEASURED:** the V4 singleton holds **USDS 76,178,513** and **GHO 2,270,133**
+//    against **10,928** and **8,179** on UniswapV3 — the two stables this basket cannot otherwise
+//    route. Balancer's whole vault holds 285k USDC and is not worth an integration.
+// ⛔ **A V4 POOL HAS NO ADDRESS**, so no pool word can name one: it is a singleton keyed by a PoolKey
+//    `(currency0, currency1, fee, tickSpacing, hooks)`. That is why this needs its own arm.
+address constant UNIVERSAL_ROUTER = 0x66a9893cC07D91D95644AEDD05D03f95e1dBA8Af;
+address constant PERMIT2           = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
+bytes4  constant UR_EXECUTE        = 0x3593564c;   // execute(bytes,bytes[],uint256) — read from chain
+uint8   constant CMD_V4_SWAP       = 0x10;
+uint8   constant ACT_SWAP_IN_SINGLE = 0x06;
+uint8   constant ACT_SETTLE_ALL     = 0x0c;
+uint8   constant ACT_TAKE_ALL       = 0x0f;
+// §SESS-79 — the v4 "pool word": proto | tickSpacing | fee. ⭐ **`hooks` IS NOT IN IT AND CANNOT BE:
+// it is forced to address(0).** `currency0`/`currency1` are DERIVED from the tokens this frame owns.
+// ⇒ a caller's entire freedom is choosing a FEE TIER of a hookless pool of the pair we are already
+// trading, which is a far smaller grant than "name a pool".
+uint256 constant PROTO_V4        = 3;
+uint256 constant V4_FEE_OFFSET   = 160;   // uint24
+uint256 constant V4_TICKSP_OFFSET = 184;  // int24
+
+/// §SESS-79 — the v4 PoolKey. `hooks` is present because the ABI requires it; `SwapLib.v4Swap` always
+/// passes `address(0)` and never accepts one from a caller.
+struct PoolKey { address currency0; address currency1; uint24 fee; int24 tickSpacing; address hooks; }
+
+/// §SESS-79 — v4's `ExactInputSingleParams`, declared so it can be encoded AS A STRUCT.
+/// 🔴 **THIS EXISTS BECAUSE `abi.encode(f1, f2, …)` IS NOT `abi.encode(struct)` WHEN THE STRUCT HAS A
+///    DYNAMIC MEMBER.** `hookData` is `bytes`, which makes the tuple dynamic, so encoding the struct
+///    emits a LEADING OFFSET that encoding the loose fields does not. The router does
+///    `abi.decode(params[0], (ExactInputSingleParams))`, so the field-wise form decodes garbage —
+///    measured as `unlock → unlockCallback → exttload → revert` with nothing swapped.
+struct V4ExactInputSingleParams {
+    PoolKey poolKey;
+    bool    zeroForOne;
+    uint128 amountIn;
+    uint128 amountOutMinimum;
+    bytes   hookData;
+}
+
+/// Permit2's allowance face — the UniversalRouter pulls through it rather than a direct ERC-20 approve.
+interface IPermit2 {
+    function approve(address token, address spender, uint160 amount, uint48 expiration) external;
+}
 uint256 constant PROTO_CURVE   = 2;
 uint256 constant HOP_I_OFFSET  = 160;
 uint256 constant HOP_J_OFFSET  = 168;
