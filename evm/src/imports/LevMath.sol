@@ -8,10 +8,6 @@ import {WAD, VenueNotAllowed} from "./Types.sol";
 // §A.52: the canonical view lives in Interfaces.sol — imported, never re-declared file-local.
 import {ICore, IAux, IWeETH, IDepositAdapter, ILevVenue, TWAP_WINDOW_SECS} from "./Interfaces.sol";
 import {IERC20Min, IWETH9} from "../imports/Interfaces.sol";
-// §SESS-83 — a LEAF library: `V4Lib` imports no sibling, so importing it here does not invert
-// `LevMath`'s bottom-layer position. Its body is `external`, so it links rather than inlines.
-import {V4Lib} from "./V4Lib.sol";
-import {PROTO_V4} from "./Interfaces.sol";
 import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, UNOSWAP3_SELECTOR, SWAP_SELECTOR, PROTO_UNIV3,
         PROTO_CURVE, HOP_I_OFFSET, HOP_J_OFFSET, ZERO_FOR_ONE, IUniV3PoolMin, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN, CURVE_3POOL, USDT_TOKEN, CRV_USDT_IDX, CRV_USDT_USDC_IDX, DAI_TOKEN, CRV_DAI_IDX, CRV_DAI_USDC_IDX, USDG_TOKEN, CURVE_USDG_USDC, CRV_USDG_IDX, CRV_USDG_USDC_IDX, CRVUSD_TOKEN, CURVE_CRVUSD_USDC, CRV_CRVUSD_IDX, CRV_CRVUSD_USDC_IDX} from "./Interfaces.sol";
 
@@ -1214,17 +1210,15 @@ library LevMath {
     {
         if (amt == 0) return 0;
         if (stable == USDC) return amt;            // hub itself — nothing to convert, either direction
-        // ⭐ §SESS-83 — **A V4 HUB HOP, WHICH IS THE LEG GHO DEPENDS ON.** Measured: GHO's UniV3
-        //    pools hold 8,179 and its V3/WETH pools hold zero, so `GHO -> USDC` has no venue this
-        //    contract could reach — while its HOOKLESS v4 pool quotes 9,984.93 for 10,000 GHO, a
-        //    figure the executed swap reproduced exactly.
-        // 🔑 **`V4Lib` IS A LEAF LIBRARY WITH AN `external` BODY, WHICH IS WHY THIS FITS.** `LevMath`
-        //    is the bottom layer and imports no sibling library; an external library function is
-        //    DELEGATECALLED from its own deployment, so this pays for a call site rather than
-        //    inlining ~80 lines of nested `abi.encode` into a contract with 222 bytes to spare.
-        // ⛔ `hooks` is not decodable from the word BY CONSTRUCTION — `V4Lib` forces `address(0)` — so
-        //    a caller cannot name a hooked pool and cannot put foreign code on our call stack.
-        if (word >> 253 == PROTO_V4) return V4Lib.v4SwapWord(word, stable, USDC, amt, toUsdc, minOut);
+        // ⛔ §SESS-86 — **NO `PROTO_V4` ARM HERE, AND `V4Lib` IS DELETED.** It was UNREACHABLE, not
+        //    merely unnecessary: every caller of `_hubHop` reaches it only under
+        //    `hub == 0 || hub >> 253 == PROTO_CURVE`, so a v4 word could never arrive — and the
+        //    keeper cannot send one anyway (`venue_word(Venue::V4) => None`, because a singleton has
+        //    no address to put in a word). ⚠️ **The only test it had called the library DIRECTLY**,
+        //    so a green suite said "the v4 encoding executes" about a branch nothing could enter.
+        // ⇒ v4 belongs where every other multi-hop venue already lives: in a route BUILT OFF-CHAIN
+        //   and retargeted here. Building UniversalRouter calldata on-chain was ~80 lines and a
+        //   linked deployment to reach a case that never arrived.
         (address pool, int128 iS, int128 iU) = word >> 253 == PROTO_CURVE
             ? (address(uint160(word)),
                int128(uint128(uint8(word >> HOP_I_OFFSET))),

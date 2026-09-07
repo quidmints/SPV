@@ -1343,6 +1343,15 @@ fn v4_pool_has_liquidity<R: JsonRpc>(rpc: &R, a: LpAddr, b: LpAddr, fee: u32, ts
 fn best_direct<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Option<(Venue, U256)> {
     let mut best: Option<(Venue, U256)> = None;
     for v in venues_for(rpc, tin, tout, amt) {
+        // 🔴 §SESS-86 — **A VENUE WE CANNOT ENCODE MUST NOT WIN, AND IT USED TO.** `best_plan_quoted`
+        //    read `if let Some(w) = venue_word(v)`, so a V4 winner was dropped SILENTLY and the whole
+        //    direct arm produced nothing — not "the best V3 instead", NOTHING. Ranking a venue we
+        //    cannot trade is a quote wearing a plan's clothes.
+        // ⛔ Do not "fix" this by re-admitting v4 here: `venue_word` returns `None` for it because a
+        //    singleton pool has no address, and the on-chain arm that used to execute one (`V4Lib`)
+        //    was unreachable and is deleted. v4 returns when a route is BUILT for it (`Plan.fetched`),
+        //    and the gap is booked in L-routing rather than papered over with a silent skip.
+        if venue_word(v).is_none() { continue; }
         let out = match v {
             Venue::V3 { fee, .. } => quote_hop(rpc, tin, tout, amt, fee),
             Venue::Curve { pool, i, j } => curve_quote(rpc, pool, i, j, tin, tout, amt),
@@ -1391,9 +1400,9 @@ fn best_plan<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Optio
 fn best_plan_quoted<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Option<(Plan, U256)> {
     let mut best: Option<(Plan, U256)> = None;
     if let Some((v, out)) = best_direct(rpc, tin, tout, amt) {
-        if let Some(w) = venue_word(v) {
-            best = Some((Plan { dex: w, dex2: [0u8; 32], hops: vec![w], fetched: Vec::new() }, out));
-        }
+        // `best_direct` no longer returns a venue without a word, so this cannot silently drop an arm.
+        let w = venue_word(v).expect("best_direct returned an unencodable venue");
+        best = Some((Plan { dex: w, dex2: [0u8; 32], hops: vec![w], fetched: Vec::new() }, out));
     }
     // ⭐ §SESS-58 — **EVERY CANDIDATE HUB, INCLUDING WHEN THE INPUT IS ITSELF A HUB.**
     // 🔴 This read `if tin != USDC_ADDR` with USDC as the only hub, so **a USDC-denominated venue —
@@ -1807,26 +1816,45 @@ mod tests {
             ("BOLD",   a("0x6440f144b7e50D6a8439336510312d2F54beB01D"), 18),
         ];
         let wbtc = a("0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599");
+        // 🔴 §SESS-86 — **THIS MATRIX USED TO COUNT VENUES THE PROTOCOL CANNOT TRADE.** A cell read
+        //    `!venues_for(..).is_empty()`, and `venues_for` returns v4 candidates — which
+        //    `venue_word` cannot encode, which `Plan.fetched` never carries, and whose on-chain
+        //    executor (`V4Lib`) was unreachable and is now deleted. So GHO and USDS counted as
+        //    covered on the strength of a pool nothing in the system can reach.
+        // ⇒ **a cell is EXECUTABLE or it is not**, and "v4 only" gets its own label so the gap is
+        //   VISIBLE rather than absorbed into a pass. That distinction is the whole finding: the
+        //   difference between "there is no venue" and "there is one and we cannot use it" is what
+        //   tells you whether to go find liquidity or to go write an encoder.
+        let tradeable = |x: LpAddr, y: LpAddr, amt: U256| -> (bool, bool) {
+            let vs = venues_for(&rpc, x, y, amt);
+            (vs.iter().any(|v| venue_word(*v).is_some()), !vs.is_empty())
+        };
         println!("{:<8} {:>26} {:>26}", "stable", "-> WETH", "-> WBTC");
-        let mut both = 0usize;
+        let (mut both, mut v4_only) = (0usize, 0usize);
         for (name, addr, dec) in stables {
             let amt = U256::from(100_000u64) * U256::from(10u64).pow(U256::from(dec));
             let mut cells = Vec::new();
             for vol in [WETH_ADDR, wbtc] {
-                let direct = !venues_for(&rpc, addr, vol, amt).is_empty();
+                let (direct, direct_any) = tradeable(addr, vol, amt);
                 let hub = addr != USDC_ADDR
-                    && !venues_for(&rpc, addr, USDC_ADDR, amt).is_empty()
-                    && !venues_for(&rpc, USDC_ADDR, vol, amt).is_empty();
-                cells.push(match (direct, hub) {
-                    (true, _) => "direct".to_string(),
-                    (false, true) => "via USDC".to_string(),
+                    && tradeable(addr, USDC_ADDR, amt).0
+                    && tradeable(USDC_ADDR, vol, amt).0;
+                let (hub_any, _) = (addr != USDC_ADDR
+                    && tradeable(addr, USDC_ADDR, amt).1
+                    && tradeable(USDC_ADDR, vol, amt).1, ());
+                cells.push(match (direct, hub, direct_any || hub_any) {
+                    (true, _, _) => "direct".to_string(),
+                    (false, true, _) => "via USDC".to_string(),
+                    // a venue exists and we cannot encode it — the honest middle state
+                    (false, false, true) => { v4_only += 1; "v4 only (UNTRADEABLE)".to_string() }
                     _ => "** NONE **".to_string(),
                 });
             }
-            if cells.iter().all(|c| c != "** NONE **") { both += 1; }
+            if cells.iter().all(|c| c == "direct" || c == "via USDC") { both += 1; }
             println!("{name:<8} {:>26} {:>26}", cells[0], cells[1]);
         }
-        println!("\n{both}/14 stables reach BOTH volatiles at $100k");
+        println!("\n{both}/14 stables reach BOTH volatiles at $100k ON A VENUE WE CAN ENCODE");
+        println!("{v4_only} legs have liquidity ONLY where we cannot route it (booked, not counted)");
         // A floor, not the exact set: the hub itself plus the deep majors must always route.
         assert!(both >= 4, "only {both}/14 stables reach both volatiles - that is below anything the \
                             lever could operate on, so it is a broken search or a dead endpoint");
