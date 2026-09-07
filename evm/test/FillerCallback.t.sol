@@ -290,6 +290,42 @@ contract FillerCallbackTest is AllesFixture {
     /// 📌 The complementary bleed question (**how much of the budget is unused**) is logged, not
     ///    asserted: §SESS-23 owns it, and asserting a ceiling here would re-freeze a market reading
     ///    through the back door — the exact defect being removed.
+    /// @notice MEASUREMENT ONLY — no inequality assertion, ON PURPOSE. Its sibling above asserts
+    ///         `budget >= need` and therefore REVERTS AT THE FIRST FAILING SIZE, so it can only ever
+    ///         report the $50k arm and the $1M arm is never reached. This one records every size at
+    ///         one block so the shape across sizes is visible, and is meant to be run at SEVERAL
+    ///         pinned blocks to separate a standing budget defect from one block's basis.
+    /// ⚠️ IT RECORDS DIRECT-ONLY AND HUB-ROUTED SEPARATELY BECAUSE THE LAST INVESTIGATION HERE
+    ///    BLAMED THE BUDGET AND WAS WRONG — the 2-hop through USDT returned ~23 bps more and the
+    ///    shortfall was the SEARCH's (see `_bestDirect`'s note). A `need` computed from a narrow
+    ///    search indicts `_slipBps` for the searcher's own laziness, so both numbers are logged and
+    ///    the gap between them is the tell.
+    /// 🔴 The two `assertGt`s that REMAIN are liveness checks on the MEASUREMENT, not on the budget:
+    ///    a zero parity or a zero quote means nothing was measured, and a run that measured nothing
+    ///    must not be read as evidence of anything.
+    function test_MEASURE_SlipNeedAcrossSizes() public {
+        _mkDesk();
+        uint256[5] memory sizes =
+            [uint256(10_000e6), 50_000e6, 250_000e6, 1_000_000e6, 5_000_000e6];
+        for (uint256 i; i < sizes.length; ++i) {
+            uint256 amt    = sizes[i];
+            uint256 par    = desk.parity(address(USDC), amt, WETHA);
+            uint256 direct = _bestDirect(address(USDC), WETHA, amt);
+            uint256 best   = _quoteBestVenue(address(USDC), WETHA, amt);
+            uint256 budget = LevMath._slipBps(desk.usdSize(address(USDC), amt));
+            assertGt(par,  0, "parity is zero - nothing was measured");
+            assertGt(best, 0, "no venue quote - nothing was measured");
+            uint256 needD = direct >= par ? 0 : (par - direct) * 10_000 / par;
+            uint256 needB = best   >= par ? 0 : (par - best)   * 10_000 / par;
+            emit log_named_uint("size (USDC 6dec)          ", amt);
+            emit log_named_uint("  need bps DIRECT-only    ", needD);
+            emit log_named_uint("  need bps HUB-ROUTED     ", needB);
+            emit log_named_uint("  budget bps (_slipBps)   ", budget);
+            emit log_named_uint("  SHORTFALL bps (0 == ok) ", budget >= needB ? 0 : needB - budget);
+            emit log_named_uint("  search gain bps         ", needD >= needB ? needD - needB : 0);
+        }
+    }
+
     function test_TheSlipBudgetMustCoverWhatTheBestVenueActuallyCosts() public {
         _mkDesk();
         uint256[2] memory sizes = [uint256(50_000e6), uint256(1_000_000e6)];

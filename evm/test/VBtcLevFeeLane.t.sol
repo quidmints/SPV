@@ -1169,6 +1169,22 @@ contract VBtcLevFeeLane is AllesFixture {
     ///    POOLED_USD is reconciled by the keeper's async `syncLev`, so an over-draw may be
     ///    transient. Both are recorded: the gap immediately after delivery, and the gap after
     ///    `syncLev`. A defect that self-heals and one that does not are different findings.
+    /// @dev Both sides of the solvency invariant at one instant, for the refill-funding question:
+    ///      does `takeToSettle`'s SOFT backing check leave the pool worse off than it found it?
+    ///      `takeToSettle` passes `softBacking = true` -> `tryCheckBacking()`, which repacks but
+    ///      DOES NOT REVERT, on the stated ground that "its mid-drain instant is offset by an in-tx
+    ///      debt-repay". This measures whether that offset actually lands.
+    function _backingSnap(string memory tag) internal returns (uint committed, uint liquid) {
+        (uint[15] memory dd,,, uint dpg) = AUX.get_deposits();
+        liquid    = dd[14] > dpg ? dd[14] - dpg : 0;
+        committed = CORE.committedUsd18();
+        emit log_named_string("---- backing @", tag);
+        emit log_named_uint("     committed (18d)  ", committed);
+        emit log_named_uint("     liquid    (18d)  ", liquid);
+        emit log_named_uint("     headroom  (18d)  ", liquid > committed ? liquid - committed : 0);
+        emit log_named_uint("     OVER      (18d)  ", committed > liquid ? committed - liquid : 0);
+    }
+
     function testReal_MEASURE_DeliveryDrawVsDebtRetired_LowLtv() public {
         LevDelivery memory d;
         d.ch = _deployChannels();
@@ -1209,8 +1225,15 @@ contract VBtcLevFeeLane is AllesFixture {
         emit log_named_uint("venue debt before   (usd6) ", debtBefore);
 
         vm.prank(d.lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
+        (uint cBefore, uint lBefore) = _backingSnap("BEFORE delivery");
         _deliverLevSwapOut(d.ch, d.channelId, d.fundingTxId, 54, d.lpPubkey, _levDelivSwapId(), d.sats,
                            _levDelivScript(address(d.ch)));
+        (uint cAfter, uint lAfter) = _backingSnap("AFTER delivery (pre-syncLev)");
+        // 🔴 THE QUESTION: the refill DRAINS basket stable to repay the venue. If the in-tx repay
+        //    does not offset the drain, headroom shrinks and the dollars taken were dollars a
+        //    redeemer could have needed. Report the DELTA of each side, not just the levels.
+        emit log_named_int("     d(committed)      ", int(cAfter) - int(cBefore));
+        emit log_named_int("     d(liquid)         ", int(lAfter) - int(lBefore));
 
         uint pooledMid = CORE.POOLED_USD();
         uint debtMid   = venue.debtOf(d.lp);
@@ -1270,8 +1293,15 @@ contract VBtcLevFeeLane is AllesFixture {
         emit log_named_uint("venue debt before   (usd6) ", debtBefore);
 
         vm.prank(d.lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
+        (uint cBefore, uint lBefore) = _backingSnap("BEFORE delivery");
         _deliverLevSwapOut(d.ch, d.channelId, d.fundingTxId, 54, d.lpPubkey, _levDelivSwapId(), d.sats,
                            _levDelivScript(address(d.ch)));
+        (uint cAfter, uint lAfter) = _backingSnap("AFTER delivery (pre-syncLev)");
+        // 🔴 THE QUESTION: the refill DRAINS basket stable to repay the venue. If the in-tx repay
+        //    does not offset the drain, headroom shrinks and the dollars taken were dollars a
+        //    redeemer could have needed. Report the DELTA of each side, not just the levels.
+        emit log_named_int("     d(committed)      ", int(cAfter) - int(cBefore));
+        emit log_named_int("     d(liquid)         ", int(lAfter) - int(lBefore));
 
         uint pooledMid = CORE.POOLED_USD();
         uint debtMid   = venue.debtOf(d.lp);
