@@ -55442,3 +55442,46 @@ in the code says the cliff was chosen over it rather than inherited.
 value-neutral still means **nothing pays anyone to do it** ⇒ **E48's async keeper fallback is
 REQUIRED, not optional**, and that is now measured rather than argued. ⛔ Do not reopen "is
 restoration naturally profitable" — it is priced at oracle by construction below the deficit.
+
+## §PLP-6-MEASURED — **THE LEG IS REACHABLE AND EXERCISED. IT RETURNS 0 IN EVERY OBSERVED CALL. THE CORRECTNESS OF THAT 0 IS NOT ESTABLISHED.** (2026-09-07)
+
+§PLP-6 carried `SwapLib.deleverEthOnDelivery` as **UNVERIFIED (forge OOM)** pending fork tests. Two
+separate facts, and they must not be merged:
+
+✅ **THE VERIFICATION IT WAITS ON WAS NEVER WRITTEN.** `DeleverEthBackingProbe` — the probe the row
+names — **does not exist as a test file, and the name appears in no test.** Nor does
+`testReal_DeleverEthBacking_SwapOutTapsLeveredSlice`, which a `QuidLib.sendEth` comment claimed
+fork-proved the leg (that comment was corrected in today's pass). ⇒ The row is not "verified and
+failing"; it is "the check was never run", and those are different states.
+
+⭐ **MEASURED 2026-09-07 by TRACE, not by reading** — `BufferSwapDrain.t.sol` at `-vvvv`, gate passed
+first (0 compiler errors, 24 `[PASS]`, 38 MB of trace):
+  · `deleverEthOnDelivery` is **REACHED — 16 invocations.** ⛔ It is NOT dead. Nothing here revives
+    §PLP-6a.
+  · Two profiles: **10,222 gas** (early out) and **594,773 gas** — the expensive one walks the real
+    gating chain, reading `LevManager.poolVenue()` → `MorphoEscrowVenue`, `stable()`, and
+    `totalDebt()` returning **557,797,513 = $557.80** against a LIVE Morpho position.
+  · **`deliveredEth == 0` on ALL SIXTEEN**, including every 594,773-gas call.
+
+🔴 **WHAT IS NOT ESTABLISHED, AND MUST NOT BE ASSERTED: whether 0 is CORRECT here.** `BufferSwapDrain`
+may simply never construct a state with deliverable freed collateral, in which case 0 is right and
+the gas is the gating chain doing its job. ⚠️ **This is E70's exact shape** — consume-and-deliver-
+nothing looked like a bug there too, and the resolution was that delivery worked and the FIXTURE was
+mis-sized (§REFILL-SIZE). ⛔ Do not book "the delever leg is broken" off this row.
+▶️ **NEXT MEASUREMENT, and it is the whole remaining question:** construct a state with known
+deliverable collateral (a levered position with headroom above the target LTV) and assert
+`deliveredEth > 0` at the RECIPIENT. If it is still 0 there, that is a defect and it outranks the
+pricing work. That test is `DeleverEthBackingProbe`, and writing it is what closes §PLP-6.
+📌 ~595k gas to decide "nothing" is worth a glance on its own, independent of correctness.
+
+## ⛔ §PLP-6a REOPENED — **THE CONCLUSION STANDS ON A PREMISE THAT WAS DELETED, AND NO REPLACEMENT WAS EVER WRITTEN.**
+
+The chain: §PLP-6a claimed the up-leg was dead → **§PLP-Z Q2.1 withdrew it** on the ground that the
+leg reaches `_poolSwap` → **`_poolSwap` has 0 code occurrences** (§C2.1 deleted it) → the withdrawal
+note says *"the conclusion survives for a different reason"* and **that reason is never stated.**
+⇒ Carried as settled, it asks the next thread to re-derive three layers to discover there is no
+fourth. project-a0 (who owns that lane) states plainly they do not know the different reason and
+will not guess. **Status: conclusion withdrawn, ground deleted, no replacement argument recorded.**
+✅ Independent of all that, today's trace settles the ONLY question §PLP-6a was actually about: the
+leg is reached 16 times, so it is not dead. **§PLP-6a is closed by measurement rather than by
+argument** — which is what should have closed it the first time.

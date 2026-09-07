@@ -449,6 +449,33 @@ by preference. **Partition first; the branch protocol protects the commits, not 
 📌 **The partition itself — which lane owns which files, and why `L4`/`L5` are serial — is
 `§LANES-2026-09-06` in `SPRINT.md`.** This file is how to run a lane; that one is what goes in it.
 
+### 🔴 CONFIRM THE RUN HAPPENED BEFORE YOU READ ITS OUTPUT — THREE FAILURES THAT PRINT A CONFIDENT NUMBER
+
+Measured three times in one day, three different tools, one shape: **the failure produces output that
+reads as a finding.**
+  · `grep -c "^Error" clean.log` **exits 1 on a CLEAN log** ⇒ the harness reports the whole command
+    failed while the build was green.
+  · **IDENTICAL GAS** across a source change that should invert the outcome ⇒ reads as "the change
+    had no effect". It means you are running a CACHED artifact; only `forge build --force` matched
+    the source. (And `--force` is what leaves duplicate library artifacts that fail every suite at
+    link time — so `forge clean` when linking starts failing.)
+  · **AN EMPTY TRACE GREP** ⇒ reads as "that code path is dead". Measured 2026-09-07: `grep -c
+    deleverEthOnDelivery trace.log` returned **0** and the honest reading was *"there was no trace"* —
+    the build had failed. Re-run after the build was fixed: **16 invocations**, up to 594,773 gas
+    each. A 0 and a 16 are the same character count of effort to believe.
+
+⭐ **THE CHEAP GUARD THAT CATCHES ALL THREE: assert the run HAPPENED, separately, before reading what
+it says.** For a forge trace that is three counts — compiler errors `== 0`, `[PASS` lines `> 0`, and
+a non-trivial output size — and only then the grep you actually care about. ⇒ **A grep over a log is
+a claim about the log, not about the code, until you have shown the log is a record of a run.**
+
+⛔ **AND WHEN YOU DO READ A TRACE, MATCH THE FRAME DEPTH, NOT THE PATTERN.** A forge trace nests with
+`│`; a frame opened at N pipes with `├─` is closed by a `└─ ← [Return]` at **N+1**. Matching the
+first `└─ ← [Return]` at N gives you the PARENT's return. Measured the same day: that mistake
+attributed 2.982 ETH to a function that had actually returned 0, and the tell was incoherence —
+10,222 gas cannot produce 2.98 ETH of work. **If a number does not cohere with the gas beside it,
+the extraction is wrong before the code is.**
+
 ### 🔴 MANY THREADS IN **ONE** TREE — WHAT ACTUALLY HAPPENED ON 2026-09-07, AND THE FOUR RULES IT PRODUCED
 
 The recipe above assumes a worktree per lane. **Two threads instead shared `/root/project/spv`
