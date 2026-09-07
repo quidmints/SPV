@@ -204,6 +204,38 @@ environment actually is*. Every line below was verified in-repo, not recalled.
     cites a **line number rather than a measurement**, treat it as unverified until you have re-read
     that line — line numbers rot fastest of all, because every edit above them moves them.
 
+23. 🔴 **DO NOT CREATE A FUNCTION OR A VARIABLE UNLESS THE JOB IS IMPOSSIBLE WITHOUT IT** (owner,
+    2026-09-07: *"hubhopof feels like a variable that should not exist and there are many such
+    variables. you should have a standing rule for the creation of any function or variable unless we
+    absolutely cannot accomplish what we need without it"*).
+    ⭐ **THE TEST IS NOT "IS THIS NAME GOOD" OR "IS THIS CODE CLEAN". IT IS: WHAT ALREADY IN THE TREE
+    HOLDS THIS, AND WHY IS IT NOT ENOUGH?** Answer it in one sentence before writing the declaration.
+    If the sentence needs a "but it would be nicer if…", the answer is that the existing thing is enough.
+    *Worked example — this rule exists because I did it, 2026-09-06:* asked to *"delete the table"*, I
+    deleted `LevMath._routeOf` (2 rows) and **created `Aux.hubHopOf` to replace it — while `_quoteOf`,
+    a SIX-row table in the same file, already held both of those rows.** So the tree went from two
+    tables to two tables, plus a mapping, a setter, an event, an interface member, two offset constants,
+    deploy seeding, and an `aux` parameter threaded through three functions. **Nothing was deleted; a
+    table was MOVED and a second one grown beside it.** The owner spotted it from the name alone.
+    ⚠️ **THE GENERALITY TRAP IS THE SAME ERROR ONE LEVEL UP, AND IT IS MEASURABLE:** the first version
+    of that change also added a `PROTO_CURVE` dispatch so the new variable could name either protocol —
+    **462 bytes on the second-tightest contract**, buying a capability the keeper's existing `dex2`
+    already provided. Dropping it returned **365 bytes**. ⇒ **before adding a parameter, a field or a
+    branch for flexibility, find out whether the flexibility is already reachable one argument over.**
+    ▶️ **THE THREE QUESTIONS, IN THIS ORDER:**
+    1. **Which existing declaration already holds this shape?** `grep` the BODY, not the name you are
+       about to invent — a name-grep returns clean *precisely because* the name is new (see the
+       `kLvrWad`/`lvrKWad` example above).
+    2. **Is the new thing a SUPERSET, a SUBSET, or a COPY of it?** A subset or a copy is never worth a
+       declaration. A superset means EXTEND the existing one.
+    3. **If it must exist, what does it let me DELETE?** A declaration that deletes nothing is a
+       declaration on trial. Standing rule 17's test applied at creation time rather than after.
+    ⛔ **AND THE HONEST EXCEPTION, so this does not become a rule against ever writing code:** a
+    declaration earns its place when it makes a bad state UNCONSTRUCTIBLE (rule 17), when it makes a
+    SILENT failure loud (rule 3), or when it folds N inlined bodies into one routine (rule 8c) — all
+    three are cases where the alternative is worse code, not merely more code. **"It reads better" and
+    "we might need it later" are not on that list.**
+
 19. **REMOVE STALES AND SLOPS ALONG THE WAY** (owner, 2026-09-01). A stale is a statement the tree
     no longer supports: a docblock describing a branch that was collapsed away, an interface member
     for a deleted function, a ledger row whose claim has been falsified. **Fix it in the turn you
