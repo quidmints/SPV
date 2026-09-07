@@ -1092,10 +1092,20 @@ fn deep_enough<R: JsonRpc>(rpc: &R, pool: LpAddr, token: LpAddr, amt: U256) -> b
 /// ⚠️ Deliberately NOT a 1inch pool word: `unoswap` was probed with six candidate Curve layouts
 /// against the live router and **0 of 6 filled**. `LevMath._hubHop` calls `exchange` directly.
 /// One word per venue KIND, or `None` when the venue cannot be expressed as one (v4 needs a PoolKey).
-fn venue_word(v: Venue) -> Option<[u8; 32]> {
+/// ⛔ §SESS-89 — **TAKES THE TRADE DIRECTION, AND MUST.** `Venue::Curve` now stores `lo → hi`
+/// indices (see `venues_for`), but `LevMath._hubHop` decodes the word as `(iStable, iUsdc)` and
+/// dispatches `toUsdc ? curveExchange(stable, pool, iS, iU) : curveExchange(USDC, pool, iU, iS)`.
+/// So the WORD is directional even though the CACHE ENTRY is not, and the direction has to come from
+/// the caller rather than from address order. ⚠️ Before this, the word inherited whichever direction
+/// populated the cache — correct when the stable→USDC leg ran first, silently reversed otherwise.
+/// A reversed Curve word is a WRONG-PAIR swap on-chain, not a bad price.
+fn venue_word(v: Venue, tin: LpAddr, tout: LpAddr) -> Option<[u8; 32]> {
     match v {
         Venue::V3 { pool, .. } => Some(v3_word(pool)),
-        Venue::Curve { pool, i, j } => Some(curve_word(pool, i, j)),
+        Venue::Curve { pool, i, j } => {
+            let (i, j) = if tin <= tout { (i, j) } else { (j, i) };   // lo→hi stored; flip for hi→lo
+            Some(curve_word(pool, i, j))
+        }
         Venue::V4 { .. } => None,   // §SESS-79 — a singleton pool has no address to put in a word
     }
 }
@@ -1245,7 +1255,21 @@ fn venues_for<R: JsonRpc>(rpc: &R, a: LpAddr, b: LpAddr, amt: U256) -> Vec<Venue
     for (x, y, pool, ia, ib) in CURVE_SHORTLIST {
         let m = (x == a && y == b) || (x == b && y == a);
         if m && deep_enough(rpc, pool, a, amt) {
-            let (i, j) = if x == a { (ia, ib) } else { (ib, ia) };
+            // 🔴 §SESS-89 — **ORIENTED TO THE SORTED KEY, NOT TO THE CALLER'S DIRECTION.** This read
+            //    `if x == a`, which orients to whichever way the FIRST caller happened to ask — while
+            //    the cache key is the UNORDERED pair. So a `(USDC, crvUSD)` lookup populated the entry
+            //    and a later `(crvUSD, USDC)` lookup reused it with the indices meaning the opposite
+            //    trade. **Direction-dependent data under a direction-independent key**, and the
+            //    resulting bug is ORDER-DEPENDENT: right or wrong according to which leg ran first.
+            // ⚠️ MEASURED, and it is what exposed this: crvUSD→USDC at $100k quoted
+            //    13,154,084,973,767,953,627,796,321 — an 18-decimal crvUSD figure returned for a
+            //    6-decimal USDC leg, saturated at the pool's whole opposite side and therefore
+            //    IDENTICAL at $100k and $1M. That mid then fed the volatile leg and the planner
+            //    quoted 8,793 WETH for $100k of crvUSD.
+            // ⇒ store `lo → hi` always, so `curve_quote`'s own address-order flip is correct by
+            //   construction rather than by luck, and `venue_word` re-orients explicitly below.
+            let lo = if a <= b { a } else { b };
+            let (i, j) = if x == lo { (ia, ib) } else { (ib, ia) };
             out.push(Venue::Curve { pool, i, j });
         }
     }
@@ -1351,7 +1375,7 @@ fn best_direct<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Opt
         //    singleton pool has no address, and the on-chain arm that used to execute one (`V4Lib`)
         //    was unreachable and is deleted. v4 returns when a route is BUILT for it (`Plan.fetched`),
         //    and the gap is booked in L-routing rather than papered over with a silent skip.
-        if venue_word(v).is_none() { continue; }
+        if venue_word(v, tin, tout).is_none() { continue; }
         let out = match v {
             Venue::V3 { fee, .. } => quote_hop(rpc, tin, tout, amt, fee),
             Venue::Curve { pool, i, j } => curve_quote(rpc, pool, i, j, tin, tout, amt),
@@ -1408,7 +1432,7 @@ fn best_plan_quoted<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -
     let mut best: Option<(Plan, U256)> = None;
     if let Some((v, out)) = best_direct(rpc, tin, tout, amt) {
         // `best_direct` no longer returns a venue without a word, so this cannot silently drop an arm.
-        let w = venue_word(v).expect("best_direct returned an unencodable venue");
+        let w = venue_word(v, tin, tout).expect("best_direct returned an unencodable venue");
         best = Some((Plan { dex: w, dex2: [0u8; 32], hops: vec![w], fetched: Vec::new() }, out));
     }
     // ⭐ §SESS-58 — **EVERY CANDIDATE HUB, INCLUDING WHEN THE INPUT IS ITSELF A HUB.**
@@ -1428,7 +1452,7 @@ fn best_plan_quoted<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -
         // ⚠️ Measured this session: 3pool beats the UniV3 0.01% tier for USDT→USDC above ~$500k
         //    (−0.42 vs −0.72 bps at $1M, −0.68 vs −2.16 at $5M) and LOSES below it. So neither venue
         //    wins by class — which is exactly why both are quoted rather than one being preferred.
-        let v3_first = best_direct(rpc, tin, hub, amt).and_then(|(v, o)| venue_word(v).map(|w| (w, o)));
+        let v3_first = best_direct(rpc, tin, hub, amt).and_then(|(v, o)| venue_word(v, tin, hub).map(|w| (w, o)));
         let cv_first: Option<([u8; 32], U256)> = None;   // §SESS-80 — Curve is a cached candidate now
         let first_leg = match (v3_first, cv_first) {
             (Some(a), Some(b)) => Some(if b.1 > a.1 { b } else { a }),
@@ -1437,7 +1461,7 @@ fn best_plan_quoted<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -
         };
         let Some((w1, mid)) = first_leg else { continue };
         let Some((second_v, out)) = best_direct(rpc, hub, tout, mid) else { continue };
-        let Some(second) = venue_word(second_v) else { continue };
+        let Some(second) = venue_word(second_v, hub, tout) else { continue };
         if best.as_ref().is_none_or(|(_, b)| out > *b) {
             // `dex2` is hop 1 (see `Plan`) — the crossing is deliberate and load-bearing.
             best = Some((Plan { dex: second, dex2: w1, hops: vec![w1, second], fetched: Vec::new() }, out));
@@ -1861,7 +1885,7 @@ mod tests {
         //   tells you whether to go find liquidity or to go write an encoder.
         let tradeable = |x: LpAddr, y: LpAddr, amt: U256| -> (bool, bool) {
             let vs = venues_for(&rpc, x, y, amt);
-            (vs.iter().any(|v| venue_word(*v).is_some()), !vs.is_empty())
+            (vs.iter().any(|v| venue_word(*v, x, y).is_some()), !vs.is_empty())
         };
         println!("{:<8} {:>26} {:>26}", "stable", "-> WETH", "-> WBTC");
         let (mut both, mut v4_only) = (0usize, 0usize);
@@ -2312,4 +2336,5 @@ mod tests {
         // Higher gas raises the bar: the same pending that cranked at 20 gwei is skipped at 200 gwei.
         assert!(!compound_pays_for_itself(2 * gas_cost, gas_price * 10), "10x gas ⇒ same fees no longer cover it");
     }
+
 }
