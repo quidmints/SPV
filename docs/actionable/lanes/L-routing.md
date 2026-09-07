@@ -478,3 +478,50 @@ are different questions.
 ▶️ **THE DECISIVE TEST IS CHEAP:** swap it, run the FULL suite with `--force`; anything that breaks is
 by definition something that was calling a non-existent selector and getting away with it. Green is the
 evidence, red is a finding either way.
+
+---
+
+## ⭐ §SESS-64 — **"WHY IS unoswap1/2 HARDCODED?" IT SHOULD NOT BE — AND THE FIX NEEDS *NO NEW PARAMETER*.**
+
+Owner, 2026-09-07: *"im not sure why unoswap one or two has to be hardcoded or passed as a distinct
+word if we are going with the most flexible design of our 1inch feature."* **Correct. The two-word
+shape is an artifact of encoder convenience, not a design.**
+
+### WHY IT IS AN ARTIFACT
+`dex2` was added as a SECOND WORD rather than an array because the keeper's shared batch encoder could
+not carry a fourth array at the time. **The batch path is ALREADY parallel arrays** (`dexes`, `dex2s`
+at `LevManager:322`), so the two-word single path is the odd one out. ⇒ *"one or two hops"* is baked
+into the ABI by history.
+
+### ⛔ THE OBVIOUS FIX DOES NOT FIT — MEASURED
+`(uint256 dex, uint256 dex2)` → `uint256[] calldata hops` (selector by LENGTH: 1⇒`unoswap`,
+2⇒`unoswap2`, 3⇒`unoswap3`) touches **8 signatures in `LevManager`** (`:282 :321 :368 :393 :402 :410
+:432 :436`). **`LevManager` has 133 BYTES.** A `uint256[] calldata` costs offset load + length load +
+bounds check per entrypoint — well past the budget eight times over.
+🔑 **SO `LevManager`'s 133 BYTES IS NOT A NUISANCE, IT IS THE THING STANDING BETWEEN US AND THE
+FLEXIBLE DESIGN.** Every "no limit to how many hops" conversation ends here.
+
+### ✅ THE SHAPE THAT COSTS ALMOST NOTHING — PATCH THE AMOUNT, DO NOT PASS THE HOPS
+**`bytes route` ALREADY EXISTS ON ALL EIGHT SIGNATURES.** The only reason it cannot carry
+`unoswap3` today is the reason pool words exist at all: **1inch calldata embeds an AMOUNT the keeper
+cannot know**, because it is a borrow return computed on-chain.
+⭐ **BUT THE UNOSWAP FAMILY PUTS THE AMOUNT AT A FIXED OFFSET — WORD 1 — AND THE CONTRACT ALREADY
+KNOWS THE AMOUNT.** `_aggSwap` writes exactly that word today when it encodes `unoswap`/`unoswap2`
+itself. ⇒ **accept keeper calldata, OVERWRITE word 1 with the on-chain amount and word 2 with our own
+floor, and forward it.** Then:
+· any unoswap-family selector works — **1, 2 or 3 hops, and any venue 1inch's unoswap reaches**
+· **no ABI change, no new parameter, ~zero `LevManager` cost**
+· **no staleness** — the contract writes the amount, so nothing embedded can go stale
+· `dex`/`dex2` become legacy and can be deleted later, along with §SESS-50's zero-hop compaction and
+  the crossed-argument trap
+⚠️ **THE GUARD THAT MAKES IT SAFE, and it must be exact:** whitelist the selector
+(`unoswap`/`unoswap2`/`unoswap3` ONLY), require the EXACT calldata length for that selector
+(4+4*32 / 4+5*32 / 4+6*32), and only then patch words 1 and 2. **A selector we do not recognise, or a
+length that does not match, is refused** — never patched-and-hoped. ⛔ The generic `swap()` descriptor
+is DELIBERATELY excluded: it carries a `dstReceiver` and a nested struct, so its amount is not at a
+fixed offset and patching it is not checkable.
+✅ **SAFETY IS OTHERWISE UNCHANGED:** `convertTo` still pins the callee, caps gas per leg, enforces
+`spent>0 ⇒ delivered>0`, and bounds the result on a MEASURED balance delta against an oracle floor. A
+hostile keeper picks a worse venue and the floor refuses it — it never gains authority.
+▶️ **NOT BUILT.** This is the concrete answer to §SESS-60's "no producer" and to the owner's
+"no limit to how many hops", and it is the smallest change that reaches both.
