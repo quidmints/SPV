@@ -98120,3 +98120,40 @@ quid-bridge`, and **`tools/check-client-abis.py`** — which is the ONLY client-
 `OpenParams` — a second, larger decision that B8 does not ask for. **Close/exit/deposit first.**
 ⏸️ **NOT STARTED — it needs the builds, and B8's own scope note says the security half already landed,
 so nothing is exposed while it waits.**
+
+## §K-AND-HEADROOM-2026-09-07 — two findings from project-c5's peer, BOTH INDEPENDENTLY CONFIRMED HERE
+
+Reported by **project-2d** (cross-session, 2026-09-07) while it held no edits in these files. Booked
+here because SPRINT.md was owned by this session at the time. ⚠️ **Neither was taken on trust — the
+standing rule is that a peer's result is not evidence until it is re-derived, and both were.**
+
+### 🔴 1. `LevMath.sol:135-139`'s WORKED EXAMPLES DO NOT REPRODUCE FROM THE SHIPPED `K`
+`QuidLib.kLvrWad` is `1e18·1e18 / (4·denom)` with `denom = 2 − √(P/Pb) − √(Pa/P)` (`:1` of the body).
+✅ **RE-DERIVED HERE:** at `RANGE_DELTA = 20 bps` and P centred, `√(P/Pb) = 1/√1.002 = 0.999002` and
+`√(Pa/P) = √0.998 = 0.998999`, so `denom = 0.001999 ≈ δ` and **K = 1/(4δ) ≈ 125** — NOT the ~250,000 a
+careless reading of the WAD gives. peer's algebra (`2 − 1/√(1+δ) − √(1−δ) ≈ δ`) is exact.
+⛔ **THE ACTIONABLE PART IS THE COMMENT, NOT THE CODE:** `LevMath.sol:137-138` claims *"a $100k
+position at 3 gwei bands at ~62 bps, a $1k position at ~288 bps"*, and those figures reproduce from
+**neither** 125 nor 250,000 at the stated 3 gwei / 1.25M gas — they imply **K ≈ 470**. ⇒ Either the
+examples predate a change to `K`, `RANGE_DELTA` or `GAS_REBALANCE`, or they were never derived from
+this formula. **`noTradeBandBps` and `derivedThetaWad` both consume `K`**, so the number is live even
+though the prose is not. ▶️ **Re-derive the examples or delete them — a worked example that does not
+reproduce is rule 19's most dangerous shape, because it looks like a calibration.**
+
+### 🔴 2. `LevBase.sol:102` MIXES TWO LTV BASES — CONFIRMED, DIRECTION IS CONSERVATIVE
+`uint256 headroom = lltv > TARGET_LTV_CAP_BPS ? lltv - TARGET_LTV_CAP_BPS : 0;` — with `lltv` from
+`venue.liqThresholdBps()`.
+✅ **RE-DERIVED HERE, and the discriminator is where each number is ENFORCED:**
+· `liqThresholdBps` is the venue's, on the **debt/collateral** basis — the same basis as
+  `getCurrentLtvBps` (`:598`).
+· `TARGET_LTV_CAP_BPS` bounds `LevMath.ilTargetBps(p.ilBasisPx, px, TARGET_LTV_CAP_BPS)` (`:751`),
+  i.e. the **E0 / `entryEquity`** basis — and `:632` says so outright: *"NOTE WHICH LTV DELIBERATELY
+  DID NOT MOVE: `ilLtvBps` measures debt against [entryEquity]"*.
+⇒ `8600 − 7500 = 1100` subtracts an E0-basis number from a venue-basis one. Since borrowed dollars buy
+collateral, `C = E0 + D`, so an E0-LTV of `t` is `t/(1+t)` on the venue basis: **7500 bps E0 = 4286 bps
+venue, and the true headroom is ~4314, not 1100.**
+✅ **FAIL-SAFE, WHICH IS WHY IT HAS NOT SURFACED:** the wrong number is SMALLER, so the band is too
+TIGHT — the system rebalances more often than it needs to, never less. **⚠️ AND THAT SAFETY IS
+CONTINGENT ON FINDING 1:** at the shipped `K` the series clamp barely binds, but it binds hard if `K`
+is corrected. ⇒ **These two are ONE item, not two — do not fix `K` without fixing the basis.**
+📌 Both live one line from B8's files and neither is on this session's lane; booked, not started.
