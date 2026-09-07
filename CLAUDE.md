@@ -449,6 +449,53 @@ by preference. **Partition first; the branch protocol protects the commits, not 
 📌 **The partition itself — which lane owns which files, and why `L4`/`L5` are serial — is
 `§LANES-2026-09-06` in `SPRINT.md`.** This file is how to run a lane; that one is what goes in it.
 
+### 🔴 MANY THREADS IN **ONE** TREE — WHAT ACTUALLY HAPPENED ON 2026-09-07, AND THE FOUR RULES IT PRODUCED
+
+The recipe above assumes a worktree per lane. **Two threads instead shared `/root/project/spv`
+directly, all day, and it worked** — but only because of four things that are NOT in that recipe.
+Read this before opening thread three.
+
+**1. THREADS TALK. THIS IS THE PART WITH NO TOOLING IN THE RECIPE ABOVE.**
+`ListAgents` lists peer sessions; `SendMessage({to: "<name>", message: …})` reaches one. This is not
+decoration — measured on 2026-09-07 it produced: a clean handover of three files, a warning that four
+`LevMath` signatures had changed under me mid-edit, and **a second unauthenticated-withdrawal bug
+found by the other thread sweeping for the SHAPE of the one I had just found.** Two threads that do
+not talk would have found one bug and collided on `LevMath`.
+⭐ **OPEN WITH WHAT YOU OWN.** The message form that worked, verbatim in shape:
+*"Files I own and will keep editing: `a.sol`, `b.sol`, `c.md`. I am not mid-edit in anything else."*
+⇒ Ownership is DECLARED, not inferred from `git status`, because a dirty file says someone touched
+it and not whether they are still in it.
+⭐ **AND SAY WHAT YOU CHANGED IN A SHARED SYMBOL, NOT JUST THAT YOU CHANGED IT** — *"`_quoteOf` is
+now `_hubRowOf`, same body, same return"* let the other thread fix every comment naming it without
+re-deriving anything.
+
+**2. ⛔ RULE 14 DOES NOT COVER TWO THREADS IN ONE FILE, AND THAT GAP IS MEASURED.**
+Rule 14 says stage by name, which stops you sweeping someone else's FILES. It says nothing about a
+shared FILE. On 2026-09-07 a `git add evm/src/imports/LevMath.sol` — correct by rule 14 — swept the
+OTHER thread's uncommitted comment edits into `cab7b86b`, whose message does not mention them
+(48 insertions / 64 deletions of someone else's work, attributed to the wrong author).
+⇒ **Before `git add <shared file>`, `git diff <file>` and confirm every hunk is yours.** If it is
+not, say so and let the owner land it. Nothing was lost that time; nothing guarantees that.
+
+**3. THE BUILD IS THE SERIALIZATION POINT, AND PROSE WORK DOES NOT TOUCH IT.**
+One `forge build` at a time (rule: a second OOMs the box). ⇒ N threads scale **only** if most of
+them never build. They do not have to: `bytecode_hash = "none"` + `cbor_metadata = false` mean a
+comments-only edit is **byte-identical**, so it needs no build and no test — the gate is
+`tools/comment-only.sh <files>`, which comment-strips, drops blank lines, and requires byte identity
+with HEAD. **Announce a build before starting one** (*"forge running in ../spv-VERIFY until ~09:50"*)
+and the code lanes serialise themselves.
+📌 ⇒ **THE PARTITION THAT MAKES A DAY'S WORK PARALLEL IS PROSE-vs-CODE, NOT FILE-vs-FILE.** Any
+number of comment/SPRINT lanes run concurrently at zero build cost; the code lanes queue on one
+builder.
+
+**4. TWO DEFECTS OF THE SAME CLASS CAN NEED OPPOSITE FIXES — SO HAND OVER THE SHAPE, NOT THE PATCH.**
+Both 2026-09-07 withdrawals were "external library fn using `msg.sender`, reached through an ungated
+public wrapper". `Quid.rangeOp` needed a `NotSelf` gate; `Quid.offrampEtherFi` needed `public →
+internal`, and **copying the first fix onto the second would have looked right and reverted every
+withdrawal**, because `_withdraw` reaches it by a plain internal call where `msg.sender` is the
+redeemer. ⇒ When you hand a finding to another thread, hand it the SHAPE TO SWEEP FOR and let them
+derive the fix against their own file.
+
 ### ⭐ AND THE METHOD LESSON, BECAUSE IT COST NOTHING ONLY BECAUSE THE RULE WAS OBEYED
 
 **`lane.sh` shipped BROKEN and its own acceptance test caught it in one run.** The script created the

@@ -1,3 +1,26 @@
+> ## 🛤️ OPENING A NEW THREAD ON THIS FILE? READ `CLAUDE.md` §MANY-THREADS-IN-ONE-TREE FIRST.
+>
+> **This file is a ~54,000-line append target that EVERY lane wants, and that is the whole problem.**
+> Two lanes each appending ONE line produced a merge conflict here while their separate `lanes/L*.md`
+> books merged clean both times. ⇒ **Book in `docs/actionable/lanes/L<n>.md`, never here**; one merge
+> pass folds them at the end of the day.
+>
+> **THE THREE THINGS THAT DECIDE WHETHER N THREADS ACTUALLY GO FASTER:**
+> 1. **Say what you own, in a message, before you edit.** `ListAgents` finds peers, `SendMessage`
+>    reaches them. On 2026-09-07 this is what produced a clean 3-file handover, a warning that four
+>    `LevMath` signatures had moved mid-edit, and a SECOND security bug found by the other thread
+>    sweeping the shape of the first. Threads that do not talk collide and find half as much.
+> 2. **Split PROSE from CODE, not file from file.** One `forge build` at a time (a second OOMs the
+>    box), so N threads scale only if most never build — and comment/doc lanes never need to:
+>    `bytecode_hash="none"` + `cbor_metadata=false` make a comments-only edit byte-identical. Gate it
+>    with `tools/comment-only.sh`, not a test run. Announce any build you start.
+> 3. ⛔ **`git diff <file>` before `git add <file>`.** Rule 14's stage-by-name stops you sweeping
+>    someone's FILES; it does NOT stop two threads inside ONE file. Measured: a correct-by-rule-14
+>    `git add` swept another thread's uncommitted edits into a commit that never mentions them.
+>
+> **The per-lane worktree recipe (branch per lane, so git REFUSES a double checkout) is CLAUDE.md
+> §THE-RECIPE. The collision-domain partition — who owns what — is `§LANES-2026-09-06` below.**
+
 > ## ▶️ HANDOFF — READ THIS FIRST (2026-08-29). SUPERSEDES THE 2026-08-26 BLOCK BELOW ON EVERY NUMBER.
 >
 > **HOW TO RUN THE SUITE. Every other invocation in this file, including the one directly below,
