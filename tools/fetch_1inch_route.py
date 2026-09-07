@@ -62,10 +62,15 @@ def main():
     data = body.get("tx", {}).get("data", "0x")
     # 🔴 SAY WHY THE ROUTE IS EMPTY. `0x` on stdout is the contract with the FFI caller and does not
     #    change — but a KEY THAT IS PRESENT AND REJECTED is not the no-key case above, and printing
-    #    the same thing for both is what let a dead key wear a routing defect's clothes: measured
+    #    the same thing for both is what let a 403 wear a routing defect's clothes: measured
     #    2026-09-07, `ConvertToRouted.t.sol` failed "the conversion produced no WETH: 0 <= 0" while
-    #    the API was answering 403 Forbidden. That reads as OUR router returning nothing. Same shape
-    #    as the dead-Ankr-key trap in CLAUDE.md, and the remedy is the same: make the endpoint say so.
+    #    the API was answering 403 Forbidden.
+    # 🔴 AND THE 403 WAS NOT A DEAD CREDENTIAL — IT WAS THE `from` ADDRESS, which is why this line
+    #    prints the STATUS rather than a diagnosis. Measured with ONE key: `from=0x0000…0001` → 403,
+    #    `from=` a real mainnet EOA → 200 with real calldata. **1inch refuses to BUILD for an address
+    #    it does not like, and says 403.** A caller passing a fresh forge contract (`address(this)`)
+    #    gets the same answer as a caller with no key at all. ⇒ if you see 403 here, vary the `from`
+    #    BEFORE suspecting the credential — one extra curl, and it is the control I skipped.
     if data == "0x":
         print(f"fetch_1inch_route: 1inch returned no tx.data — "
               f"{body.get('statusCode', '?')} {body.get('error', '')} {body.get('description', '')}".rstrip(),

@@ -97898,7 +97898,38 @@ Clean rebuild (`forge clean`, 0 compiler errors) then the whole suite at `FORK_B
 run still exhausted the key. ⇒ **The flags fix a TARGETED run; a full pinned suite needs more headroom
 than one free-tier key has.** Do not read a 429 tail as a regression, and do not re-run hoping.
 
-### 🔴 THE 1INCH KEY RETURNS 403 FORBIDDEN, AND THE FETCHER HID IT
+### ⛔ RETRACTED 2026-09-07 — **THE KEY IS FINE. THE 403 WAS THE `from` ADDRESS I PASSED.**
+🔴 **I DIAGNOSED A DEAD CREDENTIAL AND IT WAS MY OWN PROBE.** Caught by **project-bc**, re-measured
+here against the SAME key in `evm/.env`:
+| `from` | HTTP |
+|---|---|
+| `0x0000…0001` (a placeholder — what I used) | **403** |
+| `0x28C6c06298…` (a real mainnet EOA) | **200**, with real `0x07ed2379…` calldata |
+⇒ **1inch answers 403 for an address it will not build for, and that is indistinguishable from a
+credential failure at the URL level.** `ConvertToRouted` was passing `vm.toString(address(this))` — a
+forge-deployed test contract with no mainnet history — which is the same class.
+⚠️ **AND THE SUBSTITUTION IS SAFE FOR EXACTLY ONE REASON, WORTH RECORDING BECAUSE IT IS NOT OBVIOUS:**
+`from` affects nothing but 1inch's willingness to BUILD, because `LevMath._retarget` OVERWRITES
+`dstReceiver` with the executing frame on-chain (§SESS-69) — so a fetched route cannot pay whoever
+sourced it. Substituting a live address changes what the API returns, not who gets paid.
+🔴 **DO NOT READ THIS AS "THE TWO TESTS ARE FIXED" — THEY ARE NOT, AND MY CENSUS WAS TOO STRONG.**
+§FULL-SUITE said *"0 real code failures"* on the strength of the dead-key story. With real calldata in
+hand the leg STILL contributes nothing: the 1inch call fails inside `convertTo` and is skipped, which
+is why it reads `0 <= 0` rather than reverting `RouteTookAndGaveNothing`. ⇒ **the honest count is
+1,056 passed / 21 environmental / 2 UNEXPLAINED.** Candidate causes, neither run down (project-bc):
+route built against CURRENT head while the test forks later, or the executor blob carrying the
+sourcing address in its `data` tail beyond the descriptor.
+📌 **AND A SEPARATE REAL DEFECT IN THAT FILE, FOUND BY project-bc AND NOT MINE TO EDIT (it is dirty in
+their tree): `ConvertToRouted:55` is `if (r.length < 4) { vm.skip(true); }` WITH NO `return`.**
+`vm.skip` does not halt execution, so an empty route falls through into the assertions and fails as
+`0 <= 0` instead of skipping — **that alone makes a genuinely absent key look like a routing defect**,
+which is the mechanism that made my wrong diagnosis so plausible.
+⭐ **THE LESSON IS THE ONE CLAUDE.md ALREADY WRITES DOWN AND I STILL WALKED INTO: *a negative result
+from an external probe is a property of your QUERY, not of the world.*** I varied the credential in my
+head and never varied the `from`. **The control that would have caught it costs one extra curl.**
+
+*(the retracted section, kept because its FETCHER fix stands on its own:)*
+### ~~🔴 THE 1INCH KEY RETURNS 403 FORBIDDEN~~ — AND THE FETCHER HID IT
 `ONEINCH_API_KEY` (32 chars, present in `evm/.env`) →
 `{"error":"Forbidden","statusCode":403,"code":"FORBIDDEN"}`. This is an ACCOUNT state at the
 provider — **a session cannot fix it; it needs a live key from the owner**, exactly like the two dead
@@ -97916,8 +97947,9 @@ named the real cause. ⇒ *"Would this look the same if I were wrong?"* — it d
 trap was the thing making the wrong answer plausible.
 ✅ **FIXED THE DISGUISE (not the key): the fetcher now prints the status/error to STDERR** while
 stdout stays `0x`, so the FFI contract is unchanged and the operator sees `403 Forbidden`.
-📌 **OPEN, OWNER-BLOCKED:** a live `ONEINCH_API_KEY`. Until then `ConvertToRouted.t.sol`'s 2 tests
-cannot pass and **`_aggSwap`'s live-route leg has no coverage at all** — which matters more than the
+📌 ~~**OPEN, OWNER-BLOCKED:** a live `ONEINCH_API_KEY`~~ — ⛔ **RETRACTED, see above: the key works.**
+What IS still open is that `ConvertToRouted.t.sol`'s 2 tests do not pass and **`_aggSwap`'s live-route
+leg has no coverage** — which matters more than the
 two reds, because §E357 threads `route` through every `WbtcCfg` and the BTC lev path depends on it.
 
 ## §BTC-IL-PROTECT-IS-INERT-2026-09-07 — ⏸️ the BTC leg has NO reachable LP path today, and that is deliberate
