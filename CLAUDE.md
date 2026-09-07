@@ -307,6 +307,23 @@ environment actually is*. Every line below was verified in-repo, not recalled.
        `script`, the Rust crates and the clients. ⚠️ A raw "≤1 reference" threshold is WRONG: it
        also catches functions with exactly one LEGITIMATE caller. Measured here — that filter
        flagged `swapOutDeliverUnleveredBody`, whose single reference IS its live call.
+       🔴 **A ZERO-CALLER SCAN IS ONLY MEANINGFUL FOR `internal`/`private`. MEASURED PRECISION ON
+       THIS TREE: 1 IN 5, AND THE SCAN IS USELESS ON ENTRY POINTS.**
+       · **`external`/`public` ⇒ THE CALLERS ARE NOT IN THE REPO AND NEVER WILL BE.** Zero in-repo
+         references is the NORMAL state for an entry point. The scan flagged `onMorphoFlashLoan`
+         (a callback Morpho invokes), `maxDeposit`/`maxMint`/`previewDeposit`/`previewMint`
+         (ERC-4626 obligations), `auxSwap` (the SPA encodes it by FULL SIGNATURE — its own comment
+         says deleting it by name takes out the app's swap), `bridgeToSolana`, `closeLev`,
+         `fundGasReserve`, `rangeOf`. **Never delete one of these on scan evidence.**
+       · **AN INHERITED OVERRIDE READS AS DEAD** because its caller lives in the vendored base,
+         and `evm/lib/` is excluded from every scan. `Basket._lzReceive` is a LayerZero `OApp`
+         override invoked by `OAppReceiver.lzReceive` — deleting it breaks cross-chain receive.
+       · **BOOKED-UNWIRED CODE READS AS DEAD.** `OracleLib.curvePriceWad` (both overloads) is
+         *"📌 UNWIRED, ON PURPOSE — SPRINT.md §V-DOLLARS"*; `SwapLib._applySkew` carries an open
+         design question (*"DECIDE BEFORE WIRING `_applySkew` INTO A LIVE PATH"*) about where skew
+         premium lands. An UNDECIDED DESIGN QUESTION is not a revival hypothetical — leave it and
+         surface it, rather than resolving it by deletion.
+       ⇒ **Grep the symbol and READ what is written at the site before believing the count.**
     2. **ONE CALLER** — fold it into that caller unless it exists to buy stack depth (below).
     3. **A WRAPPER THAT ONLY FORWARDS** — collapse it; the indirection costs a JUMP and a frame.
     4. **A `public`/`external` FUNCTION NOBODY CALLS** — this is the expensive kind: it lands in
@@ -318,10 +335,22 @@ environment actually is*. Every line below was verified in-repo, not recalled.
     purpose. Three outcomes, all seen in one pass here:
     · **Superseded** — the replacement is live and called ⇒ DELETE. (`freeAndDeliverBody`: its only
       caller went in `19f7fabb`, and `swapOutDeleverPooled` does the same job pooled.)
-    · **PARKED ON PURPOSE** — it carries a note saying why it is kept ⇒ **KEEP, and do not
-      re-litigate it.** (`_repayPretransferred`: *"NO CALLER TODAY … kept as the repay half of the
-      ETH pre-transferred settle"*; `swapOutDeliverUnlevered`: deleting it silently reopens the
-      0-debt phantom-equity hole, booked as §M.1.)
+    · **PARKED AGAINST A HOLE THAT EXISTS TODAY** ⇒ **KEEP.** The test is not "does it have a
+      keep-note", it is **"does deleting it reopen something that is broken RIGHT NOW"**.
+      `swapOutDeliverUnlevered` passes: `swapOutDeleverPooled` no-ops at zero debt and the
+      unlevered net-equity is then priced in POOLED and undeliverable — a live money path, booked
+      as §M.1 pending a fork test.
+    · **PARKED FOR A HYPOTHETICAL REVIVAL** ⇒ **DELETE IT ANYWAY.** `_repayPretransferred` carried
+      a confident-sounding note — *"NO CALLER TODAY … kept as the repay half of the ETH
+      pre-transferred settle; anything that revives that path calls THIS rather than re-deriving
+      the clamp"* — and I kept it on that basis. **That was wrong** (owner, 2026-09-07: *"if it has
+      zero callers and its private why are you keeping it"*). Nothing revives it today, and GIT
+      PRESERVES THE CLAMP for whoever ever does. Speculative future-proofing is exactly what this
+      rule exists to remove, and a keep-note is a past decision, not evidence.
+      ⛔ **DO NOT LET "IT IS `private`, THE OPTIMIZER DROPS IT" DECIDE THIS.** I used that to argue
+      the survival was free WITHOUT MEASURING IT. Even if true it is the weaker argument — dead
+      source still has to be read, still goes stale, and still lies to the next reader. If the
+      bytecode question actually matters, MEASURE it with `tools/check-contract-sizes.py`.
     · **A CAPABILITY THAT WAS NEVER REAL** ⇒ delete the code AND correct the claim. (`rangeUnwindDex`
       was justified as *"GOV can repoint it"* while its setter was gated on RANGE, which GOV is not
       and which never called it — and `DEFAULT_UNWIND_DEX` repeated the false "GOV-overridable"
