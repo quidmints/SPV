@@ -30,6 +30,40 @@ each other whatever their `owns` columns say. It already happened: CLAUDE.md §M
 (20), `BasketLib.sol` (7), `RangeLib.sol` (5), `FeeLib.sol` (5). **Editing one is a parent-tree
 action, one author** — they have no lane because they belong to every lane.
 
+## ⛔ THE CENSUS: §LANES NAMES 10 OF THE 24 CORE FILES. FOURTEEN ARE OWNED BY NOBODY (2026-09-07)
+
+**`evm/src` is 199 `.sol` files: 24 core, 3 spv, and 172 identity.** The partition names ten.
+
+| unowned core file | importing files | | unowned core file | importing files |
+|---|---|---|---|---|
+| `imports/Interfaces.sol` | **21** | | `Basket.sol` | 4 |
+| `imports/Types.sol` | **20** | | `Shares.sol` | 2 |
+| `imports/BasketLib.sol` | 7 | | `imports/BtcLib.sol` | 2 |
+| `imports/FeeLib.sol` | 5 | | `Vault.sol` · `VBtc.sol` · `imports/OracleLib.sol` | 1 each |
+| `imports/RangeLib.sol` | 5 | | `BtcLevManager.sol` · `imports/LevVenueBase.sol` | 0 |
+| `Aux.sol` | 4 | | | |
+
+🔴 **AND TWO OF THEM ARE UNDER ACTIVE WORK AS THIS IS WRITTEN, which is the point of taking the
+census rather than assuming the two headers we tripped over were the whole set:**
+- **`Aux.sol` (4 importers, no lane)** is the target of §SETTER-FOLD — *"25 deploy-time setter calls
+  become one `Aux.configure`"* (`4082b54d`). A fold of that shape is exactly a signature change.
+- **`Vault.sol` (no lane)** was uncommitted in the shared tree all afternoon.
+
+⚠️ **`Interfaces.sol`'s 21 importers reach it through 56 separate import statements** — `QuidLib`
+alone pulls from it on ten lines. **21 is the blast radius; 56 is the coupling surface.** Both are
+real and they answer different questions; the lane question is the file count.
+
+📌 **AND THE 172 IDENTITY FILES ARE OUTSIDE THE PARTITION ENTIRELY** — 86% of the tree, no lane, no
+`serialiser` column. That is consistent with the identity fold arriving late (SPRINT.md's handoff
+block: 59 suites and ~470 tests *"had never been run in this tree at all"*), but it means **"two
+items may run concurrently iff they cannot touch the same file" is currently unanswerable for most
+of `evm/src`.** Not a crisis — nothing in §MASTER-ORDER is routing work there — but do not read the
+seven-lane table as covering the repo. It covers the money path.
+
+✅ **DON'T TRUST THIS TABLE'S AGE — REGENERATE IT.** `tools/blast-radius.py <file>` answers the
+question for one file against the CURRENT tree, parses the lane table above as its single source of
+truth, and **exits 1 with a FATAL rather than printing an empty map** if that table stops parsing.
+
 ▶️ **One command before you touch any header:** `grep -rl 'imports/<TheFile>' evm/src --include='*.sol'`
 — if it names another lane's file, you are serial with that lane. Full note: SPRINT.md §LANES.
 
