@@ -525,3 +525,57 @@ fixed offset and patching it is not checkable.
 hostile keeper picks a worse venue and the floor refuses it — it never gains authority.
 ▶️ **NOT BUILT.** This is the concrete answer to §SESS-60's "no producer" and to the owner's
 "no limit to how many hops", and it is the smallest change that reaches both.
+
+---
+
+## §SESS-65 — **THE 1inch REBUILD: ONE THIRD LANDED, THREE CONSTRAINTS SPECIFIED AND NOT BUILT**
+
+Owner, 2026-09-07: *"rebuild the 1inch feature properly. dont forget that il protect plugs into it
+also… there is no notion of a partial fill and partial refund (or shouldnt be, if and only if the
+swapper agrees to load balance with 1inch) for either in range or out of range swaps."*
+
+### ✅ LANDED — RETARGETING (`a320683f`)
+`convertTo` rewrites every supplied route's `token`, `amount` and `minReturn` with its own values.
+**The caller chooses the VENUE and nothing else.** That dissolves the staleness pool words existed to
+dodge, so `unoswap3` is reachable through the existing `bytes route` with no new argument and no
+`LevManager` cost. Whitelisted by selector AND exact arity length. 106/106 green.
+
+### 🔴 NOT BUILT — 1. **CURVE IS NOT IN THE SEARCH AT ALL**
+`best_direct` asks the **UniV3 factory** and quotes **QuoterV2**. ⛔ **Curve pools are invisible to the
+planner**, and the owner is right that many pairs are best served by a direct Curve pool: **measured
+this session, 3pool beats the UniV3 0.01% tier for USDT→USDC above ~$500k (−0.42 vs −0.72 bps at $1M,
+−0.68 vs −2.16 at $5M).** The on-chain `_hubRowOf` knows six Curve pools; the planner knows none.
+⇒ **the two halves disagree about what venues exist.** ▶️ Add Curve to `best_direct` via the
+MetaRegistry's PLURAL `find_pools_for_coins` (the singular one returns dead pools — CLAUDE.md) plus
+`get_dy`, and let it compete on the same quote. **No on-chain change: a Curve pool word is already
+executable through `_hubHop`, and 1inch's own Curve encoding stays irrelevant.**
+
+### 🔴 NOT BUILT — 2. **IL-PROTECT: BORROW THE CHEAPEST DOLLAR, THEN HOP TO THE ONE WE NEED**
+The owner's point: *"usdc might be overborrowed so not the most cost effective borrow, better to borrow
+something else then do an extra hop through 1inch."* §SESS-45 built joint venue scoring (borrow rate +
+route cost) and §SESS-49 built route quoting — **but nothing composes them into "pick the stable by
+TOTAL cost including the extra hop".** The scorer's decision point is FIRST-OPEN, and
+`LevVenueBase.STABLE` is `immutable`, so **a position cannot change which dollar it borrows without a
+new venue.** ⇒ this is blocked on the same thing §SESS-45 blocker #3 named, and the extra hop is now
+EXPRESSIBLE (unoswap2/3 via retargeting) where it was not before. **The hop is ready; the choice is not.**
+
+### 🔴 NOT BUILT — 3. **ALL-OR-NOTHING UNLESS THE SWAPPER CONSENTS**
+Partial fill and partial refund exist today in three places, none gated by consent:
+· `convertTo:702` `if (!ok) continue;` — one leg fails, the rest proceed, the aggregate floor decides
+· `_consolidateTo:1556` — an unroutable slice is **refunded to the LP** mid-protect
+· `QuidLib:699` *"NEVER GATE — shrink"* — the offramp serves part and defers the rest
+⚠️ **`loadBalance` ALREADY EXISTS AS A USER-SUPPLIED CONSENT BOOL** (`Aux.swapTo:885`,
+`Core.settleOor:944`; §E347 calls it *"the consent gate"*) — **but it gates the SHORTFALL ARB, not
+partial fills.** So the consent primitive is there and wired to the wrong question.
+▶️ **THE SHAPE:** thread the existing `loadBalance` into the conversion path; `false` ⇒ any leg that
+cannot fill reverts the whole swap, `true` ⇒ today's behaviour. ⛔ **DO NOT default it on**: the owner's
+wording is *"if and only if the swapper agrees"*, so absent consent the answer is revert.
+⚠️ **AND THE OFFRAMP IS A DELIBERATE EXCEPTION TO ARGUE, NOT ASSUME** — its shrink exists because a
+2,000 weETH exit asks more than the pool holds, and gating it would defer the whole exit instead of
+serving most of it. That is a redemption, not a swap; the owner's constraint names swaps.
+
+### 🔴 ALSO OPEN — the generic `swap()` descriptor
+Excluded by the whitelist. **Forcing `dstReceiver = address(this)` would be strictly stronger than
+`RouteTookAndGaveNothing` detecting a diversion after the fact**, and its descriptor is a STATIC struct
+so its fields are at fixed offsets. ▶️ Needs the exact v6 layout verified against the deployed router
+before patching — not guessed.
