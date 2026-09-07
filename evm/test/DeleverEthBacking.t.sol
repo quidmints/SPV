@@ -119,8 +119,12 @@ contract DeleverEthBackingProbe is LevCascadeProbe {
                  "SIBLING EXPOSURE: the aggregate must be understated while the sibling term is stale");
         uint understated = liveTotal - committedDuringBtcMint;
         emit log_named_uint("understatement (live - sum)", understated);
-        assertGt(understated, 1e21,
-                 "the understatement must be MATERIAL (>1000 usd18), not dust rounding");
+        // ⛔ NOT a magic threshold. The understatement must equal EXACTLY the ETH staleness —
+        //    `ethLive - ethStale` — because that is the only term that went unreported. Asserting
+        //    ">1000 usd18" would have been a number fitted to what I happened to observe; this
+        //    says WHICH quantity it is, so it also catches the BTC term drifting.
+        assertEq(understated, ethLive - ethStale,
+                 "the understatement must be exactly the unreported ETH delta, nothing else");
 
         // ⚠️ WHAT THIS DOES **NOT** ESTABLISH, stated so the row cannot be over-read: no gate was
         //    shown to PASS WHEN IT SHOULD HAVE FAILED. That needs a state where

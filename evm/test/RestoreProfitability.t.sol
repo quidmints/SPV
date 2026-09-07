@@ -126,6 +126,19 @@ contract RestoreProfitability is AllesFixture {
             uint bps = atOracle > got ? (atOracle - got) * 10_000 / atOracle : 0;
             emit log_named_uint("---- size as % of deficit", pct[i]);
             emit log_named_uint("     shortfall bps       ", bps);
+            // 🔴 THE ASSERTIONS THIS TEST WAS MISSING. It printed a clean step function and
+            //    asserted NOTHING — so it could not fail, and a regression that started charging
+            //    restoring trades would have printed different numbers under a green tick.
+            //    A test whose output only a human reads is a script, not a gate.
+            if (pct[i] <= 100) {
+                assertEq(bps, 0,
+                    "RESTORING MUST BE FREE: at or below the deficit the mirror/flush exemption "
+                    "must zero the premium (SwapLib:430)");
+            } else {
+                assertGt(bps, 0,
+                    "OVERSHOOT MUST BE CHARGED: past target the trade is inventory-INCREASING and "
+                    "pays the A-S premium");
+            }
             vm.revertToState(snap);
         }
     }

@@ -55691,9 +55691,25 @@ note says *"the conclusion survives for a different reason"* and **that reason i
 ⇒ Carried as settled, it asks the next thread to re-derive three layers to discover there is no
 fourth. project-a0 (who owns that lane) states plainly they do not know the different reason and
 will not guess. **Status: conclusion withdrawn, ground deleted, no replacement argument recorded.**
-✅ Independent of all that, today's trace settles the ONLY question §PLP-6a was actually about: the
-leg is reached 16 times, so it is not dead. **§PLP-6a is closed by measurement rather than by
-argument** — which is what should have closed it the first time.
+🔴 **BOTH OF MY CLAIMS IN THIS ROW WERE WRONG. RETRACTED 2026-09-07, prompted by the owner asking
+whether I was closing things that are not closed.**
+  1. **I said the "different reason" was never written down. IT IS — at SPRINT.md:50517**, in the
+     stale-comment table rather than in this block: *"`LevManager._batch:346` … ✅ MEASURED LIVE
+     2026-09-05 — it selects the single-hop form of `_aggSwap`. The comment is accurate; the RESIDUAL
+     is that `rebalanceMany` cannot reach the two-hop path at all."* ⇒ The hardcoded `""` does NOT
+     refuse the route, it selects the single-hop form. That is the replacement argument, and it is a
+     MEASUREMENT. My "three layers and no fourth" reading was wrong because I searched the §PLP-6a
+     block and not the table that answers it.
+  2. **I closed §PLP-6a with evidence about the WRONG FUNCTION.** §PLP-6a is about the **UP-leg** —
+     the BUY side, `_batch` → `_aggSwap`. My 16 invocations were of `deleverEthOnDelivery`, the
+     **DOWN** leg. That measurement says nothing about the buy side. ⛔ A trace of one function does
+     not close a claim about another, however adjacent they look.
+⇒ **§PLP-6a stands WITHDRAWN on §PLP-Z Q2.1's conclusion, for the reason recorded at :50517** — not
+for anything I measured. The only thing my trace establishes is that `deleverEthOnDelivery` is
+reached, which was never what §PLP-6a disputed.
+⚠️ **THE LESSON, and it is the one the owner named:** two claims about neighbouring legs of the same
+feature, and I matched them by topic instead of by symbol. That is the same failure as grepping a
+bare name instead of `IFace(...).member` — **adjacency is not identity.**
 
 ## §PLP-6-PROBE — **`DeleverEthBackingProbe` IS WRITTEN. IT DELIVERS ONE ANSWER, REFUSES TWO, AND NAMES WHAT IS LEFT.** (2026-09-07)
 
