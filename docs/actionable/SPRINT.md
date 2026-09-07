@@ -55581,3 +55581,42 @@ a MATERIAL shortfall (today's trace only ever gave it $0.0035 of dust, where it 
 then `swapOutDeleverPooled` reverted `ERC20: transfer amount exceeds balance` and skipped with
 `takeFailed: false`), and assert `deliveredEth > 0` at the recipient. ⛔ Do NOT close §PLP-6 on this
 probe alone.
+
+## ✅ §PLP-6-EXERCISED — **THE LEG RUNS, SKIPS ON DUST, AND IS NOT WHAT REPAYS A MATERIAL SHORTFALL.** (2026-09-07)
+
+`DeleverEthBackingProbe` now drives the state §PLP-6 asks for — `test_G7`'s shape: free depth kept
+SMALL (10 ETH) and the LEVERED LP withdrawing `type(uint).max`, i.e. past free depth. 23/23 green.
+⚠️ My first version deposited 25 ETH and withdrew 80% as a PLAIN LP; `rangeETH` (~32.5) covered every
+ask, so the shortfall branch never ran. **Copying a state known to reach the code beats inventing one
+that looks reasonable** — the same lesson as §REFILL-SIZE, where the fixture's numbers WERE the
+experiment.
+
+**MEASURED (fresh pin, run-happened gate passed, both payout legs measured):**
+
+| | |
+|---|---|
+| lev debt before / after | **$554.78 → 0** |
+| `rangeETH` / `deliverableETH` | 17.54 / **12.02 ETH** — deliverability is the binding cap, not the claim |
+| LP received | **5.0394 WETH** (0 native — the payout leg is WETH) |
+| `deleverEthOnDelivery` invocations | **2** |
+| `DeliverDeleverSkipped` | **1** — `fundUsd = $0.0035`, caught at **`swapOutDeleverPooled` (delivery)** |
+
+🔴 **THE STRUCTURAL FINDING: THE MATERIAL SHORTFALL DOES NOT ROUTE THROUGH THIS LEG.** Debt goes to
+zero on the withdraw, but by the **LevManager's own unwind** — `deleverEthOnDelivery` is the
+`sendEth` FALLBACK and it only ever ran during SETUP, with **$0.0035** of dust, where it funded the
+venue (`takeFailed: false`) and then `swapOutDeleverPooled` reverted `ERC20: transfer amount exceeds
+balance`. ⇒ **"UNVERIFIED" was hiding a leg that is exercised but never load-bearing in this
+fixture.** Whether any production path gives it a material ask is now the open question, and it is a
+narrower one than the row has carried for weeks.
+
+⚠️ **AND A CONTROL FAILURE WORTH MORE THAN THE RESULT.** `vm.recordLogs()` sat immediately before the
+withdraw and reported `skips: 0` — correct for that window and badly misleading overall: the leg runs
+at trace lines **2488/4450** while recording started at **17085**. A `-vvvv` trace then showed "3
+DeliverDeleverSkipped", which was also wrong — **two of those three were my own log lines echoing the
+count.** ⇒ **A recording window that opens after the event is a control failure, not a result**, and
+a grep that matches your own instrumentation is not evidence. The window now opens on line one.
+
+📌 **STILL OPEN — §PLP-6-BACKING-DELTA.** Post-withdraw, `committedUsd18` = **19,015.30** against
+`basketUsd − debt` = **21,789.91**: a **$2,774.60** gap, with `totalDebtUsd` now **0**. It holds at
+the earlier checkpoints and throughout `BufferSwapDrain`. Recorded, not asserted — the probe does not
+guess whether a withdraw legitimately has a transient the identity does not model.

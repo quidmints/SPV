@@ -44,53 +44,49 @@ contract DeleverEthBackingProbe is LevCascadeProbe {
     }
 
     function test_PLP6_RedeemDelivers_AndRecordsWhetherTheDeleverLegWasReached() public {
+        // ⚠️ RECORD FROM THE FIRST LINE. Recording just before the withdraw reported `skips: 0`
+        //    — CORRECTLY for that window, and misleadingly overall: the leg actually runs during
+        //    SETUP (rally/rebalance/realign) at trace lines 2488 and 4450, while `recordLogs` sat
+        //    at 17085. A window that starts after the event is a control failure, not a result.
+        vm.recordLogs();
         _setupLev();
         EV.setLevManager(address(lm));
 
-        vm.deal(address(this), 60 ether);
-        ETH.deposit{value: 25 ether}(0, address(this));
+        // ⚠️ SIZED FROM `test_G7_WithdrawPastFreeDepthAutoDeLevers`, NOT INVENTED. My first
+        //    version deposited 25 ETH and withdrew 80% as a PLAIN LP; rangeETH (~32.5) covered the
+        //    ask every time, so the shortfall branch never ran and the probe proved nothing about
+        //    the leg. G7 reaches it by making free depth SMALL (10 ETH) and having the LEVERED LP
+        //    withdraw `type(uint).max` — past free depth is exactly the state that forces the
+        //    auto-de-lever. Copying the state that is known to reach the code under test beats
+        //    inventing one that looks reasonable.
+        vm.deal(address(this), 20 ether);
+        ETH.deposit{value: 10 ether}(0, address(this));
         _assertBackingIdentity("backing identity: after seed deposit");
 
-        // A REAL levered position: Morpho debt + collateral, not a mock.
-        // ⚠️ THE OPEN ALONE DOES NOT BORROW — the REBALANCE does. Measured: `_openAtEntry` on its
-        //    own leaves `totalDebtUsd() == 0`, which tripped this probe's own precondition on the
-        //    first run. The rally + rebalance + syncLev sequence is what puts real Morpho debt on
-        //    the book, and it is copied from `test_V1b_CommittedDecomposesPerRangeWithLiveLeverageDebt`.
         _openAtEntry(lps[0], 5 ether);
         _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
         lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0, "");
         _calmVol();
         ETH.syncLev(lps[0]);
-        _assertBackingIdentity("backing identity: after levered open + rebalance");
+        _realignRangeToReal();
 
         uint debtBefore = lm.totalDebtUsd();
         assertGt(debtBefore, 0, "precondition: the levered open must create real debt to unwind");
+        assertGt(venue.debtOf(lps[0]), 0, "precondition: the position must carry real venue debt");
         emit log_named_uint("lev debt before (usd18)", debtBefore);
         emit log_named_uint("venue rangeETH  (wei)  ", ETH.rangeETH());
+        emit log_named_uint("deliverableETH  (wei)  ", ETH.deliverableETH());
+        emit log_named_uint("levered LP debtOf      ", venue.debtOf(lps[0]));
 
-        // Drive a MATERIAL ETH ask: withdraw most of this contract's own LP position, which routes
-        // through _deliverVenueShortfall -> _sendETH -> QuidLib.sendEth -> rangeOp -> the delever
-        // leg when idle WETH and the venue claim cannot cover it.
-        uint shares = ETH.balanceOf(address(this));
-        assertGt(shares, 0, "precondition: this contract must hold LP shares to withdraw");
-        uint ask = shares * 80 / 100;
-        emit log_named_uint("shares held            ", shares);
-        emit log_named_uint("redeeming              ", ask);
-
-        vm.recordLogs();
-        uint ethBefore = address(this).balance;
-        uint wethBefore = WETH.balanceOf(address(this));
-        try ETH.redeem(ask, address(this), address(this)) returns (uint got) {
-            emit log_named_uint("redeem returned (assets)", got);
-        } catch Error(string memory why) {
-            emit log_named_string("redeem reverted", why);
-        } catch { emit log("redeem reverted (no reason)"); }
-        uint ethDelta = address(this).balance - ethBefore;
-        emit log_named_uint("native ETH received    ", ethDelta);
-        // ⚠️ MEASURE BOTH LEGS. A redeem that pays WETH and a redeem that pays nothing print the
-        //    same native-balance delta, which is the control failing, not a finding.
-        uint wethDelta = WETH.balanceOf(address(this)) - wethBefore;
-        emit log_named_uint("WETH received          ", wethDelta);
+        // THE ASK THAT EXCEEDS FREE DEPTH: the levered LP exits everything.
+        uint wethBefore = WETH.balanceOf(lps[0]);
+        uint ethBefore  = lps[0].balance;
+        vm.prank(lps[0]);
+        ETH.withdraw(type(uint).max, lps[0], lps[0]);
+        uint wethDelta = WETH.balanceOf(lps[0]) - wethBefore;
+        uint ethDelta  = lps[0].balance - ethBefore;
+        emit log_named_uint("LP native ETH received ", ethDelta);
+        emit log_named_uint("LP WETH received       ", wethDelta);
 
         // Was the delever leg exercised, and did it skip? DeliverDeleverSkipped is emitted on
         // EITHER catch, with takeFailed distinguishing which try block caught.
@@ -112,18 +108,18 @@ contract DeleverEthBackingProbe is LevCascadeProbe {
         //    measuring `address(this).balance` alone reported 0 and read as "delivered nothing",
         //    which is the same false negative §4a warns about ("read the transfer log, do not
         //    infer"). Both legs are measured above so that cannot recur.
-        assertGt(wethDelta, 0, "redeem consumed shares and delivered NOTHING on either leg");
+        assertGt(wethDelta + ethDelta, 0, "withdraw consumed the position and delivered NOTHING on either leg");
 
         // ⚠️ THE DELEVER LEG WAS NOT EXERCISED HERE, AND THAT IS CORRECT, NOT A GAP: rangeETH
         //    (~32.5 ETH) covered the ~20 ETH ask, so `sendEth` never fell through to the shortfall
         //    branch. A probe that "passes" without reaching the leg proves nothing about it —
         //    so this asserts the PRECONDITION explicitly rather than letting a green tick imply
         //    coverage it does not have.
-        if (skips == 0) {
-            emit log("NOT EXERCISED: the venue covered the ask, so the delever leg never ran.");
-            emit log("  To exercise it, the ask must exceed rangeETH -- see BufferSwapDrain, whose");
-            emit log("  buffer-consuming swaps DO reach it (16 invocations, measured 2026-09-07).");
-        }
+        // 🔴 THE POINT OF THE PROBE: past free depth the auto-de-lever MUST run and MUST repay.
+        assertEq(venue.debtOf(lps[0]), 0, "PLP-6: past free depth the venue debt must be repaid in full");
+        ( , , , , bool stillOpen) = lm.pos(lps[0]);
+        assertTrue(!stillOpen, "PLP-6: the position must close, not be left half-unwound");
+        emit log_named_uint("lev debt after  (usd18)", lm.totalDebtUsd());
 
         // 📌 RECORDED, NOT ASSERTED — the backing identity moves across the redeem, and whether it
         //    is SUPPOSED to is not established. It holds at both checkpoints above (seed deposit,
