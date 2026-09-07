@@ -784,13 +784,18 @@ contract VBtcLevFeeLane is AllesFixture {
     ///   `closeBtcLev` withdrew the collateral to the manager and then called `unexposeBtcFromLev`, whose
     ///   first statement is `VBTC.burnFrom(manager, sats)`. `AaveV3Venue.withdraw` ends
     ///   `e.withdrawColl(w, MANAGER)`, so after a WBTC-mode close the manager holds WBTC and the burn asks
-    ///   for vBTC it does not have ⇒ REVERT. Since `DeployL1_s` no longer creates the vBTC market
+    ///   for vBTC it does not have ⇒ **`InsufficientBalance()`**, measured by un-fixing the source and
+    ///   re-running this test. Since `DeployL1_s` no longer creates the vBTC market
     ///   (§NO-VBTC-MORPHO-MARKET), WBTC-mode is the ONLY position that can exist, so this was every BTC
     ///   lev close in production.
     /// ⇒ The exit now branches on the collateral token exactly as `openBtcLev` branches the entry: the LP
     ///   brought this WBTC in, so the LP gets it back.
     function testReal_WbtcLev_CloseReturnsTheLpsOwnWbtc() public {
         _setupBtcLevWbtc();
+        // PIN THE MANAGER AS PRODUCTION DOES (`DeployL1_s`: `ETH.setLevManager(address(bm))`). Without it
+        // `unexposeBtcFromLev` stops at its own `NotLevManagerBtc` gate, and the failure below would be the
+        // FIXTURE's wiring rather than the defect — a different revert reached for a different reason.
+        BTC.setLevManager(address(lmW));
         address lp = makeAddr("wbtcCloseLp");
         uint coll = 1e8;                                     // 1 WBTC (8-dec)
 
@@ -816,9 +821,13 @@ contract VBtcLevFeeLane is AllesFixture {
     ///   truncation. `swapOutDelever` frees a CHANNEL-PROVEN delivered slice; a WBTC-mode position never
     ///   exposed channel BTC, and its levered backing cannot be delivered as BTC without a conversion that
     ///   is not built (§WBTC-MODE-CANNOT-CLOSE §2). Before the fix this fell through to `VBTC.burnFrom` and
-    ///   reverted with NO reason string, which reads as a vBTC accounting bug rather than an unbuilt leg.
+    ///   reverted with `InsufficientBalance()`, which reads as a vBTC accounting bug rather than an unbuilt leg.
     function testReal_WbtcLev_SwapOutDeleverRefusesTheSliceLoudly() public {
         _setupBtcLevWbtc();
+        // PIN THE MANAGER AS PRODUCTION DOES (`DeployL1_s`: `ETH.setLevManager(address(bm))`). Without it
+        // `unexposeBtcFromLev` stops at its own `NotLevManagerBtc` gate, and the failure below would be the
+        // FIXTURE's wiring rather than the defect — a different revert reached for a different reason.
+        BTC.setLevManager(address(lmW));
         address lp = makeAddr("wbtcSliceLp");
         uint coll = 1e8;
         deal(address(WBTC), lp, coll);

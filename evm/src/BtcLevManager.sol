@@ -80,6 +80,8 @@ contract BtcLevManager is LevBase {
     event Repaid(address indexed lp, uint stableIn);
 
     error BadAuth();
+    /// @notice A WBTC-collateral position has no channel slice to free; see `swapOutDelever`.
+    error WbtcSliceNotDeliverable();
 
 
     /// §J.2 — arity unchanged; the shared fields land on `LevBase`. `address(0)` for the rate source
@@ -322,6 +324,16 @@ contract BtcLevManager is LevBase {
         if (msg.sender != RANGE) revert BadAuth();          // Vault settle path only
         Types.Pos memory p = pos[lp];
         if (!p.open) return (0, 0);
+        // ⛔ FAIL-SAFE, LOUD, AND BEFORE ANY STATE MOVES. `freeSats` is a CHANNEL-PROVEN delivered slice,
+        //    and a WBTC-mode position never exposed channel BTC (`openBtcLev` takes the `transferFrom`
+        //    branch), so there is nothing here to un-encumber: its levered backing is WBTC on the venue,
+        //    which cannot be delivered as BTC without a conversion that is NOT BUILT and NOT DECIDED
+        //    (§WBTC-MODE-CANNOT-CLOSE §2 — the owner's sell-at-withdrawal proposal, with three open
+        //    questions gating it). Before this guard the call fell through to `VBTC.burnFrom` and reverted
+        //    with no reason string, which reads as a vBTC accounting bug rather than an unbuilt leg.
+        // ⇒ Blocking beats settling unbacked — the same ruling `_sourceRepayFree` already makes with
+        //   `DeleverStableUnavailable`. The LP can still withdraw up to `funded`; only the levered
+        //   overhang is refused, and `deleverOnDelivery` is not even reached when `shrinkSats <= funded`.
         uint amt = LevMath._fromUsd(address(AUX),p.venue.stable(), stableUsd);   // usd → native stable units
         uint debt = p.venue.debtOf(lp);
         if (amt > debt) amt = debt;                                 // clamp to debt (never over-repay / strand)
@@ -333,6 +345,21 @@ contract BtcLevManager is LevBase {
         uint coll = p.venue.collateralOf(lp);
         if (freedSats > coll) freedSats = coll;                     // cap at the position (venue also caps)
         if (freedSats > 0) {
+            // ⛔ FAIL-SAFE AND LOUD. `freeSats` is a CHANNEL-PROVEN delivered slice, and a WBTC-mode
+            //    position never exposed channel BTC (`openBtcLev` takes the `transferFrom` branch), so
+            //    there is nothing here to un-encumber: its levered backing is WBTC on the venue, which
+            //    cannot be delivered as BTC without a conversion that is NOT BUILT and NOT DECIDED
+            //    (§WBTC-MODE-CANNOT-CLOSE §2 — the owner's sell-at-withdrawal proposal, three open
+            //    questions gating it). Without this the call fell through to `VBTC.burnFrom` below and
+            //    reverted with the vBTC token's own **`InsufficientBalance()`** (MEASURED — see the two
+            //    `Wbtc` tests in `VBtcLevFeeLane.t.sol`), which reads as a vBTC accounting bug rather
+            //    than an unbuilt leg, and sends the next reader to the wrong file.
+            // ⇒ Blocking beats settling unbacked — the ruling `_sourceRepayFree` already makes with
+            //   `DeleverStableUnavailable`. The whole tx reverts, so the repay above is undone with it;
+            //   the LP can still withdraw up to `funded`, where `deleverOnDelivery` returns before it
+            //   ever reaches here. ⚠️ Placed INSIDE this branch, not at the top of the function: at the
+            //   top it cost a frame slot and the build was `Stack too deep` (via_ir is false, by policy).
+            if (p.venue.COLLATERAL() != address(COLL)) revert WbtcSliceNotDeliverable();
             uint got = p.venue.withdraw(lp, freedSats);             // vBTC → this manager
             if (got != freedSats) freedSats = got;
             // Burn the withdrawn vBTC + convert the LP's levered slice back to FREE channel range depth
@@ -356,14 +383,32 @@ contract BtcLevManager is LevBase {
         // Mark the levered slice to the live (now zero-debt) net-equity BEFORE unwinding, so it == `back`.
         _syncRange(lp);
         uint rem = p.venue.collateralOf(lp);
-        uint back = rem > 0 ? p.venue.withdraw(lp, rem) : 0;           // vBTC → this manager
+        uint back = rem > 0 ? p.venue.withdraw(lp, rem) : 0;           // collateral → this manager
         delete pos[lp];
         _untrackOpen(lp);
-        // SAME-BTC: burn the withdrawn vBTC and un-freeze the levered slice back to FREE channel range depth
-        // (lev→funded) — grown/shrunk by the realized leverage P&L. The LP keeps its channel range position; it
-        // never receives loose vBTC (that would double-claim the same channel BTC). No post-sync needed: the
-        // slice is zeroed here, and the position is gone.
-        if (back > 0) IVaultExposeB(VAULT).unexposeBtcFromLev(lp, back);
+        // 🔴 THE EXIT BRANCHES ON THE COLLATERAL TOKEN, EXACTLY AS `openBtcLev` BRANCHES THE ENTRY.
+        //    It did not, and that was a defect: `AaveV3Venue.withdraw` ends `e.withdrawColl(w, MANAGER)`,
+        //    so a WBTC-mode close left WBTC on this manager and then called `unexposeBtcFromLev`, whose
+        //    first statement is `VBTC.burnFrom(manager, sats)`. The burn asks for vBTC the manager does
+        //    not hold, so every WBTC-mode close REVERTED with `InsufficientBalance()` — and since the vBTC
+        //    market is not created (§NO-VBTC-MORPHO-MARKET), that is the only position that can exist.
+        if (p.venue.COLLATERAL() == address(COLL)) {
+            // SAME-BTC: burn the withdrawn vBTC and un-freeze the levered slice back to FREE channel range
+            // depth (lev→funded) — grown/shrunk by the realized leverage P&L. The LP keeps its channel range
+            // position; it never receives loose vBTC (that would double-claim the same channel BTC). No
+            // post-sync needed: the slice is zeroed there, and the position is gone.
+            if (back > 0) IVaultExposeB(VAULT).unexposeBtcFromLev(lp, back);
+        } else {
+            // WBTC-MODE: the LP BROUGHT this equity (`openBtcLev`'s else-branch pulls WBTC off the caller),
+            // so the mirror of the open is to hand the WBTC back. There is no channel slice to un-freeze —
+            // nothing was ever exposed — so `unexposeBtcFromLev` is not merely unusable here, it is wrong.
+            // ⚠️ THE RANGE STILL HAS TO BE ZEROED, and it is, by the machinery that already exists rather
+            //    than by a second unwind primitive: `syncLev` reads `grossCollateral(lp)`, which returns 0
+            //    once `pos[lp]` is deleted above, so `levBurnAll` burns the net + buffer legs and
+            //    `levAddGross` re-adds nothing. That is why this call must follow the `delete`.
+            if (back > 0) IERC20Min(WBTC).transfer(lp, back);
+            _syncRange(lp);
+        }
         emit Closed(lp, back);
     }
 
