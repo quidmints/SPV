@@ -669,20 +669,6 @@ library BitcoinTx {
     error ExitSignatureInvalid();    // BIP-340 verification failed against the funding key Q
     error ExitWitnessMissing();      // the funding input carries no 64-byte key-path signature
 
-    /// @notice (E128) FULL verification of a pre-signed dead-man exit: structure, sighash and
-    ///         signature. This is what turns `emitDeadManExit` from "record whatever bytes the hop
-    ///         supplies" into a checked guarantee.
-    ///
-    /// @dev 🔑 THE CONTRACT SUPPLIES THE FUNDING PREVOUT ITSELF rather than trusting the caller's
-    ///      array. `Prevouts::All` commits to every spent output's value and script; the FUNDING
-    ///      one is known on-chain (`amountSats`, and `0x5120||Q`), so it is overwritten here. Only
-    ///      the OTHER inputs — in practice the shared freshness UTXO — come from the caller, and a
-    ///      wrong value there forges nothing: the sighash differs and verification simply fails.
-    ///      Leaving the funding prevout caller-supplied would have let a hop compute a sighash
-    ///      over a DIFFERENT amount, sign that, and pass.
-    ///
-    /// @param q  the funding output key `Q` — recomputed by the caller from the channel's pinned
-    ///           pubkeys, never supplied loose.
     /// (E128) What the chain already knows about the channel being armed. Bundled because the
     /// verifier otherwise exceeds the legacy stack, and the house fix is a struct, not `via_ir`.
     struct ExitCheck {
@@ -759,7 +745,7 @@ library BitcoinTx {
 
     /// @notice (E159) Recompute an on-chain swap-in DEPOSIT address and return the sats paid to it.
     ///
-    /// 🔴 WHY THIS EXISTS: `settleSwapIn` credits the SHARED pool on the hop's WORD — no proof any
+    /// 🔴 WHAT IT REPLACES: crediting the SHARED pool on the hop's WORD, with no proof any
     ///    BTC arrived. A compromised hop can attest swap-ins for sats that never existed and drain
     ///    `POOLED_USD` to its liquidity limit, harming QU!D holders and other LPs who never
     ///    opted into that trust. This is the on-chain rail's half of the fix: prove the deposit.
@@ -772,7 +758,7 @@ library BitcoinTx {
     ///
     /// ⚠️ THE LEAF IS THE PER-SWAP IDENTITY. With one pinned internal key, two swaps differ only by
     ///    their CLTV refund leaf — `<cltv> OP_CLTV OP_DROP <userRefund> OP_CHECKSIG`, exactly what
-    ///    `quid-bridge/src/swap_in_onchain.rs::refund_leaf` builds. Same refund key AND same height
+    ///    `quid-ln/quid-hop/src/swap_in_onchain.rs::refund_leaf` builds. Same refund key AND same height
     ///    would collide to one address, so the caller must not reuse both.
     ///
     /// ⚠️ SPV INCLUSION IS **NOT** CHECKED HERE — the caller proves the tx is in a block. This
@@ -824,10 +810,12 @@ library BitcoinTx {
         return (expected * keep) / 10_000;
     }
 
-    /// @dev `<cltvHeight> OP_CHECKLOCKTIMEVERIFY OP_DROP <userRefund> OP_CHECKSIG`, byte-identical
-    ///      to the Rust builder. The height is a MINIMAL script number — Bitcoin's encoding, not a
-    ///      fixed width — and a wrong encoding changes the leaf hash and therefore the ADDRESS,
-    ///      silently deriving somewhere no deposit will ever land.
+    /// @dev `PUSH32 <termsCommitment> OP_DROP <cltvHeight> OP_CHECKLOCKTIMEVERIFY OP_DROP
+    ///      <userRefund> OP_CHECKSIG` — the §T2 terms prefix rides in FRONT of the refund script
+    ///      (see the inline note below), and the whole thing is byte-identical to the Rust builder
+    ///      `quid-hop::swap_in_onchain::refund_leaf`. The height is a MINIMAL script number —
+    ///      Bitcoin's encoding, not a fixed width — and a wrong encoding changes the leaf hash and
+    ///      therefore the ADDRESS, silently deriving somewhere no deposit will ever land.
     function _cltvRefundLeaf(Types.Terms calldata terms, bytes32 userRefund, uint32 cltvHeight)
         private pure returns (bytes memory)
     {
@@ -880,25 +868,9 @@ library BitcoinTx {
         return abi.encodePacked(bytes1(uint8(len)));
     }
 
-    /// @notice (E128) BIP-341 key-path sighash, `SIGHASH_DEFAULT`, no annex — the exact mode the
-    ///         fleet signs a dead-man exit with (`quid-ln/src/deadman_exit.rs:24`: *"a single
-    ///         64-byte Schnorr signature (SIGHASH_DEFAULT)"*, over `Prevouts::All`).
-    ///
-    /// @param prevValues   each input's prevout amount, in input order
-    /// @param prevScripts  each input's prevout scriptPubKey, in input order
-    ///
-    /// @dev ⚠️ WHY THE CALLER SUPPLIES THE PREVOUTS AND WHY THAT IS SAFE: `Prevouts::All` commits
-    ///      to every spent output's VALUE and SCRIPT, and those live in earlier transactions, not
-    ///      in this one. A caller who supplies them wrongly does not forge anything — the sighash
-    ///      simply differs and the signature fails to verify. Lying costs the liar.
-    ///
-    /// @dev ⚠️ THE COMMITMENT IS TO **EVERY** PREVOUT, NOT JUST THE SPENT ONE. That is precisely
-    ///      what makes the freshness UTXO work: spending that one outpoint invalidates every
-    ///      emitted exit at once (`deadman_exit.rs:67-71`). Hashing only input `inputIndex` would
-    ///      produce a sighash that verifies here and is meaningless on Bitcoin.
-    /// (E128) The five `SHA256` commitments a BIP-341 SigMsg is built from, in ONE memory struct.
-    /// Held together because assembling them as locals blows the legacy stack, and the house fix
-    /// is a struct field, never `via_ir`.
+    /// (E128) The five `SHA256` commitments a BIP-341 SigMsg is built from, plus the tx's version
+    /// and locktime, in ONE memory struct. Held together because assembling them as locals blows
+    /// the legacy stack, and the house fix is a struct field, never `via_ir`.
     struct SigParts {
         bytes32 prevouts; bytes32 amounts; bytes32 spks; bytes32 seqs; bytes32 outs;
         uint32 version; uint32 locktime;
@@ -934,7 +906,7 @@ library BitcoinTx {
     }
 
     /// @notice (E128) BIP-341 key-path sighash, `SIGHASH_DEFAULT`, no annex — the exact mode the
-    ///         fleet signs a dead-man exit with (`quid-ln/src/deadman_exit.rs:24`: *"a single
+    ///         fleet signs a dead-man exit with (`quid-ln/quid-ln/src/deadman_exit.rs:24`: *"a single
     ///         64-byte Schnorr signature (SIGHASH_DEFAULT)"*, over `Prevouts::All`).
     ///
     /// @param prevValues   each input's prevout amount, in input order
@@ -982,10 +954,11 @@ library BitcoinTx {
     /// @notice (E128) STRUCTURAL verification of a pre-signed dead-man exit. Returns the sats the
     ///         tx pays to the LP's committed payout script.
     ///
-    /// 🔴 WHY THIS MATTERS: `emitDeadManExit` accepts `signedExitTx` and only EMITS it — nothing
-    ///    parses or checks it. Since §E156 armed the exit at open, those bytes are the LP's ONLY
-    ///    fleet-independent escape, and they are unverified. A hop can arm every channel with
-    ///    garbage and the chain records it as protection.
+    /// 🔴 WHY THIS MATTERS: since §E156 arms the exit at open, `signedExitTx` is the LP's ONLY
+    ///    fleet-independent escape. Left unparsed — which is what `emitDeadManExit` used to do —
+    ///    a hop could arm every channel with garbage and the chain would record it as protection.
+    ///    `BTCChannels._armDeadManExit` (the ONE body behind both `openChannel` and
+    ///    `emitDeadManExit`) now runs this via `verifyDeadManExit`, plus the signature half.
     ///
     /// ⚠️ BYTE ORDER IS THE TRAP (§E140-r2). `TxParser` returns `previousHash` in DISPLAY (BE)
     ///    order, while our `fundingTxId` is stored in INTERNAL (LE) order — the raw serialized

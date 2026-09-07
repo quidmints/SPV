@@ -3,9 +3,11 @@
 //! This is the production home of the ABI encoding, SPV-proof construction and
 //! `BTCChannels` digest/channel-id derivation that the channel-lifecycle driver
 //! (`quid-bridge`) submits on-chain. It was promoted verbatim from the
-//! `e2e_ffi` test binary (which now re-uses it), so the byte-exactness already
-//! proven against Solidity (`evm/test/AbiCheck.t.sol`, the cross-chain forge
-//! test) covers this module too.
+//! `e2e_ffi` test binary (which now re-uses it), and the cross-language
+//! byte-exactness is pinned by `evm/test/BTCChannelsAuth.t.sol`
+//! (`test_openparams_abi_ground_truth`), which asserts Solidity's
+//! `keccak256(abi.encode(OpenParams))` against the same constant this module's
+//! `open_params_abi_matches_solidity` test carries.
 //!
 //! Two layers:
 //!   * a tiny hand-rolled ABI encoder ([`Tok`] + [`encode_tuple`]/[`encode_struct`]),
@@ -56,11 +58,13 @@ use crate::spv::{block_hash_be, merkle_branch};
 // ⚠️ These are the EXPANDED forms. A struct written as the bare token `tuple` hashes to a
 // different selector, and the calldata still looks plausible.
 /// (E177) `keysHash` — `keccak256(abi.encode(lpPubkey, hopPubkey))`, exactly as
-/// `BTCChannels._requireChannelKeys` computes it (`BTCChannels.sol:1310`).
+/// `BTCChannels._requireChannelKeys` computes it (`BTCChannels.sol:1784`).
 ///
-/// This is the ON-CHAIN comparand a validating signer checks its taproot context against:
-/// it is pinned at OPEN and is therefore the one fact about a channel the node cannot
-/// restate. ⚠️ Both arguments are Solidity `bytes` (dynamic), so the encoding is two
+/// This is the ON-CHAIN comparand the bridge checks its taproot context against
+/// (`quid-bridge/src/channel_truth.rs:179`). It is pinned at open and RE-PINNED at the end of
+/// `splice` (`BTCChannels.sol:1196`) from the pair `_verifySplice` has just proven against the
+/// funding output — so it always states a chain-attested pair and is never something the node
+/// gets to assert. ⚠️ Both arguments are Solidity `bytes` (dynamic), so the encoding is two
 /// offsets followed by two length-prefixed, right-padded blobs — NOT the concatenation of
 /// the two keys. Hashing the concatenation gives a plausible-looking wrong answer.
 ///
@@ -115,17 +119,11 @@ pub const SIG_SETTLE_SWAP_IN_PROVEN: &str =
     "settleSwapInProven((address,address,uint256,uint16),(bytes32,uint32,bytes32,uint256,bytes32[]),bytes)";
 /// (T1-b, tightened by §T1-d) Reverse an undeliverable on-chain swap-out. Note what is NOT a
 /// parameter: the payee, the sats, **and now the token**. All three are read on-chain from
-/// `pendingOnchainSwapOut[swapId]`, which only `requestSwapOutOnchain` writes — so unlike
-/// `settleSwapIn`, a compromised hop cannot redirect a refund, inflate it, or re-denominate it.
+/// `pendingOnchainSwapOut[swapId]`, which only `requestSwapOutOnchain` writes — so a compromised
+/// hop cannot redirect a refund, inflate it, or re-denominate it: the two arguments it DOES
+/// supply (`minDeliveredUsd`, `requireFull`) can only make the reversal stricter.
 /// That is the whole reason this is a separate entrypoint rather than a flag on the credit path.
 pub const SIG_REVERSE_SWAP_OUT: &str = "reverseSwapOut(bytes32,uint256,bool)";
-/// (M1#1) The buffered swap-in credit — draws down sats the hop has already SPV-proven into
-/// custody via `parkProvenSats`. **Replaces `settleSwapIn`, which is deleted.**
-///
-/// ⚠️ It still carries a `paymentHash`, but the hash's JOB CHANGED and that is the point: it is
-/// IDEMPOTENCY (stop the daemon crediting one HTLC twice across a retry or restart), never the
-/// bound. What stops a hop conjuring value is `provenSatsAvailable` on-chain. The old entrypoint
-/// conflated the two, and that conflation was the trapdoor.
 /// (E178) Every signature the hop's hot key may legitimately be asked to sign on
 /// `BTCChannels`. The EVM tx policy derives its selector set from THIS — it does not keep
 /// its own list — so the policy cannot disagree with what the codec actually sends.
@@ -300,8 +298,9 @@ pub fn encode_tuple(toks: &[Tok]) -> Vec<u8> {
 
 /// Encode a SINGLE struct argument as Solidity's `abi.encode(structValue)`: a
 /// leading 32-byte offset (`0x20`) to the tuple, then the tuple. This is the
-/// layout `abi.decode(bytes, (Struct))` expects AND the layout hashed by
-/// `keccak256(abi.encode(p))` in `openChannelDigest`.
+/// layout `abi.decode(bytes, (Struct))` expects AND the layout Solidity's
+/// `keccak256(abi.encode(p))` hashes — which is what `OpenParams::abi_struct_hash`
+/// pins against the contract.
 pub fn encode_struct(toks: &[Tok]) -> Vec<u8> {
     let mut out = word_u64(0x20).to_vec();
     out.extend_from_slice(&encode_tuple(toks));
@@ -485,13 +484,13 @@ pub struct OpenParams {
     pub funding_taproot: [u8; 32],
 }
 
-/// (E157/E138) `Types.OpenAuth` — the LP's consent, carried BY the open instead of
-/// pre-registered. `registerDelegation` is GONE; this replaced it.
+/// (E157/E138) `Types.OpenAuth` — the LP's consent, carried BY the open rather than
+/// pre-registered.
 ///
-/// ⛔ (§E183 item 1) `lp_sig` IS DELETED, and with it the ERC-1271 path this line described.
+/// ⚠️ THE LP SIGNS NOTHING EVM-SHAPED HERE, AND THAT IS DELIBERATE (§E183 item 1).
 /// The contract derives `lpEth` from `p.lp_pubkey`, so an LP is necessarily the EOA of its own
-/// channel key and a smart-wallet LP is no longer expressible — a deliberate narrowing, not an
-/// oversight. `btc_recipient_pop` is a BIP-340 signature BY `btc_recipient` over
+/// channel key and a smart-wallet (ERC-1271) LP is no longer expressible — a deliberate
+/// narrowing, not an oversight. `btc_recipient_pop` is a BIP-340 signature BY `btc_recipient` over
 /// `btcRecipientPoPDigest(lpEth)` — §E138 added it because registration proved the payout
 /// key was ON THE CURVE but never that the LP CONTROLLED it, and close, splice-out and the
 /// dead-man exit all pin to it, so a wrong key loses every escape at once.
@@ -516,13 +515,12 @@ pub struct OpenAuth {
 }
 
 impl OpenAuth {
-    /// `(bytes32,bytes,bytes)` in `Types.OpenAuth` field order.
-    ///
-    /// (§E183 item 1) `lp_eth` and `lp_sig` are GONE. The contract DERIVES the LP's address from
+    /// `(bytes32,bytes,bytes)` in `Types.OpenAuth` field order — THREE fields, carrying no LP
+    /// address and no EVM signature (§E183 item 1). The contract DERIVES the LP's address from
     /// `p.lp_pubkey` — Bitcoin and the EVM share secp256k1, so the channel key already states it —
-    /// and the ECDSA signature that used to bind the submitter and the payout is redundant:
-    /// `_onlyHop()` binds the first and this PoP binds the second, since its digest commits to the
-    /// derived `lpEth`. The LP therefore signs nothing EVM-shaped at open.
+    /// and the two bindings an ECDSA signature would have carried are covered elsewhere:
+    /// `_onlyHop()` binds the submitter, and `btc_recipient_pop` binds the payout, since its
+    /// digest commits to the derived `lpEth`.
     pub fn tokens(&self) -> Vec<Tok> {
         vec![
             Tok::FixedBytes32(self.btc_recipient),
@@ -583,14 +581,14 @@ impl OpenParams {
     /// `keccak256(abi.encode(p))` over the 7-field taproot `OpenParams`.
     ///
     /// ⚠️ **TEST-ONLY, AND NOT DEAD — DO NOT DELETE ON THE `dead_code` WARNING.** It backs the
-    /// CROSS-LANGUAGE CONFORMANCE assertion in `openparams_abi_ground_truth`: this Rust encoding is
-    /// compared against a constant produced by Solidity's
-    /// `BTCChannelsAuthTest.test_openparams_abi_ground_truth`. That pair is what catches the two
-    /// encoders drifting apart — a class the ABI checker cannot see, because it compares function
-    /// SIGNATURES, not struct ENCODINGS.
-    /// ⇒ The digest it was named for is gone (§E182/§REKEY-FOLD deleted the consents; the open
-    /// accessor went with them), so `#[cfg(test)]` now states what was already true: its only
-    /// caller is the conformance test, and the warning was the lib target not compiling tests.
+    /// CROSS-LANGUAGE CONFORMANCE assertion in `open_params_abi_matches_solidity` below, which
+    /// compares this Rust encoding against `RUST_OPENPARAMS_STRUCT_HASH` — the constant Solidity's
+    /// `BTCChannelsAuthTest.test_openparams_abi_ground_truth`
+    /// (`evm/test/BTCChannelsAuth.t.sol:107`) asserts against its own `keccak256(abi.encode(p))`.
+    /// That pair is what catches the two encoders drifting apart — a class the ABI checker cannot
+    /// see, because it compares function SIGNATURES, not struct ENCODINGS.
+    /// ⇒ `#[cfg(test)]` states the truth about its reach: that conformance test is its only
+    /// caller, and the `dead_code` warning was the lib target not compiling tests.
     #[cfg(test)]
     fn abi_struct_hash(&self) -> [u8; 32] {
         keccak256(encode_struct(&self.tokens())).0
@@ -631,9 +629,10 @@ pub fn channel_id(
 
 /// Derive the EVM address that owns a secp256k1 key: the low 20 bytes of
 /// `keccak256(uncompressed pubkey without its 0x04 prefix, i.e. the 64-byte X‖Y)`.
-/// The SINGLE audited home for this identity derivation — used by the EVM tx
-/// signer (`LocalSigner`), the bridge's lpAuth recovery cross-check, and the LP
-/// responder's `lp_eth`. (`bitcoin::secp256k1::PublicKey` unifies with the
+/// The SINGLE audited home for this identity derivation — used by the EVM tx signer
+/// (`quid-bridge/src/signer.rs`, `LocalSigner::from_secret_key_bytes`) and by
+/// `quid-hop/src/migration.rs` for both the operator (Safe-owner) address and the address
+/// recovered from an operator signature. (`bitcoin::secp256k1::PublicKey` unifies with the
 /// standalone `secp256k1::PublicKey` — one crate instance, v0.29.)
 pub fn evm_address_of(pk: &bitcoin::secp256k1::PublicKey) -> Address {
     let uncompressed = pk.serialize_uncompressed();
@@ -642,24 +641,19 @@ pub fn evm_address_of(pk: &bitcoin::secp256k1::PublicKey) -> Address {
 
 // ───────────────────────────── calldata builders ─────────────────────────────
 
-/// ⛔ **THE LINE HERE DESCRIBED A FIELD THAT DOES NOT EXIST.** It read *"`lp_auth` is the LP's
-/// 65-byte `r‖s‖v` ECDSA"* and then marked itself vestigial in the same breath — saying what a
-/// thing is and that it is gone leaves a reader with the wrong model either way. §E183 deleted
-/// `lpEth`/`lpSig` from `OpenAuth`: **the LP signs nothing on the EVM.** What `OpenAuth` carries
-/// now is the BIP-340 `btcRecipientPoP` — a BITCOIN signature proving the payout key — checked
-/// against the `lpEth` the contract derives from `p.lpPubkey`.
-/// (E178) `openChannel(OpenParams, bytes, bytes32[], OpenAuth, ExitArming[])`.
+/// (E178) `openChannel(OpenParams, bytes, bytes32[], OpenAuth, ExitArming[])` — FIVE arguments,
+/// matching [`SIG_OPEN_CHANNEL`] and the tokens encoded below.
 ///
-/// ⚠️ **THIS SIGNATURE DRIFTED AND THE DAEMON WOULD HAVE ENCODED A DEAD SELECTOR.** The old
-/// form took a bare `address lpEth` and the comment described `registerDelegation` pinning
-/// `btcRecipientOf` — but §E157 DELETED `registerDelegation` and folded the LP's consent
-/// into `OpenAuth`, and §E165 made a pre-signed exit ladder mandatory at open. `forge`,
-/// the test suite and `check-client-abis.py` were all green throughout, because the checker
-/// only read `spa/`. It now reads this tree too (§E178) — do not hand-edit either this
-/// string or the allowlist in `quid-bridge/src/evm_validating_signer.rs` without running it.
+/// ⚠️ **A SIGNATURE THAT DRIFTS HERE PRODUCES A DEAD SELECTOR AND STILL COMPILES.** Nothing
+/// links this string to the contract at build time; `tools/check-client-abis.py` — which reads
+/// this tree since §E178, not only `spa/` — is what compares it against the compiled ABI. Do
+/// not hand-edit [`SIG_OPEN_CHANNEL`] without running it. The enclave's tx policy needs no
+/// matching edit: it DERIVES its selector set from [`HOP_BTCCHANNELS_SIGS`]
+/// (`quid-bridge/src/evm_validating_signer.rs:129`) rather than restating it.
 ///
-/// `auth` carries `lpEth` + the pinned payout key + the LP signature + the §E138
-/// proof-of-possession. `exits` is the ladder: (§SPRINT-B4) at least TWO shapes at DISTINCT
+/// `auth` carries the pinned BTC payout key (`btcRecipient`), its §E138 BIP-340
+/// proof-of-possession, and the LP's Lightning payment basepoint — no LP address and no EVM
+/// signature (§E183). `exits` is the ladder: (§SPRINT-B4) at least TWO shapes at DISTINCT
 /// CLTV deadlines — `_armLadder` rejects a single window (`LadderTooShallow`) — each fully
 /// verified on-chain (structure + BIP-341 sighash + BIP-340 signature) before the channel
 /// exists.
@@ -695,29 +689,21 @@ pub fn encode_open_channel(
 /// funding half. `drive_splice` therefore treats a missing ladder as DORMANT (retry), never as a
 /// failure: the same shape `drive_open` uses for absent consent.
 ///
-/// ⚠️ CORRECTED 2026-08-16. This header declared a SIX-parameter ABI,
-/// `splice(bytes32,OpenParams,bytes,bytes32[],bytes,uint256)`, and documented both extra
-/// arguments as live. **Neither exists.** The trailing `uint256` was `fee_settle_sats`,
-/// DELETED in §E191; the `bytes` was a per-splice `lpAuth`, retired in §E157. The selector
-/// constant and the encoder were always right — only this prose was wrong, which is exactly
-/// why `check-client-abis.py` reports 0 drifted: it compares [`SIG_SPLICE`] against the
-/// compiled ABI and never reads a comment. **A doc block is not covered by the ABI gate, so
-/// it rots silently on the one surface a reader trusts to explain the call.**
+/// ⚠️ **THIS HEADER IS NOT COVERED BY THE ABI GATE.** `check-client-abis.py` compares
+/// [`SIG_SPLICE`] against the compiled ABI and never reads prose, so a parameter list written
+/// here can rot silently on the one surface a reader trusts to explain the call. Re-derive the
+/// argument list from [`SIG_SPLICE`] and the tokens below, never from this paragraph.
 ///
 /// `channel_id`
 /// is the STABLE original channelId (keyed on the original funding outpoint), NOT
 /// recomputed from the splice tx — a splice rotates only the live funding UTXO.
 /// `params.amount_sats` is the new TOTAL: > current GROWS (adds liquidity),
 /// < current SHRINKS (partial withdrawal). On a shrink the contract reads the LP's
-/// BTC payout directly from the splice tx (P2WPKH to the LP's committed shutdown
-/// key) to drive the delivered/native split — no attested balance needed. The
-/// contract reverts if unchanged.
-///
-/// ⛔ The `fee_settle_sats` paragraph that stood here is DELETED with the parameter (§E191).
-/// It described the hop marking part of a GROW as this LP's accrued BTC-leg fees against
-/// `btcFeesOwedSats` — a function §E145 had already removed, so the driver was RPC-reading a
-/// nonexistent selector every splice and swallowing the revert with `.unwrap_or(0)`. Fees
-/// still compound into the LP's position; they simply do not travel on this call.
+/// BTC payout directly from the splice tx — key-path P2TR `0x5120||btcRecipientOf[lpEth]`
+/// (`_lpPayoutScript`; no P2WPKH script handling is left anywhere) — to drive the
+/// delivered/native split, with no attested balance needed. ⚠️ A SAME-SIZE SPLICE IS LEGAL:
+/// the contract reverts `SpliceUnchanged` only when NEITHER the size NOR the key pair moves,
+/// so a pure key rotation at constant size reaches `_applySplice`'s same-size branch.
 ///
 /// **AUTHORIZATION.** `splice` carries no LP signature: it is gated on-chain by `_onlyHop()`.
 /// ⚠️ CORRECTED 2026-08-16 — this used to say the gate is *"channel.hop, fixed at open to a
@@ -728,14 +714,12 @@ pub fn encode_open_channel(
 /// channel's funding UTXO, every withdrawal output pins to `btcRecipientOf`, and the §E129-c
 /// KeyAgg gate proves `p.lpPubkey` is inside the NEW `Q` — so a grow cannot migrate custody.
 ///
-/// ⚠️ **SPLICES ARE NOT LP-AUTHORIZED, AND NOTHING HERE SHOULD SUGGEST OTHERWISE.** A
-/// `splice_digest` used to sit below, documenting itself as *"the message the LP signs to
-/// authorize a splice"*, and it was kept as the natural message for an LP-consent gate that did
-/// not exist yet. **That justification EXPIRED and was re-tested (2026-08-22): the gate arrived —
-/// §E182 `rekey` — and it deliberately did NOT reuse this digest**, keeping its own preimage
-/// inline under tag `rekey.v1`, because domain separation requires a distinct tag per gate. So
-/// the marker named a need, the need was met another way, and the only gate `splice.v1` could
-/// serve is the per-splice `lpAuth` §E157 retired AS REDUNDANT. Removed rather than carried.
+/// ⚠️ **SPLICES ARE NOT LP-AUTHORIZED, AND NOTHING HERE SHOULD SUGGEST OTHERWISE.** Do not
+/// reintroduce a `splice.v1` digest for the LP to sign. §E157 retired the per-splice `lpAuth`
+/// AS REDUNDANT, and the one later consent gate that did want its own message kept its own
+/// preimage under its own tag rather than reusing a splice digest — domain separation requires
+/// a distinct tag per gate, so a shared one would have been wrong even where it was wanted.
+/// There is no LP-signed splice message and this encoder must not grow one.
 /// ⇒ What actually bounds a splice is above: the SPV proof, the `btcRecipientOf` output pin, and
 /// the §E129-c KeyAgg gate — plus the fresh `exits` ladder, whose rungs verify against the 2-of-2
 /// aggregate `Q` and therefore CANNOT be produced without the LP. **That ladder is the LP consent
@@ -761,7 +745,8 @@ pub fn encode_splice(
 }
 
 /// (T1-c) [`SIG_SETTLE_SWAP_IN_PROVEN`] calldata — credit an on-chain swap-in against a
-/// deposit the contract VERIFIES, replacing the `settleSwapIn` call this rail used to make.
+/// deposit the contract VERIFIES. It is the ONLY swap-in credit path on `BTCChannels`: there
+/// is no entrypoint anywhere that credits sats on the hop's word.
 ///
 /// `user_refund` and `cltv_height` are not decoration: they are the two values that
 /// reconstruct the deposit's CLTV leaf, and therefore the tweaked output key. The contract
@@ -769,8 +754,10 @@ pub fn encode_splice(
 /// pays out only for value that landed THERE — so a hop that supplies a leaf it does not
 /// control proves a payment to an address it cannot spend from, which is not an attack.
 ///
-/// The inclusion half (`block_hash`, `tx_index`, `merkle_proof`, `raw_deposit_tx`) comes
-/// verbatim from [`tx_inclusion`], the same helper the splice and close paths use.
+/// The inclusion half comes verbatim from [`tx_inclusion`], the same helper the splice and
+/// close paths use: `inclusion.block_hash_be`, `inclusion.tx_index` and
+/// `inclusion.merkle_proof` fill the last three fields of `Types.DepositProof`, and
+/// `inclusion.raw` is the trailing `rawDepositTx` argument.
 pub fn encode_settle_swap_in_proven(
     seller: Address,
     token: Address,
@@ -809,12 +796,14 @@ pub fn encode_settle_swap_in_proven(
     )
 }
 
-/// (B) `deliverSwapOutOnchain(bytes32,bytes32,OpenParams,bytes,bytes32[],bytes)`
-/// calldata — settles an on-chain swap-out: the SPV-proven splice-out tx that paid
-/// the swapper's `swapper_script`. NO lpAuth under Option B: the fleet submits this as
-/// the channel's HOP (`msg.sender == channels[channelId].hop`) and the delivery is
-/// authenticated by the SPV-proven swapper payment + obligation pin, not a per-call LP
-/// signature. `channel_id` is the STABLE original channelId.
+/// (B) `deliverSwapOutOnchain(bytes32,bytes32,OpenParams,bytes,bytes32[],bytes,ExitArming[])`
+/// calldata — SEVEN arguments, matching [`SIG_DELIVER_SWAP_OUT_ONCHAIN`] and the tokens below.
+/// Settles an on-chain swap-out: the SPV-proven splice-out tx that paid the swapper's
+/// `swapper_script`. NO lpAuth under Option B: submission is gated by `_onlyHop()` against the
+/// immutable `MAIN_HOP`/`FALLBACK_HOP` pair — there is no per-channel `channel.hop` (§E164) —
+/// and the delivery is authenticated by the SPV-proven swapper payment + obligation pin, plus
+/// the `_requireChannelKeys` pin that keeps the rotation on the pair the channel opened with.
+/// `channel_id` is the STABLE original channelId.
 pub fn encode_deliver_swap_out_onchain(
     swap_id: [u8; 32],
     channel_id: [u8; 32],
@@ -842,25 +831,27 @@ pub fn encode_deliver_swap_out_onchain(
     )
 }
 
-/// (#114 DEAD-MAN EXIT) `emitDeadManExit(bytes32,uint64,uint256,bytes)` calldata — the
-/// fleet heartbeat that emits/refreshes a FULLY-signed, CLTV-timelocked unilateral-exit
-/// tx for `channel_id`. `signed_exit_tx` is the raw consensus-serialized tx bytes from
+/// (#114 DEAD-MAN EXIT) `emitDeadManExit(bytes32,OpenParams,ExitArming)` calldata — THREE
+/// arguments, matching [`SIG_EMIT_DEAD_MAN_EXIT`] and the tokens below. It arms ONE more
+/// FULLY-signed, CLTV-timelocked unilateral-exit shape for `channel_id`;
+/// `exit.signed_exit_tx` is the raw consensus-serialized tx bytes from
 /// [`crate::`]`..deadman_exit::presign_deadman_exit` (payout pinned to `btcRecipientOf`
-/// INSIDE the signed bytes). On-chain records `cltv_deadline` (the liveness heartbeat)
+/// INSIDE the signed bytes). On-chain records `exit.cltv_deadline` (the liveness heartbeat),
+/// ratchets `checkpointOf` (a lower `exit.checkpoint_sats` reverts `CheckpointRegression`)
 /// and re-publishes the bytes in the `DeadManExitEmitted` event; no funds move.
-/// AUTHORITY is the same (B) gate as `openChannel` (`_requireAttested` + delegated hop),
-/// so the fleet submits this as the channel's HOP.
 ///
-/// ⚠️ (E178/E165) THE FLAT FORM IS GONE. This took four flat arguments
-/// (`bytes32,uint64,uint256,bytes`); §E165 replaced them with the channel's `OpenParams`
-/// plus ONE `ExitArming` — the same struct `openChannel` arms the ladder with, so an exit
-/// is verified identically whether it arrives at open or on a refresh, and there is only
-/// one shape to keep in step. `cltv_deadline`/`checkpoint_sats`/`signed_exit_tx` are now
-/// FIELDS of that struct rather than positional arguments.
+/// AUTHORITY is `_whenOpen` + `_onlyHop()` (the immutable `MAIN_HOP`/`FALLBACK_HOP` pair) +
+/// `_requireChannelKeys(channelId, p)` — which is the whole reason `p` is a parameter: without
+/// it a hop could name a key pair whose aggregate it controls and verify the exit against THAT.
 ///
-/// The old NB about `uint64` still applies in spirit: the 4-byte selector is computed over
-/// the EXPANDED tuple types, so a struct written as `tuple` — or a field whose width is
-/// wrong — yields a selector no contract answers, with calldata that still looks plausible.
+/// ⚠️ `cltv_deadline`, `checkpoint_sats` and `signed_exit_tx` are FIELDS OF `ExitArming`, not
+/// positional arguments. It is the same struct `openChannel` arms the LADDER with (§E165), so
+/// an exit is verified identically whether it arrives at open or on a refresh. The ladder is
+/// mandatory at open, so reaching for this refresh should be the exception, not a heartbeat.
+///
+/// ⚠️ The 4-byte selector is computed over the EXPANDED tuple types, so a struct written as the
+/// bare token `tuple` — or a field whose width is wrong — yields a selector no contract
+/// answers, with calldata that still looks plausible.
 pub fn encode_emit_dead_man_exit(
     channel_id: [u8; 32],
     params: &OpenParams,
@@ -887,10 +878,21 @@ pub fn encode_register_channel_claim(channel_id: [u8; 32]) -> Vec<u8> {
     encode_call(SIG_REGISTER_CHANNEL_CLAIM, &[Tok::FixedBytes32(channel_id)])
 }
 
-/// `requestSwapOutOnchain(address,uint256,uint256,bytes32,bytes)` calldata — the
-/// swapper's USD→BTC commit to an on-chain Bitcoin address. The SPA sends this in
-/// production; this encoder is for the e2e + ABI symmetry. `swapper_script` is the
-/// raw destination scriptPubKey (≤ 34 bytes).
+/// [`SIG_REQUEST_SWAP_OUT_ONCHAIN`] calldata — the swapper's USD→BTC commit to an on-chain
+/// Bitcoin address. The SPA sends this in production; this encoder is for the e2e + ABI
+/// symmetry.
+///
+/// 🔴 **THE CONTRACT TAKES FOUR ARGUMENTS AND THIS BODY ENCODES FIVE — AN OPEN DEFECT, NOT A
+/// DOC BUG.** `requestSwapOutOnchain(address,uint256,uint256,bytes32)` has no destination
+/// parameter: §E184 made the contract BUILD the payout script itself from
+/// `btcRecipientOf[msg.sender]`, whose curve membership (§E130) and control (§E138) it has
+/// already proven, so the P2TR shape is true by construction and there is no supplied blob to
+/// prefix-check. The trailing `Tok::Bytes(swapper_script)` below is a word the ABI does not
+/// declare. The call does not revert — the selector comes from the 4-type
+/// [`SIG_REQUEST_SWAP_OUT_ONCHAIN`] and all four declared parameters are static, so the
+/// decoder reads the head and ignores the tail — but `swapper_script` is SILENTLY DISCARDED.
+/// Nothing routes on it; do not treat it as reaching the chain. The parameter belongs deleted
+/// from this function and its callers.
 pub fn encode_request_swap_out_onchain(
     token: Address,
     usd_amount: U256,
@@ -910,13 +912,19 @@ pub fn encode_request_swap_out_onchain(
     )
 }
 
-/// `recordClose(bytes32,bytes,bytes32,bytes32[],uint256)` calldata for a
-/// COOPERATIVE close (`locktime == 0`).
+/// `recordClose(bytes32,OpenParams,bytes,bytes32,bytes32[],uint256)` calldata — SIX arguments,
+/// matching [`SIG_RECORD_CLOSE`] and the tokens below. ⚠️ ONE ENTRYPOINT FOR BOTH CLOSE KINDS,
+/// NOT JUST THE COOPERATIVE ONE: the contract reads the tx's locktime and branches on-chain.
+/// `locktime == 0` ⇒ cooperative, settling the LP's co-signed BTC payout (and subject to the
+/// `StaleClose` guard unless the LP is the submitter); otherwise the tx must pass
+/// `BitcoinTx.isCommitmentTx` or it reverts `NotForceClose`, and the channel retires at
+/// `delivered = 0`.
 ///
-/// ⚠️ (E178/E153) `close_params` IS NOT OPTIONAL AND WAS MISSING. `recordClose` gained an
-/// `OpenParams` argument so it can reconstruct the channel's 2-of-2 and tell a SPLICE from
-/// a CLOSE — which is what lets recording be PERMISSIONLESS instead of hop-only. Encoding
-/// the old 5-argument form produced a selector no contract answers.
+/// ⚠️ (E178/E153) `close_params` IS NOT OPTIONAL. Only the two pubkeys are read — the driver
+/// zeroes the SPV fields — and they are what `_requireNotSplice` reconstructs the rotated
+/// 2-of-2 from, so a confirmed SPLICE tx cannot be replayed here to retire a live channel.
+/// Removing that ambiguity is what lets recording be PERMISSIONLESS rather than
+/// participant-gated.
 pub fn encode_record_close(
     channel_id: [u8; 32],
     close_params: &OpenParams,
@@ -941,20 +949,22 @@ pub fn encode_record_close(
 // close tx's locktime selects the coop vs non-coop branch on-chain). The driver
 // submits encode_record_close for BOTH; the EVM decides the settlement.
 
-/// Encode the calldata for `recordForceClosePermissionless` — the PERMISSIONLESS
-/// reconciliation of a unilateral/force close. The ABI is byte-identical to
-/// `recordClose` (same 5 params), but the entrypoint is gated on-chain by
-/// `BitcoinTx.isCommitmentTx` (so only a genuine BOLT #3 commitment-tx spend is
-/// accepted, never a coop close / splice / deliver) and settles `delivered=0`
-/// (lpPayout = the full funded amount), retiring the position to its on-chain
-/// reality without minting anything.
+/// `recordForceClosePermissionless(bytes32,bytes,bytes32,bytes32[],uint256)` calldata — FIVE
+/// arguments, matching [`SIG_RECORD_FORCE_CLOSE_PERMISSIONLESS`] and the tokens below. It is
+/// gated on-chain by `BitcoinTx.isCommitmentTx` (so only a genuine BOLT #3 commitment-tx spend
+/// is accepted, never a coop close / splice / deliver) and settles `delivered=0`
+/// (lpPayout = the full funded amount), retiring the position to its on-chain reality without
+/// minting anything.
 ///
-/// WHY a SEPARATE entrypoint (vs `recordClose`): `recordClose` is participant-gated
-/// (`msg.sender` must be the hop or the channel's `lpEth`). A force close is exactly
-/// when the hop is dead/offline and the LP is incentivized to LEAVE the position
-/// open (it keeps counting as QUI backing). The permissionless path lets ANY keeper
-/// (here, the bridge reconciler) restore honest backing — and the `isCommitmentTx`
-/// gate is what makes it safe to be permissionless.
+/// WHY a SEPARATE entrypoint, given `recordClose` is permissionless too and its force branch
+/// demands the same `isCommitmentTx`: THIS ONE TAKES NO `OpenParams`. `recordClose` needs the
+/// channel's two funding pubkeys for `_requireNotSplice`, and a taproot key-path close carries
+/// no witnessScript to recover them from — so a keeper that never held the channel cannot
+/// build that call at all. Here `isCommitmentTx` does the same splice-vs-close discriminating
+/// from the raw tx alone, which is what makes the missing parameter safe. That matters
+/// precisely when the hop is dead/offline and the LP is incentivized to LEAVE the position
+/// open (it keeps counting as QUI backing): ANY keeper — here the bridge reconciler — can
+/// restore honest backing.
 pub fn encode_record_force_close_permissionless(
     channel_id: [u8; 32],
     raw_close_tx: &[u8],
@@ -978,8 +988,9 @@ pub fn encode_record_force_close_permissionless(
 /// channel's two 2-of-2 funding pubkeys (read from LDK via
 /// `ChannelMonitor::funding_pubkeys`). Fetches the funding tx + its inclusion
 /// proof, sorts the pubkeys into open/close `channelId` order, and verifies the
-/// on-chain funding output's P2WSH equals the reconstructed 2-of-2 (so a wrong
-/// pubkey pair is rejected here, before any signing/submission). Returns the
+/// on-chain funding output's key-path P2TR scriptPubKey (`0x5120||Q`) byte-matches the one
+/// reconstructed from that pair (so a wrong pubkey pair is rejected here, before any
+/// signing/submission). Returns the
 /// params plus the raw funding tx + merkle proof needed for
 /// [`encode_open_channel`].
 pub async fn build_open_params(
@@ -1021,16 +1032,15 @@ pub async fn build_open_params(
     Ok((params, incl.raw, incl.merkle_proof))
 }
 
-/// Build the [`OpenParams`] for a confirmed SPLICE tx — the new, LARGER 2-of-2
-/// output the splice pays to (the same funding pubkey pair; `amount_sats` = the
-/// new TOTAL funded amount, which the on-chain `splice` requires to exceed
-/// the channel's current total). The machinery is identical to
-/// [`build_open_params`] — locate the reconstructed-2-of-2 output, verify its
-/// on-chain P2WSH, fetch the inclusion proof — pointed at the splice tx + its
-/// output index, so it is implemented by delegation. IMPORTANT: a splice does NOT
-/// change the on-chain `channelId` (it is keyed on the ORIGINAL funding outpoint),
-/// so the caller must pass the original channelId to [`splice_channel_digest`] /
-/// [`encode_splice_channel`] — never recompute it from the splice outpoint.
+/// Build the [`OpenParams`] for a confirmed SPLICE tx — the CONTINUING 2-of-2 output the
+/// splice pays to. `amount_sats` is the new TOTAL funded amount, which may be larger (grow),
+/// smaller (shrink) or unchanged (a pure key rotation at constant size), and the pubkey pair
+/// passed in may itself have rotated. The machinery is identical to [`build_open_params`] —
+/// reconstruct the key-path P2TR from the pair, verify the on-chain output byte-matches it,
+/// fetch the inclusion proof — pointed at the splice tx + its output index, so it is
+/// implemented by delegation. IMPORTANT: a splice does NOT change the on-chain `channelId`
+/// (it is keyed on the ORIGINAL funding outpoint), so the caller must pass the original
+/// channelId to [`encode_splice`] — never recompute it from the splice outpoint.
 pub async fn build_splice_params(
     esplora: &Esplora,
     splice_txid: &Txid,
@@ -1128,9 +1138,11 @@ mod tests {
         s
     }
 
-    // GROUND TRUTH: keccak256(abi.encode(OpenParams)) exactly as Solidity emits
-    // it in evm/test/AbiCheck.t.sol. Hash-equality over the whole encoding is a
-    // byte-exactness proof — the lpAuth digest depends on exactly this.
+    // GROUND TRUTH: keccak256(abi.encode(OpenParams)) exactly as Solidity emits it in
+    // evm/test/BTCChannelsAuth.t.sol (test_openparams_abi_ground_truth), which pins the same
+    // constant from the other side and tampers each of the seven fields in turn to prove the
+    // hash actually covers all of them. Hash-equality over the whole encoding is the
+    // byte-exactness proof for every entrypoint below that passes an OpenParams.
     #[test]
     fn open_params_abi_matches_solidity() {
         let lp: [u8; 33] = hex_decode(
@@ -1219,8 +1231,9 @@ mod tests {
         );
     }
 
-    // (#114) emitDeadManExit calldata: 3 static words (bytes32, uint64→word, uint256)
-    // + 1 dynamic bytes ⇒ head is 4 words; word3 is the offset to the bytes = 0x80.
+    // (#114) emitDeadManExit calldata: `(bytes32, OpenParams, ExitArming)` ⇒ a THREE-word head
+    // — channelId inline, then the two tuple offsets — so word1 = 0x60. Every scalar the old
+    // flat form carried now lives inside the ExitArming tail, which is what the body walks.
     #[test]
     fn emit_dead_man_exit_calldata_layout() {
         // ⚠️ (E178) THE SHAPE CHANGED: `emitDeadManExit(bytes32, OpenParams, ExitArming)`.
@@ -1345,10 +1358,9 @@ mod tests {
     }
 
 
-    // splice calldata: arg0 is a STATIC bytes32 (channelId, inlined in the head);
-    // args are (channelId static, params dynamic, raw dynamic, proof dynamic,
-    // (E191) head is now 4 words — `feeSettleSats` is DELETED — so word1 (the offset to the
-    // OpenParams tuple) = 0x80 (4 × 32). It was 0xA0 while the dead 5th word was carried.
+    // splice calldata: FIVE args — channelId (a STATIC bytes32, inlined in the head), then the
+    // four dynamic ones (OpenParams, rawSpliceTx, merkleProof, ExitArming[]). The head is
+    // therefore 5 words and word1, the offset to the OpenParams tuple, is 0xA0 (5 × 32).
     #[test]
     fn splice_calldata_layout() {
         let p = OpenParams {
@@ -1366,11 +1378,10 @@ mod tests {
         assert_eq!(&cd[4..36], &cid);
         // head word1 = offset to arg1 (the dynamic OpenParams tuple) = 0xA0: the head is
         // 5 words (channelId, params-offset, raw-offset, proof-offset, exits-offset).
-        // ⚠️ IT WAS 0x80 AND IS 0xA0 AGAIN — for a LIVE reason this time. §E191 removed the dead
-        // `feeSettleSats` word that had made it 0xA0; §E233-ladder adds the mandatory `ExitArming[]`
-        // ladder, so the head is five words once more. Same number, opposite meaning: the point
-        // of asserting the offset is that a head-word count change is what silently shifts every
-        // dynamic argument, so it must be re-derived rather than pattern-matched against history.
+        // ⚠️ RE-DERIVE THIS NUMBER FROM THE ARGUMENT LIST, NEVER CARRY IT FORWARD. It has held
+        // both 0x80 and 0xA0 at different times, for unrelated reasons, and the same number can
+        // mean a different layout — a change in the head-word count is exactly what silently
+        // shifts every dynamic argument, which is the whole point of asserting the offset.
         assert_eq!(
             hex_encode(&cd[36..68]),
             "00000000000000000000000000000000000000000000000000000000000000a0",
@@ -1555,10 +1566,6 @@ mod proptests {
         }
 
         // (P4) `channelId` over arbitrary inputs: never panics, deterministic.
-        // ⚠️ Was `digests_never_panic` and covered three digests. Two were deleted with the
-        // consents they encoded (§E182, §REKEY-FOLD) and the third with its contract accessor, so
-        // the generators that fed them (`chain_id`, `addr`, `cid`, `raw`) went too rather than
-        // being left bound-but-unread — which is what the compiler flagged.
         #[test]
         fn channel_id_never_panics(
             p in arb_open_params(),
