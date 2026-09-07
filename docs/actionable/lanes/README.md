@@ -18,6 +18,42 @@ lanes stage the same path.
 | L6 | `evm/test/` only | additive |
 | L7 | read-only | none |
 
+## 🔴 L4's SERIALISER NAMES THE WRONG FILE AND THE WRONG REASON — `LevMath` IS **LINKED** (2026-09-07)
+
+**The table below justifies L4 being strictly serial with *"`LevManager` = 227 bytes"*. Both halves of
+that are wrong, and the second is structural rather than stale.**
+
+⛔ **`LevMath` IS A LINKED LIBRARY, SO ITS GROWTH CANNOT CONSUME `LevManager`'s BUDGET.** From the
+artifact, not from correlation — `evm/out/LevManager.sol/LevManager.json` carries
+`linkReferences: {"src/imports/LevMath.sol": ["LevMath"], "src/imports/RangeLib.sol": ["RangeLib"]}`.
+⇒ **a linked library is deployed separately and its code is never inlined.** Confirmed by the measured
+control: **`LevMath` grew +628 B across §SESS-65/66/69/70 and `LevManager` moved by ZERO bytes**, reading
+24,443 at every build that day. **Editing `LevMath` is not an EIP-170 risk to `LevManager` at all.**
+
+⇒ **THE LANE'S REAL SIZE RISK IS `LevMath`'s OWN BUDGET**, which is the file the lane is actively
+growing, and which the serialiser column does not mention.
+
+| | contract | free | shape |
+|---|---|---|---|
+| **tightest absolute** | `LevManager` | **133 B** | **static** — unchanged across every build on 2026-09-07 |
+| 🔴 **binding on current work** | `LevMath` | **222 B** | **moving: 850 → 222 in one day, −628 B** |
+
+⭐ **THOSE ARE DIFFERENT RISKS AND THE SECOND IS THE ONE THAT BITES THIS WEEK.** A static 133 B is a
+ceiling you can plan against; a 222 B falling at ~600 B/day is a wall you hit mid-edit. **Measure
+`LevMath`, not `LevManager`, before landing in L4.**
+
+⚠️ **PROVENANCE, STATED BECAUSE THE NUMBERS ARE NOT CLEAN:** these byte counts come from artifacts
+built over another session's UNCOMMITTED `imports/Interfaces.sol` and `imports/LevMath.sol`. **The
+structural fact — `linkReferences` makes the two budgets independent — is permanent and checkable.
+The figures are indicative and want a clean-HEAD `forge build --sizes` to land.** The stale 227 traces
+to `aa2de056` ("Partition the work into seven lanes"), so it predates whatever actually grew
+`LevManager`; **nothing is attributed to a cause here, because nothing was measured to one.**
+
+📌 **AND THE REST OF THE TREE, so the table is not read as a repo-wide ranking:** `SwapLib` 1,194 ·
+`Quid` 1,556 · `Aux` 2,828 · `BTCChannels` 3,091 · `QuidLib` 8,635 · `Basket` 11,096 · `Core` 13,266 ·
+`Vault` 13,601. ⛔ **`Core` at 13,266 B free is why `§E1`/`§B5`'s *"Core is 139 B OVER EIP-170"* is
+dead — see the GATE 1 read pass. That constraint has been shaping designs it no longer binds.**
+
 ## 🔴 THE TABLE IS CUT ON FILES; THE COMPILER IS NOT (2026-09-07)
 
 **Two lanes that stage no common path can still compile a common header, and that break merges CLEAN
