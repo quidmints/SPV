@@ -55356,3 +55356,46 @@ it is shared config and mutating it was outside what this thread could do unatte
 ⛔ **`evm/src/identity/` AND ANYTHING NOIR / PRIVACY-POOL REMAINS OUT OF SCOPE** until SPRINT.md is
 finished — that scope has its own backlog at `docs/actionable/TODO.md` (owner, 2026-09-07). Verified:
 zero such paths in any commit of this session.
+
+## ✅ §REFILL-SIZE — **E70's OPEN QUESTION IS ANSWERED, AND ITS CONCLUSION WAS AN ARTEFACT OF THE SELL SIZE.** (2026-09-07)
+
+E70 handed off ONE blocking question — *"where do the ETH sell's proceeds go? … my async-settlement
+hypothesis is EXPLICITLY UNPROVEN and may instead be a bug"* — and forbade any pricing work until it
+resolved. **Resolved by measurement, both halves:**
+
+✅ **THE DELIVERY GAP IS CLOSED. IT WAS NOT A BUG.** `RestoreProfitability` now shows `WETH left = 0`
+and `got = 48,279.72 usd18` — the proceeds arrive DIRECTLY at the recipient. No claim to redeem, no
+missing stable, no loss. §4a steps 2 and 3 do not apply. (The fixture has since grown an
+`assertGt(got, 0)` guard at the recipient, which is what makes this durable.)
+
+🔴 **AND E70's ANSWER TO ITS OWN PRICING QUESTION — "restoration does not pay for itself, −300 bps" —
+IS AN ARTEFACT OF THE SELL SIZE, NOT A PROPERTY OF RESTORATION.** The fixture sold a flat 20 ETH
+into a **$27,382.73** deficit: **1.82× the gap**, so 45% of the trade pushed inventory PAST target —
+which `SwapLib:430` charges the A-S premium ON PURPOSE (*"a sell that pushes the pool's volatile
+inventory PAST target is inventory-INCREASING ⇒ charge the same A-S premium the drain does"*).
+⇒ It measured a trade that is **45% not restoring** and reported the answer as if it were.
+
+⭐ **MEASURED, sweeping sell size as a MULTIPLE OF THE DEFICIT on identical state (snapshot/revert),
+`test_REFILLSIZE_ShortfallIsAPropertyOfOvershootNotRestoration`:**
+
+| size as % of deficit | 50 | 90 | **100** | **110** | 150 | 182 | 300 |
+|---|---|---|---|---|---|---|---|
+| shortfall (bps) | 0 | 0 | **0** | **300** | 300 | 300 | 300 |
+
+⇒ **RESTORING IS EXACTLY FREE UP TO THE DEFICIT.** The mirror/flush exemption fires precisely as
+`SwapLib:430` designs it; the earlier −300 bps was the overshoot and nothing else.
+
+🔴 **AND THE SECOND FINDING IS SHARPER THAN THE FIRST: THE CHARGE IS A CLIFF, NOT A SLOPE.** Crossing
+target by 10% costs the SAME 300 bps as crossing it by 200%, and the premium applies to the **WHOLE
+TRADE**, not to the overshooting portion. 300 bps = **`GAMMA_WAD = 3e16`** exactly (ratio 1.000000).
+⚠️ **CONSEQUENCE:** a restorer who mis-sizes by one wei of overshoot pays 3% on their ENTIRE size.
+That is a discontinuity at exactly the point a restorer is aiming for, it punishes the honest error
+in the direction the pool WANTS, and it makes "sell slightly more than the gap" strictly worse than
+"sell slightly less". ▶️ **Decide deliberately whether that is intended.** The alternative — charging
+the premium only on the portion past target — is a different and continuous mechanism, and nothing
+in the code says the cliff was chosen over it rather than inherited.
+
+📌 **WHAT THIS SETTLES FOR E48/E70:** restoration is **value-NEUTRAL** (0 bps), not loss-making. But
+value-neutral still means **nothing pays anyone to do it** ⇒ **E48's async keeper fallback is
+REQUIRED, not optional**, and that is now measured rather than argued. ⛔ Do not reopen "is
+restoration naturally profitable" — it is priced at oracle by construction below the deficit.

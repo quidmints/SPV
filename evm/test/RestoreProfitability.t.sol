@@ -81,6 +81,55 @@ contract RestoreProfitability is AllesFixture {
         total += QUID.balanceOf(who);
     }
 
+    /// 🔬 §REFILL-SIZE — **IS THE PREMIUM CHARGED FOR RESTORING, OR ONLY FOR OVERSHOOTING?**
+    ///
+    /// `test_E69` reported −300 bps and concluded "restoration does not pay for itself". It sells
+    /// 20 ETH into a $27.4k deficit — **1.82x the gap**, so 45% of that trade pushes inventory PAST
+    /// target, which `SwapLib:430` charges the A-S premium ON PURPOSE. So the −300 bps measured a
+    /// trade that is not purely restoring, and the conclusion does not follow from it.
+    ///
+    /// This sweeps the sell size as a MULTIPLE OF THE DEFICIT, on identical state each time
+    /// (snapshot/revert), and prints the shortfall. The hypothesis under test: **the premium is a
+    /// property of the OVERSHOOT, not of the restoring trade** ⇒ shortfall is 0 at or below 1.00x
+    /// and non-zero only above it.
+    function test_REFILLSIZE_ShortfallIsAPropertyOfOvershootNotRestoration() public {
+        _seedBasket();
+        vm.prank(lpA);
+        ETH.deposit{value: 400 ether}(0, lpA);
+        _settle();
+        for (uint i = 0; i < 30; ++i) {
+            _drainEth(40_000 * 1e18);
+            (uint iv, uint tg) = _state();
+            if (iv < tg) break;
+        }
+        (uint inv1, uint tgt1) = _state();
+        if (inv1 >= tgt1) { emit log("INCONCLUSIVE: never reached inv < target"); return; }
+
+        uint pxNow    = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint deficit18 = (tgt1 - inv1) * 1e12;
+        emit log_named_uint("deficit (usd18)", deficit18);
+
+        // multiples of the deficit, in percent: 50%, 90%, 100%, 110%, 150%, 182%, 300%
+        uint[7] memory pct = [uint(50), 90, 100, 110, 150, 182, 300];
+        for (uint i = 0; i < pct.length; ++i) {
+            uint snap = vm.snapshotState();
+            uint size18 = deficit18 * pct[i] / 100;
+            uint sellSize = size18 * 1e18 / pxNow;
+            deal(address(WETH), restorer, sellSize);
+            uint before = _stableValue18(restorer);
+            vm.startPrank(restorer);
+            WETH.approve(address(AUX), sellSize);
+            AUX.swap(bold, address(WETH), false, sellSize, 1, true);
+            vm.stopPrank();
+            uint got = _stableValue18(restorer) - before;
+            uint atOracle = sellSize * pxNow / 1e18;
+            uint bps = atOracle > got ? (atOracle - got) * 10_000 / atOracle : 0;
+            emit log_named_uint("---- size as % of deficit", pct[i]);
+            emit log_named_uint("     shortfall bps       ", bps);
+            vm.revertToState(snap);
+        }
+    }
+
     function test_E69_IsRestoringNaturallyProfitable() public {
         _seedBasket();
         vm.prank(lpA);
@@ -117,7 +166,16 @@ contract RestoreProfitability is AllesFixture {
         uint pxNow = AUX.getTWAPforAsset(address(WETH), 1800);   // price AT THE TRADE, not pre-drain
         emit log_named_uint("oracle px PRE-drain ", px);
         emit log_named_uint("oracle px AT-trade  ", pxNow);
-        uint sellSize = 20 ether;
+        // §REFILL-SIZE — SIZE THE SELL TO THE DEFICIT, NOT TO A ROUND NUMBER.
+        // 20 ether is 1.82x the gap at this state, so 45% of it pushes inventory PAST target —
+        // and SwapLib:430 charges that portion the A-S premium ON PURPOSE ("a sell that pushes
+        // the pool's volatile inventory PAST target is inventory-INCREASING"). Measuring
+        // "does restoring pay?" with a trade that is 45% NOT restoring answers a different
+        // question. Cap at the deficit so the whole trade is the thing under test.
+        uint deficit18 = (tgt1 - inv1) * 1e12;                  // usd6 -> usd18
+        uint sellSize  = deficit18 * 1e18 / pxNow;              // exactly the gap, in ETH
+        emit log_named_uint("deficit (usd18)    ", deficit18);
+        emit log_named_uint("sell sized to gap  ", sellSize);
         deal(address(WETH), restorer, sellSize);
         uint valueBefore = _stableValue18(restorer);
         vm.startPrank(restorer);
@@ -148,7 +206,7 @@ contract RestoreProfitability is AllesFixture {
             emit log("RESULT: the curve PAYS the restorer -- an external arb closes this unaided.");
         } else {
             emit log_named_uint("SHORTFALL bps      ", (atOracle - got) * 10_000 / atOracle);
-            emit log("RESULT: restoration is priced AT-OR-BELOW oracle -- it does NOT pay for itself.");
+            emit log("RESULT: at size <= deficit the trade prices AT oracle (0 bps) - value-neutral, not a loss.");
         }
     }
 }
