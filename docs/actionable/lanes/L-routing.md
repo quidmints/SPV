@@ -444,3 +444,37 @@ is itself 4x wider than `_slipBps` at small size. **The two weaknesses compound.
 ▶️ **NOT BUILT.** The measurement is cheap (`get_dy` on both hubs per basket stable at 2-3 sizes) and
 would either justify the assumption or name the rows that should be re-pointed. Doing it BEFORE
 tightening `CONSOL_SLIP_BPS`, since a tighter floor on a worse hub is how you turn a bleed into a stall.
+
+---
+
+## 🔴 §SESS-62 — **`Quid`'s PAYABLE FALLBACK TURNS A DELETED ENTRYPOINT INTO A SILENT SUCCESS. OWNER'S CALL.**
+
+`project-a1` asked whether `Quid.sol:415` `fallback() external payable {}` is deliberate. **Measured,
+it is not needed for the job it appears to do:**
+1. `Quid` has **no `receive()` at all** — one `fallback`, zero `receive`. The fallback is doing double
+   duty: bare-ETH receipt AND swallowing unknown selectors.
+2. The bare-ETH need is real and its source is `QuidLib.sol:438` `IWETH9(weth).withdraw(inWETH)` —
+   `WETH9.withdraw` returns ETH with **empty calldata**, and QuidLib is delegatecalled, so it lands on
+   Quid. That is the one legitimate inflow.
+3. **Empty calldata routes to `receive()` when one exists**, so `receive() external payable {}` covers
+   the unwrap exactly and lets unknown selectors revert. Nothing legitimate is lost.
+4. It is physically easy to miss: `:415` reads `}   fallback() external payable {}` — on the SAME LINE
+   as the constructor's closing brace.
+
+⭐ **THE ARGUMENT THAT SETTLES IT IS ALREADY IN CLAUDE.md, ABOUT THIS EXACT CONTRACT.** Line 735: the
+SPA was encoding a call to a **removed `Quid.exitInstant`**, and `check-client-abis.py` exists because
+`tsc` cannot run here (`spa/` has no `node_modules`). **With a payable fallback that call SUCCEEDS
+SILENTLY** — on an EXIT path, so a user could believe they had exited when nothing happened, and any
+ETH sent is swallowed. ⇒ **the fallback converts a loud failure into a silent one on a money path, in
+the one contract with a documented instance of a client calling a deleted entrypoint.**
+📌 It is also why `assertFalse(ok)` is worthless as a selector-removal test here (a1's finding): any
+unknown selector returns SUCCESS, so such a test must assert on VALUE MOVED. Swapping to `receive()`
+makes `assertFalse(ok)` correct again.
+
+⚠️ **NOT LANDED, AND DELIBERATELY SO — IT IS A BEHAVIOUR CHANGE AND THE OWNER'S DECISION.** Anything
+currently calling a Quid selector that does not exist flips from silent success to revert. That is the
+correct behaviour and exactly the class we want surfaced, but "correct" and "safe to change unasked"
+are different questions.
+▶️ **THE DECISIVE TEST IS CHEAP:** swap it, run the FULL suite with `--force`; anything that breaks is
+by definition something that was calling a non-existent selector and getting away with it. Green is the
+evidence, red is a finding either way.
