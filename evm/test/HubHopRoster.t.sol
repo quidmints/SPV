@@ -25,24 +25,15 @@ contract HubHopCaller {
 ///    all gone. See CLAUDE.md standing rule 23.
 contract HubHopRosterTest is AllesFixture {
 
-    /// ⭐ ① **THE ROUTABLE SET, ASSERTED HEAD-ON — INCLUDING THE FOUR THAT CHANGED.**
-    /// 🔴 **THIS IS A DELIBERATE BEHAVIOUR CHANGE AND IT IS STATED, NOT HIDDEN.** §SESS-24 measured
-    ///    that making USDT/DAI/USDG/crvUSD executable flips four consolidate slices from REFUNDED to
-    ///    SWAPPED. Under one table they are executable. That is defensible on the numbers the rows were
-    ///    chosen by — **4 / 1 / -1 / 0 bps, flat to $1M**, each verified against `coins()` — and a
-    ///    slice that swaps at a measured-flat venue serves the LP better than one refunded mid-protect.
-    /// ⚠️ If this assertion ever has to be weakened to make something pass, the second table is being
-    ///    re-invented; re-read standing rule 23 before doing it.
-    function test_EverySelectedRowIsTradeableAndNothingElseIs() public pure {
-        address[6] memory rows = [RLUSD_TOKEN, PYUSD_TOKEN, USDT_TOKEN, DAI_TOKEN, USDG_TOKEN, CRVUSD_TOKEN];
-        for (uint256 i; i < rows.length; ++i)
-            assertTrue(LevMath._routableStable(rows[i]), "a selected row is not tradeable");
-        // Exclusions stay excluded: a stable with no row must NOT become routable by accident. §SESS-24
-        // rejected `0xEf3a1CaE…`, which answers `get_dy` for four stables with a 95% loss and no revert.
-        assertFalse(LevMath._routableStable(address(0xBEEF)), "an unlisted token became routable");
-        assertFalse(LevMath._routableStable(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2),
-            "WETH is not a dollar and must not route");
-    }
+    // ⛔ §SESS-92 — `test_EverySelectedRowIsTradeableAndNothingElseIs` DELETED WITH THE FUNCTION IT
+    //    TESTED. `_routableStable` is gone: "can this slice move" is exactly
+    //    `_selfServableQuote(...) != 0`, which `_consolidateTo` already computes for the floor, and
+    //    which is STRICTLY STRONGER — it also catches a listed pool that is paused.
+    // 🔑 And the assertion itself was already duplicated: `CurveTablePins.t.sol` pins all six rows to
+    //    $1M within 1% of par in BOTH directions and asserts the exclusions stay zero. Re-implementing
+    //    it here against a different function would be standing rule 23's exact failure — a second
+    //    test whose only purpose is to re-assert what a live-block pin already asserts better.
+
 
     /// ⭐ ② **IT FILLS, BOTH WAYS, THROUGH THE REAL POOL.** A table test proves the rows; only an
     ///    execution proves the route. Both directions matter because ONE row serves both, so an index

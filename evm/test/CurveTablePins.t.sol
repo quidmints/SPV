@@ -70,12 +70,22 @@ contract CurveTablePins is ForkPin {
     /// 🔴 THE CONTROL — the excluded stables must still quote ZERO, or the exclusions are silent lies.
     ///    GHO/USDS/AUSD have only garbage pools; cUSD/frxUSD have none; USDE is thin at size (0/4/6592
     ///    bps at 10k/100k/1M) and is deliberately NOT a row.
-    function test_Control_ExcludedStablesQuoteZero() public view {
+    function test_Control_ExcludedStablesQuoteZero_AndUsdsIsAtPar() public view {
         address GHO  = 0x40D16FC0246aD3160Ccc09B8D0D3A2cD28aE6C2f;
         address USDS = 0xdC035D45d973E3EC169d2276DDab16f1e407384F;
         address USDE = 0x4c9EDD5852cd905f086C759E8383e09bff1E68B3;
         assertEq(LevMath._selfServableQuote(GHO,  10_000e18, USDC), 0, "GHO must be unrouted");
-        assertEq(LevMath._selfServableQuote(USDS, 10_000e18, USDC), 0, "USDS must be unrouted");
         assertEq(LevMath._selfServableQuote(USDE, 10_000e18, USDC), 0, "USDE must be unrouted - it is thin at $1M");
+        // ⭐ §SESS-92 — **USDS MOVED OUT OF THIS SET, DELIBERATELY, AND IS PINNED RATHER THAN FREED.**
+        //    It quoted 0 because it is on no Curve row and still is — the registry's answer for
+        //    (USDS, USDC) is a ZERO-balance pool whose `coins(0)` is USDT. It now reaches USDC as
+        //    USDS → DAI through Sky's 1:1 `DaiUsds` → USDC on the DAI row already on the table.
+        // ⛔ Asserting `!= 0` would be the weakening this control exists to prevent. The bound is the
+        //    same one every row in `_pinDepth` carries: within 1% of par, BOTH sides, so a converter
+        //    that silently stopped being 1:1 fails here rather than passing as "routable".
+        uint256 usdsOut = LevMath._selfServableQuote(USDS, 10_000e18, USDC);
+        assertGt(usdsOut, 10_000e6 * 99 / 100, "USDS->USDC worse than 1% off par - the Sky converter "
+                                               "or the DAI row moved");
+        assertLt(usdsOut, 10_000e6 * 101 / 100, "USDS->USDC implausibly ABOVE par - suspect the leg order");
     }
 }

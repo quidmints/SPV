@@ -202,6 +202,20 @@ bytes4 constant SWAP_SELECTOR   = 0x07ed2379;
 // 2,270,133 against 10,928 and 8,179 on UniswapV3, and a hookless GHO/USDC fill was executed at par.
 // v4 is the right venue for those two — it just has to arrive as an OFF-CHAIN-BUILT ROUTE like every
 // other venue, not as ~80 lines of nested `abi.encode` and a linked deployment. Booked in L-routing.
+// ⭐ §SESS-92 — **SKY'S `DaiUsds` 1:1 CONVERTER: THE ONLY PATH USDS HAS.**
+// 🔴 **MEASURED FIRST, AND THE OBVIOUS ANSWER WAS A TRAP.** Curve's registry answers
+//    `find_pool_for_coins(USDS, USDC)` with `0x364EE692…` — whose `coins(0)` is **USDT**, whose
+//    balances are **ZERO**, and whose `get_coin_indices` returns `i = 5` for a two-coin pool.
+//    Adding it as a seventh row would have been one line and a dead venue. §SESS-24 rejected
+//    `0xEf3a1CaE…` for the same class of registry answer; the registry is not evidence.
+// ⇒ USDS reaches USDC as **USDS → DAI (1:1, no pool, no slippage, no depth limit) → USDC** on the
+//   DAI row that is already on the table and already pinned. Verified on-chain: `dai()` and `usds()`
+//   return the canonical tokens and the contract carries 2,859 bytes of code.
+address constant DAI_USDS        = 0x3225737a9Bbb6473CB4a45b7244ACa2BeFdB276A;
+bytes4  constant SKY_USDS_TO_DAI = 0x68f30150;   // usdsToDai(address,uint256)
+bytes4  constant SKY_DAI_TO_USDS = 0xf2c07aae;   // daiToUsds(address,uint256)
+address constant USDS_TOKEN      = 0xdC035D45d973E3EC169d2276DDab16f1e407384F;
+
 uint256 constant PROTO_CURVE   = 2;
 uint256 constant HOP_I_OFFSET  = 160;
 uint256 constant HOP_J_OFFSET  = 168;
@@ -216,9 +230,27 @@ uint256 constant ZERO_FOR_ONE  = uint256(1) << 247;  // V3 direction flag, DERIV
 uint256 constant DEFAULT_UNWIND_DEX =
     (PROTO_UNIV3 << 253) | uint256(uint160(0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640));
 
+// §SESS-92 — the WBTC twin. UniswapV3 USDC/WBTC 0.30%, the pool `dex_word_wbtc()` has always named
+// off-chain and `AggSwapTwoHop.t.sol` measures against. ⛔ Same rule: not overridable, a code change.
+// 🔑 **WHY A DEFAULT EXISTS AT ALL.** `routedSwap` used to revert `NoVolatileRoute` on an empty
+// route, which was correct while a caller could pass POOL WORDS instead — §SESS-91 deleted those, so
+// "no route" stopped meaning "names no venue" and started meaning "cannot trade at all". That took 39
+// lev tests down with `NoVolatileRoute()`, and `LevMath:1380` already recorded the same incident at
+// 17 tests. ⇒ an empty route now means **the protocol's own default venue**, which is a defined
+// behaviour and the same one `LevBase._unwindDex` already relies on for a keeper-less force-close.
+uint256 constant DEFAULT_WBTC_DEX =
+    (PROTO_UNIV3 << 253) | uint256(uint160(0x99ac8cA7087fA4A2A1FB6357269965A2014ABc35));
+address constant WBTC_TOKEN = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
+
 /// @dev The one V3 accessor `_aggSwap` needs: which token a pool calls `token0`, so the direction
 ///      flag is computed from `tokenIn` instead of taken on trust from a keeper.
-interface IUniV3PoolMin { function token0() external view returns (address); }
+// §SESS-92 — `token1()` joins `token0()`: `LevMath._poolToken` reads EITHER through one shared
+// staticcall, so deriving a direction bit still costs exactly one call and the new
+// "does this pool hold what we are selling" check costs two only where it is asked.
+interface IUniV3PoolMin {
+    function token0() external view returns (address);
+    function token1() external view returns (address);
+}
 
 
 

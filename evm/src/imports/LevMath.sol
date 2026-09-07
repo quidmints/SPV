@@ -9,7 +9,7 @@ import {WAD, VenueNotAllowed} from "./Types.sol";
 import {ICore, IAux, IWeETH, IDepositAdapter, ILevVenue, TWAP_WINDOW_SECS} from "./Interfaces.sol";
 import {IERC20Min, IWETH9} from "../imports/Interfaces.sol";
 import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, SWAP_SELECTOR, PROTO_UNIV3,
-        ZERO_FOR_ONE, IUniV3PoolMin, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN, CURVE_3POOL, USDT_TOKEN, CRV_USDT_IDX, CRV_USDT_USDC_IDX, DAI_TOKEN, CRV_DAI_IDX, CRV_DAI_USDC_IDX, USDG_TOKEN, CURVE_USDG_USDC, CRV_USDG_IDX, CRV_USDG_USDC_IDX, CRVUSD_TOKEN, CURVE_CRVUSD_USDC, CRV_CRVUSD_IDX, CRV_CRVUSD_USDC_IDX} from "./Interfaces.sol";
+        ZERO_FOR_ONE, DEFAULT_UNWIND_DEX, DEFAULT_WBTC_DEX, WBTC_TOKEN, DAI_USDS, SKY_USDS_TO_DAI, SKY_DAI_TO_USDS, USDS_TOKEN, IUniV3PoolMin, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN, CURVE_3POOL, USDT_TOKEN, CRV_USDT_IDX, CRV_USDT_USDC_IDX, DAI_TOKEN, CRV_DAI_IDX, CRV_DAI_USDC_IDX, USDG_TOKEN, CURVE_USDG_USDC, CRV_USDG_IDX, CRV_USDG_USDC_IDX, CRVUSD_TOKEN, CURVE_CRVUSD_USDC, CRV_CRVUSD_IDX, CRV_CRVUSD_USDC_IDX} from "./Interfaces.sol";
 
 // ether.fi weETH/WETH Curve pool (weETH is coin1, WETH coin0). Same address as Vault.ETHERFI_CURVE_POOL.
 address constant ETHERFI_CURVE_POOL = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5;
@@ -662,14 +662,51 @@ library LevMath {
     ///      `matchIsZero` distinguishes the two rules: hop 1 sets the bit when `token == token0`,
     ///      the last hop sets it when `token != token0`. Both need only `token0()`, which is why the
     ///      interface never had to widen. A pool that cannot be read is LEFT ALONE.
+    /// @dev ONE raw staticcall, either side. ⚠️ RAW, not typed: a typed call to an address with no
+    ///      code reverts on solc's `extcodesize` guard, which would turn a bad pool word into a hard
+    ///      revert instead of the graceful skip `convertTo` implements. `address(0)` ⇒ unreadable.
+    /// 🔑 §SESS-92 — folded out of `_deriveBit` so the new `_startsAt` check reuses it rather than
+    ///    duplicating the staticcall, and so deriving a bit still costs exactly ONE call.
+    function _poolToken(address pool, bool one) private view returns (address t) {
+        (bool ok, bytes memory r) = pool.staticcall(abi.encodeWithSelector(
+            one ? IUniV3PoolMin.token1.selector : IUniV3PoolMin.token0.selector));
+        if (ok && r.length >= 32) t = abi.decode(r, (address));
+    }
+
+    /// ⭐ §SESS-92 — **DOES THIS ROUTE ACTUALLY START WHERE WE ARE SELLING?**
+    ///
+    /// 🔴 The keyless fallback can only encode UniswapV3 (`proto = 1` is the only id measured to
+    ///    fill), so a stable whose ONLY path to USDC is Curve — PYUSD, USDG, crvUSD — had no route at
+    ///    all once the pool-word plumbing went, and the failure was a HARD STOP: the route fails, the
+    ///    leg is skipped, the floor reverts. That is 3 of 14 stables unable to DE-LEVER while the
+    ///    1inch API is down, which is exactly when it is most likely to be down.
+    /// 🔑 **AND IT NEEDS NO NEW PARAMETER, BECAUSE THE POOL ALREADY ANSWERS.** `_retarget` was already
+    ///    staticcalling `token0()` here to derive the direction bit; one more read of `token1()` says
+    ///    whether the first hop holds our token at all. If it does not, the keeper planned from USDC,
+    ///    so hop `_hubRowOf` — the table `consolidate` requires anyway — and start the route there.
+    /// ⚠️ An UNREADABLE pool is NOT treated as a miss: `_deriveBit` leaves such a word alone and so
+    ///    does this, so a dead pool still fails at the router and is skipped, never silently rerouted.
+    /// ⛔ `swap()` routes are exempt — 1inch's executor sources its own input, so the question does
+    ///    not arise, and asking it would mis-read a descriptor word as a pool word.
+    function _startsAt(bytes memory route, address token) private view returns (bool) {
+        bytes4 sel;
+        assembly { sel := mload(add(route, 0x20)) }
+        if (sel != UNOSWAP_SELECTOR && sel != UNOSWAP2_SELECTOR) return true;
+        uint256 w;
+        assembly { w := mload(add(route, 0x84)) }
+        if (w >> 253 != PROTO_UNIV3) return true;
+        address p = address(uint160(w));
+        address t0 = _poolToken(p, false);
+        if (t0 == address(0)) return true;                // unreadable ⇒ leave it alone
+        return t0 == token || _poolToken(p, true) == token;
+    }
+
     function _deriveBit(bytes memory route, uint256 off, address token, bool matchIsZero) private view {
         uint256 w;
         assembly { w := mload(add(route, off)) }
         if (w >> 253 != PROTO_UNIV3) return;
-        (bool ok, bytes memory r) = address(uint160(w)).staticcall(abi.encodeWithSelector(
-            IUniV3PoolMin.token0.selector));
-        if (!ok || r.length < 32) return;                 // not a pool we can read — leave it as-is
-        address t0 = abi.decode(r, (address));
+        address t0 = _poolToken(address(uint160(w)), false);
+        if (t0 == address(0)) return;                     // not a pool we can read — leave it as-is
         w &= ~ZERO_FOR_ONE;
         if (matchIsZero ? token == t0 : token != t0) w |= ZERO_FOR_ONE;
         assembly { mstore(add(route, off), w) }
@@ -889,7 +926,28 @@ library LevMath {
     ///    trade, and a silent 0 would reappear as a slippage failure frames away.
     function routedSwap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut,
                         bytes memory route) internal returns (uint256) {
-        if (route.length == 0) revert NoVolatileRoute();
+        // ⭐ §SESS-92 — **AN EMPTY ROUTE MEANS THE PROTOCOL'S OWN DEFAULT VENUE, NOT A REVERT.**
+        //    This reverted `NoVolatileRoute`, which was right while a caller could pass POOL WORDS
+        //    instead. §SESS-91 deleted those, so "no route" stopped meaning *names no venue* and
+        //    started meaning *cannot trade* — **39 lev tests died with `NoVolatileRoute()`**, and the
+        //    docblock at `_volToStable` had already recorded the identical incident at 17 tests.
+        // 🔴 **AND ONE OF THEM STOPPED TESTING RATHER THAN FAILING**, which is worse:
+        //    `test_MEV_OracleFloorRejectsSandwich` reverted on routing BEFORE the sandwich was
+        //    priced — `NoVolatileRoute() != Slippage()` — so a security property read as covered
+        //    while exercising nothing.
+        // ⇒ two lines and a constant, NOT the 61-line encoder: the same default `LevBase._unwindDex`
+        //   already uses for a keeper-less force-close. `_startsAt` below then hops the table when
+        //   the default pool does not hold what we are selling, so a Curve-only stable still moves.
+        if (route.length == 0)
+            route = abi.encodeWithSelector(UNOSWAP_SELECTOR, uint256(0), uint256(0), uint256(0),
+                (tokenIn == WBTC_TOKEN || tokenOut == WBTC_TOKEN) ? DEFAULT_WBTC_DEX : DEFAULT_UNWIND_DEX);
+        // ⭐ §SESS-92 — the route may legitimately start at USDC for a stable the keyless planner
+        //    cannot encode; hop the table to USDC first and let the route run from there. `minOut` 0
+        //    on the hub leg is correct — `minOut` bounds the FINAL token on a measured delta.
+        if (tokenIn != USDC && !_startsAt(route, tokenIn)) {
+            amountIn = _hubHop(tokenIn, amountIn, true, 0);
+            tokenIn  = USDC;
+        }
         address[] memory t = new address[](1);
         uint256[] memory a = new uint256[](1);
         bytes[]   memory r = new bytes[](1);
@@ -1218,6 +1276,14 @@ library LevMath {
     {
         if (amt == 0) return 0;
         if (stable == USDC) return amt;            // hub itself — nothing to convert, either direction
+        // ⭐ §SESS-92 — **USDS HAS NO POOL, SO IT CONVERTS INSTEAD OF TRADING.** Sky's `DaiUsds` is
+        //    1:1 with no curve, no depth limit and no slippage, and DAI's row is already on the table
+        //    and already pinned — so USDS costs ONE recursive step and NO new row. ⛔ Do not add a
+        //    Curve row for it: the registry's answer for (USDS, USDC) is a ZERO-balance pool whose
+        //    `coins(0)` is USDT (see `Interfaces.sol` §SESS-92).
+        if (stable == USDS_TOKEN)
+            return toUsdc ? _hubHop(DAI_TOKEN, _sky(amt, true), true, minOut)
+                          : _sky(_hubHop(DAI_TOKEN, amt, false, minOut), false);
         // ⛔ §SESS-86 — **NO `PROTO_V4` ARM HERE, AND `V4Lib` IS DELETED.** It was UNREACHABLE, not
         //    merely unnecessary: every caller of `_hubHop` reaches it only under
         //    `hub == 0 || hub >> 253 == PROTO_CURVE`, so a v4 word could never arrive — and the
@@ -1266,6 +1332,10 @@ library LevMath {
     {
         if (amtIn == 0) return 0;
         if (tokenIn == tokenOut) return amtIn;
+        // §SESS-92 — 1:1, so USDS quotes as the DAI it converts into. Without this the floor reads 0
+        // for every USDS slice and `_consolidateTo` skips it — coverage that exists but never fires.
+        if (tokenIn  == USDS_TOKEN) return _selfServableQuote(DAI_TOKEN, amtIn, tokenOut);
+        if (tokenOut == USDS_TOKEN) return _selfServableQuote(tokenIn, amtIn, DAI_TOKEN);
         if (tokenIn == USDC)  return _curveQuote(tokenOut, amtIn, false);
         if (tokenOut == USDC) return _curveQuote(tokenIn,  amtIn, true);
         uint256 viaHub = _curveQuote(tokenIn, amtIn, true);      // tokenIn → USDC
@@ -1274,9 +1344,10 @@ library LevMath {
     }
 
     /// @notice §SESS-52 — **THE ONE CURVE HUB TABLE: SIX COMPILE-TIME ROWS, QUOTED *AND* TRADED.**
-    ///         `_curveQuote`/`_selfServableQuote` price against it, `_hubHop` executes against it, and
-    ///         `_routableStable` asks it whether a slice can move at all. There is no second table and
-    ///         no settable one.
+    ///         `_curveQuote`/`_selfServableQuote` price against it and `_hubHop` executes against it.
+    ///         There is no second table and no settable one. §SESS-92 — and no third READER either:
+    ///         `_routableStable` is deleted, because "can this slice move" is exactly
+    ///         `_selfServableQuote(...) != 0`, which `_consolidateTo` already computes for the floor.
     /// 🔴 **IT STAYS BYTECODE, AND THAT IS A TRUST PROPERTY RATHER THAN A STYLE ONE: a floor whose
     ///    reference is settable by the same key that sets the route is not a floor.** ⛔ DO NOT MOVE
     ///    THESE ROWS INTO OWNER-SET STORAGE. Compile-time means nobody can re-point what we will
@@ -1289,6 +1360,23 @@ library LevMath {
     /// @dev Each row was picked by DEPTH AT SIZE and verified against `coins()` — see the constants'
     ///      block, `evm/test/CurveTablePins.t.sol` (pins all six rows, asserts the exclusions stay
     ///      zero) and `evm/test/HubHopRoster.t.sol` (asserts the execution behaviour head-on).
+    /// @dev USDS ⇄ DAI through Sky's converter. ⚠️ **THE DELTA IS MEASURED, NOT ASSUMED 1:1.** The
+    ///      rate is 1:1 today and the contract is immutable, but §SESS-46 was exactly this shape —
+    ///      3pool is old Vyper, returns nothing, and decoding the "documented" return reverted a swap
+    ///      that had already succeeded. Measuring costs two `balanceOf` calls and cannot be wrong.
+    /// ⚠️ Approval zeroed on BOTH paths, like `curveExchange`; a failed convert yields 0 rather than
+    ///      reverting, so a consolidate slice refunds instead of bricking the whole call (§SESS-92).
+    function _sky(uint256 amt, bool toDai) private returns (uint256) {
+        if (amt == 0) return 0;
+        (address give, address want) = toDai ? (USDS_TOKEN, DAI_TOKEN) : (DAI_TOKEN, USDS_TOKEN);
+        uint256 before_ = IERC20Min(want).balanceOf(address(this));
+        IERC20OZ(give).forceApprove(DAI_USDS, amt);
+        (bool ok, ) = DAI_USDS.call(abi.encodeWithSelector(
+            toDai ? SKY_USDS_TO_DAI : SKY_DAI_TO_USDS, address(this), amt));
+        IERC20OZ(give).forceApprove(DAI_USDS, 0);
+        return ok ? IERC20Min(want).balanceOf(address(this)) - before_ : 0;
+    }
+
     function _hubRowOf(address stable) private pure returns (address pool, int128 iStable, int128 iUsdc) {
         if (stable == RLUSD_TOKEN)  return (CURVE_USDC_RLUSD,   CRV_RLUSD_IDX,  CRV_RLUSD_USDC_IDX);
         if (stable == PYUSD_TOKEN)  return (CURVE_PYUSD_USDC,   CRV_PYUSD_IDX,  CRV_PYUSD_USDC_IDX);
@@ -1297,8 +1385,9 @@ library LevMath {
         if (stable == USDG_TOKEN)   return (CURVE_USDG_USDC,    CRV_USDG_IDX,   CRV_USDG_USDC_IDX);
         if (stable == CRVUSD_TOKEN) return (CURVE_CRVUSD_USDC,  CRV_CRVUSD_IDX, CRV_CRVUSD_USDC_IDX);
         // Absent ⇒ (0,0,0). On the QUOTE side that contributes NOTHING to the floor — never a revert,
-        // never a loosening. On the EXECUTION side it is the fail-closed case: `_routableStable` says no
-        // and `_hubHop` reverts `NoStableRoute` rather than trading somewhere unmeasured.
+        // never a loosening — and §SESS-92 makes that same zero the SKIP signal, so an absent row and a
+        // PAUSED pool now take the identical path. On the EXECUTION side it stays fail-closed:
+        // `_hubHop` reverts `NoStableRoute` rather than trading somewhere unmeasured.
     }
 
     /// @dev One table hop, quoted. `toUsdc` mirrors `_hubHop`'s parameter, and both read the SAME
@@ -1313,11 +1402,7 @@ library LevMath {
     /// @dev Does this stable have a hub route on the table? Checked rather than caught: an unroutable
     ///      slice must be SKIPPED and refunded, not swapped at whatever a fallback would give.
     /// §SESS-52 — asks THE one table. `pure` again: nothing about a route is state any more.
-    function _routableStable(address t) internal pure returns (bool) {
-        if (t == USDC) return true;                // the hub itself
-        (address pool,,) = _hubRowOf(t);
-        return pool != address(0);
-    }
+
 
     /// @dev stable → WBTC (BTC lev open) and WBTC → stable (close), both VIA USDC — two hops on
     ///      DIFFERENT venues: stable↔USDC is Curve stableswap, USDC↔WBTC goes through the aggregator.
@@ -1603,8 +1688,8 @@ library LevMath {
     /// ⭐ §SESS-70 — **TIGHTENED 100 → 20 bps, AND THE JUSTIFICATION IS THIS TREE'S OWN MEASUREMENT.**
     ///
     /// 🔑 **THIS CONSTANT ONLY EVER APPLIES TO THE SIX `_hubRowOf` ROWS** — `_consolidateTo` asks
-    ///    `_routableStable` first and REFUNDS anything not on the table, so no unmeasured stable can
-    ///    reach it. And `Interfaces.sol:244` records what those rows cost, measured at three sizes:
+    ///    for a live quote first (§SESS-92) and REFUNDS anything that cannot produce one, so neither an
+    ///    unmeasured stable nor a paused pool can reach it. And `Interfaces.sol:244` records what those rows cost, measured at three sizes:
     ///    **USDT 4/4/4 · DAI 1/1/1 · USDG −1/−1/−1 · crvUSD 0/0/0 bps, FLAT to $1M.**
     ///    ⇒ **100 bps was 25x the worst case on a path that cannot reach an unmeasured venue.**
     /// 🔴 **AND THE SLACK IS NOT A SAFETY MARGIN, IT IS THE ENTIRE EXPOSURE — TWICE OVER.** §SESS-69:
@@ -1650,29 +1735,20 @@ library LevMath {
             //    at a NEGATIVE cost (USDG −1 bps). For the rest the oracle arm is already tighter, so
             //    this is a floor that ratchets up and never down.
             uint256 floor = swapFloor(aux, s, bal, target, CONSOL_SLIP_BPS);
-            {
-                uint256 q = _selfServableQuote(s, bal, target);
-                if (q != 0) {
-                    q = (q * (10_000 - CONSOL_SLIP_BPS)) / 10_000;   // ONE budget, both arms
-                    if (q > floor) floor = q;
-                }
-            }
-            // ROUTABILITY IS CHECKED, NOT CAUGHT. A library cannot `try this.…` — in a delegatecalled
-            // library `this` is the CALLER — and the condition the old try/catch actually guarded was
-            // "this stable has no route", which is now a pure predicate. An unroutable slice is skipped
-            // and refunded to the LP below, exactly as before.
-            // ⚠️ BEHAVIOUR NARROWED, DELIBERATELY: a REVERT INSIDE CURVE (pool paused, depeg past the
-            //    floor) now propagates instead of being swallowed per-slice. That is the safer
-            //    direction here — a per-slice catch could silently leave a consolidation half-done, and the
-            //    floor already refuses a bad price rather than trading at a loss.
-            // ⛔ §SESS-51 — **DO NOT THREAD CALLER-SUPPLIED HOP WORDS IN THROUGH `protectFromQuid`.**
-            //    That entrypoint is PERMISSIONLESS, so caller-supplied pools would hand an arbitrary
-            //    address the SELECTION of every venue against a flat 100 bps `CONSOL_SLIP_BPS` — the
-            //    floor bounds the loss, never the selection, and selection is the takeable part. It
-            //    would also widen `LevManager`, which has **133 bytes** left.
-            //    ⇒ the pools come from `_hubRowOf`, which no caller can influence.
-            if (_routableStable(s) && _routableStable(target)) {
-                // `floor` is enforced on the SECOND hop, so it bounds the pair on the measured delta.
+            // ⭐ §SESS-92 — **ONE GATE, AND IT IS A LIVENESS GATE.** This asked `_routableStable(s) &&
+            //    _routableStable(target)`, which only ever checked MEMBERSHIP: a listed pool that is
+            //    PAUSED passed it, then `_hubHop` reverted with `soft: false` and — because a library
+            //    cannot `try this.…` — the revert took the WHOLE `protectFromQuid` call down, every
+            //    LP's slices with it. One paused Curve pool bricking a permissionless safety path.
+            // 🔑 **AND THE FIX ADDED NOTHING: THE ANSWER WAS ALREADY IN HAND.** `_selfServableQuote`
+            //    walks both hops through `_curveQuote`, which returns 0 for an unlisted stable AND
+            //    catches a reverting `get_dy`. So `q != 0` means *listed, alive, and both legs quote*
+            //    — strictly stronger than the two membership checks it replaces, at zero extra calls.
+            // ⇒ `_routableStable` is DELETED: its entire meaning is the `q != 0` below.
+            uint256 q = _selfServableQuote(s, bal, target);
+            if (q != 0) {
+                { uint256 b2 = (q * (10_000 - CONSOL_SLIP_BPS)) / 10_000;   // ONE budget, both arms
+                  if (b2 > floor) floor = b2; }
                 _hubHop(target, _hubHop(s, bal, true, 0), false, floor);
             }
             // Whatever of this slice did not move — an unroutable stable, or a remainder — goes back to the LP.
