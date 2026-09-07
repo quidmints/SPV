@@ -1163,11 +1163,8 @@ contract VBtcLevFeeLane is AllesFixture {
     ///    `drawPooledUsdBtc(deLeverUsd6)` runs BEFORE a repay that IS bounded by debt downstream
     ///    (`LevVenueBase.repayPool` clamps `r = min(stableAmount, totalDebt)`). So when the levered
     ///    slice's PROCEEDS SHARE exceeds what it OWES, the draw should exceed the retirement.
-    /// ⇒ WHY THIS TEST RUNS AT **LOW LTV** AND ITS SIBLING DOES NOT. The existing
-    ///   `testReal_DeliverSideDelever_SwapOutTapsLeveredSlice` borrows `collValueUsd / 2` — ~50% LTV
-    ///   — where debt is large relative to the slice and the over-draw cannot appear. The defect
-    ///   needs `wantUsd6 > debt`, which is a LOW-LTV condition. A sibling at the same LTV would
-    ///   have measured nothing and reported green.
+    /// ⇒ LOW LTV BY CONSTRUCTION. The sibling borrows `collValueUsd / 2` (~50%), where the effect
+    ///   cannot appear. A copy at the same LTV would measure nothing and report green.
     /// ⚠️ AND IT MEASURES THE SELF-HEAL CLAIM SEPARATELY. `Vault.sol` says the debt-buffer's stale
     ///    POOLED_USD is reconciled by the keeper's async `syncLev`, so an over-draw may be
     ///    transient. Both are recorded: the gap immediately after delivery, and the gap after
@@ -1180,6 +1177,24 @@ contract VBtcLevFeeLane is AllesFixture {
         _openLev(d.lp, 299_000_000);
         // ⇒ ~10% LTV, not the sibling's ~50%: debt SMALL relative to the levered slice.
         _borrowMorpho(d.lp, (lm.collValueUsd(venue.collateralOf(d.lp)) / 10) / 1e12);
+        // ⛔ SEED THE BASKET, OR THIS MEASUREMENT CANNOT RUN — AND THE REASON IS NOT A DEFECT.
+        //    `committed = basketUsd - levDebt` (`Core._rangeEquityUsd18`), so an UNLEVERED position
+        //    claims the basket IN FULL while a levered one claims less: the venue funds the levered
+        //    slice. At 10% LTV this 2.99 BTC position committed 157,000,005,155e12 against a
+        //    152,803,503,717e12 basket and `syncLev`'s mint tripped `require(committedUsd18() <=
+        //    haircutTvl, "backing")` -- BY 4,196,501,437,638,568,657,048, i.e. almost exactly the
+        //    retired debt. The gate was RIGHT; the fixture was sized past its own basket.
+        //    ⇒ Seed enough backing that low LTV fits, so the arm measures the DELIVERY rather than
+        //      re-measuring the solvency bound. Do not "fix" this by raising the LTV: low LTV is the
+        //      condition under test, and the sibling at ~50% already covers the other case.
+        {
+            address seeder = makeAddr("basketSeeder");
+            deal(address(USDC), seeder, 400_000 * USDC_PRECISION);
+            vm.startPrank(seeder);
+            USDC.approve(address(AUX), type(uint).max);
+            QUID.mint(seeder, 300_000 * USDC_PRECISION, address(USDC), 0);
+            vm.stopPrank();
+        }
         BTC.syncLev(d.lp);
         _snapLevPosition(d);
         assertGt(d.debt, 0, "position must carry real Morpho debt or there is nothing to over-draw against");
@@ -1190,8 +1205,8 @@ contract VBtcLevFeeLane is AllesFixture {
         uint pooledBefore = CORE.POOLED_USD();
         uint debtBefore   = venue.debtOf(d.lp);
         emit log_named_uint("LTV bps (low by construction)", lm.getCurrentLtvBps(d.lp));
-        emit log_named_uint("POOLED_USD before           ", pooledBefore);
-        emit log_named_uint("venue debt before (native)  ", debtBefore);
+        emit log_named_uint("POOLED_USD before   (usd6) ", pooledBefore);
+        emit log_named_uint("venue debt before   (usd6) ", debtBefore);
 
         vm.prank(d.lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
         _deliverLevSwapOut(d.ch, d.channelId, d.fundingTxId, 54, d.lpPubkey, _levDelivSwapId(), d.sats,
@@ -1201,20 +1216,34 @@ contract VBtcLevFeeLane is AllesFixture {
         uint debtMid   = venue.debtOf(d.lp);
         uint drawn     = pooledBefore > pooledMid ? pooledBefore - pooledMid : 0;
         uint retired   = debtBefore  > debtMid    ? debtBefore  - debtMid    : 0;
-        emit log_named_uint("POOLED_USD after delivery   ", pooledMid);
-        emit log_named_uint("venue debt after delivery   ", debtMid);
-        emit log_named_uint("  DRAWN from POOLED_USD     ", drawn);
-        emit log_named_uint("  RETIRED debt (native)     ", retired);
+        emit log_named_uint("POOLED_USD after dlv(usd6) ", pooledMid);
+        emit log_named_uint("venue debt after dlv(usd6) ", debtMid);
+        emit log_named_uint("  DRAWN  (usd6)            ", drawn);
+        emit log_named_uint("  RETIRED(usd6, USDC native)", retired);
 
+        // Both sides of the gate that reverts (`Core.sol:1262`). The revert STRING alone cannot
+        // separate "committed grew" from "TVL is smaller"; these four numbers can.
+        {
+            (uint[15] memory dd,,, uint dpg) = AUX.get_deposits();
+            uint haircut = dd[14] > dpg ? dd[14] - dpg : 0;
+            emit log_named_uint("  TVL _d[14] (18d)          ", dd[14]);
+            emit log_named_uint("  depegLoss (18d)           ", dpg);
+            emit log_named_uint("  haircutTvl (18d)          ", haircut);
+            emit log_named_uint("  committedUsd18 (BOTH rng) ", CORE.committedUsd18());
+            emit log_named_uint("  headroom (haircut-commit) ", haircut > CORE.committedUsd18() ? haircut - CORE.committedUsd18() : 0);
+            emit log_named_uint("  OVER by (commit-haircut)  ", CORE.committedUsd18() > haircut ? CORE.committedUsd18() - haircut : 0);
+        }
         // The async reconcile the Vault comment promises.
         BTC.syncLev(d.lp);
-        emit log_named_uint("POOLED_USD after syncLev    ", CORE.POOLED_USD());
-        emit log_named_uint("venue debt after syncLev    ", venue.debtOf(d.lp));
+        emit log_named_uint("POOLED_USD post-sync(usd6) ", CORE.POOLED_USD());
+        emit log_named_uint("venue debt post-sync(usd6) ", venue.debtOf(d.lp));
 
-        // ⛔ NO INEQUALITY ASSERTED. `drawn` is usd6 and `retired` is the venue stable's NATIVE
-        //    units; they are only comparable once scaled, and asserting a relation between two
-        //    different units is how a measurement becomes a false finding. The numbers are the
-        //    output; the liveness guards below only prove the run reached the code.
+        // ⛔ NO INEQUALITY ASSERTED, DELIBERATELY. `drawn` and `retired` DO share a scale here --
+        //    the venue stable is USDC, so its native units ARE 6-dec, same as POOLED_USD -- but the
+        //    two are not the same QUANTITY: `drawn` is total POOLED_USD movement, which includes
+        //    `BtcLib.sol:85`'s ordinary `drawPooledUsdBtc(exactUsd)` for the non-levered proceeds.
+        //    Asserting a relation between them would attribute the whole movement to the delever
+        //    leg. The LTV control, not an assertion here, is what isolates it.
         assertGt(pooledBefore, 0, "POOLED_USD was zero - nothing was measured");
         assertGt(d.sats, 0, "no delivery - nothing was measured");
     }
@@ -1237,8 +1266,8 @@ contract VBtcLevFeeLane is AllesFixture {
         uint pooledBefore = CORE.POOLED_USD();
         uint debtBefore   = venue.debtOf(d.lp);
         emit log_named_uint("LTV bps (CONTROL, mid)      ", lm.getCurrentLtvBps(d.lp));
-        emit log_named_uint("POOLED_USD before           ", pooledBefore);
-        emit log_named_uint("venue debt before (native)  ", debtBefore);
+        emit log_named_uint("POOLED_USD before   (usd6) ", pooledBefore);
+        emit log_named_uint("venue debt before   (usd6) ", debtBefore);
 
         vm.prank(d.lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
         _deliverLevSwapOut(d.ch, d.channelId, d.fundingTxId, 54, d.lpPubkey, _levDelivSwapId(), d.sats,
@@ -1248,20 +1277,34 @@ contract VBtcLevFeeLane is AllesFixture {
         uint debtMid   = venue.debtOf(d.lp);
         uint drawn     = pooledBefore > pooledMid ? pooledBefore - pooledMid : 0;
         uint retired   = debtBefore  > debtMid    ? debtBefore  - debtMid    : 0;
-        emit log_named_uint("POOLED_USD after delivery   ", pooledMid);
-        emit log_named_uint("venue debt after delivery   ", debtMid);
-        emit log_named_uint("  DRAWN from POOLED_USD     ", drawn);
-        emit log_named_uint("  RETIRED debt (native)     ", retired);
+        emit log_named_uint("POOLED_USD after dlv(usd6) ", pooledMid);
+        emit log_named_uint("venue debt after dlv(usd6) ", debtMid);
+        emit log_named_uint("  DRAWN  (usd6)            ", drawn);
+        emit log_named_uint("  RETIRED(usd6, USDC native)", retired);
 
+        // Both sides of the gate that reverts (`Core.sol:1262`). The revert STRING alone cannot
+        // separate "committed grew" from "TVL is smaller"; these four numbers can.
+        {
+            (uint[15] memory dd,,, uint dpg) = AUX.get_deposits();
+            uint haircut = dd[14] > dpg ? dd[14] - dpg : 0;
+            emit log_named_uint("  TVL _d[14] (18d)          ", dd[14]);
+            emit log_named_uint("  depegLoss (18d)           ", dpg);
+            emit log_named_uint("  haircutTvl (18d)          ", haircut);
+            emit log_named_uint("  committedUsd18 (BOTH rng) ", CORE.committedUsd18());
+            emit log_named_uint("  headroom (haircut-commit) ", haircut > CORE.committedUsd18() ? haircut - CORE.committedUsd18() : 0);
+            emit log_named_uint("  OVER by (commit-haircut)  ", CORE.committedUsd18() > haircut ? CORE.committedUsd18() - haircut : 0);
+        }
         // The async reconcile the Vault comment promises.
         BTC.syncLev(d.lp);
-        emit log_named_uint("POOLED_USD after syncLev    ", CORE.POOLED_USD());
-        emit log_named_uint("venue debt after syncLev    ", venue.debtOf(d.lp));
+        emit log_named_uint("POOLED_USD post-sync(usd6) ", CORE.POOLED_USD());
+        emit log_named_uint("venue debt post-sync(usd6) ", venue.debtOf(d.lp));
 
-        // ⛔ NO INEQUALITY ASSERTED. `drawn` is usd6 and `retired` is the venue stable's NATIVE
-        //    units; they are only comparable once scaled, and asserting a relation between two
-        //    different units is how a measurement becomes a false finding. The numbers are the
-        //    output; the liveness guards below only prove the run reached the code.
+        // ⛔ NO INEQUALITY ASSERTED, DELIBERATELY. `drawn` and `retired` DO share a scale here --
+        //    the venue stable is USDC, so its native units ARE 6-dec, same as POOLED_USD -- but the
+        //    two are not the same QUANTITY: `drawn` is total POOLED_USD movement, which includes
+        //    `BtcLib.sol:85`'s ordinary `drawPooledUsdBtc(exactUsd)` for the non-levered proceeds.
+        //    Asserting a relation between them would attribute the whole movement to the delever
+        //    leg. The LTV control, not an assertion here, is what isolates it.
         assertGt(pooledBefore, 0, "POOLED_USD was zero - nothing was measured");
         assertGt(d.sats, 0, "no delivery - nothing was measured");
     }
@@ -1288,8 +1331,8 @@ contract VBtcLevFeeLane is AllesFixture {
         // ratchet here is a COMMIT WITHOUT A MATCHING BURN, not a missing release.
         {
             (uint[15] memory dd,,, uint dpg) = AUX.get_deposits();
-            emit log_named_uint("TVL (usd6)              ", dd[14]);
-            emit log_named_uint("depegLoss (usd6)        ", dpg);
+            emit log_named_uint("TVL _d[14] (18d)        ", dd[14]);
+            emit log_named_uint("depegLoss (18d)         ", dpg);
             // ⚠️ **THE LABELS WERE WRONG, BUT NOT FOR THE REASON I FIRST WROTE — AND THE REPO HAD
             //    ALREADY WARNED ABOUT EXACTLY THIS MISREADING.** `CORE` and `BTC.CORE()` print the
             //    same address, which is the §WRONG-RANGE signature (the class recorded at
