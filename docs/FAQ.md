@@ -794,18 +794,16 @@ the position's **current net equity**, which picks up whatever compounded since.
 reseats are frequent and the lag is short. **So for a protected depositor the "compounding costs you IL"
 objection is close to empty.**
 
-### It already piggybacks, and it is already the primary path
+### Compounding is the design, and there is nothing to piggyback on
 
-`quid-bridge/src/channel_driver.rs:844-870` does it opportunistically: **on a grow**, the driver reads
-the depositor's owed counter from the vault, takes `min(owed, grew_by)`, and passes it as
-`fee_settle_sats` in the splice calldata. A shrink grows nothing and settles zero. A read failure
-settles zero rather than blocking the splice. So it fires only when a splice is happening anyway, which
-is precisely the piggyback, and the marginal on-chain cost is zero.
+**Fees are not settled by any rail. The depositor's share count grows and the value is realised at
+resize or close.** No transfer happens, so there is no cost to piggyback and no settler to schedule.
 
-It is not an option alongside a separate settler. **It replaced one.** `daemon.rs:277` records
-`run_lp_fee_settler` as REMOVED because "BTC-leg fees compound in-channel via the fee-splice," and the
-store's `lp_fee_settled` bookkeeping went with it. Compounding is the design, and paying fees out
-separately is the thing that was deleted.
+An earlier design did carry a settlement step. The driver read an owed counter on each grow and passed
+the amount into the splice, and a separate fee-settler task existed before that. **Both are gone.** The
+splice parameter, the vault-side clamp, the settler task and its bookkeeping all have zero references
+in the tree today. Anything describing them is describing a design that was removed, not a path that is
+quiet.
 
 One detail the driver corrects: under the delegation model the depositor runs no Lightning node, so
 there is no keysend leg. A bigger pooled share simply grows their cooperative-close payout, and
