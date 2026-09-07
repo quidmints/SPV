@@ -40,18 +40,39 @@ fn agent() -> ureq::Agent {
     ureq::AgentBuilder::new().timeout(Duration::from_secs(6)).build()
 }
 
+/// 🔴 **THE API REJECTS SOME CLIENTS BY `User-Agent`, AND THIS IS MEASURED, NOT DEFENSIVE.**
+/// `d6f0e6ea` (2026-08-25) recorded it against a live key: *"it shells out to curl rather than urllib
+/// because the identical request via urllib returns HTTP 403 — the API rejects urllib's User-Agent."*
+/// ⚠️ `ureq` sends `ureq/2.x` by default, which is the same shape of default-library UA, and a 403
+/// here is INDISTINGUISHABLE from "no route" at the call site — every entry point returns `Option`
+/// and falls back. ⇒ we would have silently used the self-planned route forever and concluded the
+/// API added nothing, which is a credential problem wearing a routing result's clothes.
+const UA: &str = "Mozilla/5.0 (compatible; quid-keeper/1.0)";
+
 fn hex20(a: LpAddr) -> String { format!("0x{}", alloy_primitives::hex::encode(a)) }
 
 fn get(path: &str, params: &[(&str, String)]) -> Option<serde_json::Value> {
     let key = api_key()?;
     let mut req = agent().get(&format!("{BASE}{path}"))
         .set("Authorization", &format!("Bearer {key}"))
+        .set("User-Agent", UA)
         .set("Accept", "application/json");
     for (k, v) in params { req = req.query(k, v); }
     // ⚠️ `.ok()` on purpose, and it is NOT the silent-degradation trap §SESS-66 records: there the
     //    swallowed error became "no route" and the planner quietly picked a worse venue. Here the
     //    caller's fallback is the SELF-PLANNED route, which is the thing we would have used anyway.
-    req.call().ok()?.into_json::<serde_json::Value>().ok()
+    // ⛔ **A REJECTION MUST NOT LOOK LIKE AN EMPTY MARKET.** The fallback is right in both cases, but
+    //    "the key is dead" and "no route exists" are different facts and only one of them is ours to
+    //    fix. `d6f0e6ea` lost two weeks to exactly this shape at the tool level.
+    match req.call() {
+        Ok(r) => r.into_json::<serde_json::Value>().ok(),
+        Err(ureq::Error::Status(code, _)) => {
+            tracing::warn!(status = code, path,
+                "1inch REFUSED the request (401/403 = key; 429 = rate limit) - this is not 'no route'");
+            None
+        }
+        Err(e) => { tracing::warn!(error = %e, path, "1inch transport failure; using the self-planned route"); None }
+    }
 }
 
 /// ⭐ **THE A/B PRIMITIVE: `dstAmount` ALONE, NO CALLDATA.** `/quote` needs no `from` address and does
