@@ -713,3 +713,57 @@ executor being arbitrary is how 1inch works, and the floor is what makes that su
    **I have not verified which bit it is**, and asserting an unmeasured bit position is the exact
    failure this exercise exists to avoid. 📌 Evidence toward it: `flags` was **0 in both live
    transactions** sampled, so the bit is not routinely set.
+
+---
+
+## 🔴 §SESS-75 — **"IS A THREE-HOP EVER NECESSARY?" NO CASE FOUND. "DO WE REACH THE BEST VENUES?" NO — AND IT IS ONE GAP, NOT MANY.**
+
+### THREE HOPS: BUILT, AND I CANNOT FIND A NEED FOR IT
+Our actual conversions are `stable↔WETH`, `stable↔WBTC` and `stable→stable`. Every one is covered by
+**two** hops through a hub, because a stable with a USDC pool reaches WETH/WBTC in one more.
+⇒ **a third hop only helps a stable that has NO USDC pool but DOES have one to another stable that
+does.** Measured, the stables that fail do not fail that way:
+· **GHO** — UniV3 GHO/USDC holds **8,179**, GHO/WETH holds **0 across all four tiers.** Its depth is on
+  **Balancer**. A third hop does not reach Balancer; a different VENUE CLASS does.
+· **USDS** — 10,928 on UniV3, and a **1:1 Sky converter** that is not an AMM at all.
+· **cUSD / frxUSD** — no pool, and none needed: they redeem through their 4626 vaults (§SESS-72).
+⇒ **`unoswap3` support is built and currently answers no question we have.** Keeping it costs one
+constant and one arm in `route_bytes`; ⚠️ **it should not be cited as coverage.** The honest statement
+is *"hop count is no longer a limit"*, not *"we needed three hops"*.
+
+### VENUE ACCESS: WHAT WE REACH AND WHAT WE DO NOT
+| venue | reachable? | why |
+|---|---|---|
+| Uniswap V3 | ✅ | factory discovery, all four fee tiers, depth-gated |
+| Curve | ⚠️ shortlist | `find_pools_for_coins` returns **121 pools** for USDT/USDC; enumerating is 363 calls/leg and starved the endpoint. Priced shortlist instead |
+| **Uniswap V4** | 🔴 **NO** | a v4 pool **has no address** — a singleton keyed by `PoolKey`, so no pool word can name one |
+| **Balancer** | 🔴 **NO** | same: reachable only through 1inch's own executor |
+| **1inch split routing** | 🔴 **NO** | nothing calls their API |
+
+🔑 **AND ALL THREE MISSES ARE ONE GAP: THE KEEPER EMITS ONLY UNOSWAP-FAMILY CALLDATA.** The CONTRACT
+already admits the generic `swap()` descriptor (§SESS-69, `dstReceiver` forced, offsets verified on two
+live transactions). What is missing is a producer for it — and **`swap()` calldata cannot be
+constructed by us**, because it names 1inch's own executor and carries an opaque `data` tail. **Only
+their API produces it.**
+▶️ **SO THE REMAINING WORK IS EXACTLY ONE THING: a 1inch API client in the keeper.** ⭐ **And the
+objection that used to block it is already answered** — §SESS-40 rejected fetched routes because
+*"full calldata embeds an amount … unknowable off-chain to the wei"*. **`_retarget` overwrites the
+amount, the token, the receiver and the floor**, so a fetched route can be stale in every field we
+care about and it does not matter. **The blocker was removed by work that was not done for that
+reason.**
+⚠️ It is a NEW EXTERNAL DEPENDENCY (key, rate limit, availability) on a path that currently has none,
+and it must degrade to the self-planned route rather than to no route.
+
+## ⛔ §SESS-76 — THE `_aggSwap` DELETION: MEASURED, WORTH DOING, **NOT LANDED**
+
+Owner sanctioned deleting the pool-word encoder to pay for direction derivation on the route arm.
+**Built and measured:** deleting `_aggSwap` frees **~810 bytes**; the derivation costs **~386**; net
+**+424**, `LevMath` 24,354 → 23,930 (222 → 646 free), **and the acceptance test passed** —
+`test_ADeliberatelyWrongDirectionBitIsIgnored` is green through `_retarget` instead of `_aggSwap`.
+🔴 **BUT IT TOOK 26 TESTS RED AND I DID NOT DIAGNOSE THEM.** All `NoVolatileRoute()` /
+`EvmError: Revert` on paths that call the lever without a route. ⚠️ **A `--force` rebuild of 486 files
+reproduced them identically, so it is NOT the stale-bytecode trap** — the failures are real and mine.
+⇒ **REVERTED.** Standing rule 8d asks whether the change is WRONG or INCOMPLETE: it is incomplete —
+the call sites need route/`dex` threading I got wrong twice — but incomplete-and-red is not landable,
+and I had begun guessing rather than tracing. ▶️ **Re-do it with a trace of ONE failure first**, not a
+fourth speculative fix. The measurement above is the reason to come back.
