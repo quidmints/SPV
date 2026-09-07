@@ -246,3 +246,52 @@ question is which dilution property is actually being claimed, expressed so it i
 pin. ▶️ **NOT BUILT.** Booked with the measurement so it is not re-derived.
 📌 It also means **the tree has at least two market-sensitive assertions**, so a red suite must be
 attributed by pin before it is attributed to a change. That is now twice in two days.
+
+---
+
+## 🔴 §SESS-55 — **"USDT IS BORROWABLE" OVERSTATES WHAT §SESS-47 PROVED. THE PARTS ARE VERIFIED; THE WHOLE IS NOT.**
+
+Owner, 2026-09-07: *"how do you know you got their design right?"* — for the routing, by execution. For
+this claim, **I don't, and the honest answer is that it cannot be tested in this tree at all.**
+
+### WHAT IS ACTUALLY VERIFIED, AND BY WHAT
+| claim | evidence | strength |
+|---|---|---|
+| `curveExchange` returns the measured delta | real 3pool swap fills (`test_Curve_ExchangeActuallyFills`) | ⭐ execution |
+| `_hubHop` crosses the right pair, both ways | real RLUSD round-trip, <10% loss ⇒ indices not crossed | ⭐ execution |
+| `_aggSwap` compacts a zero hop | 110/110 targeted; a USDC venue now reaches `route` | ⭐ execution |
+| the encoder emits four tokens | exact length 132 | ⭐ execution |
+| the keeper plans USDT→WETH as a 2-hop | unit test pins `dex2` = the hub leg | ⚠️ unit only |
+| **a USDT-denominated venue can open a lever** | **NOTHING** | 🔴 **untested** |
+
+### 🔴 AND IT IS NOT AN OVERSIGHT — IT IS UNTESTABLE HERE, WHICH IS THE MORE USEFUL FACT
+**No deployed venue borrows USDT.** `_ethLevVenues` wires RLUSD/PYUSD Morpho weETH markets; the BTC
+venue defaults to USDC. `VenueBorrowRate.t.sol` constructs an `AaveV3Venue(USDT)` but only READS its
+rate. ⛔ **And a test cannot add one: `LevManager.init` sets `venuesFrozen = true` (`:128-129`,
+measured, not inferred), so the allowlist is pin-once at deploy.** ⇒ proving the end-to-end claim needs
+a **new deploy**, not a new test.
+
+⭐ **THE DESIGN INTENT IS WRITTEN AT THE DEPLOY SITE AND IT ANSWERS THE QUESTION** (`DeployL1_s:40-60`):
+*"THE DEBT ASSET IS A DEPLOY-SITE CHOICE, NOT A CONTRACT LIMIT… Default stays USDC because an Aave v3
+RLUSD/PYUSD borrow market has NOT been verified to exist with real idle depth."*
+⇒ **The correct statement of what §SESS-47 did: it removed a KEEPER-SIDE blocker that made a non-USDC
+venue unroutable. Whether USDT is ever borrowed is a deploy decision nobody has made.** §SESS-45's
+"the reachable cheap dollar (USDT, 4.08%) is unborrowable" was therefore true for TWO independent
+reasons, and I fixed one and reported the row closed. **The remaining one is the deploy.**
+▶️ **BOOKED, NOT BUILT:** add a USDT `AaveV3Venue` to `_ethLevVenues` behind an env override (the file
+already does this for `AAVE_V3_WBTC_DEBT`), then an end-to-end open/close. **That is the only thing
+that would make the headline claim true.**
+
+## 📌 §SESS-56 — THE THREE "BLOCK-SENSITIVE TESTS" ARE AN ALREADY-NAMED HOUSE CLASS
+
+`VenueBorrowRate.t.sol` carries **§POINT-IN-TIME-IS-NOT-AN-INVARIANT** with two worked examples of its
+own: an `assertEq` on a live Aave rate that passed once and failed by 1.3e-9 the next run, and an
+`assertGt(r25 - r0, 10e23)` written from *"~37bps on 2026-08-30"* that measured **3.4 bps two days
+later — a 10x swing.** Its verdict is exactly the one §SESS-48 re-derived: *"NEITHER number is wrong;
+the ASSERTION was… what is invariant is the SHAPE."*
+⇒ **§SESS-48 (slip), §SESS-53 (E2) and `test_TwoHopExecutesAndBeatsTheDirectPool` are the same class,
+and the tree already had a name and a remedy for it.** I found it three times without checking whether
+it was known — the grep was one command (`POINT-IN-TIME-IS-NOT-AN-INVARIANT`, 1 file).
+✅ **The reassuring half: the fix §SESS-48 landed — assert the SHAPE, log the magnitude — is verbatim
+the remedy that file already prescribes.** Independent arrival at the house rule is evidence the shape
+is right; not having looked first is still the cheaper lesson.
