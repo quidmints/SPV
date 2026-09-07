@@ -187,6 +187,7 @@ contract RestoreProfitability is AllesFixture {
         //   64-bit SHELL that overflows on it — which is how I first convinced myself the history
         //   was unreadable at all.
         (, , , , uint80 latestPhaseRound) = IAgg(feed).latestRoundData();
+        uint256 prevTs;
         for (uint256 i = nRounds; i > 0; --i) {
             uint80 rid = latestPhaseRound - uint80(i);
             (bool ok, bytes memory ret) = feed.staticcall(
@@ -196,16 +197,23 @@ contract RestoreProfitability is AllesFixture {
             if (px <= 0 || ts == 0) continue;
             // Present this REAL round as the anchor's current answer, at its REAL timestamp.
             vm.mockCall(feed, abi.encodeWithSignature("decimals()"), abi.encode(uint8(8)));
+            // Present the REAL price as of NOW (the warped clock), so `twapResolve`'s 1-day
+            // staleness bound sees a fresh answer. The historical `ts` is used only to derive the
+            // real GAP above — feeding it as the round's timestamp would make every round stale.
             vm.mockCall(feed, abi.encodeWithSignature("latestRoundData()"),
-                abi.encode(uint80(rid), px, uint256(0), ts, uint80(rid)));
-            // ⛔ WARP UNCONDITIONALLY, INCLUDING BACKWARDS. Guarding this with
-            //    `if (ts > block.timestamp)` is what made the first 12-round replay read σ² == 0
-            //    with every swap SUCCEEDING: the replayed rounds are ~10h OLDER than the pinned
-            //    block, so the guard never fired, `twapResolve` saw a stale answer, returned 0, and
-            //    `_sampleAnchorVariance` stood still — "every failure degrades to UNMEASURED" is
-            //    working as designed and looks identical to "the market did not move".
-            //    The rounds are replayed oldest-first, so the clock still advances MONOTONICALLY.
-            vm.warp(ts);
+                abi.encode(uint80(rid), px, uint256(0), block.timestamp, uint80(rid)));
+            // ⛔ WARP FORWARD BY THE REAL GAP — NEVER BACKWARDS TO THE ROUND'S OWN TIMESTAMP.
+            //    Setting `block.timestamp` to the historical `ts` (~10h BEHIND the pinned block)
+            //    made every swap revert `0x4e487b71` (Panic): the swap path differences
+            //    `block.timestamp` against state stamped at the fork's LATER time, so the
+            //    subtraction underflows. The try/catch swallowed it and σ² read 0 — a harness bug
+            //    presenting as "the estimator does not work".
+            //    ⇒ Keep the real PRICES and the real inter-round GAPS, but run the clock FORWARD
+            //      from the fork instant. `_sampleAnchorVariance` only needs `dt` and a MOVING
+            //      anchor; it never compares the feed's timestamp to the round's own.
+            if (i < nRounds) { uint gap = prevTs == 0 ? 0 : (ts > prevTs ? ts - prevTs : 0);
+                               if (gap > 0) vm.warp(block.timestamp + gap); }
+            prevTs = ts;
             // ⛔ THE **USD-IN** DIRECTION, NOT THE SELL. `_sampleAnchorVariance()` lives inside
             //    `Core.swap` (Core.sol:989/1041), whose ONLY caller is `BasketLib.sol:526` — and a
             //    volatile-in sell does not reach it. MEASURED with `-vvvv`: the sell shape produced
