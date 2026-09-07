@@ -1397,6 +1397,13 @@ fn best_plan<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Optio
 /// `.map` over this. The quote already existed inside the search and was being discarded, so a caller
 /// that wants to check "is the chosen route at least as good as the direct one" needs no new work
 /// (standing rule 23 — the declaration returns something already computed).
+/// §SESS-88 — a test-only door onto `best_plan_quoted` so `oneinch`'s A/B can quote OUR side. ⛔ Not a
+/// second implementation and not a wider public surface: `#[cfg(test)]`, one line, returns exactly
+/// what the private function already computed (standing rule 23).
+#[cfg(test)]
+pub fn best_plan_quoted_for_test<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256)
+    -> Option<(Plan, U256)> { best_plan_quoted(rpc, tin, tout, amt) }
+
 fn best_plan_quoted<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Option<(Plan, U256)> {
     let mut best: Option<(Plan, U256)> = None;
     if let Some((v, out)) = best_direct(rpc, tin, tout, amt) {
@@ -1481,7 +1488,34 @@ fn plan_for_lp<R: JsonRpc, S: TxSigner>(
 ) -> Plan {
     let planned = venue_stable_of(evm, lm, lp).and_then(|stable| {
         let amt = ranking_size(evm, lm, lp, stable)?;
-        best_plan(evm.rpc(), stable, volatile, amt)
+        // ⭐ §SESS-88 — **BOTH PRODUCERS, AND THE BETTER QUOTE WINS.** Ours reaches UniV3 + Curve and
+        //    is always available; theirs reaches v4, Balancer, Fluid, splits and the par converters
+        //    and is available only while the API is. ⛔ Neither is preferred by class — that is the
+        //    same mistake §SESS-71 made asserting a two-hop beats a direct pool, which failed at
+        //    three blocks on identical bytecode.
+        let (mut best, mut best_out) = match best_plan_quoted(evm.rpc(), stable, volatile, amt) {
+            Some((p, out)) => (Some(p), out),
+            None => (None, U256::ZERO),
+        };
+        // ⚠️ **EVERY FAILURE HERE IS A FALLBACK, NEVER A STALL.** No key, a revoked key, a rate limit,
+        //    a timeout, or a selector `_retarget` would refuse — all of them leave `best` exactly as
+        //    our own planner left it. `rebalance` and `deleverMany` are permissionless and fire when
+        //    positions are stressed; an outage must cost us a better price, never a rebalance.
+        if crate::oneinch::api_key().is_some() {
+            if let Some((out, data)) =
+                crate::oneinch::swap_quote_and_calldata(stable, volatile, amt, lm.into_array(), 100)
+            {
+                if out > best_out {
+                    let mut p = best.clone().unwrap_or(Plan {
+                        dex: dex_word(), dex2: [0u8; 32], hops: vec![dex_word()], fetched: Vec::new() });
+                    p.fetched = data;          // `route_bytes` prefers `fetched` when non-empty
+                    best_out = out;
+                    best = Some(p);
+                }
+            }
+        }
+        let _ = best_out;
+        best
     });
     planned.unwrap_or(Plan { dex: dex_word(), dex2: [0u8; 32], hops: vec![dex_word()], fetched: Vec::new() })
 }
