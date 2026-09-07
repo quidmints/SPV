@@ -55485,3 +55485,39 @@ will not guess. **Status: conclusion withdrawn, ground deleted, no replacement a
 ✅ Independent of all that, today's trace settles the ONLY question §PLP-6a was actually about: the
 leg is reached 16 times, so it is not dead. **§PLP-6a is closed by measurement rather than by
 argument** — which is what should have closed it the first time.
+
+## §PLP-6-PROBE — **`DeleverEthBackingProbe` IS WRITTEN. IT DELIVERS ONE ANSWER, REFUSES TWO, AND NAMES WHAT IS LEFT.** (2026-09-07)
+
+`evm/test/DeleverEthBacking.t.sol` — the probe §PLP-6 has named since it was written and that had
+never existed. 23/23 green in `LevCascade`'s suite.
+
+✅ **THE REDEEM PATH DELIVERS.** On a 20-share redeem reporting `assets = 20.0605`, the recipient
+receives **20.0582 WETH**. ⚠️ **AND THE WAY THAT WAS NEARLY MISSED IS THE POINT:** measuring
+`address(this).balance` alone reported **0 native ETH**, which reads as *"consumed shares, delivered
+nothing"* — the payout is in **WETH**. That is §4a's own warning ("read the transfer log, do not
+infer") arriving as a FALSE NEGATIVE in the instrument rather than in the code, and it is the second
+time today a confident zero came from measuring the wrong thing. The probe now measures BOTH legs so
+it cannot recur.
+
+⛔ **THE DELEVER LEG WAS NOT EXERCISED BY THIS PROBE, AND IT SAYS SO OUT LOUD.** `rangeETH` ≈ 32.57
+ETH covered the ~20 ETH ask, so `sendEth` never fell through to the shortfall branch and
+`DeliverDeleverSkipped` count is 0. **A green tick here proves nothing about the leg** — the probe
+emits `NOT EXERCISED` rather than letting the pass imply coverage it does not have. ▶️ To exercise
+it the ask must EXCEED `rangeETH`; `BufferSwapDrain`'s buffer-consuming swaps already do (16
+invocations, measured today).
+
+🔴 **§PLP-6-BACKING-DELTA — RECORDED, DELIBERATELY NOT ASSERTED.** Across the redeem the backing
+identity separates: `committedUsd18` = **34,092.24** against `basketUsd − debt` = **38,751.17**, a
+**$4,658.93** gap, while `totalDebtUsd` is UNCHANGED at $557.80 either side. The identity HOLDS at
+both earlier checkpoints (seed deposit, levered open + rebalance) and holds throughout
+`BufferSwapDrain`'s swap paths, so the formula is right for those states. ⇒ Either a redeem
+legitimately has a transient the identity does not model, or something moves value without moving
+the debt term — **which is the failure §PLP-6 is actually about.** ⛔ Not asserted, because asserting
+it would bake in whichever guess I made; ▶️ the next step is to determine which, and that is now a
+one-fixture question rather than an open-ended one.
+
+📌 **WHAT §PLP-6 STILL NEEDS, precisely:** drive an ask that exceeds `rangeETH` so the leg runs with
+a MATERIAL shortfall (today's trace only ever gave it $0.0035 of dust, where it funded the venue,
+then `swapOutDeleverPooled` reverted `ERC20: transfer amount exceeds balance` and skipped with
+`takeFailed: false`), and assert `deliveredEth > 0` at the recipient. ⛔ Do NOT close §PLP-6 on this
+probe alone.
