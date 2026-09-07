@@ -54489,10 +54489,17 @@ assertion checks the right one.
 `bytecode_hash = "none"` and `cbor_metadata = false`, so a comments-only edit is byte-identical.
 The gate is: the changed-lines diff contains no code line, and the file's brace count equals HEAD's.
 
-⛔ **`evm/src/identity/` IS OUT OF SCOPE.** It is a vendored fork (Apache-2.0, own LICENSE and
-`HOLDER-FORK.md`), and its "dead symbols" (`register_identity`, `icao_root`, `sk_identity`) are
-CIRCUIT SIGNAL names, not deleted Solidity. Editing its comments buys nothing and costs merge
-friction with upstream.
+⛔ **`evm/src/identity/` IS OUT OF SCOPE — AND THE REASON IS OWNER DIRECTION, NOT THE ONE I FIRST
+WROTE HERE.** I booked it as "a vendored fork, editing it costs upstream merge friction". That is
+true and it is NOT the governing reason. **The identity / Noir / privacy-pool scope has its OWN
+backlog — `docs/actionable/TODO.md` — and NOTHING in it is to be touched until SPRINT.md is
+finished** (owner, 2026-09-07). ⇒ Do not treat this as a judgement call about merge cost that a
+future thread could re-weigh; it is a sequencing decision about which backlog is live.
+📌 Incidentally true and still worth knowing: its "dead symbols" (`register_identity`, `icao_root`,
+`sk_identity`) are CIRCUIT SIGNAL names, not deleted Solidity, so a dead-symbol census over that
+subtree reports noise rather than findings.
+✅ Verified 2026-09-07: zero files under `evm/src/identity/`, and zero noir/privacy-pool/circuit
+paths, appear in any commit of this session.
 
 ## §SESS-COMMENTS-2 — **THE PASS FOUND A LIVE ENCODER DEFECT AND THREE DORMANT ACCUMULATORS.** (2026-09-07)
 
