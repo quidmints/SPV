@@ -222,8 +222,16 @@ contract BtcLevManager is LevBase {
     // `LevMath._stableToWbtc` (up) / `LevMath._volToStable` (down) — the SAME helpers the ETH lever uses.
     // ⛔ THE SOR IS NOT ON THIS PATH AND MUST NOT BE PUT BACK ON IT: `Aux`'s self-funded swap is the
     //    RANGE's AMM, not a leverage router. This leg trades against external venues only.
-    // Venue-agnostic in shape (every leg is an `ILevVenue` call), but the BTC allowlist is exactly TWO
-    // venues — Morpho vBTC and AaveV3 WBTC. Aave-v4 and the other borrowing venues were REMOVED.
+    // Venue-agnostic in shape (every leg is an `ILevVenue` call). ⛔ THE BTC ALLOWLIST IS NOW EXACTLY
+    // ONE VENUE — `AaveV3Venue{coll: WBTC, debt: USDC}`. The Morpho vBTC market is NOT CREATED (owner,
+    // 2026-09-07: borrowing dollars against our Lightning BTC to buy more Lightning BTC is toxic), so
+    // `DeployL1_s` pins `vsB = [wbtcV]` and the vBTC-collateral branch of `openBtcLev` has no venue to
+    // select in production.
+    // 🔴 THAT MAKES `swapOutDelever`/`closeBtcLev` UNREACHABLE FOR THE ONLY POSITION THAT CAN EXIST —
+    //    see §WBTC-MODE-CANNOT-CLOSE in SPRINT.md. Both withdraw collateral to THIS manager and then
+    //    call `Vault.unexposeBtcFromLev`, whose first act is `VBTC.burnFrom(manager, sats)`. After a
+    //    WBTC-mode withdraw the manager holds WBTC, not vBTC, so the burn reverts. Do not read the
+    //    SAME-BTC comments on those two functions as covering this venue: they do not.
 
     /// @notice Atomic rebalance toward the IL target for a WBTC-collateral position (native vBTC uses
     ///         the async legs). §FOLD-REBALANCE — the body is `LevBase._rebalance`, shared with the ETH range.

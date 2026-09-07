@@ -97744,3 +97744,48 @@ rather than merely detectable.
 (index i of one is the venue for index i of the other, BOLD pinned last, `uint[15]` layout exactly
 full at 14 stables). The invariant is now stated at `DeployLib.StackConfig`; **no assertion enforces
 it.** A deploy-time `require(stables.length == vaults.length)` is one line and is NOT yet written.
+
+## §WBTC-MODE-CANNOT-CLOSE-2026-09-07 — 🔴 the vBTC-market removal promoted a latent fallback gap to the whole BTC leg
+
+**Owner's question, 2026-09-07:** *"what about the wbtc only stuff in il protect? and our contract
+autoselling it through 1inch into whatever LP wants when LP does withdrawal of their lightning
+bitcoin deposit"*. Answering it against the CODE (rule 20) found a live defect and a design gap.
+
+### 1. THE DEFECT — measured, not reasoned
+`DeployL1_s:556` now pins `vsB = [wbtcV]`, one `AaveV3Venue{coll: WBTC, debt: USDC}`. So the only
+BTC lev position that can be OPENED is WBTC-mode: `openBtcLev` branches on
+`venue.COLLATERAL() == address(COLL)` and takes the else — `IERC20Min(WBTC).transferFrom(msg.sender,
+venue, initialVbtc)`, LP-brought equity (`:167`).
+🔴 **BUT NEITHER EXIT PATH BRANCHES THE SAME WAY.** `closeBtcLev` (`:343`) and `swapOutDelever`
+(`:312`) both do `p.venue.withdraw(lp, …)` and then `IVaultExposeB(VAULT).unexposeBtcFromLev(lp, …)`,
+with NO collateral-token branch. Traced:
+· `AaveV3Venue.withdraw` ends `return e.withdrawColl(w, MANAGER)` — **WBTC lands on the manager**.
+· `Vault.unexposeBtcFromLev`'s FIRST statement is `VBTC.burnFrom(msg.sender, sats)`, and its own
+  comment says *"reverts if the manager lacks the sats — checked BEFORE the range moves"*.
+⇒ **The manager holds WBTC and the burn asks for vBTC, so the close REVERTS.** A WBTC-mode position
+can be opened and levered and cannot be closed or settled through the Vault's withdrawal path.
+⚠️ **THIS IS PRE-EXISTING, NOT INTRODUCED BY THE REMOVAL — AND THAT IS THE POINT.** WBTC-mode was
+*"the #74 fallback"* beside the Morpho vBTC venue, and only the vBTC exit was ever written. Deleting
+the vBTC market made the untested fallback the ONLY path. **A removal can be individually correct and
+still promote a latent gap into the critical path; the blast-radius question is not "what did I
+delete" but "what is now the only thing left".**
+▶️ **THE FIX IS A BRANCH AT BOTH EXITS, MIRRORING THE ONE `openBtcLev` ALREADY HAS** — not a change
+to `unexposeBtcFromLev`, which is correct for what it does. NOT WRITTEN.
+
+### 2. THE DESIGN GAP THE OWNER NAMED — auto-sell at withdrawal is NOT built
+⛔ **There is no path that sells the collateral into what the LP asks for at withdrawal.** 1inch is
+threaded through the BTC leg (`rebalanceWbtc` → `_leverUpBuyWbtc` / `_flashDeleverWbtc` →
+`LevMath.WbtcCfg.route` → `_aggSwap`, and `:230` warns the route must be threaded to EVERY `WbtcCfg`
+or `_aggSwap` refuses an empty route and the leg dies silently) — but only as **stable↔WBTC to move
+LTV**. The exits assume SAME-BTC: burn the vBTC, hand the LP back free channel depth, LP never
+receives a loose token (`closeBtcLev`'s own comment: *"that would double-claim the same channel BTC"*).
+⇒ **For a WBTC-mode position that model does not apply** — the LP brought WBTC, so there is no channel
+slice to hand back, which is the same discontinuity as the defect above seen from the design side.
+▶️ **THE OWNER'S PROPOSAL IS THE COHERENT COMPLETION OF THIS PATH:** on withdrawal, sell the WBTC via
+1inch into the LP's chosen payout asset. Three things must be settled before it is built, and none is
+decided: **(a)** who supplies the route (the LP/SPA passes calldata, per `route` everywhere else, so
+the payout-asset choice is the LP's by construction); **(b)** the slippage bound — the delever legs
+use `minOut` and `MAX_SLIPPAGE_BPS`, and an LP-chosen `minOut` on their OWN exit is a different risk
+owner than a keeper-chosen one; **(c)** whether a WBTC-mode exit may touch the shared swap-out
+proceeds pool at all, or must settle entirely inside the position. ⛔ Do NOT build it before (c):
+`BTCChannels.sol:477-496`'s cross-LP-theft argument is about exactly this boundary.
