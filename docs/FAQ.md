@@ -773,12 +773,14 @@ claim never re-invested, that compounding would expose them to impermanent loss 
 and that it could not be done without corrupting per-channel close attribution. **All three were wrong**
 and the source says so directly.
 
-Two settlement paths exist. Fees accrue to a per-depositor sats counter and are settled by the hop at
-channel close, **or** the hop funds them into a **grow-splice** — `BTCChannels.splice` accepts a
-`feeSettleSats` marking, requires `feeSettleSats <= grewBy` so the hop can only settle fees it actually
-spliced in, and the vault clamps to the real owed so it cannot over-settle. **They compound into the
-depositor's pooled position, and the hop keysends the same sats onto their Lightning balance off-chain**
-(`BTCChannels.sol:783-790`, `Vault.settleBtcFeesOwed`).
+BTC-leg fees are not paid out. **They compound into the depositor's own position, and the value is
+realised when that position is resized or closed.** The share count grows by `feeCompounded`, so a
+depositor's claim on the pool rises without any transfer taking place.
+
+There is no separate settlement rail. An earlier design had the hop settle fees at channel close or
+fund them through a grow-splice, and a third step where the hop sent the same sats over Lightning. None
+of that exists in the code. The parameters and functions it used are gone, and no Lightning send is
+issued anywhere in the fleet.
 
 **Close attribution does not break, and the code states why.** Registration already grows the pooled
 position by the *full* splice delta regardless of how much was fee-funded, **so `delivered` stays

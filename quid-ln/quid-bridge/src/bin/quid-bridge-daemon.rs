@@ -9,7 +9,8 @@
 //!                           (default 1 = single-node/self-host-only)
 //!   QUID_CHAIN_ID           EIP-155 chain id (decimal)
 //!   QUID_BTC_CHANNELS       BTCChannels address (0x…)
-//!   QUID_BTC_VAULT          Vault address (btcFeesOwedSats ledger)
+//!   QUID_BTC_VAULT          Vault address (BTC range accounting; the
+//!                           btcFeesOwedSats ledger it once named is DELETED)
 //!   QUID_SPV_GATEWAY        SPVGateway address
 //!   QUID_HOT_KEY            OFF-SGX override (hex, no 0x). In an enclave the hop
 //!                           key is DERIVED from the sealed seed; this env is

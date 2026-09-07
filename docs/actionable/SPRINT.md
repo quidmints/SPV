@@ -38635,10 +38635,15 @@ can call changes where depositor assets are deployed**; these three contradict t
 > this queue is finished). **Until E1 lands, that document overstates by three setters.** Either close
 > them or re-insert the caveat before the FAQ is shown to anyone.
 
-## E2. `feeSettleSats` has no Forge test
-`BTCChannels.splice` takes `feeSettleSats`, guarded by `require(feeSettleSats <= grewBy)` and clamped
-vault-side in `settleBtcFeesOwed`. Driven from `quid-bridge/channel_driver.rs:844-870`. **Nothing in
-`evm/test/` references it.** A live money path with two guards and no on-chain test on either.
+## E2. `feeSettleSats` has no Forge test — ⛔ **MOOT 2026-09-07: THE PARAMETER IS DELETED**
+**Measured: `feeSettleSats` has ZERO occurrences in `evm/src`, and `Vault.settleBtcFeesOwed` does not
+exist** (0 declarations). ⇒ **this row asks for a Forge test on a parameter and a clamp that are both
+gone**, and `§E191-feeSettleSats` (`:46217`) already records the deletion as landed across both repos
+in one commit. **Nothing to test. Closed by deletion, not by coverage.**
+*(Original text, kept as the record of what it asked for:)* `BTCChannels.splice` takes
+`feeSettleSats`, guarded by `require(feeSettleSats <= grewBy)` and clamped vault-side in
+`settleBtcFeesOwed`. Driven from `quid-bridge/channel_driver.rs:844-870`. **Nothing in `evm/test/`
+references it.** A live money path with two guards and no on-chain test on either.
 
 ## E3. Decide the θ question — θ prices a cost this pool does not have
 θ ≤ `yield/(K·σ²−f)` is an **LVR-sizing** inequality, introduced to bound how much shared surplus
