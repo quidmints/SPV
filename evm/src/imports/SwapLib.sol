@@ -2200,8 +2200,9 @@ library SwapLib {
     }
 
     /// @dev Source→repay→free→draw body of deleverOnDelivery in its OWN frame. Sources the venue debt stable from
-    ///   the basket (cherry-pick, held-clamped so `takeToSettle` never falls to the pro-rata leg — which would
-    ///   deliver OTHER stables the venue can't repay with), repays min(wantUsd,debt) + un-encumbers `want` sats
+    ///   the basket (cherry-pick, held-clamped to keep it on the preferred leg — ⚠️ the clamp is NOT
+    ///   sufficient: `held` is accounting, not withdrawable, so a PAUSED vault still reaches pro-rata
+    ///   and pays stables the venue cannot repay with. §HELD-IS-NOT-WITHDRAWABLE below is the gate), repays min(wantUsd,debt) + un-encumbers `want` sats
     ///   (manager burns the vBTC), and draws the retired-debt share out of POOLED_USD + clears its obligation.
     function _sourceRepayFree(address core, address aux, address mgr, address lp, uint want, uint wantUsd6, uint exactUsd6)
         private returns (uint deLeverUsd6) {
@@ -2261,6 +2262,25 @@ library SwapLib {
             IAux(aux).takeToSettle(venue, BasketLib.scaleTokenAmount(takeUsd18, stable, false), stable); // basket → venue (soft backing = final-state solvency)
             got = IERC20(stable).balanceOf(venue) - bal0;        // venue-stable actually sourced (native units)
         }
+        // 🔴 §HELD-IS-NOT-WITHDRAWABLE — THE SAME FAIL-SAFE AS THE `takeUsd18 == 0` BRANCH ABOVE, ON
+        //    THE QUANTITY THAT ACTUALLY BINDS. That branch refuses to settle unbacked when the basket
+        //    holds none of the venue's stable, but `_heldUsd18` is an ACCOUNTING figure: a PAUSED
+        //    vault reports the stable held while nothing can be withdrawn. The guard then reads "we
+        //    have it", `_takePreferred`'s try/catch turns the paused withdrawal into `sent = 0`, and
+        //    the whole request falls to the PRO-RATA leg — which pays OTHER stables this venue cannot
+        //    repay with. `_sourceRepayFree`'s own docblock claims the held-clamp prevents that.
+        //    MEASURED, it does not (`testReal_MEASURE_ProRataFallback_VenueStableVaultPaused`, USDC
+        //    vault paused): delivery SUCCEEDED, debt retired ZERO — 23,673,988,759 before AND after —
+        //    basket liquid −1,377,974,721,301,924,123,211, and 1,377,974,721,301,924,123,210 of
+        //    **DAI** left sitting at the venue, off by one wei. The sats were freed against no repay.
+        //    ⇒ `got` IS the withdrawable test, empirically: what actually arrived in the venue's OWN
+        //      stable. A `maxWithdraw` probe would be a SECOND accounting figure that can lie the
+        //      same way `held` does; this one cannot. The revert unwinds the mis-sent stable with the
+        //      rest of the tx, so nothing strands.
+        //    ⛔ BLOCKING BEATS SETTLING UNBACKED, same rule and same reason as the branch above: the
+        //       splice already paid the swapper, so a revert re-tries the EVM leg against a still-
+        //       valid SPV proof once the vault unpauses. Nothing is lost by refusing.
+        if (got == 0 && amtNative > 0) revert DeleverStableUnavailable();
         // Repay `got` (0 if the position had no debt — a pure-equity levered slice) and free `want` sats regardless.
         ILevManagerDeliver(mgr).swapOutDelever(lp, LevMath._toUsd18(aux,stable, got), want);
     }
