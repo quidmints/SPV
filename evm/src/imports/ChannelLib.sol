@@ -381,7 +381,13 @@ library ChannelLib {
         address quid, uint nStables
     ) external returns (uint usd) {
         IAux aux = IAux(address(this));
-        if (aux.tokens(token) != address(0)) {
+        // ONE registry read, used twice: the guard and the rewrite below. `tokens` is an
+        // `external view` map and nothing between them can move it — the ERC4626 reads and
+        // `vaultHealth` do not touch Aux's registry, and `safeTransferFrom` moves tokens, not
+        // config. ⛔ The `trancheTotal()` pair further down is NOT foldable the same way:
+        // `get_metrics(false)` sits between those two reads and is NOT view.
+        address underlying = aux.tokens(token);
+        if (underlying != address(0)) {
             // Direct vault-share deposit.
             amount = Math.min(
                 IERC4626(token).convertToShares(amount),
@@ -393,7 +399,7 @@ library ChannelLib {
             (bool blocked,) = aux.vaultHealth(token);
             if (blocked) revert VaultBlocked();
             IERC20OZ(token).safeTransferFrom(from, address(this), amount);
-            token = aux.tokens(token);
+            token = underlying;
             aux.refreshHoldingsSelf(token);   // Cache: stable moved by the deposit
         } else {
             // Registered-stable path (index lookup = existence check).

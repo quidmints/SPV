@@ -94409,6 +94409,33 @@ registry that does not.**
 
 ---
 
+# ⚡ §REPEATED-EXTERNAL-CALL-SWEEP — **7 CANDIDATES, 1 REAL FOLD, AND TWO THAT MUST NOT BE FOLDED (2026-09-07)**
+
+**Primary goal: efficiency and security. This is the shape that just produced a real fix in
+`LevManager` — the same expensive call made twice in one function — swept across `evm/src`.**
+
+**7 functions repeat an external call. Only ONE is a redundancy.** The discriminator is whether
+anything BETWEEN the two reads can move the value, and in five of seven it can.
+
+| site | verdict |
+|---|---|
+| ✅ **`ChannelLib.depositBody` — `aux.tokens(token)` ×2** | **FOLDED.** `tokens` is an `external view` registry map; between the guard and the rewrite sit only ERC4626 views, `vaultHealth`, and a `safeTransferFrom` that moves tokens rather than config. **One call deleted on the deposit path** |
+| ⛔ **`ChannelLib.depositBody` — `aux.trancheTotal()` ×2** | **MUST NOT FOLD.** `aux.get_metrics(false)` sits between them, and CLAUDE.md records `get_metrics`/`get_deposits` as **NOT `view`** — the second read is deliberately post-refresh. **Folding reads a stale pre-refresh tranche total into `seedFee`** |
+| ⛔ **`BasketLib.backingCoreBody` — `ICore.committedUsd18()` ×3** | **MUST NOT FOLD.** Each read follows a `repack()`, which is exactly what moves the value. The three reads measure three different states |
+| ⛔ `ChannelLib.supplyBody` / `withdrawBody` — `refreshHoldingsSelf` ×2 | state-refreshing by definition; two calls bracket a state change |
+| ⛔ `BasketLib._takePreferred` — `aux.withdrawSelf` ×2 | two distinct withdrawals, not one repeated |
+| ⛔ `BasketLib._valueStable` — `aaveBalance` ×2 | unexamined; treat as the others until traced |
+
+⭐ **THE RULE THIS YIELDS, AND IT IS THE OPPOSITE OF THE OBVIOUS ONE: A REPEATED EXTERNAL CALL IS
+USUALLY LOad-BEARING IN THIS CODEBASE, NOT WASTE.** Five of seven exist *because* something between the
+reads changes the answer — a `repack`, a non-view `get_metrics`, a refresh. ⇒ **the sweep's value is
+not the fold it found; it is the four it stopped.** A "cache the duplicate call" pass run without
+checking what sits between the reads would have introduced four stale-read defects, and every one of
+them would have gone green.
+
+📌 **AND THE COMMENT AT THE FOLD SITE NAMES THE ONE THAT LOOKS IDENTICAL AND IS NOT**, so the next
+reader who spots `trancheTotal()` twice does not repeat the analysis or, worse, skip it.
+
 # 🧭 §WHY-A-13-MONTH-WINDOW-EXISTS-AT-ALL — **IT IS THE PRODUCT, NOT AN IMPLEMENTATION CHOICE (2026-09-07)**
 
 **Owner asked the question one level up from the loop: why is there a 13-element window at all?**
