@@ -54937,3 +54937,39 @@ guards exist because the alternative is a confident wrong marking, and a wrong �
 ✅ (standing rule 16 — a ✅ decides what nobody re-reads).
 📌 The marker, its wave-2 CSVs and the `norm()` rationale are `mark2.py`; it is a scratchpad tool,
 so anyone re-running this needs to rebuild it from that description rather than expecting the file.
+
+## §SESS-HANDOFF-2026-09-07 — **WHAT THIS THREAD LEFT OPEN, AND THE ONE GATE BEFORE THE BRANCH IS DONE.**
+
+This thread ran the comment pass (41 files), the two security fixes, §SETTER-FOLD, the dead sweep
+and the §SEQ-AUDIT marker closure. Everything it STARTED is finished or booked. What follows is what
+is genuinely still open, so nobody re-derives it.
+
+🔴 **THE ONE GATE: NO GREEN FULL SUITE EXISTS OVER THE COMBINED HEAD.** The last full run was
+**1104 passed / 4 failed** and it is SUPERSEDED — it predates the `BadRoute` fix, the §SESS-71
+TwoHop reshape, and this thread's last three commits. All four of its failures are now explained and
+three are fixed at source, but ⛔ **"explained" is not "re-measured"**; do not call the branch green
+until one run says so. Expect the publicnode archive-window 403s on any long chain (clean + rebuild
++ full suite outlasts the ~25-minute pin window, and the suites that fork LAST take it) — re-run
+those at a fresh pin rather than reading them as findings.
+
+📌 **BOOKED-OPEN, EACH WITH ITS OWN ROW — none of these is a mystery, they are decisions:**
+  · `§SEQ-AUDIT-RESIDUE` — 9 wave-2 rows unmarked (5 anchor-not-found, 4 ambiguous). ⛔ Close them
+    by re-deriving from CODE and taking a fresh anchor, NOT by loosening the matcher.
+  · `§SESS-COMMENTS-2/3` — `ResizeOut.owed` inert; `BtcLib.feeDenom` and the never-written
+    `o.feesPerShareInc`/`o.usdFeesInc` (the §V4-CUT fee source is dormant, deliberately);
+    `LevMath._repayPretransferred` has zero callers.
+  · `§SESS-COMMENTS-4` — the nine `len % 32 == 4` encoder assertions. ▶️ Fix is the HEAD WORD COUNT,
+    not an exact length: those encoders all have dynamic params.
+  · `§SESS-RANGEOP` — `Interfaces.sol:677` still declares `IEthVenue.rangeOp`, now unreachable
+    externally. Harmless; invites someone to "wire it up".
+  · `§SESS-COMMENTS-1` — `QuidLib.supplyVenueBody`'s deleted do-not-remove-the-rungs note: restore
+    it BEFORE re-adding a venue rung, not after.
+
+⚠️ **REPO CONFIG, NOT CODE:** `git remote` still points at `github.com/quidmints/spv` while GitHub's
+canonical is `SPV`; every push takes a redirect. Fetch is `https://`, push is `git@`. One command
+fixes both: `git remote set-url origin git@github.com:quidmints/SPV.git`. Left undone here because
+it is shared config and mutating it was outside what this thread could do unattended.
+
+⛔ **`evm/src/identity/` AND ANYTHING NOIR / PRIVACY-POOL REMAINS OUT OF SCOPE** until SPRINT.md is
+finished — that scope has its own backlog at `docs/actionable/TODO.md` (owner, 2026-09-07). Verified:
+zero such paths in any commit of this session.
