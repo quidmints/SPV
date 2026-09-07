@@ -98031,8 +98031,27 @@ for those sats; handing them the vBTC face too is the same claim twice. `exposeB
 depth that is ALREADY BANKED (`LP.pooled` UNCHANGED, only `levPooled` grows), so the token is a
 RECLASSIFICATION, not new backing.
 ⇒ **"Make vBTC transferable" is therefore not a transfer-gate change — there is no gate to remove. It
-is a decision to mint to a THIRD PARTY, and doing that naively re-creates the double-claim the
-docblock names.** This is §A.19b's open question restated in one line: *"the question is only what
+is a change to the MINT DESTINATION.**
+🔴 **AND THE DESTINATION IS THE LP, NOT A THIRD PARTY** (owner, 2026-09-07: *"dont mint to a third
+party. mint to an Lp. we already discussed this at length and how to deal with it. there are todos
+around this in sprint.md"*). **My "mint to a third party" framing was wrong and is struck.** The LP is
+the party whose channel BTC backs the token; a third party can only ever RECEIVE it by transfer, which
+the token already permits. ⛔ **Do not re-derive the handling — it is banked in two places:**
+| where | what it already settles |
+|---|---|
+| **§A.19b TODO** (*"what a POOLED-backing vBTC would entail"*) | the double-claim guard is REPLACED, not defended: *"Σ outstanding vBTC ≤ Σ free channel capacity, enforced on mint AND on every channel close/splice/drain that reduces capacity"*. Plus redeem-against-AGGREGATE-capacity, per-LP fairness (same class as §A.16's cross-subsidy — *"worth solving together"*), and the liquidation payoff that justifies it |
+| **§E251** (`Vault:280`) | *"DO NOT WIDEN THE MINT WITHOUT GENERALISING THE SUBSET MARKER"* — `vbtcExposeBody` guards `sats <= plainNet(pooled, levPooled)`, and a second consumer minting against the same `pooled` with its own counter **passes that guard while the two jointly over-mint**. Its open question is *"whether one marker or two — an LP could be lev-exposed AND lent-out, and `plainNet` assumes one"* |
+⇒ **The mechanism is the one `exposeBtcToLev` ALREADY uses and it is why minting to the LP is
+coherent:** the mint does not create backing, it RECLASSIFIES depth the LP already owns — `LP.pooled`
+unchanged, the slice marked withdrawal-excluded. Minting to the LP is that same move with the token
+handed to its owner instead of to the manager, and the marker is what stops the LP claiming the sats
+twice. **The work is generalising the marker, not inventing a guard.**
+📌 §A.19b also names the entrypoint shape — `redeemVBtc(sats, p2trScript, channelId)` burning the
+caller's vBTC into the EXISTING `pendingOnchainSwapOut` rail. ⚠️ **CLAUDE.md's ⛔ against
+`redeemVBtc(sats, p2trScript)` is about the TWO-ARG form** (unbinding the payout script from
+`btcRecipientOf` is the cross-LP-theft path); the banked form carries `channelId`, and §A.19b's own
+open question is exactly *"the binding is about WHICH channel pays"*. Reconcile those two before
+building, per the sequencing note that says to do segregation and bearer redemption together. This is §A.19b's open question restated in one line: *"the question is only what
 authorises it for a bearer rather than a swapper"* — and §A.19b already records that the mechanism
 exists on the delivery-side de-lever path (`testReal_DeliverSideDelever_SwapOutTapsLeveredSlice`), so
 a bearer path should be MODELLED ON THAT rather than invented.
