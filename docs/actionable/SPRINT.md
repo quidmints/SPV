@@ -34822,7 +34822,7 @@ Per the repo owner (2026-08-03): *"make sure you land everything else that is ne
 | A4 | **Queue / pay-last** removes the haircut but reintroduces first-out advantage and a run incentive — collides head-on with `_depegLoss`'s explicit *"no first-out-at-par"*. | ⚠️ live conflict |
 | A5 | **Per-vintage marking** closes it exactly but breaks cross-vintage fungibility of mature QU!D, which the code assumes everywhere. | ⚠️ unpriced |
 | A6 | **NAV-principal + par-bonus: UNVERIFIED MANIPULATION SURFACE.** Minting at `p` makes mint price depend on `solvent`. `redeemableBody:957` subtracts `_illiquidLoss`, driven by venue `maxWithdraw` — utilisation IS pushable by borrowing hard in-block ⇒ depress `p`, mint `D/p` cheap, let it recover. **Must trace which `solvent` the mint path would use BEFORE building.** | 🔴 BLOCKING  📌 **§SEQ-AUDIT: GATE 1 · lane L7. Read-first: trace which solvent the mint path uses** ✅ **BOTH HALVES READ 2026-09-07, AND THE BLOCKING ONE IS CONFIRMED RATHER THAN SUSPECTED.** ⓵ **THE MINT PATH READS NO `solvent` AT ALL** — `BasketLib.calcMintYield:559` is `external pure` over `(deposited, decimals, when, nextMonth, avgYieldIn, isSeed)`. The solvent contact is entirely on the REDEEM side (`min($1, solvent/matureSupply)`), and `Basket.sol:401` states the mint is share-price neutral by construction (*"new solvent/new mature == old solvent/old mature"*). ⇒ **§E2's asymmetry is structural in the code, not an accident of one call site.** 🔴 ⓶ **AND `solvent` IS PUSHABLE IN-BLOCK BY ANYONE WHO CAN RAISE VENUE UTILISATION — TWO LIVE INPUTS, BOTH TRACED:** `Basket.sol:316` does `total -= min(total, AUX.illiquidLossFlagging())`, and `BasketLib._illiquidLoss:939` builds that figure from **(a) `_aaveAvail:902` → `IAaveV4Hub.getAssetLiquidity(aid)`, the reserve's LIVE liquidity**, and **(b) `QuidLib._withdrawableOf(v, aux)`, the vault's withdrawable-NOW**. Raising utilisation on either lowers `avail`/`deliv`, raises `shortfall`, raises `illiquidLoss`, lowers `solvent`, lowers `perShare`. ⚠️ **THE SURFACE IS ONE-DIRECTIONAL (down) AND I HAVE NOT PRICED THE PROFIT** — confirming it is reachable is not the same as showing it pays, and §E2's branch cannot be evaluated on reachability alone. 📌 **AND THE HAIRCUT MAY ALREADY BE STRUCTURALLY LARGE WITHOUT ANY ATTACKER:** the row's own comment records that **6 of 8 registered stable vaults are Morpho-V2 holding ~124M of ~126M stable TVL, whose max-views are IDLE-ONLY and report 0 against a fully withdrawable position.** |
-| A7 | NAV-principal adds a 13-iteration `matureSupply` loop at mint (`_finishMint` computes `total` but not `matureSupply`). Real gas. | 🟡 measure  📌 **§SEQ-AUDIT: GATE 0 · lane L7. Measure the 13-iteration matureSupply loop gas first** |
+| A7 | NAV-principal adds a 13-iteration `matureSupply` loop at mint (`_finishMint` computes `total` but not `matureSupply`). Real gas. | 🟡 measure  📌 **§SEQ-AUDIT: GATE 0 · lane L7. Measure the 13-iteration matureSupply loop gas first** ⛔ **PREMISE FALSE 2026-09-07 — THE LOOP IS ALREADY THERE.** `_finishMint` already calls `matureSupply()` (one live call; the other three references in the function are comments), and `matureSupply()` wraps `immatureSupply()`'s `for (m = cm+1; m <= cm+13)` at `Basket.sol:242`. ⇒ **NAV-principal adds NO new loop and there is no marginal gas to measure.** This voids A7 as an objection to `§E2`'s option ① — see `§A7-PREMISE-IS-FALSE`. |
 | A8 | 🔗 **CROSS-TRACK — THE BIG ONE.** #12 and E5 both REMOVE subsidies silently flowing to QU!D holders today (the LP's sale proceeds; the retained skew premium). Both make `perShare` run **lower** than today. ⇒ **Track B makes Track A's bleed WORSE.** Any E2 fix must be sized against POST-#12 `perShare`, never today's, or it will be calibrated to a number that is about to move. | 🔴 must not be neglected  📌 **§SEQ-AUDIT: GATE 2 · lane L7. Cross-track ordering rule - owner must sequence A vs B** |
 
 ## Track B — POOLED_USD CAPITAL EFFICIENCY (#12 · E3 · E5 · E6)
@@ -52982,6 +52982,50 @@ against the live tree, prints the fold target for each FOLDED row, and **exits n
 FOLDED citation is still stale** — the one bucket that is actionable. Per this file's own rule, a gate
 with a binary result beats a disposition; and per the tooling-traps rule it fails loudly, exiting with
 a FATAL if the tree walk returns zero `.md` files rather than reporting a clean run.
+
+# 🔬 §A7-PREMISE-IS-FALSE — **THE LOOP IT WARNS ABOUT IS ALREADY IN THE MINT PATH, SO ITS OBJECTION TO §E2 IS VOID (2026-09-07)**
+
+**Checked because an ID collision is not a code check.** `§SELF-CLOSING-ROWS-SWEEP` established that
+*"A7 is answered"* at `:51989` refers to the ENCLAVE track's A7, not the basket track's at `:34825`. ⇒
+**the cross-reference does not close it — and that says nothing about whether its own claim holds.**
+It does not.
+
+**The row (`:34825`):** *"NAV-principal adds a 13-iteration `matureSupply` loop at mint (`_finishMint`
+computes `total` but not `matureSupply`). Real gas. 🟡 measure."*
+
+⛔ **MEASURED: `_finishMint` ALREADY CALLS IT.** Of four references inside the function, three are
+comments and one is live — `uint mature = matureSupply();`. And
+`matureSupply() = totalSupply() − immatureSupply()`, where `immatureSupply()` is exactly the loop:
+```solidity
+function immatureSupply() public view returns (uint s) {
+    uint cm = currentMonth();
+    for (uint m = cm + 1; m <= cm + 13; ++m) s += totalSupplies[m];   // Basket.sol:242
+}
+```
+⇒ **the 13-iteration loop is in the mint path TODAY.** NAV-principal would add **no new loop**; the gas
+the row asks to measure is already being paid.
+
+## 🔴 WHY THIS MATTERS BEYOND ONE ROW: IT REMOVES AN OBJECTION FROM A LIVE FORK
+
+`§E2` is one of the genuine owner decisions, and its fix option ① is *"entry at the mark — mint
+`deposited/perShare`"*, i.e. NAV-principal. **A7 is carried in E2's own summary as one of the reasons
+that option is unresolved** (*"A7 unmeasured gas"*). ⇒ **that objection is void**: there is no marginal
+loop to price, so *"real gas"* cannot count against option ① on this ground.
+
+⚠️ **STATED AT THE CONFIDENCE I HAVE: this removes an OBJECTION, not the decision.** E2's other blockers
+stand untouched — A6's manipulation surface (now confirmed reachable, see `§SEQ-AUDIT` on `:34824`),
+A4's conflict with `_depegLoss`, and the prior *"intentional asymmetry"* adjudication. **One of five
+proposals just got cheaper to argue for; none of them got adopted.**
+
+📌 **AND THE GENERAL LESSON THE OWNER NAMED, which this row is the worked example of: an ID collision
+tells you the cross-reference is worthless. It does not tell you the ROW is worthless.** Both still owe
+a code check, and here the code says the row's premise expired — which no amount of reasoning about
+which A7 was meant would have surfaced.
+
+✅ **E111's cost premise settled in the same pass:** `AttestedHopRegistry.sol` is **absent from disk, 0
+references in `evm/src`, 0 test files**. `:15515`'s claim that its scaffolding is gone is CONFIRMED, so
+E111's cost is not what the last thread to touch it believed. **The row itself stays open — it is
+booked for a dedicated session and is a design question, not a scaffolding question.**
 
 # ⚠️ §BTC-2.4b.1-FIX-MAY-NOT-REACH-THE-ROW — **A ✅ FIX AND AN OPEN ROW UNDER ONE ID, ANSWERING DIFFERENT QUESTIONS (2026-09-07)**
 
