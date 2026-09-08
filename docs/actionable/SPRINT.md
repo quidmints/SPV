@@ -99817,7 +99817,17 @@ are false.**
   case so it cannot be read as an accounting defect. The `assertEq(failed, 1)` is **unweakened**
   (verified still PASS at a good block); the guard only fires when lp1 ALSO skipped AND its debt did
   not fall, i.e. when the isolation property has nothing to observe.
-⚠️ **THE GUARD IS UNEXERCISED IN THE CURRENT TREE AND I AM SAYING SO RATHER THAN CERTIFYING IT.**
+🔴 **UPDATE, SAME DAY — SIX PINS ACROSS ~150,000 BLOCKS (~3 WEEKS) ALL PASS IN THE CURRENT TREE**
+  (`f3a9fcf1`): head−20 · head−500 · head−5000 · head−20000 · head−60000 · head−150000, **6/6 PASS.**
+  The original 3-pin failure was measured ~18 commits earlier (tree ≈ `4007a5e9`).
+  ⇒ **BOTH READINGS ARE REAL AND THEY MEAN DIFFERENT THINGS.** Within ONE tree the verdict tracked the
+  block, so the market-state sensitivity was genuine. In the CURRENT tree it does not reproduce at any
+  block over three weeks of chain — so **something in those 18 commits removed the fragility**
+  (`QuidLib.sol` moved in that window and is the candidate; **NOT tested — do not book it as the cause**).
+  ⛔ **THEREFORE THE GUARD MAY NOW BE UNREACHABLE — rule-1 dead code rather than protection.** Do not
+  read its presence as coverage. ▶️ **TWO OPEN QUESTIONS FOR WHOEVER TAKES L4:** which of the 18
+  commits removed it, and — once that is known — whether the guard should be DELETED rather than kept.
+⚠️ **AND THE GUARD IS UNEXERCISED. I AM SAYING SO RATHER THAN CERTIFYING IT.**
   Eighteen commits landed while I was measuring (including `QuidLib.sol` and `ForkPin.sol`), and the
   absolute blocks that produced `2 != 1` before now PASS. **So I have no failing case left to fire it
   against.** Per CLAUDE.md the acceptance test for a detector is the KNOWN POSITIVE, and this one has
