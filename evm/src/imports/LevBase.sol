@@ -770,8 +770,11 @@ abstract contract LevBase {
     ///      `RANGE` nor storage, which is what lets every caller above it be `view`.
     function _ilTargetLive(Types.Pos memory p, uint256 px) internal view returns (uint256) {
         // ⛔ §C22 — THE TARGET IS THE ENTRY-PINNED ESTIMATE. Do not source it from the range's
-        // `soldFractionWad(syncKeyPx)`: that ratio is a CONSTANT in the price (0.500750000 =
-        // f(RANGE_DELTA) alone, because the range recentres on spot so the price cancels out).
+        // `soldFractionWad(syncKeyPx)`: that ratio is a CONSTANT in the price (0.507500313 at the
+        // live `RANGE_DELTA = 200` — it is f(RANGE_DELTA) alone, because the range recentres on spot
+        // so the price cancels out. It read 0.500750000 at the retired ±0.2% band; the twin at
+        // `LevMath.ilTargetBps` was destaled on 2026-09-08 and this one was not, so the two files
+        // disagreed).
         // The full argument, with the measured divergence, is at `LevMath.ilTargetBps`.
         return LevMath.ilTargetBps(p.ilBasisPx, px, uint64(TARGET_LTV_CAP_BPS));
     }

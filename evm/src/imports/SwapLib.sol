@@ -1052,10 +1052,13 @@ library SwapLib {
     ///         UNSKEWED price ⇒ no exemption needed) — the skew is a separate output scalar,
     ///         which is precisely what lets it exceed what the range band itself can express in a
     ///         genuine drought (the range + in-window benign arb own the near-target regime; the
-    ///         skew is a TAIL layer that only bites past that). ⚠️ THE BAND IS `RANGE_DELTA = 20`,
-    ///         i.e. **±20 bps / ±0.2%** — this line said "±50-bps" and no live constant holds 50 for
-    ///         a range half-width. (`RESEAT_MIN_BPS` is 50 and is the RESEAT threshold, a different
-    ///         quantity; the ±50 bps observe bound is deleted — it never bound anything.)
+    ///         skew is a TAIL layer that only bites past that). ⚠️ THE BAND IS `RANGE_DELTA = 200`,
+    ///         i.e. **±200 bps / ±2%** (widened 20 → 200 on 2026-09-08; the live LVR coefficient is
+    ///         ≈`12.56e18`, NOT the ~`125e18` the ±0.2% geometry gave).
+    ///         ⛔ **THIS SENTENCE HAS NOW BEEN WRONG TWICE, AND BOTH TIMES IT READ AS A CORRECTION.**
+    ///         It first said "±50-bps" — that is `RESEAT_MIN_BPS`, the RESEAT threshold, a different
+    ///         quantity. It was fixed to `20`, and then the range widened underneath it. **Read the
+    ///         constant at `:870`; never this sentence.**
     ///
     ///         Inputs (all 6-dec USD except σ²), asset-agnostic — the signature is
     ///         `skewWad(poolVolUsd, flowUsd, sigmaSqWad, rk, drainUsd6)`:
@@ -1114,8 +1117,12 @@ library SwapLib {
     ///         encodes this predicate. It has to be asked directly.
     ///         ⚠️ **AND THE ONE CELL WHERE THAT ARGUMENT IS STRONGEST IS THE ONE THIS BULLET FIRST
     ///         GOT WRONG: it said the base is "not 0".** At σ² == 0 on ETH (`spliceFloor == 0`) the
-    ///         base IS 0 — see §E352 at the flush branch — so in that cell the skew reads 0 for a
-    ///         flush range and, on the drain leg, 3e16 for a scarce one. The predicate is *accidentally*
+    ///         base IS 0 — see §E352 at the flush branch. ⚠️ **BUT "the skew reads 0 for a flush
+    ///         range" IS NO LONGER TRUE OF BOTH FLUSH ARMS.** §ZERO-REVENUE added `+ _depletion(inv0,
+    ///         inv1)` — which carries no σ² term — to `:1386` only, so that arm now reads 0 only when
+    ///         `inv1 >= inv0`, i.e. a swap that removes no inventory. The `target == 0` twin at
+    ///         `:1321` did NOT get the depletion term and still reads 0 at every drain size. On the
+    ///         drain leg it is 3e16 for a scarce one. The predicate is *accidentally*
     ///         recoverable there and nowhere else, which is worse than never: a consumer that derived
     ///         it from the skew would work in exactly the configuration §E278 wants changed, and
     ///         silently invert the day a variance source lands. **Ask this function.**
@@ -1345,8 +1352,16 @@ library SwapLib {
         //    ON THESE TWO BRANCHES THE PERMISSIVE RESOLUTION WINS AND THE 3e16 SENTINEL NEVER FIRES.**
         //    Two consumers of ONE input disagree about what "unmeasured" costs: the guard below says
         //    σ² == 0 ⇒ charge the ceiling, `_maxWellSkew` says σ² == 0 ⇒ charge `rk.spliceFloor`, and
-        //    branch ORDER — not a decision — picks the second. At σ² == 0 both lines return **0 on
-        //    ETH** (profile `(ETH_CONF_FRAC_WAD, 0)`) and `SPLICE_FLOOR` alone on BTC.
+        //    branch ORDER — not a decision — picks the second.
+        //    ⚠️ **§ZERO-REVENUE HAS SINCE SPLIT THE TWO ARMS AND ONLY ONE STILL RETURNS ZERO.** `:1386`
+        //    adds `_depletion(inv0, inv1)`, which is σ²-free, so at σ² == 0 on ETH (profile
+        //    `(ETH_CONF_FRAC_WAD, 0)`) it returns 0 only for `inv1 >= inv0` — a swap that removes no
+        //    inventory, which is the exact cell `SkewUnmeasuredVariance.t.sol:75` pins with
+        //    `drainUsd6 == 0`. The `target == 0` twin at `:1321` got NO depletion term and DOES still
+        //    return 0 at every drain size, on ETH. **That asymmetry is the live residual** — it reads
+        //    as an oversight rather than a decision, because §ZERO-REVENUE's own argument (no shed
+        //    target ⇒ no scarcity, and `_depletion` needs no `target`) transfers to it verbatim.
+        //    On BTC both arms return `SPLICE_FLOOR` plus, at `:1386`, depletion.
         //    ⇒ §UNIT-A's *"RETURN THE BASE, NOT ZERO"* is NEUTRALISED exactly when variance is
         //    unmeasured, because at σ² == 0 **the base IS zero** — the §E59 free-drain hole arriving
         //    through a door §E59 did not close.

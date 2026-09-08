@@ -505,9 +505,12 @@ contract BTCChannels {
     /// budget — before the SPV proof and `_applySplice` that a splice must also pay for.
     /// ⇒ **16 rungs ≈ 7.56M gas**, about a quarter of a 30M block, leaving the rest of the splice
     /// room to confirm. That quarter is the judgement; everything under it is arithmetic.
-    /// ⚠️ NOT a governance knob under GATE 3 item 4, deliberately: item 4 makes ECONOMICALLY-tunable
-    /// constants settable, and this is a GAS bound — it prices no one and advantages no one. Making
-    /// it settable would add an authority that could raise it back into the divergence.
+    /// ⚠️ NOT a governance knob, and GATE 3 item 4 settled that there is no knob to BE: `Ownable` is
+    /// DELETED from this contract (owner, 2026-09-08), so no authority exists to hang a setter on.
+    /// Even if one did, this is a GAS bound — it prices no one and advantages no one — and a setter
+    /// could raise it back into the §BTC-2.5a-bis divergence where a splice reverts AFTER Bitcoin
+    /// confirmed it. (This said item 4 "makes ECONOMICALLY-tunable constants settable". Item 4
+    /// resolved to the opposite: no setters, no owner.)
     /// 📌 Sixteen windows is far past any product need — the generator arms TWO (`+144`/`+288`) — so
     /// the ceiling binds only on accidents and abuse, never on an honest ladder.
     uint internal constant MAX_LADDER_RUNGS = 16;

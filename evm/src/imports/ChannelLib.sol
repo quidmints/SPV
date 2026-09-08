@@ -623,8 +623,6 @@ library ChannelLib {
         // lpAuth digest, so widening it is non-breaking.
         channelId = keccak256(abi.encode(p.lpPubkey, p.hopPubkey, fundingTxId, vout));
 
-        // MULTI-HOP: the `hop` field is now READ (per-channel authority — no single
-        // global `hopNode`), so it earns its storage slot. It is set by the caller
         // (E164) The `hop` field is gone — authority is the immutable MAIN_HOP/FALLBACK_HOP
         // pair, not per-channel state.
         channel = Types.BTCChannel({
@@ -677,9 +675,11 @@ library ChannelLib {
 
     /// @dev SPV-verify the recomputed txid is in mainchain, then locate the
     ///      key-path P2TR funding output `0x5120||Q` (Q = p.fundingTaproot) and
-    ///      assert its value == amountSats exactly. The contract does NO EC: Q is
+    ///      assert its value == amountSats exactly. NO EC math in THIS frame: Q is
     ///      KeyAgg-PROVEN (`isTwoOfTwoOutputKey`) + byte-matched, NOT reconstructed and NOT
-    ///      lpAuth-committed — §E183 deleted that signature. In
+    ///      lpAuth-committed — §E183 deleted that signature. ⚠️ "The contract does NO EC" is what
+    ///      this said, and it is false: `isTwoOfTwoOutputKey` IS secp256k1 arithmetic, run on-chain
+    ///      (§E129/§E142). The frame is EC-free; the contract is not. In
     ///      its own private frame so openChannelBody compiles under the legacy
     ///      pipeline.
     function _verifyAndLocate(
@@ -695,8 +695,10 @@ library ChannelLib {
             revert BadSPV();
 
         // SIMPLE-TAPROOT: locate the key-path MuSig2 P2TR funding output
-        // `0x5120||Q` (Q = p.fundingTaproot). The contract does NO EC math; Q is
-        // KeyAgg-proven (`isTwoOfTwoOutputKey`, §E129/§E142) and byte-matched. NOT signed by
+        // `0x5120||Q` (Q = p.fundingTaproot). No EC math in THIS frame; Q is
+        // KeyAgg-proven (`isTwoOfTwoOutputKey`, §E129/§E142) and byte-matched — that proof IS
+        // on-chain secp256k1, so the contract does do EC; this frame does not. NOT signed by
+        // any LP EVM signature (§E183 deleted `lpAuth`).
         uint outputSats;
         (vout, outputSats) = BitcoinTx.findOutputByScript(
             rawFundingTx,
