@@ -99797,42 +99797,46 @@ stopped masking it:
    a derivation of its own, not a fit to a failing test; fitting γ to make an assertion pass is exactly
    the §E275 circularity wearing a different letter.
 
-## ✅ §SILENT-SKIP-PART-2 — RESOLVED 2026-09-08: MARKET STATE, and the row's diagnosis was wrong twice
-SPRINT `0g` recorded `test_Isolation_StuckLpDoesNotTouchAnother` failing **`0 != 1`** and inferred
-*"the LP was never actually stuck (a fixture premise), not that the emit is missing."* **Both halves
-are false.**
-· It fails **`2 != 1`**, not `0 != 1` — the failure mode INVERTED, from "nobody skipped" to "everybody
-  did", and nobody re-read it.
-· The fixture is fine. Its own diagnostics say so: `lp0 debt 561,184,234`, `lp0 ilTarget 279 bps`.
-  **lp0 IS genuinely levered and genuinely stuck.** The extra skip is **lp1's** — `LevMath` floors
-  every swap at `MAX_SLIPPAGE_BPS` regardless of the caller's `minOut`, so `mins[1] == 0` does NOT
-  make lp1's leg unconditional, and at recent blocks it cannot clear the ORACLE floor either.
-▶️ **MEASURED, ONE TREE, THREE PINS:** head−20 `2 != 1` · head−2000 `2 != 1` · head−20000 **PASS**.
-  The verdict tracks the block. ⇒ **market state, not a fixture or accounting defect.**
-✅ **CORROBORATED ON DIFFERENT FIXTURES (project-bc, full clean-main suite, 1146/6/1 at `35a36777`):**
-  `test_G7_WithdrawPastFreeDepthAutoDeLevers` and both `PLP6` tests fail with their OWN self-describing
-  message — *"the auto-de-lever could not clear the oracle floor AT THIS BLOCK — this is market state,
-  not a routing or accounting defect."* **Same leg, same cause, three more fixtures. Not separate bugs.**
-▶️ **LANDED:** the same remedy `LevCascade.t.sol:470-476` already uses for G7 — NAME the market-state
-  case so it cannot be read as an accounting defect. The `assertEq(failed, 1)` is **unweakened**
-  (verified still PASS at a good block); the guard only fires when lp1 ALSO skipped AND its debt did
-  not fall, i.e. when the isolation property has nothing to observe.
-🔴 **UPDATE, SAME DAY — SIX PINS ACROSS ~150,000 BLOCKS (~3 WEEKS) ALL PASS IN THE CURRENT TREE**
-  (`f3a9fcf1`): head−20 · head−500 · head−5000 · head−20000 · head−60000 · head−150000, **6/6 PASS.**
-  The original 3-pin failure was measured ~18 commits earlier (tree ≈ `4007a5e9`).
-  ⇒ **BOTH READINGS ARE REAL AND THEY MEAN DIFFERENT THINGS.** Within ONE tree the verdict tracked the
-  block, so the market-state sensitivity was genuine. In the CURRENT tree it does not reproduce at any
-  block over three weeks of chain — so **something in those 18 commits removed the fragility**
-  (`QuidLib.sol` moved in that window and is the candidate; **NOT tested — do not book it as the cause**).
-  ⛔ **THEREFORE THE GUARD MAY NOW BE UNREACHABLE — rule-1 dead code rather than protection.** Do not
-  read its presence as coverage. ▶️ **TWO OPEN QUESTIONS FOR WHOEVER TAKES L4:** which of the 18
-  commits removed it, and — once that is known — whether the guard should be DELETED rather than kept.
-⚠️ **AND THE GUARD IS UNEXERCISED. I AM SAYING SO RATHER THAN CERTIFYING IT.**
-  Eighteen commits landed while I was measuring (including `QuidLib.sol` and `ForkPin.sol`), and the
-  absolute blocks that produced `2 != 1` before now PASS. **So I have no failing case left to fire it
-  against.** Per CLAUDE.md the acceptance test for a detector is the KNOWN POSITIVE, and this one has
-  not had one since the tree moved. ⇒ **Treat the guard as unproven until it fires. The DIAGNOSIS is
-  what is established** (three pins, one tree, plus bc's three fixtures).
+## 🟠 §SILENT-SKIP-PART-2 — 0g's DIAGNOSIS IS REFUTED, AND SO IS MINE. **NO COMMIT REMOVED IT.**
+**WHAT IS ESTABLISHED, and it is only the first half:**
+· SPRINT `0g` recorded `test_Isolation_StuckLpDoesNotTouchAnother` failing **`0 != 1`** and inferred
+  *"the LP was never actually stuck (a fixture premise)."* **Both halves are false.** It fails
+  **`2 != 1`** — the mode INVERTED, from "nobody skipped" to "everybody did", and nobody re-read it.
+· The fixture is fine and its own diagnostics say so: `lp0 debt 561,184,234`, `ilTarget 279 bps`.
+  **lp0 IS genuinely levered and stuck.** The second skip is **lp1's**: `LevMath` floors every swap at
+  `MAX_SLIPPAGE_BPS` regardless of the caller's `minOut`, so `mins[1] == 0` does NOT make lp1's leg
+  unconditional. **That much is measured and stands.**
+
+🔴 **WHAT I BOOKED AND AM NOW RETRACTING: "market state, not a fixture defect."** I inferred it from
+three pins (head−20 FAIL · head−2000 FAIL · head−20000 PASS) and then found 6/6 PASS across ~150,000
+blocks in a later tree, and asked which commit had removed the fragility. **The answer is that none
+did:**
+```
+git diff --stat 4007a5e9 11c72aa3 -- evm/     →  EMPTY
+```
+`4007a5e9` FAILED at block 25934141; `11c72aa3` PASSES at the same block; **the compiled tree between
+them is byte-identical.** Every commit in that window is documentation (`SPRINT.md`, `L-routing.md`,
+`CLAUDE.md`) and `27a68735`'s rescue merge is tree-neutral (verified: empty diff against its parent).
+Of the three later commits that DO touch `evm/`, `f3a9fcf1` is comment-only in `QuidLib.sol`
+(byte-identical under `bytecode_hash = "none"`), `221a4237` is a different suite, and `34946dba`
+(`ForkPin`) was tested directly — **`34946dba^` PASSES at 25934141, so it is not the cause either.**
+⇒ **SAME CODE, SAME BLOCK, OPPOSITE VERDICTS. The only variable left is UNCOMMITTED PEER STATE in the
+shared checkout during the failing runs** — and the three-pin sweep ran in that same contaminated
+tree, so it cannot separate block-dependence from tree-dirt. **My "market state" claim is therefore
+unsupported, not merely incomplete.**
+⛔ **THE GUARD I LANDED FOR IT HAS BEEN REMOVED** (`32779f55` added it, this commit takes it out). It
+named "market state" in its revert string, so leaving it would assert a retracted diagnosis — rule 19,
+a stale answers the question. `assertEq(failed, 1)` is back to the original, unweakened.
+✅ **WHAT SURVIVES INDEPENDENTLY, and is NOT mine:** project-bc's clean-main suite (1146/6/1 at
+`35a36777`) has `test_G7_WithdrawPastFreeDepthAutoDeLevers` and both `PLP6` tests failing with their
+OWN self-describing message about the auto-de-lever not clearing the oracle floor at a block. **That
+is real evidence the sell leg is block-fragile in general — it just does not license my attribution
+for THIS test.**
+▶️ **TO FINISH IT:** reproduce `2 != 1` in a **clean** tree at a pinned block. Until someone does, the
+condition is uncharacterised.
+📌 **AND THIS IS THE FOURTH TIME ONE INVESTIGATION HAS BEEN CORRUPTED BY THE SHARED CHECKOUT** — after
+the Γ bisect's two bad eliminations and the `lane.sh` ref trap. **A measurement taken in a tree with
+uncommitted peer edits is not a measurement of a commit.** See §THE-HABIT.
 
 ## 🧠 §THE-HABIT — the one practice that earned its keep, booked because it is transferable
 **ASK "WHAT WOULD THIS LOOK LIKE IF I WERE WRONG?" BEFORE BELIEVING A NULL — NOT AFTER.**
