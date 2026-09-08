@@ -99061,6 +99061,20 @@ Raised by project-bc, verified here from source. Two independent blockers:
 | **`a4787689` §E274-LAND: Γ** | 🔴 **FAIL** | 36,174,528 |
 | `79164397`, `044f24bc` (HEAD) | FAIL | — |
 
+✅ **CORROBORATED INDEPENDENTLY — two tests, three methods, one constant.** project-91 reached the
+same verdict by TOGGLING `GAMMA_WAD` in place rather than bisecting (Γ=3e16 PASS / Γ=derived FAIL), and
+project-bc holds pre-Γ full-suite controls showing this test green at 11:02 and 11:26 with `a4787689`
+landing at 14:31 — bc's 11:02 gas is within **1,831** of 91's toggled-back run on a 34.1M-gas test, i.e.
+the same execution path and not merely the same verdict. **The two methods answer different questions
+and both were needed: the toggle shows the VALUE is responsible, the bisect shows no OTHER commit is.**
+⚠️ **AND 91 OVERTURNED THE MECHANISM I FIRST WROTE HERE — the ETH does not leave.** Re-probed from one
+fixture, both arms: `rangeETH + levBuf` is FLAT (+0.000063 ETH, +0.0013%), `levBuf` is IDENTICAL TO THE
+WEI, and the entire margin loss is `POOLED` (claimed capacity) RISING. Attribution closes exactly:
+`ΔPOOLED − Δ(rangeETH+levBuf)` = the margin loss. ⇒ **A BOOK-VERSUS-BACKING DIVERGENCE, NOT AN
+OUTFLOW.** ⛔ "Re-size `levBuf`" is therefore a dead end — it did not move. And the causal step is NOT
+traced: a smaller retained premium should make the book grow LESS, not more. **Booked as untraced
+rather than guessed.**
+
 **MECHANISM.** `SwapLib.GAMMA_WAD` changed from the literal `3e16` to
 `FLOW_HALFLIFE * WAD / 365 days` = **5.48e15 — a 5.5× reduction in Γ**. Γ is the
 adverse-selection coefficient in the skew, so a smaller Γ charges less premium on
@@ -99462,3 +99476,20 @@ SYMBOL, and **a constant's VALUE change names no new symbol.** The lev suite was
 diff. This is the same gap as §SESS-116's "a commit touching `evm/src/` with ZERO `evm/test/` files".
 **A suspect that is a single named value should be TOGGLED before the history is walked** — a toggle is a
 controlled experiment where a bisect is only a search (project-bc's framing, and it generalises).
+
+## 🧰 §SESS-117-METHOD — two cross-session techniques worth keeping, both learned the hard way today
+**1. `git stash create` + a tag PRESERVES uncommitted work in a shared tree WITHOUT touching it.**
+project-bc used it on a dirty file whose owner was unknown: it builds a commit object and leaves the
+index and working tree untouched (`git status` unchanged afterwards), so an unrecoverable loss becomes
+a recoverable one while ownership is still being established. ⚠️ **A stash object is a safety net, not
+a home — it is not pushed.** Still commit properly. This is the tool the shared-checkout hazard has
+been missing; §REFILL-AFFORDABILITY and a `DrainAtomicity.t.sol` test were both destroyed for want of it.
+
+**2. 🔴 A ZERO-HIT GREP MEANT *RENAMED*, AND THREE SESSIONS READ IT AS *DESTROYED*.** project-91's
+temporary `PROBE ...` log lines vanished from `git status`; `grep -c PROBE` returned 0; project-c5 ran
+a `git fsck` walk and concluded *"lost, unrecoverable"*; I told 91 they were orphaned; bc relayed the
+same. **They had been re-landed in `f189301e` with RENAMED labels** (`"rangeETH + levBuf (backing)"`).
+`git log -S "PROBE rangeETH+levBuf"` is empty for the same reason. ⇒ **`git show <sha> -- <path>` was
+the whole answer.** This is CLAUDE.md's *"audit by structure, never by a name — a name matches its
+obituary"* landing on three sessions at once, through a grep for a string somebody chose to change.
+
