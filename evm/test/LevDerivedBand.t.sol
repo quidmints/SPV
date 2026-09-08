@@ -4,6 +4,8 @@ pragma solidity ^0.8.28;
 import "forge-std/Test.sol";
 import {AllesFixture} from "./Alles.t.sol";
 import {LevMath} from "../src/imports/LevMath.sol";
+import {QuidLib} from "../src/imports/QuidLib.sol";
+import {SwapLib} from "../src/imports/SwapLib.sol";
 import {ICore} from "../src/imports/Interfaces.sol";
 
 /// §DERIVED-BAND — the no-trade band is `∛(g/(C·K))`, and this suite is what keeps it honest.
@@ -23,27 +25,59 @@ contract LevDerivedBandProbe is Test {
     /// the fixture's `WAD` either.
     uint constant WAD = 1e18;
 
-    /// A ±20bps range: K = 1/(4·(2 − √(P/Pb) − √(Pa/P))) ≈ 125.
-    uint constant K_20BPS = 125 * WAD;
+    /// K FOR THE LIVE RANGE, DERIVED — never pinned.
+    /// ⚠️ THIS CONSTANT USED TO READ `uint constant _kLive() = 125 * WAD`, and that is the exact
+    /// failure this suite exists to catch, committed by the suite itself. `125e18` is right for a
+    /// ±20bps range; `SwapLib.RANGE_DELTA` is now `200`, where the same closed form gives ≈`12.56e18`
+    /// — a 10× error that widens every band below by ∛10 ≈ 2.15×. **Every assertion kept passing**,
+    /// because a test that feeds itself its own literal cannot observe the range moving underneath
+    /// it. Reading `RANGE_DELTA` and evaluating `QuidLib.kLvrAt` — the SAME function the chain runs
+    /// (`Core.kLvrWad` → `QuidLib.kLvrWad` → this) — is what makes the widening land here as a red
+    /// test rather than as silence.
+    function _kLive() internal pure returns (uint) {
+        // Any spot works: K depends only on the RATIOS `P/Pb` and `Pa/P`, and `updateBounds`
+        // (`SwapLib.sol:2815`) builds both bounds multiplicatively off the same spot.
+        uint px = 100_000 * WAD;
+        (uint lo, uint up) = SwapLib.updateBounds(px, SwapLib.RANGE_DELTA);
+        return QuidLib.kLvrAt(px, lo, up);
+    }
 
-    /// §POOL-VENUE — the liquidation headroom, `liqThresholdBps() − TARGET_LTV_CAP_BPS`.
+    /// §POOL-VENUE — the liquidation headroom, `liqThresholdBps() − cap`, where `cap` is
+    /// `TARGET_LTV_CAP_BPS` CONVERTED TO THE VENUE BASIS. The cap is quoted debt-over-EQUITY and a
+    /// venue LLTV is debt-over-COLLATERAL, so the subtraction is only meaningful after
+    /// `c/(1+c)` — `7500 E0 == 4285 venue`, headroom `8600 − 4285 = 4315`, not `1100`. This is the
+    /// same conversion `LevBase._bandBps` performs (`LevBase.sol:122`); pinning `8_600 - 7_500` here
+    /// re-committed the basis error the production fix removed.
     /// `AMPLE` makes the series combination the IDENTITY (`h·H/(h+H) → h` as `H → ∞`), which is what
     /// lets the shape tests below measure the ECONOMICS alone. `LIVE` is the real figure at Morpho's
-    /// 86% LLTV against the 7500bps cap, and only the headroom test uses it — mixing the two is how a
-    /// test stops measuring the thing its name claims.
+    /// 86% LLTV, and only the headroom test uses it — mixing the two is how a test stops measuring
+    /// the thing its name claims.
+    /// ⚠️ `LevBase.TARGET_LTV_CAP_BPS` CANNOT BE READ HERE and the literal is not laziness: it is
+    /// `public constant`, which Solidity exposes as a getter rather than as `LevBase.NAME`, and a
+    /// getter needs a deployed manager — which this contract deliberately does not have (see the
+    /// `is Test` note above). What was actually wrong was never the `7_500`; it was subtracting it
+    /// from an LLTV in the wrong basis. That conversion is now spelled out and lives here.
     uint constant AMPLE = 1e9;
-    uint constant LIVE  = 8_600 - 7_500;
+    uint constant MORPHO_LLTV = 8_600;
+    uint constant TARGET_LTV_CAP_BPS = 7_500;      // LevBase.sol:51
+    uint constant CAP_VENUE_BASIS =
+        (TARGET_LTV_CAP_BPS * 10_000) / (10_000 + TARGET_LTV_CAP_BPS);
+    uint constant LIVE = MORPHO_LLTV - CAP_VENUE_BASIS;
 
     /// 1. THE SHAPE. `h³ = g/(C·K)` is the whole claim, so assert the cube directly rather than a
     ///    remembered output — a test that only pins numbers cannot tell a rewrite from a regression.
     function test_band_isTheCubeRootOfGasOverSizeTimesK() public pure {
         uint g = 3 * WAD;              // $3 of gas
         uint c = 100_000 * WAD;        // $100k position
-        uint bps = LevMath.noTradeBandBps(g, c, K_20BPS, AMPLE);
+        uint bps = LevMath.noTradeBandBps(g, c, _kLive(), AMPLE);
 
         // Recompose: (h)³·C·K should return g, within integer-root truncation.
+        // ⚠️ EVERY DIVISION STAYS IN WAD. The old form ended `* (c / WAD) * (K / WAD)`, which was
+        // exact only because the pinned K was a whole `125`; the live `12.56e18` truncates to `12`
+        // there — a 4.5% error against a 2% tolerance, i.e. the de-pinning would have failed here
+        // for a reason that has nothing to do with the claim.
         uint hWad = (bps * WAD) / 10_000;
-        uint recomposed = (((hWad * hWad) / WAD) * hWad / WAD) * (c / WAD) * (K_20BPS / WAD);
+        uint recomposed = ((((hWad * hWad) / WAD) * hWad / WAD) * c / WAD) * _kLive() / WAD;
         assertApproxEqRel(recomposed, g, 0.02e18, "band is not the cube root of g/(C*K)");
     }
 
@@ -52,9 +86,9 @@ contract LevDerivedBandProbe is Test {
     ///    charged a $1k position and a $10m position the same 300bps, which is the actual defect.
     function test_band_widensForSmallPositions() public pure {
         uint g = 3 * WAD;
-        uint small = LevMath.noTradeBandBps(g, 1_000 * WAD,   K_20BPS, AMPLE);
-        uint mid   = LevMath.noTradeBandBps(g, 100_000 * WAD, K_20BPS, AMPLE);
-        uint large = LevMath.noTradeBandBps(g, 10_000_000 * WAD, K_20BPS, AMPLE);
+        uint small = LevMath.noTradeBandBps(g, 1_000 * WAD,   _kLive(), AMPLE);
+        uint mid   = LevMath.noTradeBandBps(g, 100_000 * WAD, _kLive(), AMPLE);
+        uint large = LevMath.noTradeBandBps(g, 10_000_000 * WAD, _kLive(), AMPLE);
 
         assertGt(small, mid,   "a small position must tolerate a wider error");
         assertGt(mid,   large, "a large position must rebalance tighter");
@@ -66,21 +100,25 @@ contract LevDerivedBandProbe is Test {
     /// 3. CHEAPER GAS ⇒ TIGHTER TRACKING, with no one deciding that.
     function test_band_tightensAsGasFalls() public pure {
         uint c = 100_000 * WAD;
-        assertGt(LevMath.noTradeBandBps(30 * WAD, c, K_20BPS, AMPLE),
-                 LevMath.noTradeBandBps(3 * WAD,  c, K_20BPS, AMPLE),
+        assertGt(LevMath.noTradeBandBps(30 * WAD, c, _kLive(), AMPLE),
+                 LevMath.noTradeBandBps(3 * WAD,  c, _kLive(), AMPLE),
                  "a 10x gas spike must widen the band");
     }
 
-    /// 4. THE FIX ITSELF. At $100k and $3 of gas the band is ~62bps, and `ilTargetBps` is
-    ///    `1 − √(entry/now)`, so it arms at roughly a **1.2%** move rather than 6.3%. This is the
+    /// 4. THE FIX ITSELF. At $100k and $3 of gas the band is ~133bps, and `ilTargetBps` is
+    ///    `1 − √(entry/now)`, so it arms at roughly a **2.7%** move rather than 6.3%. This is the
     ///    number that decides whether the product works, so it is asserted, not described.
+    /// ⚠️ THIS IS THE ONE PINNED NUMBER LEFT, AND IT IS PINNED ON PURPOSE. It moves with
+    ///    `SwapLib.RANGE_DELTA` (it was 62bps at ±20bps), so widening the range turns this RED —
+    ///    which is correct: the product claim above is a judgement about how early the hedge arms,
+    ///    and nobody should get to move it silently by editing a range constant.
     function test_band_armsTheHedgeLongBeforeTheOldConstant() public pure {
-        uint bps = LevMath.noTradeBandBps(3 * WAD, 100_000 * WAD, K_20BPS, AMPLE);
+        uint bps = LevMath.noTradeBandBps(3 * WAD, 100_000 * WAD, _kLive(), AMPLE);
         assertLt(bps, 300, "the derived band must be tighter than the 300bps it replaced");
-        assertApproxEqAbs(bps, 62, 12, "band moved off its derived value");
+        assertApproxEqAbs(bps, 133, 12, "band moved off its derived value");
 
         // Price move that clears it: 1 - sqrt(1/k) = bps/1e4  =>  k = 1/(1-bps/1e4)^2.
-        // At 62bps that is +1.25%; the old constant needed +6.34%.
+        // At 133bps that is +2.71%; the old constant needed +6.34%.
         assertLt(bps * 2, 634, "the arming move must be far inside the old 6.3%");
     }
 
@@ -95,16 +133,16 @@ contract LevDerivedBandProbe is Test {
     ///     jumps — assert both halves, because only the first distinguishes the two.
     function test_PoolVenue_HeadroomBoundsTheBandWithoutClamping() public pure {
         uint g = 3 * WAD;
-        // A tiny position: economically ~493bps, which is a large fraction of the 1100bps headroom.
-        uint econ  = LevMath.noTradeBandBps(g, 200 * WAD, K_20BPS, AMPLE);
-        uint bound = LevMath.noTradeBandBps(g, 200 * WAD, K_20BPS, LIVE);
+        // A tiny position: economically ~1060bps, a quarter of the 4315bps headroom.
+        uint econ  = LevMath.noTradeBandBps(g, 200 * WAD, _kLive(), AMPLE);
+        uint bound = LevMath.noTradeBandBps(g, 200 * WAD, _kLive(), LIVE);
         assertLt(bound, LIVE, "the band must sit strictly inside the liquidation headroom");
         assertLt(bound, econ, "the headroom must pull the band DOWN, not merely cap it");
 
         // …and it is NOT a clamp: a band far below the headroom is still pulled down, slightly.
         // `min(h, H)` would leave this one untouched, so this is the assertion that separates them.
-        uint bigEcon  = LevMath.noTradeBandBps(g, 100_000 * WAD, K_20BPS, AMPLE);
-        uint bigBound = LevMath.noTradeBandBps(g, 100_000 * WAD, K_20BPS, LIVE);
+        uint bigEcon  = LevMath.noTradeBandBps(g, 100_000 * WAD, _kLive(), AMPLE);
+        uint bigBound = LevMath.noTradeBandBps(g, 100_000 * WAD, _kLive(), LIVE);
         assertLt(bigBound, bigEcon, "a clamp would have left this untouched -- the series form must not");
         assertApproxEqRel(bigBound, bigEcon, 0.10e18, "far from the threshold the bound must be nearly inert");
     }
@@ -112,15 +150,15 @@ contract LevDerivedBandProbe is Test {
     /// 5c. NO HEADROOM ⇒ REBALANCE ALWAYS. A cap already at the liquidation threshold has no room to
     ///     drift, and the fail-safe direction there is to act, not to tolerate.
     function test_PoolVenue_NoHeadroomMeansAlwaysRebalance() public pure {
-        assertEq(LevMath.noTradeBandBps(3 * WAD, 100_000 * WAD, K_20BPS, 0), 0, "no headroom must not tolerate drift");
+        assertEq(LevMath.noTradeBandBps(3 * WAD, 100_000 * WAD, _kLive(), 0), 0, "no headroom must not tolerate drift");
     }
 
     /// 5. FAIL OPEN TOWARD HEDGING. Every unmeasured input yields a ZERO band — rebalance always —
     ///    because the failure this replaced was silent inaction, not churn. A zero band cannot
     ///    mis-size a borrow: `debtDelta` still sizes it off the target.
     function test_band_failsOpenOnAnyUnmeasuredInput() public pure {
-        assertEq(LevMath.noTradeBandBps(0, 100_000 * WAD, K_20BPS, AMPLE), 0, "no gas price");
-        assertEq(LevMath.noTradeBandBps(3 * WAD, 0, K_20BPS, AMPLE),       0, "no position");
+        assertEq(LevMath.noTradeBandBps(0, 100_000 * WAD, _kLive(), AMPLE), 0, "no gas price");
+        assertEq(LevMath.noTradeBandBps(3 * WAD, 0, _kLive(), AMPLE),       0, "no position");
         assertEq(LevMath.noTradeBandBps(3 * WAD, 100_000 * WAD, 0, AMPLE), 0, "no range geometry");
     }
 }

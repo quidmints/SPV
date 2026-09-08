@@ -128,6 +128,17 @@ library QuidLib {
     /// OPERATION (range width is genuinely √-shaped) but nothing is stored or passed as a sqrt price.
     function kLvrWad(address core, uint loPrice, uint upPrice) public view returns (uint) {
         (uint priceWad,) = ICore(core).poolStats();
+        return kLvrAt(priceWad, loPrice, upPrice);
+    }
+
+    /// @notice `kLvrWad` with the spot supplied rather than read — the whole formula, no chain.
+    /// @dev    THE READ AND THE ARITHMETIC ARE SPLIT BECAUSE THE ARITHMETIC HAD DRIFTED IN COPIES.
+    ///         Two test files reimplemented this closed form to reason about K off-chain, and when
+    ///         `RANGE_DELTA` widened 20 → 200 bps the copies kept the old geometry's answer (`125e18`
+    ///         for ±0.2%, against a live `≈12.56e18`) while still passing — a test measuring its own
+    ///         literal cannot see the range move. `internal`, so it inlines and costs no deployed
+    ///         bytecode; the on-chain caller above is unchanged.
+    function kLvrAt(uint priceWad, uint loPrice, uint upPrice) internal pure returns (uint) {
         if (loPrice >= upPrice) return 0;
         uint p = priceWad < loPrice ? loPrice : (priceWad > upPrice ? upPrice : priceWad);
         uint r1 = FixedPointMathLib.sqrt(SoladyMath.fullMulDiv(p, 1e36, upPrice));   // √(P/Pb) · 1e18
