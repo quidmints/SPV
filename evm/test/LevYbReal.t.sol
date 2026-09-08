@@ -2,11 +2,13 @@
 pragma solidity ^0.8.28;
 
 import {AllesFixture} from "./Alles.t.sol";
+import {Vm} from "forge-std/Vm.sol";   // §M.1: recordLogs discriminator
 import {IMorphoStaticTyping as IMorphoTest, MarketParams, Id} from "../src/imports/Interfaces.sol";
 import {IOracle as IMorphoOraclePrice} from "../src/imports/Interfaces.sol";
 import {LevManager} from "../src/LevManager.sol";
 import {ILevVenue} from "../src/imports/Interfaces.sol";
 import {MorphoEscrowVenue} from "../src/imports/LevVenueBase.sol";
+import {SwapLib} from "../src/imports/SwapLib.sol";   // §M.1: drive the real delivery entrypoint
 
 interface IChainlinkFeedT { function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80); }
 interface IWeETHRateT { function getEETHByWeETH(uint) external view returns (uint); }
@@ -214,7 +216,11 @@ contract LevYbRealProbe is AllesFixture {
 
     function _entryPrice(LevManager m, address lp) internal view returns (uint s) { ( , , , s, ) = m.pos(lp); }
 
-    function _openLp() internal {
+    /// @notice The OPEN only — no rally, no rebalance, so the position sits at the ZERO LEVERAGE every
+    ///         `openLev` starts from (`LevManager.sol:253-258`: the lever-up ladder is unreachable at
+    ///         open because `ilBasisPx == pxNow`). Split out of `_openLp` for §M.1, which needs the
+    ///         pooled position observable BEFORE anything levers it.
+    function _openLpFlat() internal {
         // REAL range position (the E0 IL base) — rangeOf(LP) == 5 ETH deposit, read live from ETH.
         vm.deal(LP, 6 ether);
         vm.prank(LP); ETH.deposit{value: 5 ether}(0, LP);   // venue 3 = all-Galaxy (no ether.fi offramp noise)
@@ -224,9 +230,99 @@ contract LevYbRealProbe is AllesFixture {
         IERC20R(WEETH).approve(address(rlm), 5 ether);
         rlm.openLev(ILevVenue(address(rvenue)), 5 ether); // cap = 2×
         vm.stopPrank();
+    }
+
+    function _openLp() internal {
+        _openLpFlat();
         // Real rally: buy ETH out of the range so it sells ETH ⇒ real IL accrues since the pinned entry.
         _rallyRange(_entryPrice(rlm, LP), 0.2e18, 20, 8_000 * USDC_PRECISION);
         rlm.rebalance(LP, 0, DEX_WETH_USDC, 0, "");         // lever up to the IL target (real Morpho borrow + real Uniswap buy)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════════════════════
+    // §M.1 — IS THE 0-DEBT POOLED POSITION REACHABLE, AND IS ITS NET EQUITY UNDELIVERABLE?
+    //
+    // `LevManager.swapOutDeliverUnlevered` has ZERO callers and ZERO tests. Its docblock forbids
+    // deletion on the ground that *"the §POOL-VENUE collapse took the CALL SITE away — the HOLE DID
+    // NOT"*, and defers the question to a fork test that was never written. `SwapLib.sol:2404` books
+    // the same thing: *"whether the 0-debt case is still reachable under §POOL-VENUE … is a
+    // money-path question that needs a fork test, not a guess."*
+    //
+    // THE MECHANISM, read from `SwapLib.deleverEthOnDelivery:2434-2437`:
+    //     uint poolDebtUsd = _toUsd18(aux, stable, ILevPooled(venue).totalDebt());
+    //     uint amtNative   = poolDebtUsd == 0 ? 0 : ...;
+    //     if (amtNative == 0) return 0;          // ← never reaches swapOutDeleverPooled
+    // ⇒ a pool holding COLLATERAL at ZERO DEBT is refused delivery outright.
+    // ═══════════════════════════════════════════════════════════════════════════════════════════════
+    function testReal_M1_ZeroDebtPoolIsReachableAndItsEquityIsUndeliverable() public {
+        _setupMorpho();
+        _openLpFlat();
+
+        // ── PREMISE (rule 21): the state under test must actually EXIST in this fixture ───────────
+        assertEq(rvenue.totalDebt(), 0, "premise: an open is at ZERO leverage, so the pool owes nothing");
+        assertGt(rvenue.totalCollateral(), 0, "premise: and it nonetheless HOLDS collateral");
+        assertGt(rlm.netEquity(LP), 0, "premise: that collateral is real per-LP net equity");
+
+        // ── THE HOLE, MEASURED rather than reasoned: drive the real delivery entrypoint ───────────
+        // ⚠️ THE INSTRUMENT NEEDS A DISCRIMINATOR, AND THE FIRST VERSION OF THIS TEST DID NOT HAVE
+        //    ONE. `deleverEthOnDelivery` is a PUBLIC library function, so calling it from here
+        //    delegatecalls with THIS CONTRACT as context — and `IAux.takeToSettle` is `onlyUs`, so it
+        //    reverts and the §SILENT-SKIP try/catch turns that into a plain `return 0`. A bare
+        //    `assertEq(delivered, 0)` therefore passes for TWO different reasons and distinguishes
+        //    neither. Measured: the naive control (rally, rebalance, call again) also returned 0.
+        // ⇒ USE THE EMIT §SILENT-SKIP ADDED. The three exits are now distinguishable:
+        //      · 0-debt branch      → returns 0 and emits NOTHING (early return, before the try)
+        //      · takeToSettle fails → returns 0 and emits DeliverDeleverSkipped(.., true)
+        //      · pooled leg fails   → returns 0 and emits DeliverDeleverSkipped(.., false)
+        //    So "no event" IS the proof that the 0-debt branch is what fired.
+        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        assertGt(px, 0, "premise: the ETH/USD anchor resolves (else every divisor below is 0)");
+
+        vm.recordLogs();
+        uint delivered = SwapLib.deleverEthOnDelivery(address(rlm), address(AUX), px, 1 ether, LP);
+        uint skipsAtZeroDebt = _countSkips(vm.getRecordedLogs());
+        assertEq(delivered, 0,
+            "M.1: a swap-out shortfall against a 0-debt pool delivers NOTHING - the equity is phantom");
+        assertEq(skipsAtZeroDebt, 0,
+            "M.1: and it returned at the 0-DEBT branch - no skip was emitted, so nothing was swallowed");
+
+        // ── THE CONTROL: with debt in the pool the SAME call must get PAST that branch ────────────
+        // It still cannot complete from a test context (onlyUs), but it now reaches the try and
+        // ANNOUNCES the skip. A skip event is therefore positive evidence that the early return
+        // above was about DEBT and not about the call being inert.
+        _rallyRange(_entryPrice(rlm, LP), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        rlm.rebalance(LP, 0, DEX_WETH_USDC, 0, "");
+        assertGt(rvenue.totalDebt(), 0, "control premise: the rebalance actually levered the pool");
+
+        vm.recordLogs();
+        SwapLib.deleverEthOnDelivery(address(rlm), address(AUX), AUX.getTWAPforAsset(address(WETH), 1800), 1 ether, LP);
+        assertGt(_countSkips(vm.getRecordedLogs()), 0,
+            "control: with debt the call REACHES the try and announces a skip, so the branch keys on debt");
+    }
+
+    /// @dev §M.1 discriminator — count `DeliverDeleverSkipped` in a recorded log set.
+    function _countSkips(Vm.Log[] memory logs) internal pure returns (uint n) {
+        bytes32 sig = keccak256("DeliverDeleverSkipped(address,uint256,bool)");
+        for (uint i; i < logs.length; i++) if (logs[i].topics.length > 0 && logs[i].topics[0] == sig) n++;
+    }
+
+    /// @notice §M.1 second half — the function that closes the hole actually closes it.
+    ///         If this passes, `swapOutDeliverUnlevered` is load-bearing and must NOT be deleted.
+    function testReal_M1_UnleveredDeliveryClosesTheHole() public {
+        _setupMorpho();
+        _openLpFlat();
+        assertEq(rvenue.totalDebt(), 0, "premise: 0-debt pool");
+        uint coll0 = rvenue.collateralOf(LP);
+        assertGt(coll0, 0, "premise: with collateral to deliver");
+
+        uint bal0 = IERC20R(address(WETH)).balanceOf(LP);
+        // Gated to the range (`_onlyRange`), which `init` pinned to the ETH range manager.
+        vm.prank(address(ETH));
+        uint got = rlm.swapOutDeliverUnlevered(LP, 1 ether, LP, 0);
+
+        assertGt(got, 0, "M.1: the unlevered path DOES deliver what the pooled path refused");
+        assertEq(IERC20R(address(WETH)).balanceOf(LP) - bal0, got, "and the WETH actually arrives");
+        assertLt(rvenue.collateralOf(LP), coll0, "and it comes out of the LP's own venue collateral");
     }
 
     /// @notice #55/#1 fork proof: the levered slice is STRUCTURALLY excluded from the VENUE-yield
