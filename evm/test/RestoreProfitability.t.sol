@@ -6,10 +6,6 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {SwapLib} from "../src/imports/SwapLib.sol";
 import {ICore} from "../src/imports/Interfaces.sol";
 
-interface IAgg { function latestRoundData() external view returns (uint80,int256,uint256,uint256,uint80); }
-
-// The REAL mainnet Chainlink ETH/USD aggregator proxy — not the fixture's synthetic `ETH_FEED`.
-address constant CL_ETH_USD_REAL = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
 
 /// §E69 — IS RESTORING THE RANGE'S BALANCE NATURALLY PROFITABLE?
 ///
@@ -150,93 +146,6 @@ contract RestoreProfitability is AllesFixture {
         }
     }
 
-    /// @dev ⭐ WARM THE ANCHOR-VARIANCE REGISTERS FROM **REAL MAINNET CHAINLINK HISTORY**, replayed
-    ///      at ONE pinned block. Real prices, real round spacing, real inter-round gaps.
-    /// 🔴 WHY NOT `vm.rollFork`, WHICH IS THE OBVIOUS WAY AND THE ONE I TRIED FIRST: forge deploys
-    ///    the LINKED LIBRARIES (`SwapLib`, `LevMath`, …) as real contracts, and `rollFork` wipes any
-    ///    address not marked persistent. Every swap then dies with
-    ///    `CheatcodeError: Contract 0x… does not exist and is not marked as persistent`, the
-    ///    try/catch swallows it, and σ² stays 0 for a reason that has NOTHING to do with variance.
-    ///    Persisting the fixture is not enough — the libraries have no handles in the test.
-    /// 🔴 WHY `vm.warp` ALONE CANNOT DO IT EITHER: warping moves the EVM clock, not forked external
-    ///    state. `YieldFactorDimensions.t.sol:68` measured a vault accruing ~3e-6 over a 30-day warp
-    ///    against a real ~3e-3 — a THOUSANDFOLD short.
-    /// ⇒ THE READABLE PATH: the Chainlink PROXY's roundIds are phase-encoded (`phase<<64 | round`,
-    ///   ~1.29e20 — which OVERFLOWS a 64-bit shell, how I first "proved" they were unreadable), but
-    ///   the PHASE AGGREGATOR behind it takes small round numbers and answers `getRoundData` for
-    ///   history at ANY block. So read the real series once, then replay it.
-    /// ⚠️ Each replayed round warps to its OWN real timestamp, so `Σdt` carries the REAL gaps —
-    ///    §E343's finding is that the series must be read PER ROUND, because on a fixed grid the
-    ///    gaps flatten and σ² collapses.
-    function _warmVarianceFromRealRounds(uint256 nRounds) internal returns (uint256 sigma) {
-        // ⛔ PIN THE **REAL** CHAINLINK AGGREGATOR, NOT THE FIXTURE'S SYNTHETIC `ETH_FEED`
-        //    (`address(0xE7F0FEED)`, mocked to a CONSTANT). The base `AllesFixture` pins NO asset
-        //    feed for WETH at all — `assetPriceFeed(WETH)` is `address(0)` — which is why my first
-        //    attempt staticcalled 0x0 and died with "Contract 0x000…000 does not exist". A synthetic
-        //    feed cannot produce variance by construction: its price never moves and its roundId is
-        //    hard-coded to 1, so `_varPx` never advances and σ² is 0 FOREVER.
-        address feed = CL_ETH_USD_REAL;
-        _auxSetAssetFeed(address(WETH), feed);
-        // ⛔ READ HISTORY THROUGH THE **PROXY**, NOT THE PHASE AGGREGATOR BEHIND IT. Chainlink's
-        //    `AccessControlledOffchainAggregator` REFUSES CONTRACT CALLERS — a `cast call` works
-        //    because `eth_call` presents as an EOA, a test contract does not. Reading the aggregator
-        //    directly therefore succeeds from the shell and returns "UNREADABLE" for all 12 rounds
-        //    in-test, which looks like missing data and is an access check.
-        // ⇒ And keep the roundId PHASE-ENCODED (`phase<<64 | round`, ~1.29e20). Do not "simplify" by
-        //   stripping the phase: the proxy needs it, `uint80` holds it comfortably, and it is only a
-        //   64-bit SHELL that overflows on it — which is how I first convinced myself the history
-        //   was unreadable at all.
-        (, , , , uint80 latestPhaseRound) = IAgg(feed).latestRoundData();
-        uint256 prevTs;
-        for (uint256 i = nRounds; i > 0; --i) {
-            uint80 rid = latestPhaseRound - uint80(i);
-            (bool ok, bytes memory ret) = feed.staticcall(
-                abi.encodeWithSignature("getRoundData(uint80)", rid));
-            if (!ok) { emit log_named_uint("  round UNREADABLE", rid); continue; }
-            (, int256 px, , uint256 ts, ) = abi.decode(ret, (uint80, int256, uint256, uint256, uint80));
-            if (px <= 0 || ts == 0) continue;
-            // Present this REAL round as the anchor's current answer, at its REAL timestamp.
-            vm.mockCall(feed, abi.encodeWithSignature("decimals()"), abi.encode(uint8(8)));
-            // Present the REAL price as of NOW (the warped clock), so `twapResolve`'s 1-day
-            // staleness bound sees a fresh answer. The historical `ts` is used only to derive the
-            // real GAP above — feeding it as the round's timestamp would make every round stale.
-            vm.mockCall(feed, abi.encodeWithSignature("latestRoundData()"),
-                abi.encode(uint80(rid), px, uint256(0), block.timestamp, uint80(rid)));
-            // ⛔ WARP FORWARD BY THE REAL GAP — NEVER BACKWARDS TO THE ROUND'S OWN TIMESTAMP.
-            //    Setting `block.timestamp` to the historical `ts` (~10h BEHIND the pinned block)
-            //    made every swap revert `0x4e487b71` (Panic): the swap path differences
-            //    `block.timestamp` against state stamped at the fork's LATER time, so the
-            //    subtraction underflows. The try/catch swallowed it and σ² read 0 — a harness bug
-            //    presenting as "the estimator does not work".
-            //    ⇒ Keep the real PRICES and the real inter-round GAPS, but run the clock FORWARD
-            //      from the fork instant. `_sampleAnchorVariance` only needs `dt` and a MOVING
-            //      anchor; it never compares the feed's timestamp to the round's own.
-            if (i < nRounds) { uint gap = prevTs == 0 ? 0 : (ts > prevTs ? ts - prevTs : 0);
-                               if (gap > 0) vm.warp(block.timestamp + gap); }
-            prevTs = ts;
-            // ⛔ THE **USD-IN** DIRECTION, NOT THE SELL. `_sampleAnchorVariance()` lives inside
-            //    `Core.swap` (Core.sol:989/1041), whose ONLY caller is `BasketLib.sol:526` — and a
-            //    volatile-in sell does not reach it. MEASURED with `-vvvv`: the sell shape produced
-            //    `Aux::swap` x2, `latestRoundData` x2, and **`Core::swap` ZERO TIMES**, so the
-            //    sampler never ran and σ² stayed 0 while every swap reported success. The drain
-            //    direction (`inputIsUsd = true`, the shape `_drainEth` uses) does reach it.
-            uint256 tinyUsd = 25_000 * 1e18;
-            deal(bold, drainer, tinyUsd);
-            vm.startPrank(drainer);
-            IERC20(bold).approve(address(AUX), tinyUsd);
-            bool swapped;
-            try AUX.swap(bold, address(WETH), true, tinyUsd, 0, true) { swapped = true; }
-            catch (bytes memory e) { emit log_named_bytes("    swap REVERTED", e); }
-            vm.stopPrank();
-            sigma = ICore(address(CORE)).realizedVarianceWad();
-            emit log_named_uint("  round                ", rid);
-            emit log_named_uint("    real px (8dec)     ", uint256(px));
-            emit log_named_uint("    real ts            ", ts);
-            emit log_named_uint("    swap ok (1=yes)    ", swapped ? 1 : 0);
-            emit log_named_uint("    sigma^2            ", sigma);
-        }
-    }
-
     /// @notice ⭐ THE SAME OVERSHOOT SWEEP, BUT WITH **REAL** σ² — the measurement that decides
     ///         whether the 300 bps step is a pricing design or an artefact of an unmeasured input.
     /// 🔴 THE DISCRIMINATOR: with σ² > 0 the `sigmaSqWad == 0` branch is NOT taken, so `sellSkew`
@@ -252,7 +161,7 @@ contract RestoreProfitability is AllesFixture {
         vm.prank(lpA);
         ETH.deposit{value: 400 ether}(0, lpA);
         _settle();
-        uint256 sigma = _warmVarianceFromRealRounds(12);   // 12 REAL consecutive Chainlink rounds
+        uint256 sigma = warmVarianceFromRealRounds(12);   // 12 REAL consecutive Chainlink rounds
         emit log_named_uint("sigma^2 after warm-up (0 == still UNMEASURED)", sigma);
         // NOTE: deliberately NOT skipping here while diagnosing — `vm.skip` SUPPRESSES
         //       every emitted log, which is how the first run told me nothing at all.

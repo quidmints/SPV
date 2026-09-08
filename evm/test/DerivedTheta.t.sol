@@ -47,6 +47,12 @@ contract DerivedThetaProbe is AllesFixture {
         return y * 100 / 1e9;   // sqrt(WAD)=1e9*sqrt(frac) -> *100 /1e9 = pct
     }
 
+    /// @notice ⭐ §SKEW-COVERAGE-HOLE — WARM σ² FROM REAL MAINNET ROUNDS FIRST, OR THIS PROBE ONLY
+    ///         EVER MEASURES θ's FAIL-OPEN PATH. `_thetaAt` returns `1e18` when `work == 0`, and
+    ///         `work` is `K·σ²` — so at σ² == 0 (which is what a suite pinned to ONE block produces:
+    ///         `_sampleAnchorVariance` advances `_varPx` only on a MOVE with `dt > 0`) every θ this
+    ///         reported was the 1e18 ceiling, not a derived number. The docblock's promise that θ is
+    ///         "measured live (no hardcoded constant)" was true of K and vacuous for σ².
     function testDerivedTheta_RealNumbers() public {
         address lp = makeAddr("theta-lp");
         _stageIL(lp, 50 ether);
@@ -54,6 +60,10 @@ contract DerivedThetaProbe is AllesFixture {
 
         // warm the oracle ring past the 40-min window with SMALL moves (calm)
         _moveEth(true, 2 ether, 12, volActor);
+        // ⭐ AFTER the fixture has pinned its own feed: warm σ² from REAL rounds, else `work = K·σ²`
+        //    is 0 and `_thetaAt` returns the 1e18 FAIL-OPEN ceiling for every regime below.
+        emit log_named_uint("sigma^2 after real-round warm-up (0 == FAIL-OPEN)",
+                            warmVarianceFromRealRounds(12));
         (uint kCalm, uint sigCalm, uint th5Calm) = _read("calm (small moves)");
 
         // sustained one-way trend -> higher realized vol -> smaller theta

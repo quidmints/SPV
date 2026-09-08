@@ -97581,7 +97581,20 @@ wad ≈ **0.00016 bps** — proportional and negligible, not 3%. This is §E68b'
 ⛔ **DO NOT RE-DERIVE THE CLIFF FROM A FLAT 300 bps READING.** A flat 300 means σ² is UNMEASURED in
 whatever fixture produced it — see §SKEW-COVERAGE-HOLE below, which is the larger finding.
 
-## 🔴 §SKEW-COVERAGE-HOLE — **EVERY SKEW TEST IN THE SUITE EXERCISES THE UNMEASURED-VARIANCE CEILING, NOT THE A-S CURVE** (2026-09-07)
+## 🔴 §SKEW-COVERAGE-HOLE — **THE TESTS THAT READ σ² FROM `Core` EXERCISE THE CEILING, NOT THE CURVE** (2026-09-07)
+
+⚠️ **CORRECTED 2026-09-08 — THIS ROW FIRST SAID "EVERY SKEW TEST" AND THAT IS FALSE.** The suite
+splits in two and only one half is affected:
+· **UNIT-STYLE tests are FINE.** `GammaRederived`, `SkewLearningsAreLive`, `AnchorSkewSensitivity`
+  and the `pure` half of `SkewUnmeasuredVariance` call `SwapLib.skewWad(inv, target, **sigmaSq**, …)`
+  and SUPPLY σ² EXPLICITLY (`SIGMA = 1e18`, `1e12`, `4e18`). They exercise the curve directly and are
+  untouched by this. Wiring a warm-up into them would be noise.
+· **Only the tests that READ `realizedVarianceWad()` OFF A LIVE `Core`** hit the ceiling.
+⛔ **AND §E306 ALREADY NAMED THIS**, in `SkewLivePathReachesKernel.t.sol`'s own header: *"every skew
+test enters at `SwapLib.skewWad`, which takes σ² as a PARAMETER, so each test supplies its own and
+none observes what production supplies … the parameterisation that makes the function testable is
+exactly what hides the unreachability."* This row is the σ²-SOURCE half of that finding, not a new
+one — **read §E306 first**, and do not book them as two problems.
 
 `sellSkew`/`skewWad` branch on `sigmaSqWad == 0`: zero returns the flat `UNKNOWN_VARIANCE_SKEW`
 sentinel (3e16) and **never evaluates `qBar`**. So a fixture that cannot produce variance tests the
