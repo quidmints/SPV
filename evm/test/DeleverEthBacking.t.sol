@@ -85,7 +85,23 @@ contract DeleverEthBackingProbe is LevCascadeProbe {
 
         // ETH de-lever: the state change that moves basketUsd/debt off the reporting path.
         vm.prank(lps[0]);
-        ETH.withdraw(type(uint).max, lps[0], lps[0]);
+        // ⚠️ §SESS-109 — **SAME MARKET-DEPENDENT REVERT AS G7, MADE SELF-DESCRIBING FOR THE SAME
+        //    REASON.** The auto-de-lever's sell leg must clear the oracle floor to reach the
+        //    assertions below, and at some market states it cannot: MEASURED, both PLP6 tests fail
+        //    `Slippage()` at block 25932254 and pass at head, and G7 was proven market-dependent by
+        //    running it at a failing block on PRE-§SESS-91 code (gas 36,073,968 vs 36,072,330 —
+        //    different code, same fall). A bare `Slippage()` here is what made me misdiagnose that
+        //    one as my own deploy change; §SESS-99 cost a day to the identical anonymity.
+        // ⛔ It still FAILS on purpose — a de-lever that cannot clear the floor is a real condition,
+        //    not one to skip past. What changes is that the failure says which of the two it is.
+        try ETH.withdraw(type(uint).max, lps[0], lps[0]) {}
+        catch (bytes memory err) {
+            if (bytes4(err) == bytes4(keccak256("Slippage()")))
+                revert("PLP6: the auto-de-lever could not clear the oracle floor AT THIS BLOCK - "
+                       "market state, not a routing or accounting defect. Re-run, or pin FORK_BLOCK "
+                       "to a block where the sell leg clears SELL_SLIP_BPS. See L-routing SESS-104.");
+            assembly { revert(add(err, 0x20), mload(err)) }
+        }
         assertEq(venue.debtOf(lps[0]), 0, "PREMISE: the de-lever must have run");
 
         uint ethStale = AUX.committedOf(address(CORE));
@@ -172,7 +188,23 @@ contract DeleverEthBackingProbe is LevCascadeProbe {
         uint wethBefore = WETH.balanceOf(lps[0]);
         uint ethBefore  = lps[0].balance;
         vm.prank(lps[0]);
-        ETH.withdraw(type(uint).max, lps[0], lps[0]);
+        // ⚠️ §SESS-109 — **SAME MARKET-DEPENDENT REVERT AS G7, MADE SELF-DESCRIBING FOR THE SAME
+        //    REASON.** The auto-de-lever's sell leg must clear the oracle floor to reach the
+        //    assertions below, and at some market states it cannot: MEASURED, both PLP6 tests fail
+        //    `Slippage()` at block 25932254 and pass at head, and G7 was proven market-dependent by
+        //    running it at a failing block on PRE-§SESS-91 code (gas 36,073,968 vs 36,072,330 —
+        //    different code, same fall). A bare `Slippage()` here is what made me misdiagnose that
+        //    one as my own deploy change; §SESS-99 cost a day to the identical anonymity.
+        // ⛔ It still FAILS on purpose — a de-lever that cannot clear the floor is a real condition,
+        //    not one to skip past. What changes is that the failure says which of the two it is.
+        try ETH.withdraw(type(uint).max, lps[0], lps[0]) {}
+        catch (bytes memory err) {
+            if (bytes4(err) == bytes4(keccak256("Slippage()")))
+                revert("PLP6: the auto-de-lever could not clear the oracle floor AT THIS BLOCK - "
+                       "market state, not a routing or accounting defect. Re-run, or pin FORK_BLOCK "
+                       "to a block where the sell leg clears SELL_SLIP_BPS. See L-routing SESS-104.");
+            assembly { revert(add(err, 0x20), mload(err)) }
+        }
         uint wethDelta = WETH.balanceOf(lps[0]) - wethBefore;
         uint ethDelta  = lps[0].balance - ethBefore;
         emit log_named_uint("LP native ETH received ", ethDelta);

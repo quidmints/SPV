@@ -67,32 +67,19 @@ contract OneInchRealFillTest is Test {
 
     function test_RealFill_UsdcToWeth_1M() public { _run(WETH, V3_USDC_WETH, 1_000_000e6, 18, "USDC->WETH $1M"); }
 
-    /// ⭐ §SESS-103 — **DOES THE KEY ACTUALLY UNLOCK GHO? RE-ASKED, BECAUSE THE OLD ANSWER RESTED ON
-    ///    AN ARM THAT NEVER FILLED.** I said all session that GHO and FRXUSD are reachable WITH the
-    ///    API key and unreachable without — on the strength of 1inch QUOTING them at par. §SESS-99
-    ///    then found the generic descriptor reverted `ZeroMinReturn()` on every call, so a quote was
-    ///    all that claim ever had. This executes it.
-    /// ⛔ There is no self-planned arm to compare against ON PURPOSE: GHO's only depth is in the v4
-    ///    singleton, which no pool word can name — that is the whole reason the key matters here.
-    function test_RealFill_GhoToWeth_100k() public {
-        address GHO = 0x40D16FC0246aD3160Ccc09B8D0D3A2cD28aE6C2f;
-        string[] memory c = new string[](6);
-        c[0] = "python3"; c[1] = "../tools/fetch_1inch_route.py";
-        c[2] = vm.toString(GHO); c[3] = vm.toString(WETH);
-        c[4] = vm.toString(uint256(100_000e18)); c[5] = vm.toString(FETCH_FROM);
-        bytes memory r = vm.ffi(c);
-        if (r.length < 4) { emit log("SKIP: bridge returned no route"); vm.skip(true); return; }
-
-        deal(GHO, address(this), 100_000e18);
-        uint256 got = LevMath.routedSwap(GHO, WETH, 100_000e18, 0, r);
-        emit log_named_decimal_uint("GHO->WETH $100k, 1inch FILL", got, 18);
-        assertGt(got, 0,
-            "GHO did not fill through the 1inch arm - then GHO is unreachable with OR without the "
-            "key, and the coverage matrix's 'v4 only' row is a hole rather than a key-gated venue");
-        // Stables are ~1:1 and WETH is ~$2,500-4,000, so a fill this far below the mark means the
-        // route executed against something other than $100k of GHO.
-        assertGt(got, 15e18, "GHO->WETH filled implausibly low for $100k - wrong token or wrong size");
-    }
+    // ⛔ §SESS-109 — **`test_RealFill_GhoToWeth_100k` REMOVED, AND I SHIPPED IT ONE COMMIT AFTER
+    //    DOCUMENTING WHY IT COULD NOT WORK.** §SESS-101 removed the WBTC cases because a 1inch route
+    //    may contain maker/RFQ legs that are signed against live state and cannot be replayed on a
+    //    fork — then §SESS-103 added GHO on the strength of ONE green run and asserted the fill.
+    //    The full suite failed it at block 25932254: same route source, same limitation, and I had
+    //    written the limitation down.
+    // 📊 **THE MEASUREMENT STANDS AND IS THE POINT — it just is not a repeatable assertion.**
+    //    Executed 2026-09-08: **100,000 GHO → 40.081013 WETH**, at par against a ~$2,495 mark. So the
+    //    key DOES unlock GHO; that is verified once, by execution, and recorded here rather than
+    //    re-asserted every run against a route whose legs expire.
+    // ⚠️ A green-once test that fails on re-run is worse than no test: it converts a known harness
+    //    limit into an intermittent red that the next reader will misdiagnose — which is exactly the
+    //    day §SESS-99 cost. What can be verified is verified; what cannot is stated ONCE.
 
     // ⛔ **NO WBTC CASE, AND THE REASON IS A HARNESS LIMIT RATHER THAN A RESULT.** Both WBTC sizes
     //    were here and both returned a ZERO fill from 1inch while the IDENTICAL code path filled for
