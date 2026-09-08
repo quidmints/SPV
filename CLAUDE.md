@@ -948,6 +948,32 @@ a green targeted run says nothing about the suites it did not execute.
 
 
 
+- 🔴🔴 **AN INSTRUMENT THAT ANSWERS FOR A STATE OTHER THAN THE ONE YOU SPECIFIED — AND DOES NOT SAY
+  SO. THREE COSTUMES IN ONE DAY, 2026-09-08, THREE DIFFERENT SESSIONS, AND NOBODY CAUGHT THEIR OWN:**
+  · **FORK DRIFT** — a pin taken before a build is ~70 blocks stale by the time the suite forks, so
+    late suites answer for a different chain state than early ones. The run reports no error.
+  · **WORKTREE DRIFT** — `lane.sh <L> <ref>` was verified in a worktree that was ALREADY ON that ref,
+    so the test confirmed the state it inherited rather than the state the tool creates. A tool
+    validated against its own no-op.
+  · **SOURCE DRIFT** — 18 commits landed *while* a guard was being measured, and every block that had
+    reproduced the failure now passed. The measurement was real; it described a tree that no longer
+    existed by the time it was quoted.
+  ⇒ **ALL THREE ARE THE SAME BUG: THE RUN SILENTLY SUBSTITUTED A STATE.** None announces itself,
+  because from inside the harness nothing went wrong — which is why each was found by someone else.
+  ▶️ **THE MECHANICAL FIX, AND IT IS ONE LINE PER RUN: ECHO WHAT ACTUALLY EXECUTED, INSIDE THE RUN.**
+  Not what you asked for — what ran. `git rev-parse HEAD`, the resolved `FORK_BLOCK`, the ref the
+  worktree is actually on, printed by the same command that produces the number. **A parameter you
+  passed is an intention; only the echo is evidence.**
+  ⚠️ **AND IT COMPOSES WITH THE ENTRY BELOW:** "a name is not the thing" is this failure in the
+  SYMBOL domain; this is the same failure in the STATE domain. Both are answered by reading what the
+  system did rather than what you told it to do.
+- 🔴 **A GATE THAT HAS NEVER FIRED CERTIFIES, IT DOES NOT CHECK** (measured 2026-09-08, L4). A guard
+  landed with no known positive to test it against — the source drifted 18 commits during the
+  measurement and every block that had reproduced the failure now passed. ⇒ **it is booked as
+  UNVERIFIED for whoever picks up that lane, not presented as done.** This is the same rule the
+  detector section states (*"the acceptance test for a detector is the KNOWN POSITIVE, not a clean
+  run"*), and it is repeated here because the honest disclosure came from its own author — which is
+  the behaviour to copy, not merely the finding.
 - 🔴 **A NAME IS NOT THE THING — AND A DRAFT LABEL IS THE WORST NEEDLE OF ALL. THREE INSTANCES IN
   ONE SESSION, 2026-09-08, all by one author, all from searching for a NAME instead of reading the
   STRUCTURE:**
