@@ -288,6 +288,38 @@ library Types {
         uint64 cltvDeadline;    // absolute BTC height the exit may first confirm at; > tip while alive
         uint   checkpointSats;  // the LP balance these bytes attest (feeds the stale-close guard)
         bytes  signedExitTx;    // the FULLY-signed CLTV exit paying btcRecipientOf
+        // 🔴 **THERE IS NO `scheme` FIELD, AND ADDING ONE IS NOT A ONE-LINE CHANGE — MEASURED
+        //    2026-09-08, BEFORE ATTEMPTING IT.** GATE 3 item 3 (§BTC-4.6n) wants
+        //    `verifyDeadManExit` to verify an ENUMERATED signature scheme rather than a hardcoded
+        //    BIP-340 one, and because `BTCChannels` has no upgrade path, a field it must be able
+        //    to EXPRESS is a hard gate on deployment. The cheap proposal was: add `uint8 scheme`
+        //    here plus `if (exit.scheme != 0) revert InvalidParam();` in
+        //    `BTCChannels._armDeadManExit` (beside the zero-deadline check — `BitcoinTx.ExitCheck`
+        //    would NOT need widening), buying one-way compatibility without a second verifier.
+        // ⛔ **WHAT BLOCKS IT IS NOT THE EVM — IT IS THAT THIS STRUCT'S SHAPE IS A CROSS-LANGUAGE
+        //    WIRE FORMAT, AND THE OTHER SIDE IS NOT IN THIS REPOSITORY'S BUILD.** `ExitArming` is
+        //    ABI-encoded POSITIONALLY by a hand-written Rust encoder:
+        //    `quid-ln/quid-hop/src/evm_codec.rs::ExitArming::tokens()` emits exactly
+        //    `(uint64[],bytes[],uint64,uint256,bytes)` "in `Types.ExitArming` field order", and it
+        //    feeds FOUR calldata builders — `encode_open_channel`, `encode_splice`,
+        //    `encode_deliver_swap_out_onchain`, `encode_emit_dead_man_exit`. A sixth Solidity
+        //    field with no sixth token shifts every dynamic tail offset in the tuple: the
+        //    calldata still decodes to SOMETHING, so the failure is not a compile error on either
+        //    side — it is a garbled ladder at open time. Construction sites that would each need
+        //    the new field: `evm_codec.rs:1093` (fixture), `quid-bridge/src/deadman_exit.rs:202`,
+        //    `quid-bridge/src/vault.rs:1258`, `quid-bridge/src/swap_in_api.rs:257`, plus the
+        //    ELEVEN Solidity test constructions under `evm/test`.
+        // ⛔ **AND THE HTTP WIRE FORMAT IS A THIRD PARTY'S.** `swap_in_api.rs::ExitArmingReq` is a
+        //    `Deserialize` struct the LP'S OWN BOX posts (§CONSENT-WIRE-FORMAT — the serde derive
+        //    on `evm_codec::ExitArming` is explicitly "LOAD-BEARING, not convenience"), so the
+        //    field is not merely a repo-wide rename: it is a protocol version bump for software
+        //    this build cannot recompile.
+        // ⇒ **DO NOT ADD IT AS A DRIVE-BY.** It is still the right gate to close before deploy —
+        //   the SOLIDITY half costs ~30-40 bytes in `BTCChannels` (one `calldataload` + branch +
+        //   an existing `InvalidParam` selector) and 32 bytes of calldata per rung (an ABI-static
+        //   field is one head WORD, not one byte, so ≤16 rungs = ≤512 calldata bytes), which the
+        //   3,335-byte margin absorbs comfortably. The cost is the Rust/wire lockstep, and that
+        //   is an owner-scheduled coordinated change, not a contract edit.
     }
 
     /// @notice (E159) Everything needed to PROVE an on-chain swap-in deposit. Bundled because the

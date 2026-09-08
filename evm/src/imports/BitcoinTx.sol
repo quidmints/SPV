@@ -691,6 +691,20 @@ library BitcoinTx {
 
     /// @dev Own frame: the key-path witness is exactly ONE 64-byte Schnorr signature under
     ///      SIGHASH_DEFAULT. Anything else is not a key-path spend of this output.
+    ///
+    /// 🔴 **THIS IS THE SECOND, UNRECORDED LAYER OF THE BIP-340 HARDCODING — AND IT IS THE ONE A
+    ///    SCHEME ENUMERATION HITS FIRST** (GATE 3 item 3 / §BTC-4.6n). SPRINT books the hardcoding
+    ///    at the VERIFIER (`schnorrVerify`, called from `_verifyExitSignature` below) and books
+    ///    only that. But the signature never reaches the verifier as a scheme-agnostic blob: THIS
+    ///    frame decides its shape. `witnesses[0].length != 64` and the two `mload`s below are a
+    ///    FIXED 64-BYTE BIP-340 KEY-PATH WITNESS, byte for byte — an XMSS/Winternitz rung's
+    ///    witness is kilobytes and script-path, and would be rejected HERE, before any verifier
+    ///    could be selected. ⇒ **enumerating signature schemes means widening the WITNESS PARSER
+    ///    and the (r, s) return shape, not just branching at the `schnorrVerify` call.** Anyone
+    ///    who reads only the SPRINT row will size the work at one branch and be wrong.
+    ///    ⚠️ The 64-byte check is NOT vestigial and must not simply be relaxed: it is what makes
+    ///    "this is a key-path spend under SIGHASH_DEFAULT" a fact rather than an assumption, and
+    ///    a 65-byte witness carries an explicit sighash byte that changes the digest being signed.
     function _keyPathSig(TxParser.Transaction memory t, uint idx)
         private pure returns (bytes32 r, bytes32 sig)
     {
@@ -735,6 +749,17 @@ library BitcoinTx {
         uint idx = _fundingInput(t, c.fundingTxId, c.fundingVout);
         // Pin the FUNDING prevout to what the chain knows; only the others are caller-supplied.
         prevValues[idx]  = uint64(c.fundingSats);
+        // 🔴 A SIXTH `hex"5120"` DERIVE-A-SCRIPT-FROM-A-KEY SITE, ABSENT FROM THE FIVE-SITE TABLE
+        //    §BTC-4.6g-bis MAINTAINS. That table lists the funding SPK, `_lpPayoutScript`,
+        //    `lpToRemoteOutputKey`, `verifySwapInDeposit` and `_requireRecipientPoP` — and not
+        //    this one. It is a real instance of the same rule ("never derive a script from a key
+        //    by a hardcoded formula"): if the funding output's form ever changes, the BIP-341
+        //    `Prevouts::All` sighash computed here reconstructs the WRONG prevout script and every
+        //    ladder rung fails verification, even though the signature is good.
+        //    ⚠️ It is also the one site the table's own remedy does NOT reach: the other five can
+        //    pin OPAQUE SCRIPT BYTES, but this is a SIGHASH PREIMAGE the contract must rebuild
+        //    exactly as Bitcoin does — so it has to follow whatever form the funding output takes,
+        //    which makes it downstream of GATE 3 item 1, not independent of it.
         prevScripts[idx] = abi.encodePacked(hex"5120", c.q);
         (bytes32 r, bytes32 sig) = _keyPathSig(t, idx);
         bytes32 m = _sighash(signedExitTx, prevValues, prevScripts, uint32(idx));

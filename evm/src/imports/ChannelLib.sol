@@ -651,12 +651,90 @@ library ChannelLib {
     ///         hopPubkey are only length-validated HERE, and the funding output is located
     ///         purely by `Q` (key-path taproot reveals no script on-chain) — **but that is no
     ///         longer the whole story, and this note claimed it was.** The (keys ↔ Q) binding
-    ///         is PROVEN on-chain by `BitcoinTx.isTwoOfTwoOutputKey` at BOTH call sites
-    ///         (`BTCChannels.openChannel` E142, `_verifySplice` E129). The retired text named
+    ///         is PROVEN on-chain by `BitcoinTx.isTwoOfTwoOutputKey` on BOTH FUNDING PATHS —
+    ///         open (`BTCChannels._proveFundingKeys`, §E142) and splice
+    ///         (`BTCChannels._verifySplice`, §E129). ⚠️ **"BOTH CALL SITES" IS WHAT THIS SAID, AND
+    ///         IT READS AS "both callers of THIS function", which is wrong and misleads:**
+    ///         `locateChannelOutput` has exactly ONE live caller, `_verifySplice`. `openChannel`
+    ///         never calls it — it goes through `openChannelBody`/`_verifyAndLocate` and reaches
+    ///         the gate via `_proveFundingKeys`. The BINDING claim is true; the LOCATOR was not.
+    ///         The retired text named
     ///         "the LP's lpAuth + off-chain MuSig2 keygen" as the binding; `lpAuth` no longer
     ///         exists as a parameter anywhere (E149).
     ///         ⚠️ DO NOT add a caller that skips the gate on the strength of THIS function's
     ///         laxity — the check lives at the call sites, deliberately.
+    ///
+    /// ══════════════════════════════════════════════════════════════════════════════════════
+    /// 📌 **GATE 3 ITEM 1 LIVES HERE — AND SO DOES THE ANSWER TO ITS FALLBACK QUESTION.**
+    /// Item 1 (§BTC-9 PHASE 0) is *"two enumerated SPK forms, P2MR behind a one-way k-of-n flag"*,
+    /// and this line — `buildTaprootScriptPubKey(fundingTaproot)`, i.e. `0x5120||Q` — is the SPK
+    /// form it would enumerate (row 1 of §BTC-4.6g-bis's five-site table).
+    ///
+    /// **THE RETIREMENT CASE IS THE OWNER'S TO TAKE, NOT THIS FILE'S.** What is recorded here is
+    /// only the ONE fact the decision turns on, because it was about to be assumed rather than
+    /// checked: the argument for retiring item 1 rests on the migration option being *"a second
+    /// `BTCChannels` deployment plus one splice per channel"* rather than a flag on this contract.
+    ///
+    /// ⛔ **THAT OPTION DOES NOT EXIST IN THAT FORM. MEASURED 2026-09-08 by reading the open,
+    ///    splice and retire paths end to end.** The BITCOIN half is fine — a splice tx that spends
+    ///    the old funding UTXO and pays a new 2-of-2 IS a valid funding tx for a second
+    ///    deployment's `openChannel`, which SPV-proves inclusion and byte-matches the output and
+    ///    never inspects the tx's INPUTS. Every blocker is on the EVM side:
+    ///
+    /// **1. ⛔ THE VAULT BINDING IS ONE-SHOT, AND IT FAILS SILENTLY.** `Vault.setBTCChannels`
+    ///    (`evm/src/Vault.sol:249-251`) reverts `BtcChannelsPinned` once set, and
+    ///    `requestDeposit`/`requestRedeem`/`resize` are all `onlyBTCChannels` (`Vault.sol:164`).
+    ///    A SECOND `BTCChannels` can therefore never credit or retire an LP position on the SAME
+    ///    Vault. ⚠️ **And it does not announce this by reverting the open:**
+    ///    `BTCChannels.openChannel:1045` wraps the credit in `try btc.requestDeposit(…) catch`, so
+    ///    the `NotBTCChannels` revert is SWALLOWED into `pendingClaimSats` — the channel opens,
+    ///    custody is recorded, the ladder arms, and `registerChannelClaim` (`:1080`) then reverts
+    ///    forever. `_finalizeClose` (`:689`) sees `claimed == false` and never calls
+    ///    `requestRedeem` either. ⇒ **a migrated channel would sit on the new deployment with real
+    ///    custody and permanently zero backing credit.** Migration therefore means redeploying the
+    ///    **Vault** too — the whole accounting stack — not just this contract.
+    ///
+    /// **2. ⛔ THE OLD DEPLOYMENT CANNOT RETIRE THE CHANNEL WITHOUT WIPING THE LP.** `recordClose`
+    ///    is the only retire path a splice-shaped tx can reach, and it closes on itself:
+    ///    · `_requireNotSplice` (`BTCChannels.sol:1743`) reverts `SpliceIsNotAClose` if the tx pays
+    ///      a continuing 2-of-2 of the channel's CURRENT pinned pair ⇒ the migration splice MUST
+    ///      rotate the key pair, or the position is **unretirable forever** (the §E153 hazard:
+    ///      backing over-counted indefinitely).
+    ///    · With rotated keys it passes, but a nonzero `nLockTime` routes to the force branch and
+    ///      `isCommitmentTx` rejects a splice (`:1839` `NotForceClose`) ⇒ it must carry
+    ///      `locktime == 0` and take the COOPERATIVE branch.
+    ///    · The cooperative branch reads `_lpFinalBalance` (`:737`) = outputs paying
+    ///      `0x5120||btcRecipientOf`. A migration splice pays the NEW 2-of-2, not the LP's shutdown
+    ///      key ⇒ **`lpPayoutSats = 0`**, so `StaleClose` (`:1860`) fires for every submitter but
+    ///      the LP itself (`checkpointOf` is non-zero by construction — arming is mandatory at
+    ///      open), and if the LP waives it by submitting, `_finalizeClose(channelId, 0)` books
+    ///      `delivered = funded` and settles the LP's **entire** channel balance as swap-out
+    ///      proceeds. **That is a wipe, not a migration.**
+    ///    ⇒ The only clean retire is a REAL cooperative close paying `btcRecipientOf`, followed by
+    ///    a SEPARATELY-funded open on the new deployment. **Two Bitcoin transactions, and it is
+    ///    close-and-reopen — precisely what §BTC-4.6k item 4 claims migration is not.**
+    ///
+    /// **3. ⛔ THE LP MUST COME ONLINE — ONE BIP-340 SIGNATURE PER CHANNEL, NOT ZERO.**
+    ///    `btcRecipientPoPDigest` (`BTCChannels.sol:2502`) is
+    ///    `sha256(abi.encode(block.chainid, address(this), lpEth, bindHash))`. It commits to
+    ///    `address(this)`, so **the PoP an LP signed for THIS deployment cannot be replayed on a
+    ///    second one** — by design, and correctly. An LP that has gone dark cannot be migrated at
+    ///    all; its only exit remains the ladder. §BTC-4.6k already says *"one signature per LP"* —
+    ///    this is the code that makes that mandatory rather than aspirational.
+    ///
+    /// **4. ⚠️ Non-blocking but real:** `spv` may point at the same permissionless `SPVGateway`,
+    ///    and `_useOutpoint` / `hasOpenBtcChannel` / `migrationNonceUsed` are per-deployment and
+    ///    start empty — but so does `freshnessSeq`, so the §HOP-RCE-2 anti-rollback ratchet
+    ///    RESTARTS AT ZERO on the new deployment. Migration weakens that guard for every channel
+    ///    it touches.
+    ///
+    /// ⇒ **VERDICT: migration-by-splice is NOT achievable. The honest fallback is a full-stack
+    ///   redeploy (Vault + `BTCChannels`) plus a cooperative close and a fresh open per channel,
+    ///   each requiring one live LP signature.** That is strictly more expensive than the
+    ///   retirement case assumed — which is an argument to decide item 1 DELIBERATELY, in either
+    ///   direction, rather than an argument for one of them. Do not let the next reader
+    ///   rediscover this as a crisis.
+    /// ══════════════════════════════════════════════════════════════════════════════════════
     function locateChannelOutput(
         bytes calldata rawTx,
         bytes calldata lpPubkey,
