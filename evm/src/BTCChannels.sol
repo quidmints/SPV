@@ -486,6 +486,28 @@ contract BTCChannels is Ownable {
     error FreshnessJumpTooLarge();    // §HOP-RCE-2: monotonic stops a rollback; this stops a brick
     error ManagerFreshnessNotMonotonic(); // a channel-manager freshness commit must strictly increase
     error MigrationNonceAlreadyUsed();    // a MigrationAuth nonce may be consumed at most once (anti-replay)
+    /// §BTC-2.5a-ter / GATE 3 item 6 — THE CEILING THE FLOOR NEVER HAD. `_armLadder` looped an
+    /// UNBOUNDED caller-supplied array at three external entrypoints (`openChannel`, `splice`,
+    /// `deliverSwapOutOnchain`), and §E233-ladder re-arms the WHOLE ladder on every rotation, so
+    /// depth is paid again at each splice rather than once at open.
+    /// 🔴 THE FAILURE IS THE EXPENSIVE ONE AND IS REACHABLE BY ACCIDENT, NOT ONLY BY ATTACK: a splice
+    /// whose ladder runs out of gas REVERTS AFTER BITCOIN HAS ALREADY CONFIRMED THE SPLICE
+    /// (§BTC-2.5a-bis) — the chain moves and the contract does not. A hop pays its own gas, so there
+    /// is no profit in it; it is a LIVENESS hazard, which is why a bound belongs in the contract
+    /// rather than in a hop's policy.
+    error LadderTooDeep();
+    /// ⭐ MEASURED, NOT PICKED (`DeadManExitVerify.test_ladderRungGasIsMeasured_forTheMissingCeiling`):
+    /// **`verifyDeadManExit` costs 452,660 gas per rung**, plus one cold `exitArmedOnOutpoint` SSTORE
+    /// (~20,000) ⇒ **~472,660 per rung**. So 63 rungs consume an ENTIRE 30M block and 21 fill a 10M
+    /// budget — before the SPV proof and `_applySplice` that a splice must also pay for.
+    /// ⇒ **16 rungs ≈ 7.56M gas**, about a quarter of a 30M block, leaving the rest of the splice
+    /// room to confirm. That quarter is the judgement; everything under it is arithmetic.
+    /// ⚠️ NOT a governance knob under GATE 3 item 4, deliberately: item 4 makes ECONOMICALLY-tunable
+    /// constants settable, and this is a GAS bound — it prices no one and advantages no one. Making
+    /// it settable would add an authority that could raise it back into the divergence.
+    /// 📌 Sixteen windows is far past any product need — the generator arms TWO (`+144`/`+288`) — so
+    /// the ceiling binds only on accidents and abuse, never on an honest ladder.
+    uint internal constant MAX_LADDER_RUNGS = 16;
     error LadderTooShallow();             // (§SPRINT-B4) a ladder needs ≥2 rungs at ≥2 distinct
                                           // CLTV deadlines — one rung is one window, and vault-less
                                           // (B0) the ladder is the LP's only escape
@@ -1455,6 +1477,9 @@ contract BTCChannels is Ownable {
         // enforces only "more than one window"; HOW deep and how spaced stays the signer's
         // policy. Extra same-deadline rungs (fee variants) remain legal beyond the first two.
         if (exits.length < 2) revert LadderTooShallow();
+        // §BTC-2.5a-ter — and the ceiling, checked BEFORE the loop so an oversized ladder costs one
+        // comparison rather than N verifies before it fails.
+        if (exits.length > MAX_LADDER_RUNGS) revert LadderTooDeep();
         // ⚠️ THE LADDER IS ONE ATTESTATION SET, so its rungs must not overwrite each other's
         // checkpoint — arming N of them used to write `checkpointOf` N times and keep whichever
         // came LAST, i.e. an arbitrary rung. Take the HIGHEST: the stale-close guard rejects a

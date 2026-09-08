@@ -90239,7 +90239,7 @@ converts a silent wrong state into a **permanently stranded splice** on any genu
 alone. ▶️ **Either give `splice` the same deferral shape** (a `pendingClaimSats`-style retry, which
 `registerChannelClaim` already services) **or state why a splice must revert where an open defers.**
 
-### §BTC-2.5a-ter 🔴 LADDER DEPTH HAS A FLOOR AND NO CEILING — gas, not policy, is the bound
+### §BTC-2.5a-ter ✅ **CLOSED 2026-09-08 — THE CEILING LANDED, MEASURED.** `MAX_LADDER_RUNGS = 16` from 452,660 gas/rung + ~20k SSTORE ≈ 472,660 (63 rungs = a whole 30M block). Checked BEFORE the verify loop. See GATE 3 item 6. *(original:)* LADDER DEPTH HAS A FLOOR AND NO CEILING — gas, not policy, is the bound
 
 `:1532` enforces `exits.length < 2 → LadderTooShallow`, and `:1541` then loops the **unbounded**
 caller-supplied array, each rung costing a `verifyDeadManExit` (tx parse + hashing + output scan)
@@ -93002,7 +93002,20 @@ lazily. It costs a wider `h` and a larger `C·K·σ²·h/2` term, and **no new m
 3. `verifyDeadManExit` verifies an **enumerated signature scheme** (§BTC-4.6n);
 4. every economically-tunable constant **governance-settable, not `constant`**;
 5. the `immutable` external addresses — decide which must be settable;
-6. a `LadderTooDeep` ceiling, **measured** (§BTC-2.5a-ter).
+6. ✅ **DONE 2026-09-08 — `LadderTooDeep` LANDED, AND THE CEILING IS DERIVED FROM A MEASUREMENT.**
+   ⭐ **MEASURED** (`DeadManExitVerify.test_ladderRungGasIsMeasured_forTheMissingCeiling`):
+   `verifyDeadManExit` = **452,660 gas per rung**, + one cold `exitArmedOnOutpoint` SSTORE (~20,000)
+   ⇒ **~472,660 per rung.** So **63 rungs consume an entire 30M block** and 21 fill a 10M budget —
+   before the SPV proof and `_applySplice` a splice must also pay for, and §E233-ladder re-arms the
+   WHOLE ladder on EVERY splice. ⇒ **`MAX_LADDER_RUNGS = 16` ≈ 7.56M**, about a quarter of a block.
+   **The quarter is the judgement; everything under it is arithmetic.**
+   ✅ **CHECKED BEFORE THE LOOP**, so an oversized ladder costs ONE comparison instead of N verifies.
+   **Known positive proves it:** with the guard removed the same call reaches `BufferOverflow()` from
+   INSIDE `verifyDeadManExit`'s parser — i.e. it was already burning per-rung work before refusing.
+   ⚠️ **DELIBERATELY NOT A GOVERNANCE KNOB** (item 4 covers ECONOMICALLY-tunable constants; this is a
+   GAS bound that prices no one) — a setter here would be an authority able to raise it back into the
+   §BTC-2.5a-bis divergence, where a splice reverts AFTER Bitcoin confirmed it.
+   `BTCChannels` 21,519 bytes / 3,057 spare. 32 passed / 0 failed across the four BTC-channel suites.
 ⚠️ **Re-measure the size budget with the PRODUCTION build command** — the headroom figures are
 unoptimized-build figures with no optimizer slack behind them.
 🔑 **THE PRINCIPLE: the contract must never hardcode a CHOICE — only a VERIFICATION.**

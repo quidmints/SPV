@@ -129,4 +129,45 @@ contract DeadManExitVerifyTest is Test {
             "a fixture-generated exit must verify against the aggregate key Q"
         );
     }
+
+    /// @notice §BTC-2.5a-ter / GATE 3 item 6 — MEASURE THE PER-RUNG COST OF A LADDER, so the missing
+    ///   `LadderTooDeep` ceiling is DERIVED rather than picked. `_armLadder` loops an UNBOUNDED
+    ///   caller-supplied `exits` array at THREE external entrypoints (`openChannel:984`,
+    ///   `splice:1199`, `deliverSwapOutOnchain:2322`), and §E233-ladder re-arms the WHOLE ladder on
+    ///   every splice — so depth is paid again at each rotation, not once at open.
+    /// 🔴 THE FAILURE MODE IS THE EXPENSIVE ONE AND IT IS REACHABLE BY ACCIDENT: a splice whose
+    ///   `exits` array runs out of gas REVERTS AFTER BITCOIN HAS ALREADY CONFIRMED THE SPLICE
+    ///   (§BTC-2.5a-bis), so the chain and the contract diverge. A hop pays its own gas, so this is
+    ///   not obviously profitable to attack — it is a liveness hazard, not a theft one.
+    /// @dev Measures the VERIFY half only, which is the dominant and the only price-able part here:
+    ///   the other per-rung cost is one `exitArmedOnOutpoint` SSTORE, which is a protocol constant
+    ///   (~20k cold / ~2.9k warm) and needs no fixture to know.
+    function test_ladderRungGasIsMeasured_forTheMissingCeiling() public {
+        string memory j = vm.readFile(
+            string.concat(vm.projectRoot(), "/test/btc/deadman_exit_fixture.json"));
+        BitcoinTx.ExitCheck memory c = BitcoinTx.ExitCheck({
+            fundingTxId:  vm.parseJsonBytes32(j, ".exits[0].fundingTxId"),
+            fundingVout:  uint32(vm.parseJsonUint(j, ".exits[0].fundingVout")),
+            fundingSats:  vm.parseJsonUint(j, ".exits[0].fundingSats"),
+            q:            vm.parseJsonBytes32(j, ".exits[0].fundingTaproot"),
+            cltvDeadline: uint64(vm.parseJsonUint(j, ".exits[0].cltvDeadline"))
+        });
+        bytes memory tx_ = vm.parseJsonBytes(j, ".exits[0].signedExitTx");
+        uint64[] memory v = new uint64[](1); bytes[] memory s_ = new bytes[](1);
+
+        uint g0 = gasleft();
+        BitcoinTx.verifyDeadManExit(tx_, c, _payoutScript(), v, s_);
+        uint perRung = g0 - gasleft();
+
+        emit log_named_uint("gas per rung: verifyDeadManExit", perRung);
+        emit log_named_uint("  + one cold SSTORE (exitArmedOnOutpoint)", 20_000);
+        emit log_named_uint("  = per-rung total (approx)", perRung + 20_000);
+        // A splice must fit in a block with room for the SPV proof and the settle that follow it.
+        emit log_named_uint("rungs that fit in 30M gas at this cost", 30_000_000 / (perRung + 20_000));
+        emit log_named_uint("rungs that fit in a 10M budget", 10_000_000 / (perRung + 20_000));
+
+        // PREMISE, not a bound: this asserts the measurement HAPPENED. A zero here would mean the
+        // call was optimised away or reverted, and every number above would be arithmetic on noise.
+        assertGt(perRung, 0, "PREMISE: the verify must actually execute to be measured");
+    }
 }

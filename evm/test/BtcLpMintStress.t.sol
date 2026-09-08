@@ -162,6 +162,42 @@ contract BtcLpMintStress is AllesFixture {
         ch.openChannel(p, fundingTx, new bytes32[](0), auth, exits);
     }
 
+    /// @notice §BTC-2.5a-ter / GATE 3 item 6 — KNOWN POSITIVE FOR THE CEILING. **Fails on the code
+    ///   that shipped before `LadderTooDeep`**, where `_armLadder` looped an unbounded caller-supplied
+    ///   array at three external entrypoints and §E233-ladder re-armed the whole thing on every
+    ///   splice. MEASURED at 452,660 gas per `verifyDeadManExit` + ~20k SSTORE ≈ 472,660 per rung, so
+    ///   63 rungs consume a 30M block — and a splice that runs out of gas reverts AFTER Bitcoin has
+    ///   confirmed it (§BTC-2.5a-bis).
+    /// @dev The rungs here are STUBS on purpose: the ceiling is checked BEFORE the verify loop, so a
+    ///   valid signature is not needed to reach it — and asserting that is the point, because a guard
+    ///   placed after the loop would burn N verifies before refusing.
+    function test_LadderTooDeep_refusesBeforeItVerifiesAnything() public {
+        BTCChannels ch = _deployChannels();
+        (bytes memory lpPubkey, bytes memory hopPubkey_, ) =
+            ownedChannelKeys("mintstress-777003");
+        (Types.OpenParams memory p_, bytes memory fundingTx, ) =
+            _mkFunding(777_003, 1_000_000, lpPubkey, hopPubkey_);
+        // ⚠️ EVERY FFI RUNS BEFORE `expectRevert` (this suite's own warning) — `mkAuth` shells out,
+        //    so build the auth first or the cheatcode consumes the pending expectRevert.
+        Types.OpenAuth memory auth = mkAuth(lpPubkey, payoutKeyOnly(abi.encode(lpPubkey)));
+
+        // `MAX_LADDER_RUNGS` is 16, so 17 is the first refused depth. STUB rungs on purpose: the
+        // ceiling is checked BEFORE the verify loop, so no valid signature is needed to reach it —
+        // and asserting that is the point, because a guard placed after the loop would burn 17
+        // `verifyDeadManExit` calls (452,660 gas each, measured) before refusing.
+        Types.ExitArming[] memory tooDeep = new Types.ExitArming[](17);
+        for (uint i; i < 17; ++i) {
+            tooDeep[i] = Types.ExitArming({
+                prevValues: new uint64[](0), prevScripts: new bytes[](0),
+                cltvDeadline: uint64(1_000_000 + i),   // distinct ⇒ this is not the SHALLOW guard
+                checkpointSats: 1_000, signedExitTx: hex"00"
+            });
+        }
+        vm.prank(makeAddr("hop"));
+        vm.expectRevert(BTCChannels.LadderTooDeep.selector);
+        ch.openChannel(p_, fundingTx, new bytes32[](0), auth, tooDeep);
+    }
+
     /// (§E233-ladder) cid -> the label seed it was opened under (see `_open`).
     mapping(bytes32 => uint) internal _seedOf;
 
