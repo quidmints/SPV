@@ -99926,3 +99926,50 @@ the next step is one more emit inside the loop.
 📌 The probes are LANDED, not held dirty: `9d9ed014` and its follow-up. This file has been reverted under
 this session twice mid-run, which silently produced two instrumented runs that measured the
 un-instrumented file — committing first is the only way the numbers can be trusted.
+
+---
+
+## 🔎 §CALMVOL-LEG-SPLIT — the offset is PATH-DEPENDENT, not an unmatched movement
+
+Owner: *"split the two legs and find the unmatched movement."* Split into five arms. **There is no
+unmatched movement — every arm is ≈0 or negative, and the decomposition does not close.**
+
+| arm | residual delta (wei) | ETH |
+|---|---:|---:|
+| drains only | −9 | −0.000000 |
+| sells only | −450,000,000,000,000 | −0.000450 |
+| feed resets only | **0** | 0.000000 |
+| sells + warps (96 min) | −6,211,973,167,828,659 | −0.006212 |
+| drains + warps (96 min) | +375,868,233,301 | +0.000000 |
+| **D + E (both halves)** | **−6,211,597,299,595,358** | **−0.006212** |
+| **`_calmVol`, interleaved** | **+5,357,529,343,317,595** | **+0.005358** |
+| **UNEXPLAINED BY THE PARTS** | **+11,569,126,642,912,953** | **+0.011569** |
+
+### THREE HYPOTHESES KILLED BY MEASUREMENT, EACH RECORDED SO IT IS NOT RE-DERIVED
+· **Liquidation penalty** — residual identical to the wei at 0, 1/4, 1/2, 3/4 liquidated *including the
+  zero control*. Refuted.
+· **Morpho interest accrual** — arm D printed debt **559,362,971 before AND after 96 minutes**. Morpho
+  accrues lazily and nothing there touches it, so time alone moves no debt. Refuted.
+· **The oracle re-valuing `netEquity`** (my own suspect, twice) — arm E's TWAP was
+  **2,689,772,400,000,000,000,000 before AND after**; the feed reset copies a price the drains did not
+  move. Arm C's exact 0 says the same from the other side. Refuted.
+
+### 🔑 WHAT THE NUMBERS ACTUALLY SAY
+The two halves SUM to −0.006212 while running them INTERLEAVED gives +0.005358 — a **+0.011569 ETH
+swing produced by ordering alone**, with identical trades, identical elapsed time and an identical
+starting residual (−577,021,548,053,173 in every arm, so the arms are genuinely comparable).
+⇒ **This is path dependence, not a leak.** Eight consecutive sells push inventory far from target, so
+`q` and therefore the skew — and therefore the ETH-denominated premium retained on each sell — are large;
+alternating drain/sell holds inventory near target and keeps the premium small. `residual ≈ −(cumulative
+ETH premium retained)`, and the premium is a function of the PATH, not of the net position.
+📌 That is consistent with everything else: the sells arm is negative (premium direction,
+§PREMIUM-DENOM-ROOT's sign prediction), drains are custody-neutral (their premium is USD, so it lands in
+`POOLED_USD` and never touches this identity), and warps move it further negative because `FLOW_DECAY`
+shrinks `target`, raising `q` and the skew.
+⛔ **SO `rangeETH + levBuf >= POOLED` IS NOT A SOLVENCY INVARIANT AS WRITTEN.** Its slack is the retained
+ETH premium, which is path-dependent by construction — the same trades in a different order move it by
+0.0116 ETH. It can be driven red by ordering alone, with no value lost anywhere.
+▶️ **NEXT:** assert the identity the code actually maintains — `POOLED + retainedEthPremium == tokens +
+gross` — which requires the retained ETH premium to be a readable quantity. It is not one today
+(`recordSkewPremium` takes only the USD figure), and that is the same gap §PREMIUM-DENOM-ROOT names from
+the other side. **This is now one problem, not two.**
