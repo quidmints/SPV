@@ -99554,3 +99554,39 @@ counter is committed (`ee46a825`) rather than deleted, because it is the control
 hypothesis. ⚠️ Two earlier instrumented runs produced NO probe output because `LevYbReal.t.sol` was
 reverted under me mid-run by another session; the third worked only because the probe was COMMITTED
 first. On a shared checkout, instrumentation must be committed to be trusted.
+
+## §T9-STEP-3-OUTPUTS-MEASURED-2026-09-08 — the classification, from a real splice trace
+
+Owner asked for the trace rather than a reading, because §T9-IS-WIRING-E177 warns **THE NAIVE WIRING
+BREAKS EVERY SPLICE** and the only way that happens is a class nobody enumerated.
+**Taken from `BtcLpMintStress.test_SwapOutOnchain_DeliversViaSplice` at `-vvvv`, a real
+swap-out-delivery splice.** ✅ Gate first: the test PASSED (12,846,092 gas) and the trace contains 4
+calls into the splice-verification path, so it is a record of a run and not of a revert.
+
+### THE DELIVERY SPLICE HAS EXACTLY TWO OUTPUTS, BOTH P2TR
+| out | value (sats) | scriptPubKey | class | identified by |
+|---|---|---|---|---|
+| 0 | **1,364,912** | `5120e566fe6b…` | **continuing 2-of-2** | `ChannelLib.locateChannelOutput` → `(0, 1364912)` |
+| 1 | **635,088** | `5120d06f6d04…` | **swap-out payment** | `BitcoinTx.sumOutputValuesToScript(committed script)` → `635088` |
+**1,364,912 + 635,088 = 2,000,000 exactly** — the channel shrank by precisely the payment, nothing
+else moved, and there is **NO third output.**
+⭐ **AND THE CLASS I EXPECTED TO EXIST DOES NOT, ON THIS PATH: there is NO HOP CHANGE.** A delivery is
+a splice-OUT and the hop contributes no inputs, so `SpliceContribution::SpliceIn`'s internal change
+address (`hop/node.rs:304`) produces nothing here. **Change is a splice-IN class only** — writing the
+check against a three-class model would have been writing against a shape this path never produces.
+
+### 🔑 THIS SPLITS STEP 3 INTO A HALF THAT NEEDS NO PLUMBING AND A HALF THAT DOES
+· **THE CONTINUING-FUNDING CHECK NEEDS NO EVM READ AND NO THREADED PARAMETER.** The signer already
+  computes the key aggregate for the scope it is signing (`taproot_key_agg`), so it can derive the
+  expected `0x5120||Q'` itself and require that exactly one output pays it. ⇒ **that half is
+  self-contained and can land on its own**, and it already catches the sharpest attack: a splice that
+  pays everything out and leaves no continuing channel, or one whose continuing output is a key the
+  LP does not control.
+· **THE PAYMENT CHECK STILL NEEDS THE CLAIMED `swapId`** (§T9-STEP-3-SHAPE: `pendingOnchainSwapOut` is
+  keyed by `swapId`, there is no script-hash index, so it is challenge/response not search), threaded
+  into `TaprootSignerContext` the way `counterparty_closing_nonce` already is.
+▶️ **ORDER: land the continuing-funding half first — it is measurable against this exact trace, needs
+nothing new, and reduces the remaining surface to "one output, one obligation."**
+⚠️ **STILL TO ENUMERATE BEFORE THE SECOND HALF: the splice-IN shape** (grow / fee-flush), which is
+where hop change appears and which this trace does not cover. **Do not generalise a two-output model
+to it** — that is the same over-generalisation the three-class model would have been.
