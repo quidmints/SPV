@@ -25,7 +25,16 @@ because the three documents that tell you WHAT ORDER to work in are buried at th
 4. **LINE NUMBERS ROT FASTEST OF ALL** (every edit above moves them) and this file is edited by
    several lanes at once. **Grep a distinctive 30–50 character QUOTE, never a line number** — 25 of 26
    invented tags once failed to match at all, and 48 rows were lost that way.
-5. 🔴 **A STALE ⛔ COSTS MORE THAN A STALE ✅, AND IS HARDER TO SEE.** Measured 2026-09-08: a live
+5. 🔴 **A BARE `(owner)` IS NOT AN ATTRIBUTION — IT IS USUALLY A GLOSS, AND ONE DROVE SIX ROWS.**
+   MEASURED 2026-09-08: **46 bare `(owner)` tags against 246 written as `(owner, YYYY-MM-DD: *"…"*)`.**
+   One of the 46 — *"The solver routes what we decline"* — was this file's own heading restated as if
+   the owner had said it, and **six rows plus their duplicates reasoned from it** while the dated
+   primary source two thousand lines away said something materially different (*"paid against 1inch
+   (routes the swap)… so a keeper is not needed"*). The gloss did not paraphrase: it **invented an
+   actor this system does not have** (owner: *"we dont have solvers"*), and the invented actor implied
+   a keeper to build. ⇒ **Before reasoning from any `(owner)`, find the DATED QUOTE. If there is none,
+   treat it as this file talking to itself.**
+6. 🔴 **A STALE ⛔ COSTS MORE THAN A STALE ✅, AND IS HARDER TO SEE.** Measured 2026-09-08: a live
    session was **declining to wire three tests** to preserve a "deliberately red" guard that §E327 had
    turned green weeks earlier. A stale ✅ hides work; **a stale ⛔ SUPPRESSES it, and nothing fails to
    tell you.** When a row forbids something, re-run its evidence before obeying it.
@@ -16419,8 +16428,10 @@ Under solver routing we do not.**
    resolving it to a sentinel instead of a number produced `type(uint).max + base` → **panic `0x11`**,
    *"a full drain REVERTED instead of charging the 3% ceiling"*, and **the suite never caught it
    because it never drains a range to zero (4,308 green over an UNREACHED state)**. ⇒ **Under the new
-   design the pole should mean DECLINE — the solver routes it — which is a DIFFERENT MECHANISM from
-   both a big number and a revert. Decide the channel before editing.**
+   design the pole should mean DECLINE — **1inch routes the remainder** — which is a DIFFERENT MECHANISM
+   from both a big number and a revert. Decide the channel before editing.**
+   ⛔ *(This said "the solver routes it". There are no solvers — owner, 2026-09-08. The mechanism is
+   unchanged and correct: we decline, and the swapper's router fills elsewhere.)*
    ⚠️ **AND CHECK THE CONSUMER:** if `skew` may exceed 1e18, any `base·(1 − skew)` haircut underflows.
    **I did not verify the application sites. That check is a precondition, not a follow-up.**
 2. 🔴 **MAKE "CANNOT COVER THIS SWAP" THE PREDICATE**, at the `_handleDelta` seam where `fillOOR` was
@@ -17719,8 +17730,25 @@ carries the evidence — this is an index, not a restatement.** Read this before
   rebalance until a side is spent**. (My end-of-block proposal was unimplementable.)
 - **The principal is never the problem.** A drain of `D` pays `D·px` **in** — the range is mis-composed,
   not poorer (**+$570,000 measured**, §E134). Only the SPREAD costs anything.
-- **The solver routes what we decline** (owner) ⇒ no keeper, no on-chain venue, and **§V-R1 (1inch
-  AggregationRouterV6) does not exist in code** — it is a comment naming an intended route.
+- ⛔ **THIS READ *"The solver routes what we decline" (owner)* AND THE OWNER NEVER SAID IT — STRUCK
+  2026-09-08.** It was a GLOSS on the heading above the real quote, restated as an attribution with a
+  bare `(owner)`, no date and no quoted words, where every substantive attribution in this file is
+  `(owner, YYYY-MM-DD: *"…"*)`. **THE PRIMARY SOURCE (owner, 2026-08-19, `:88870`):** *"refill only
+  when not enough in the pool to cover a swap, **paid against 1inch (routes the swap)** and rebalances
+  the pool. so a keeper is not needed."*
+  🔴 **AND THE GLOSS DID NOT PARAPHRASE — IT INVENTED AN ACTOR. Owner, 2026-09-08: *"we dont have
+  solvers."*** The 16 "solver" mentions in `evm/src` are a DIFFERENT thing — an external RFQ
+  counterparty quoting AGAINST us (`Aux.sol:843`, `Core.sol:1424`) — never an agent we dispatch, and
+  §E357 says outright *"Aggregation was never on the table (no solver, no route parameter)."*
+  ⇒ **WHAT THE OWNER'S WORDS ACTUALLY MEAN: WE ARE ONE LIQUIDITY SOURCE AMONG MANY.** The swapper
+  arrives via 1inch, we fill what our inventory covers at our skewed quote, and 1inch routes the
+  remainder elsewhere. **There is no restoration ACTION, so there is no actor to incentivise and no
+  keeper to build** — *"rebalances the pool"* is the CONSEQUENCE: flow returns because the quote moved.
+  ⭐ **THAT RELOCATES THE DEFECT. The mechanism IS the skew, so a 0 bps quote below the deficit
+  switches off the only restoration the design has — the bug is in the QUOTE, not in a missing
+  actor**, and fixing a quote is a far smaller job than building a keeper (which has ZERO code today).
+- **§V-R1 (1inch AggregationRouterV6) does not exist in code** — it is a comment naming an intended
+  route.
 - ⚠️ **STILL AMBIGUOUS AND IT DECIDES WHO PAYS:** *"paid against 1inch"* — solver routes (we pay
   nothing) vs we pay 1inch (the 48× question reopens). **I inferred this once and retracted a CORRECT
   finding on it. Do not infer it again.**
@@ -17917,7 +17945,8 @@ from the other side — §UNIT-VENUE-CEILING: *"the REAL bound is **the cost of 
 measurable, per size and per asset, and **NOT a governance constant**."*
 ⇒ **THAT IS THE DYNAMISM THE OWNER IS ASKING FOR, AND IT IS NOT A FLOOR.** It is not a parameter at
 all: the market applies it by routing elsewhere the moment our quote exceeds it, which is precisely
-*"the solver routes what we decline"*.
+~~*"the solver routes what we decline"*~~ — ⛔ **STRUCK: a gloss, not the owner's words. The quote is
+*"paid against 1inch (routes the swap)"* and there are no solvers (owner, 2026-09-08).**
 
 ### THE MAGNITUDES, SO THIS IS A COMPARISON AND NOT A PREFERENCE
 Linear kernel `Γσ²q` at full depletion (q=1):
@@ -18671,9 +18700,12 @@ prose"*). There are now **four** objects sharing the word, and each has a differ
 | 4 | **Fusion resolver / PMM endpoint** | we become a registered resolver and fill intents | ⛔ **NEVER BUILT, NEVER BOOKED.** It is `plan2.pdf`'s design (stake 1INCH, Unicorn Power, win the Dutch auction, settle from our inventory). Recorded here so its absence is visible. |
 
 🔴 **§E276's OPEN QUESTION IS A CHOICE BETWEEN #2 AND #3, AND IT DECIDES WHO PAYS THE SPREAD.**
-*"Paid against 1inch"* reads both ways: **#3** — the solver routes what we decline, we pay nothing,
-and §E285's 48× retraction stands; **#2** — we pay 1inch to route our own rebalance, we bear the
-routing cost, and the 48× question reopens as originally posed. **Do not infer it again** (that
+⛔ **THE "BOTH WAYS" IS RESOLVED — IT ONLY EVER READ TWO WAYS BECAUSE ONE OF THEM WAS INVENTED.**
+*"Paid against 1inch"* means **1inch ROUTES THE SWAP**: we are one source among many, we fill what
+inventory covers, 1inch routes the remainder. We pay nothing and there is no actor performing a
+restoration, so §E285's 48× retraction stands. ~~**#2** — we pay 1inch to route our own rebalance~~
+was the alternative reading and **#3's "solver" never existed** (owner, 2026-09-08: *"we dont have
+solvers"*). **Do not infer it again** (that
 inference already retracted a correct finding once).
 
 ### ⭐ AND #3 IS NOT FREE — IT IMPOSES A REQUIREMENT WE DO NOT CURRENTLY MEET
@@ -18885,8 +18917,9 @@ the `create_sweep_tx` pattern exactly: a maintained, tested function whose calle
 has made. **Rule 1 deletes UNREACHABLE code; it does not delete code awaiting a choice.**
 
 ### ⇒ THE WHOLE ~580 LINES SIT BEHIND **ONE** QUESTION — §E293's #2 vs #3
-Whether *"paid against 1inch"* means **we pay the router** (#2) or **the solver routes what we decline**
-(#3). Under #3, §E278-partialfill's reading holds and **`refillPlacement` may
+⛔ **NO LONGER OPEN (2026-09-08): *"paid against 1inch"* means 1inch ROUTES THE SWAP and we pay
+nothing.** The #2/#3 framing rested on a gloss and on a "solver" the design does not have. Under that
+settled reading, §E278-partialfill's reading holds and **`refillPlacement` may
 have NO JOB AT ALL** (⛔ §E313: `proRataShortfall` DOES — exit ordering, not restoration)** — they size and apportion a restoration we never perform, and the fold is a
 DELETION. Under #2 they are the sizing layer and the fold is a WIRING. ⇒ **The same 580 lines are
 either dead weight or the next feature, and one sentence decides which.** **That is the highest-leverage
@@ -19056,8 +19089,10 @@ infinity.**
 ▶️ **THE FIX IS THE PRICE-BOUNDED SOLVE §E278-partialfill ALREADY NAMES** — serve the largest amount whose
 skew stays fillable, refund the rest — **and §E285 says it is NOT blocked on §E276.** ⇒ **This is now the
 top skew item: it is not a refinement, it is the difference between being routable and not.**
-📌 **AND IT SHARPENS §E293's OPEN CHOICE:** #3 (*"the solver routes what we decline"*) is only coherent
-under the partial fill. **As the code stands today, #3 does not describe anything the contract does.**
+📌 **§E293's CHOICE IS CLOSED, NOT SHARPENED (2026-09-08).** The reading that survives is the owner's
+own words — 1inch routes the swap, we are one source among many — and the observation that *"it does
+not describe anything the contract does"* is CORRECT AND EXPECTED: **there is no restoration action to
+describe.** ⇒ that is not a gap in the code; it is the design.
 
 ## ✅✅ §E301 — **§E293's OPEN CHOICE IS ANSWERED, AND IT WAS A FALSE DICHOTOMY: THE SWAPPER PAYS THE ROUTING SPREAD.**
 Owner, 2026-08-22: *"what routing spread? — **the swapper, on top of their skew premium**"*.
@@ -19077,8 +19112,8 @@ does not have a hard answer — **it has no referent.** There is no restoration 
 1. ✅ **§E293 #2 vs #3 — RESOLVED.** `AggregationRouterV6` is not our dependency at all: the taker
    routes their own remainder. **`§V-R1` can stop being described as a route we owe.**
 2. ✅ **§E285's 48× RETRACTION IS CONFIRMED CORRECT** — and for a stronger reason than I gave. I
-   retracted it because *the solver routes what we decline*; the real reason is that **no party on our
-   side ever buys inventory back**, so a "restoration spread" was never a cost we could underpay.
+   retracted it on a gloss that invented a solver; **the real reason is the one that survives and was
+   right all along — no party on our side ever buys inventory back**, so a "restoration spread" was never a cost we could underpay.
 3. 🔴 **`refillPlacement` HAS NO JOB — IT IS DELETABLE, NOT PARKED.** ⛔ **CORRECTED BY §E313: this
    row originally named `proRataShortfall` too and WAS WRONG. That one is the rule-17 root fix for the
    round-trip EXIT-ORDERING attack (15.2 bps measured), which this argument does not touch. RESTORED.** They
@@ -57755,8 +57790,10 @@ Under solver routing we do not.**
    resolving it to a sentinel instead of a number produced `type(uint).max + base` → **panic `0x11`**,
    *"a full drain REVERTED instead of charging the 3% ceiling"*, and **the suite never caught it
    because it never drains a range to zero (4,308 green over an UNREACHED state)**. ⇒ **Under the new
-   design the pole should mean DECLINE — the solver routes it — which is a DIFFERENT MECHANISM from
-   both a big number and a revert. Decide the channel before editing.**
+   design the pole should mean DECLINE — **1inch routes the remainder** — which is a DIFFERENT MECHANISM
+   from both a big number and a revert. Decide the channel before editing.**
+   ⛔ *(This said "the solver routes it". There are no solvers — owner, 2026-09-08. The mechanism is
+   unchanged and correct: we decline, and the swapper's router fills elsewhere.)*
    ⚠️ **AND CHECK THE CONSUMER:** if `skew` may exceed 1e18, any `base·(1 − skew)` haircut underflows.
    **I did not verify the application sites. That check is a precondition, not a follow-up.**
 2. 🔴 **MAKE "CANNOT COVER THIS SWAP" THE PREDICATE**, at the `_handleDelta` seam where `fillOOR` was
@@ -59055,8 +59092,25 @@ carries the evidence — this is an index, not a restatement.** Read this before
   rebalance until a side is spent**. (My end-of-block proposal was unimplementable.)
 - **The principal is never the problem.** A drain of `D` pays `D·px` **in** — the range is mis-composed,
   not poorer (**+$570,000 measured**, §E134). Only the SPREAD costs anything.
-- **The solver routes what we decline** (owner) ⇒ no keeper, no on-chain venue, and **§V-R1 (1inch
-  AggregationRouterV6) does not exist in code** — it is a comment naming an intended route.
+- ⛔ **THIS READ *"The solver routes what we decline" (owner)* AND THE OWNER NEVER SAID IT — STRUCK
+  2026-09-08.** It was a GLOSS on the heading above the real quote, restated as an attribution with a
+  bare `(owner)`, no date and no quoted words, where every substantive attribution in this file is
+  `(owner, YYYY-MM-DD: *"…"*)`. **THE PRIMARY SOURCE (owner, 2026-08-19, `:88870`):** *"refill only
+  when not enough in the pool to cover a swap, **paid against 1inch (routes the swap)** and rebalances
+  the pool. so a keeper is not needed."*
+  🔴 **AND THE GLOSS DID NOT PARAPHRASE — IT INVENTED AN ACTOR. Owner, 2026-09-08: *"we dont have
+  solvers."*** The 16 "solver" mentions in `evm/src` are a DIFFERENT thing — an external RFQ
+  counterparty quoting AGAINST us (`Aux.sol:843`, `Core.sol:1424`) — never an agent we dispatch, and
+  §E357 says outright *"Aggregation was never on the table (no solver, no route parameter)."*
+  ⇒ **WHAT THE OWNER'S WORDS ACTUALLY MEAN: WE ARE ONE LIQUIDITY SOURCE AMONG MANY.** The swapper
+  arrives via 1inch, we fill what our inventory covers at our skewed quote, and 1inch routes the
+  remainder elsewhere. **There is no restoration ACTION, so there is no actor to incentivise and no
+  keeper to build** — *"rebalances the pool"* is the CONSEQUENCE: flow returns because the quote moved.
+  ⭐ **THAT RELOCATES THE DEFECT. The mechanism IS the skew, so a 0 bps quote below the deficit
+  switches off the only restoration the design has — the bug is in the QUOTE, not in a missing
+  actor**, and fixing a quote is a far smaller job than building a keeper (which has ZERO code today).
+- **§V-R1 (1inch AggregationRouterV6) does not exist in code** — it is a comment naming an intended
+  route.
 - ⚠️ **STILL AMBIGUOUS AND IT DECIDES WHO PAYS:** *"paid against 1inch"* — solver routes (we pay
   nothing) vs we pay 1inch (the 48× question reopens). **I inferred this once and retracted a CORRECT
   finding on it. Do not infer it again.**
@@ -59253,7 +59307,8 @@ from the other side — §UNIT-VENUE-CEILING: *"the REAL bound is **the cost of 
 measurable, per size and per asset, and **NOT a governance constant**."*
 ⇒ **THAT IS THE DYNAMISM THE OWNER IS ASKING FOR, AND IT IS NOT A FLOOR.** It is not a parameter at
 all: the market applies it by routing elsewhere the moment our quote exceeds it, which is precisely
-*"the solver routes what we decline"*.
+~~*"the solver routes what we decline"*~~ — ⛔ **STRUCK: a gloss, not the owner's words. The quote is
+*"paid against 1inch (routes the swap)"* and there are no solvers (owner, 2026-09-08).**
 
 ### THE MAGNITUDES, SO THIS IS A COMPARISON AND NOT A PREFERENCE
 Linear kernel `Γσ²q` at full depletion (q=1):
@@ -60007,9 +60062,12 @@ prose"*). There are now **four** objects sharing the word, and each has a differ
 | 4 | **Fusion resolver / PMM endpoint** | we become a registered resolver and fill intents | ⛔ **NEVER BUILT, NEVER BOOKED.** It is `plan2.pdf`'s design (stake 1INCH, Unicorn Power, win the Dutch auction, settle from our inventory). Recorded here so its absence is visible. |
 
 🔴 **§E276's OPEN QUESTION IS A CHOICE BETWEEN #2 AND #3, AND IT DECIDES WHO PAYS THE SPREAD.**
-*"Paid against 1inch"* reads both ways: **#3** — the solver routes what we decline, we pay nothing,
-and §E285's 48× retraction stands; **#2** — we pay 1inch to route our own rebalance, we bear the
-routing cost, and the 48× question reopens as originally posed. **Do not infer it again** (that
+⛔ **THE "BOTH WAYS" IS RESOLVED — IT ONLY EVER READ TWO WAYS BECAUSE ONE OF THEM WAS INVENTED.**
+*"Paid against 1inch"* means **1inch ROUTES THE SWAP**: we are one source among many, we fill what
+inventory covers, 1inch routes the remainder. We pay nothing and there is no actor performing a
+restoration, so §E285's 48× retraction stands. ~~**#2** — we pay 1inch to route our own rebalance~~
+was the alternative reading and **#3's "solver" never existed** (owner, 2026-09-08: *"we dont have
+solvers"*). **Do not infer it again** (that
 inference already retracted a correct finding once).
 
 ### ⭐ AND #3 IS NOT FREE — IT IMPOSES A REQUIREMENT WE DO NOT CURRENTLY MEET
@@ -60221,8 +60279,9 @@ the `create_sweep_tx` pattern exactly: a maintained, tested function whose calle
 has made. **Rule 1 deletes UNREACHABLE code; it does not delete code awaiting a choice.**
 
 ### ⇒ THE WHOLE ~580 LINES SIT BEHIND **ONE** QUESTION — §E293's #2 vs #3
-Whether *"paid against 1inch"* means **we pay the router** (#2) or **the solver routes what we decline**
-(#3). Under #3, §E278-partialfill's reading holds and **`refillPlacement` may
+⛔ **NO LONGER OPEN (2026-09-08): *"paid against 1inch"* means 1inch ROUTES THE SWAP and we pay
+nothing.** The #2/#3 framing rested on a gloss and on a "solver" the design does not have. Under that
+settled reading, §E278-partialfill's reading holds and **`refillPlacement` may
 have NO JOB AT ALL** (⛔ §E313: `proRataShortfall` DOES — exit ordering, not restoration)** — they size and apportion a restoration we never perform, and the fold is a
 DELETION. Under #2 they are the sizing layer and the fold is a WIRING. ⇒ **The same 580 lines are
 either dead weight or the next feature, and one sentence decides which.** **That is the highest-leverage
@@ -60392,8 +60451,10 @@ infinity.**
 ▶️ **THE FIX IS THE PRICE-BOUNDED SOLVE §E278-partialfill ALREADY NAMES** — serve the largest amount whose
 skew stays fillable, refund the rest — **and §E285 says it is NOT blocked on §E276.** ⇒ **This is now the
 top skew item: it is not a refinement, it is the difference between being routable and not.**
-📌 **AND IT SHARPENS §E293's OPEN CHOICE:** #3 (*"the solver routes what we decline"*) is only coherent
-under the partial fill. **As the code stands today, #3 does not describe anything the contract does.**
+📌 **§E293's CHOICE IS CLOSED, NOT SHARPENED (2026-09-08).** The reading that survives is the owner's
+own words — 1inch routes the swap, we are one source among many — and the observation that *"it does
+not describe anything the contract does"* is CORRECT AND EXPECTED: **there is no restoration action to
+describe.** ⇒ that is not a gap in the code; it is the design.
 
 ## ✅✅ §E301 — **§E293's OPEN CHOICE IS ANSWERED, AND IT WAS A FALSE DICHOTOMY: THE SWAPPER PAYS THE ROUTING SPREAD.**
 Owner, 2026-08-22: *"what routing spread? — **the swapper, on top of their skew premium**"*.
@@ -60413,8 +60474,8 @@ does not have a hard answer — **it has no referent.** There is no restoration 
 1. ✅ **§E293 #2 vs #3 — RESOLVED.** `AggregationRouterV6` is not our dependency at all: the taker
    routes their own remainder. **`§V-R1` can stop being described as a route we owe.**
 2. ✅ **§E285's 48× RETRACTION IS CONFIRMED CORRECT** — and for a stronger reason than I gave. I
-   retracted it because *the solver routes what we decline*; the real reason is that **no party on our
-   side ever buys inventory back**, so a "restoration spread" was never a cost we could underpay.
+   retracted it on a gloss that invented a solver; **the real reason is the one that survives and was
+   right all along — no party on our side ever buys inventory back**, so a "restoration spread" was never a cost we could underpay.
 3. 🔴 **`refillPlacement` HAS NO JOB — IT IS DELETABLE, NOT PARKED.** ⛔ **CORRECTED BY §E313: this
    row originally named `proRataShortfall` too and WAS WRONG. That one is the rule-17 root fix for the
    round-trip EXIT-ORDERING attack (15.2 bps measured), which this argument does not touch. RESTORED.** They
