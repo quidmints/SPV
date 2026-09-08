@@ -99047,22 +99047,57 @@ Raised by project-bc, verified here from source. Two independent blockers:
 ⇒ **Needs a value-attribution design: who is credited for collateral freed against no debt.**
 ⛔ Do not read the KEEP verdict as licence to implement the branch.
 
-## 🟠 §LEVYBREAL-RED — `testReal_Morpho_LiquidationLeavesBasketIntact` is RED, cause NOT yet found
+## 🔴 §LEVYBREAL-RED — **CAUSE FOUND 2026-09-08: `a4787689` (Γ). Isolated to one commit.**
+`testReal_Morpho_LiquidationLeavesBasketIntact`:
 `[FAIL: real venue ETH + the debt-funded buffer must cover the range (honest LPs whole):
-4872845850960172853 < 4880365173479059059]` — ~0.15% short. Reproduces at current HEAD.
-**ELIMINATED, each by direct test at controlled pins (25933152 and 25932788, crossed design):**
-· **NOT pin drift** — fails at BOTH pins in the parent, passes at BOTH in a clean lane.
-· **NOT the §M.1 change** — identical test file in both trees.
-· **NOT `bdfcd6fd` (RANGE_DELTA 20→200)** — `git show 8a72d2cf:…/SwapLib.sol` reads `RANGE_DELTA = 200`
-  and `bdfcd6fd` is an ancestor of the PASSING lane commit.
-· **NOT `a37b0c12` (Ownable deletion)** — tested in ISOLATION in a worktree cut at that commit: PASS,
-  gas identical (34,099,244). project-c5 independently cleared it by restoring `is Ownable`.
-· **NOT the uncommitted `SwapLib.sol` / `Types.sol`** — copied into the clean lane: PASS, identical gas.
-· `162a4d3c` touches only `ConvertToRouted.t.sol`; `a5d7c433` only `SPRINT.md`. Neither can reach it.
-▶️ **NEXT, AND IT IS THE ONE VARIABLE NOT YET ELIMINATED: the shared fixture.** `LevYbRealProbe is
-AllesFixture`, and `evm/test/Alles.t.sol` moved **+34/−7** in `37d752b4` (§E274-LAND) after the lane
-base. Test it the same way — clean lane plus that fixture alone. ⚠️ A peer reported that file failing
-to compile (`Stack too deep` at `:2825`) while dirty, so pin a committed revision, not a worktree copy.
+4872845850960172853 < 4880365173479059059]` — 0.15% short, gas 36,174,528.
+
+**BISECTED IN CLEAN DETACHED WORKTREES, every point at the SAME pin (25933152):**
+| commit | result | gas |
+|---|---|---|
+| `7b1f19db` (lane base) | PASS | 34,099,244 |
+| `a37b0c12` (Ownable deletion, isolated) | PASS | 34,099,244 |
+| **`7cb53d39` (= `a4787689^`)** | **PASS** | 34,099,244 |
+| **`a4787689` §E274-LAND: Γ** | 🔴 **FAIL** | 36,174,528 |
+| `79164397`, `044f24bc` (HEAD) | FAIL | — |
+
+**MECHANISM.** `SwapLib.GAMMA_WAD` changed from the literal `3e16` to
+`FLOW_HALFLIFE * WAD / 365 days` = **5.48e15 — a 5.5× reduction in Γ**. Γ is the
+adverse-selection coefficient in the skew, so a smaller Γ charges less premium on
+inventory-increasing trades, less premium is retained, and the range is less covered by
+"real venue ETH + the debt-funded buffer". The failing assertion is exactly that quantity.
+⚠️ **THE VALUE ITSELF MAY BE RIGHT** — it is the owner's ruling (*"move gamma to 5.48e15"*),
+derived rather than hardcoded, and the docblock's reasoning is sound. **What is missing is that
+the lev suite was never run against it.** ⇒ Decide: re-baseline the assertion (if 0.15% less
+coverage is the intended consequence of a correctly smaller Γ) or treat it as a real
+under-collateralisation. **That is a money-path call, not a test fix.**
+⭐ **AND `a4787689`'s OWN PREDECESSOR PREDICTED THIS AND WAS IGNORED.** The deleted comment read:
+*"§E274 measured the replacement but does NOT land it here — that is a separate money-path change,
+deliberately not bundled with the cap removal **so a regression can be attributed to one of
+them**."* The separation worked exactly as designed; nobody ran the suite that would attribute it.
+
+⛔ **THREE THINGS I ELIMINATED ALONG THE WAY, AND TWO OF MY OWN ELIMINATIONS WERE WRONG — recorded
+because the method matters more than the answer:**
+· **NOT the shared `Alles.t.sol` fixture** (`37d752b4`, +34/−7): `37d752b4^` = `79164397` already
+  FAILS. My prior booking named this as the leading candidate. **It is cleared.**
+· **NOT `a37b0c12` (Ownable), NOT `bdfcd6fd` (RANGE_DELTA 20→200)** — the latter is an ancestor of
+  the PASSING lane commit, so it was never in the frame.
+· 🔴 **MY "SwapLib/Types ELIMINATED" STEP WAS WRONG.** I copied the parent's WORKING COPY of those
+  two files into a clean lane and got PASS — but a shared checkout's working copy is a moving target,
+  and what I copied was not `a4787689`'s content. **A copy from a live shared tree is not a revision;
+  it is a snapshot of whatever three sessions had saved at that instant.** Test a COMMIT, never a
+  working copy.
+· 🔴 **AND THE ORIGINAL OBSERVATION WAS RIGHT ALL ALONG.** My first "merged parent FAILS" reported
+  `4872845850960172853 < 4880365173479059059` at gas 36,174,528 — **byte-identical to `a4787689`'s
+  failure.** The Γ change was sitting UNCOMMITTED in the tree at that moment. I then talked myself out
+  of a correct measurement through two bad eliminations.
+
+📌 **TOOLING TRAP FOUND WHILE BISECTING: a `tools/lane.sh` worktree CANNOT be `git checkout`ed to
+another ref.** It symlinks `CLAUDE.md` and `docs/actionable/SPRINT.md` to the parent, so once the
+parent's copy moves, checkout aborts with *"Your local changes would be overwritten"* — and the run
+then silently tests the ref it was already on. One bisect point was voided this way and read as a
+result. ⇒ **For a bisect, pass the ref to `lane.sh` at creation (`tools/lane.sh L4x <sha>`), one lane
+per point, and echo `git log --oneline -1` INSIDE the run to prove which ref actually executed.**
 
 ## 🟠 §SOLVER-IS-A-GLOSS — `SPRINT.md:17722` attributes to the owner a phrase the owner did not say
 **PRIMARY SOURCE, dated and verbatim, `:88869-88871` (owner, 2026-08-19):** *"refill only when not
