@@ -1304,6 +1304,18 @@ contract DrainAtomicity is AllesFixture {
         _driveTick(20);
         uint s2 = CORE.realizedVarianceWad();
         emit log_named_uint("sigma^2 AFTER  (wad)", s2);
+        // 🔴 §E277-DISCRIMINATOR — WHICH LEG IS GREEN? `realizedVarianceWad` is
+        //    `max(ringVariance, anchorVarianceWad)`, so this test passing does NOT establish that
+        //    the RING responds to driven ticks — which is the property it is named for. §E327 pinned
+        //    a fixture observation SOURCE, and a pinned source can carry the anchor leg while the
+        //    ring stays exactly as unresponsive as §E277 measured it (σ² = 1,1,1,0, 2026-08-21).
+        //    ⇒ anchor == realized  ⇒ the ANCHOR is carrying it; the ring question is STILL OPEN.
+        //    ⇒ realized >  anchor  ⇒ the RING is contributing; §E277 is genuinely answered.
+        {   uint anchorLeg = CORE.anchorVarianceWad();
+            emit log_named_uint("  anchorVarianceWad   (wad)", anchorLeg);
+            emit log_named_uint("  ring leg is DOMINANT?    ", s2 > anchorLeg ? 1 : 0);
+            emit log_named_uint("  legs EQUAL (anchor only)?", s2 == anchorLeg ? 1 : 0);
+        }
         // annualized vol = sqrt(sigma^2); report in bps so the level is readable at a glance.
         emit log_named_uint("annualized vol (bps)", Math.sqrt(s2 * 1e18) / 1e14);
         // ⚠️ §E277-SUPERSEDED (2026-09-08) — **THIS COMMENT SAID "EXPECTED TO FAIL" AND THE TEST

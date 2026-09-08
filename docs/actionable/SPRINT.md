@@ -97708,9 +97708,25 @@ excluded it on the strength of a stale "EXPECTED TO FAIL" comment.** The exclusi
 the ORIGINAL reason rather than the red: σ² is `max(ring, anchor)`, so an anchor-side warm-up can
 green it while the RING stays unresponsive — the same objection §E327's pinned SOURCE arguably
 already runs into, `SkewLivePathReachesKernel` (§E306's sentinel instrument), `VarPrecision` (it measures
-the measurement). ▶️ **WHAT REMAINS IS THE RING, NOT THIS ROW** — see §E277, whose stated fix is
-*"FIX THE RING so a driven tick moves σ²"*. The warm-up is an ANCHOR-SIDE workaround and does not
-close that.
+the measurement). ✅ **AND THE RING QUESTION IS ANSWERED — MEASURED 2026-09-08, AND THE ANSWER INVERTS THE ASSUMPTION.**
+`anchorVarianceWad()` is public, and `realizedVarianceWad = max(ring, anchor)`, so the legs separate.
+After `_driveTick(20)`: **σ² = 30.55 wad, anchorVarianceWad = 0, ring DOMINANT.** §E327 pinned an
+observation SOURCE, which feeds the **RING** via `_observeIfSourced` — so §E277's literal question
+(*"does σ² respond to driven ticks?"*) is **YES, the ring responds once a source is pinned.** I had
+assumed the pinned source was propping up the ANCHOR leg; it is the other one.
+⇒ **THE TWO LEGS ARE EXERCISED IN DIFFERENT PLACES, AND NEITHER IS DEAD EVERYWHERE:**
+| | ring leg | anchor leg |
+|---|---|---|
+| this fixture (`_driveTick` + pinned source) | **30.55 wad** | 0 |
+| the real-round warm-up | 0 | **0.113 wad** |
+| PRODUCTION | no source pinned (§E294 intends it dead) | **feed pinned by `DeployL1_s.sol:732-736`** |
+🔴 **SO "σ² MIGHT BE 0 IN PRODUCTION AND EVERYTHING PRICES AT THE SENTINEL" IS REFUTED — I REPEATED
+IT SEVERAL TIMES TODAY WITHOUT CHECKING THE DEPLOY.** `aTok[0] = WETH → aFeed[0] = CL_ETH_USD` goes
+in through `AUX.configure`, so `assetPriceFeed(WETH)` is the real aggregator; `_sampleAnchorVariance`
+is on the live path (measured `Core::swap` ×20 against `Aux::swap` ×20 on the drain leg); and
+`anchorVarianceWad()` returns `v == 0 ? 1 : v` once `dt > 0`, i.e. it is non-zero **from the second
+swap in a later block** (measured: round 1 registers 0 while seeding `_varPx`, round 2 registers
+4.36e16). ⚠️ That is MECHANISM + CONFIG, all three links checked — not a production measurement.
 
 📌 **WHAT THIS SETTLES FOR E48/E70:** restoration is **value-NEUTRAL** (0 bps), not loss-making. But
 value-neutral still means **nothing pays anyone to do it** ⇒ **E48's async keeper fallback is
