@@ -99642,3 +99642,60 @@ framing that called it one was wrong.
 (`creditSkewPremium`), its backing is recorded in the **dollar** mirror (`POOLED_USD += premiumUsd`), and
 the asset actually held is **ether in Aux**. Three denominations, one premium. Reconciling those is the
 work — not moving a number between mirrors.
+
+---
+
+## 🔎 §PREMIUM-DENOM-ROOT — the three denominations reconciled, and why the "fix" cannot be a booking change
+
+Owner: *"reconcile the three denominations so the premium books correctly, fix the overclaim, and find the
+root of the symptoms."* The reconciliation is below and it is **not** what §E42-DENOM assumed.
+
+### THE THREE DENOMINATIONS, AND WHERE EACH ACTUALLY LIVES
+| | unit | where | code |
+|---|---|---|---|
+| the asset actually retained (sell leg) | **ETH** | WETH at **Aux** — `msg.value` is wrapped on entry | `SwapLib.depositBody:274` `IWETH9(weth).deposit{value: msg.value}()` |
+| the LP claim | **USD** | per-share `USD_FEES` | `Core:603` `RANGE.creditSkewPremium(premiumUsd)` |
+| the recorded backing | **USD** | the dollar mirror | `Core:615` `POOLED_USD += premiumUsd` |
+
+### 🔑 THE ROOT: THE RETAINED ETHER IS ALREADY COUNTED AS RANGE BACKING, AND ALSO CLAIMED AS AN LP FEE
+`QuidLib._rangeETH:475` counts **`IERC20(c.weth).balanceOf(c.aux)`** — *"Idle WETH is still ETH backing …
+count it at BOTH Quid and Aux"*. The retained premium never leaves Aux (no premium-specific movement
+exists there), so **`rangeETH` already includes it**. Meanwhile `Core` books `POOLED += (amount −
+premium)` (`SwapLib:2668` `r.amount -= premium`), so **`POOLED` excludes it**.
+⇒ `rangeETH − POOLED` carries the retained premium as SLACK. The invariant `rangeETH + levBuf >= POOLED`
+was passing on that slack, and Γ falling 5.475× shrank it. **That is the whole Γ sensitivity of this
+assertion**, and it is why every other term (`levPooled`, `levBuf`, `totalNetEquity`, `collateralOf`) is
+identical to the wei across both Γ arms while `POOLED` alone moves.
+
+### ⛔ WHY "MAKE POOLED COUNT IT" IS PROVABLY WRONG — the failed attempt is the proof
+§E42-DENOM added `POOLED += premiumNative`. **GAP grew by exactly the premium (112,575,381,181,435,435 →
+115,380,001,013,000,333) while `rangeETH` did not move at all.** A term that is already on the backing
+side cannot also be added to the claim side: that is a double-count, which is also why project-bc's two
+`kappa=1 must reproduce the original` identities broke. **`POOLED` excluding the premium is CORRECT.**
+⇒ **The books are not mis-denominated in a way any booking line can repair.** The claim is in dollars, the
+asset is ether, and the ether is already counted as range backing. Reconciling them means moving the
+ASSET (selling the retained ether for the dollars the claim is denominated in) — a swap on the settlement
+path, not a mirror change. **NOT attempted here**: it is a money-path change needing its own before/after,
+the RPC is saturated by two peer sessions, and one wrong mechanism has already shipped on this row.
+
+### 🔴 THE 0.004915 ETH OVER-CLAIM IS A SEPARATE DEFECT, AND IT HAS A SHARP TELL
+It is NOT the premium — the premium explains the Γ *delta*, not the *level*. Measured at the derived Γ:
+
+    levPooled (gross)      2,762,836,981,602,135,476
+    totalNetEquity         2,762,836,981,602,135,476
+    gross − netEquity  =   0        ← THIS SHOULD BE THE DEBT, AND IT IS ZERO
+    GAP − levBuf       =   4,915,390,237,519,040  (0.004915 ETH, unexplained)
+
+`QuidLib:482-486` states the contract: `rangeETH` adds **net-equity** *"not gross … the 2× range depth …
+lives in `levPooled = gross`, not here"*. So `POOLED − rangeETH` should equal the DEBT, and `levBuf` is
+the debt-funded slice. **But gross and net-equity are byte-identical, i.e. the measured debt is zero,
+while `levBuf` still reports 0.1077 ETH of debt-funded buffer.** Those two cannot both be true.
+⇒ **THAT is where the over-claim lives** — a `levBuf` that outlived the debt it was funded by (this is a
+post-liquidation state; the liquidation repaid the debt and `levBuf` did not follow it down). ▶️ Next
+step is `RangeLib`'s buffer burn on the liquidation path, not the premium.
+
+### ROOT OF THE FOUR SYMPTOMS, SEPARATED
+· haircut never reaching 1e18 · `_fillableDrain`'s floor 2.913% → 0.545% · the 0.07 bps premium — **all
+  three are Γ's magnitude directly**, one constant, no other cause.
+· this margin assertion — **Γ only as a REVEALER.** Its own root is the `levBuf`-outlives-its-debt tell
+  above, which was masked by premium slack and is not a Γ defect at all.
