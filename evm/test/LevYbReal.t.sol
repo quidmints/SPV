@@ -453,6 +453,89 @@ contract LevYbRealProbe is AllesFixture {
         emit log_named_int ("  RESIDUAL (+ = over-claim)", residual);
         return residual;
     }
+    /// @notice 🔬 §CALMVOL-LEG-SPLIT — **WHICH OF `_calmVol`'s THREE MOVEMENTS IS UNMATCHED?**
+    ///   `_calmVol` moved the residual by +0.005358 ETH and it does THREE things per iteration, not
+    ///   two: a DRAIN (USD in, ETH out), a SELL (ETH in, USD out), and a FEED RESET
+    ///   (`_setEthFeed(px/1e10)` after a warp). Each arm below does exactly one of them, from the same
+    ///   post-`rebalance` state, so the movement that is not custody-neutral is read off directly.
+    /// ⚠️ **THE FEED ARM IS NOT A CONTROL, IT IS A SUSPECT.** `rangeETH` adds `totalNetEquity` =
+    ///   collateral − debt, and the DEBT is dollars converted at the oracle — so moving the price
+    ///   moves `rangeETH` while `POOLED`, a raw token count, cannot follow. That is an unmatched
+    ///   movement with no swap in it at all, and it would look exactly like this.
+    function _setupToRebalanced() internal {
+        _setupMorpho();
+        EV.setLevManager(address(rlm));
+        _openLpFlat();
+        _rallyRange(_entryPrice(rlm, LP), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        rlm.rebalance(LP, 0, DEX_WETH_USDC, 0, "");
+    }
+    function _res() internal returns (int256) {
+        return int256(CORE.POOLED()) - int256(AUX.rangeETH()) - int256(ETH.levBuf(LP));
+    }
+    function testReal_CalmLeg_A_DrainsOnly() public {
+        _setupToRebalanced();
+        deal(address(USDC), address(this), 20_000 * USDC_PRECISION);
+        USDC.approve(address(AUX), 20_000 * USDC_PRECISION);
+        int256 r0 = _res();
+        for (uint i; i < 8; i++) {
+            try AUX.swap(address(USDC), address(WETH), true, 30 * USDC_PRECISION, 0, true) {} catch {}
+        }
+        emit log_named_int("DRAINS ONLY  residual before", r0);
+        emit log_named_int("DRAINS ONLY  residual after ", _res());
+        emit log_named_int("DRAINS ONLY  DELTA          ", _res() - r0);
+    }
+    function testReal_CalmLeg_B_SellsOnly() public {
+        _setupToRebalanced();
+        vm.deal(address(this), 20 ether);
+        int256 r0 = _res();
+        for (uint i; i < 8; i++) {
+            try AUX.swap{value: 0.015 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch {}
+        }
+        emit log_named_int("SELLS ONLY   residual before", r0);
+        emit log_named_int("SELLS ONLY   residual after ", _res());
+        emit log_named_int("SELLS ONLY   DELTA          ", _res() - r0);
+    }
+    function testReal_CalmLeg_C_FeedResetsOnly() public {
+        _setupToRebalanced();
+        int256 r0 = _res();
+        for (uint i; i < 16; i++) {
+            vm.warp(block.timestamp + 6 minutes); vm.roll(block.number + 1);
+            uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px != 0) _setEthFeed(px / 1e10);
+        }
+        emit log_named_int("FEED ONLY    residual before", r0);
+        emit log_named_int("FEED ONLY    residual after ", _res());
+        emit log_named_int("FEED ONLY    DELTA          ", _res() - r0);
+    }
+
+    /// @notice 🔬 §LIQ-PENALTY-REFUTED → **WHERE DOES THE CONSTANT OFFSET ENTER?** The fraction sweep
+    ///   returned 4,780,507,795,264,422 IDENTICAL TO THE WEI at 0, 1/4, 1/2 and 3/4 liquidated —
+    ///   including the zero arm. A penalty must scale; this does not, and it is present with no
+    ///   liquidation at all. ⇒ the residual is a FIXED accounting offset introduced during SETUP.
+    ///   This walks the setup one step at a time and prints the residual after each, so the step that
+    ///   introduces it is read off rather than guessed.
+    function testReal_LiqPenalty_4_WhereDoesTheOffsetEnter() public {
+        _setupMorpho();
+        EV.setLevManager(address(rlm));
+        _step("after _setupMorpho");
+        _openLpFlat();
+        _step("after _openLpFlat (5 ETH deposit + 5 weETH openLev)");
+        _rallyRange(_entryPrice(rlm, LP), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        _step("after _rallyRange");
+        rlm.rebalance(LP, 0, DEX_WETH_USDC, 0, "");
+        _step("after rebalance (lever to IL target)");
+        _calmVol();
+        _step("after _calmVol");
+        ETH.syncLev(LP);
+        _step("after syncLev");
+    }
+    function _step(string memory label) internal {
+        emit log_named_string("STEP", label);
+        emit log_named_uint ("   POOLED  ", CORE.POOLED());
+        emit log_named_uint ("   rangeETH", AUX.rangeETH());
+        emit log_named_uint ("   levBuf  ", ETH.levBuf(LP));
+        emit log_named_int  ("   RESIDUAL", int256(CORE.POOLED()) - int256(AUX.rangeETH()) - int256(ETH.levBuf(LP)));
+    }
+
     /// ⭐ THE CONTROL. No liquidation at all. A penalty hypothesis REQUIRES this to be <= 0.
     function testReal_LiqPenalty_0_ControlNoLiquidation() public { _residualAtFraction(0, 1); }
     function testReal_LiqPenalty_1_Quarter()             public { _residualAtFraction(1, 4); }
