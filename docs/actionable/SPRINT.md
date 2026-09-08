@@ -106,7 +106,11 @@
 >    ▶️ **Three things it leaves open, in order:** BTC has no out-of-range path at all now (its
 >    successor is an intent whose fill becomes a `requestSwapOutOnchain` obligation —
 >    §BTC-DELIVERY-IS-BUILT, much smaller than it was); smart-wallet owners cannot place an intent
->    (`ecrecover` only, ERC-1271 ruled out on **§B7's grounds, and §B7 is still open**); and **no
+>    (`ecrecover` only, ERC-1271 ruled out on **§B7's grounds — ⚠️ and §B7 is NOT still open: it was
+>    RATIFIED 2026-08-18 (`D2 #8`), with the answer "yes, excluded", which is the opposite of what
+>    that row hoped.** ⛔ But do NOT harden "ruled out" into "unreachable" on it: B7's own ratification
+>    says **EIP-7702 falsifies that** — since Pectra a key-derived EOA can carry code, so ERC-1271 is
+>    the CORRECT path for an LP that has delegated, and `SignatureChecker` must stay); and **no
 >    relay exists in this repo** — an intent nobody stores cannot fill.
 > 1. **§SWAPOUT-DRAINS-THE-EXIT** (new, measured) — a swap-out is bounded by the pool's whole BTC
 >    inventory and nothing connects that to the dead-man exit the delivery must arm over the
@@ -13025,7 +13029,18 @@ route hints) and reversibly.
   tolerance. That is a real option if the owner wants offline depth > 0 without a fork, and it is NOT a
   replacement for the gate — it moves the cliff, it does not remove it.
 
-## 🟡 §SPLICE-ROTATES-BOTH-FUNDING-KEYS — 🟡 **EVM HALF LANDED 2026-08-31. THE RUST HALF (`onchain_cid_from_monitor`) IS STILL OPEN.**
+## ✅ §SPLICE-ROTATES-BOTH-FUNDING-KEYS — **CLOSED 2026-09-08. BOTH HALVES LANDED; THE HEADER CONTRADICTED ITS OWN BODY.**
+
+⛔ **THIS HEADER READ *"THE RUST HALF (`onchain_cid_from_monitor`) IS STILL OPEN"* WHILE THE PARAGRAPH
+BELOW IT SAID *"✅ RUST HALF LANDED TOO (same day)"*.** A row that argues with itself is worse than a
+stale one, because whichever half a reader trusts they can cite the row for it. ✅ **VERIFIED IN THE
+VENDORED LDK, not from the body's say-so:** `first_negotiated_funding_pubkeys: Option<(PublicKey,
+PublicKey)>` is DECLARED at `lightning/src/chain/channelmonitor.rs:1254`, SERIALIZED as **TLV 39** at
+`:1785`, and DESERIALIZED at `:6938` — write and read sides both present, which is the pair that
+matters for a persisted field. `onchain_cid_from_monitor` itself is live at `quid-hop/src/node.rs:215`
+with four consumers (`persister.rs:124`, `node.rs:931`, and cited by `channel_truth.rs`/
+`freshness_ledger.rs`). **Nothing here is outstanding.**
+*(original header, kept so the contradiction is legible:)* 🟡 EVM HALF LANDED 2026-08-31. THE RUST HALF IS STILL OPEN.
 
 ✅ **LANDED:** `splice` re-pins `keysHash` and `_requireChannelKeys` is gone from that path;
 `rekey`/`_authorizeRekey`/`_finishRekey`/`ChannelRekeyed`/`rekeyAuthBody`/`RekeyUnchanged` **folded
