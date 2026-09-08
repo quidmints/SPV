@@ -1252,19 +1252,6 @@ fn venue_word(v: Venue) -> Option<[u8; 32]> {
     match v {
         Venue::V3 { pool, .. } => Some(v3_word(pool)),
         Venue::V2 { pool } => Some(v2_word(pool)),
-        // 🔴 §SESS-91 — **A CURVE WORD HAS NOWHERE TO EXECUTE ANY MORE, SO IT MUST NOT BE PLANNED.**
-        //    Curve never filled through `unoswap`: §SESS-22 measured 1inch's own bit table claiming
-        //    support while `proto=2` filled **zero** on two real pools, and this file's own note says
-        //    *"proto = 1 is the ONLY protocol id measured to fill."* The single executor a Curve word
-        //    ever had was `LevMath._hubHop`'s `PROTO_CURVE` arm, reached through `dex2` — and that arm
-        //    is deleted with the pool-word plumbing.
-        // ⚠️ **THE COST IS STATED, NOT HIDDEN:** the KEYLESS fallback is now UniswapV3-only. Curve is
-        //    still reached, two ways — through 1inch's `swap()` whenever the API is up, and on-chain
-        //    for `consolidate` through `_hubRowOf`'s six fixed rows, which no caller can influence.
-        //    What is gone is a KEEPER-CHOSEN Curve pool, which is the one form that had no executor.
-        // ⇒ returning `None` here is what stops `best_direct` ranking a venue we cannot fill —
-        //   §SESS-86's defect exactly, and the reason that check lives in the ranking and not later.
-        Venue::Curve { .. } => None,
         Venue::V4 { .. } => None,   // §SESS-79 — a singleton pool has no address to put in a word
     }
 }
@@ -1354,7 +1341,6 @@ const VENUE_CACHE_TTL: Duration = Duration::from_secs(3600);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Venue {
     V3 { pool: LpAddr, fee: u32 },
-    Curve { pool: LpAddr, i: u8, j: u8 },
     /// §SESS-79 — `hooks` is absent BY CONSTRUCTION: the contract forces `address(0)`, so a hooked
     /// pool cannot be named here even by a compromised keeper.
     V4 { fee: u32, tick_spacing: i32 },
@@ -1436,14 +1422,14 @@ fn discover<R: JsonRpc>(rpc: &R, a: LpAddr, b: LpAddr, amt: U256, gated: bool) -
             }
         }
     }
-    for (x, y, pool, ia, ib) in CURVE_SHORTLIST {
-        let m = (x == a && y == b) || (x == b && y == a);
-        if m && (!gated || deep_enough(rpc, pool, a, amt)) {
-            let lo = if a <= b { a } else { b };
-            let (i, j) = if x == lo { (ia, ib) } else { (ib, ia) };
-            out.push(Venue::Curve { pool, i, j });
-        }
-    }
+    // ⛔ §SESS-113 — **NO CURVE CANDIDATES. `venue_word(Venue::Curve) => None` SINCE §SESS-91, SO
+    //    EVERY ONE WAS DISCOVERED, DEPTH-GATED WITH AN RPC CALL, AND THEN SKIPPED BEFORE IT WAS EVER
+    //    QUOTED.** `best_direct` drops unencodable venues on its first line, so `curve_quote`'s only
+    //    call site was unreachable and the variant existed to be filtered out.
+    // 🔑 `CURVE_SHORTLIST` STAYS — it is the keeper's mirror of `LevMath._hubRowOf`, and
+    //    `on_contract_table` (the coverage matrix) reads it to tell "no liquidity anywhere" from
+    //    "liquidity the CONTRACT reaches without us". The TABLE is live; the keeper-chosen Curve
+    //    VENUE is what died with the pool-word plumbing.
     for (fee, ts) in V4_TIERS {
         if v4_pool_has_liquidity(rpc, a, b, fee, ts) {
             out.push(Venue::V4 { fee, tick_spacing: ts });
@@ -1546,7 +1532,6 @@ fn best_direct<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Opt
         let out = match v {
             Venue::V3 { fee, .. } => quote_hop(rpc, tin, tout, amt, fee),
             Venue::V2 { pool } => v2_quote(rpc, pool, tin, amt),
-            Venue::Curve { pool, i, j } => curve_quote(rpc, pool, i, j, tin, tout, amt),
             // §SESS-82 — quoted at the traded size, like every other venue. Candidacy said a pool
             //    exists; the quote says whether it is the best one, and for the thin USDC/WETH tier
             //    it says emphatically not.
@@ -1558,19 +1543,6 @@ fn best_direct<R: JsonRpc>(rpc: &R, tin: LpAddr, tout: LpAddr, amt: U256) -> Opt
     best
 }
 
-/// `get_dy` on a cached Curve candidate, oriented for the direction we are actually trading.
-fn curve_quote<R: JsonRpc>(rpc: &R, pool: LpAddr, i: u8, j: u8, tin: LpAddr, _tout: LpAddr,
-                           amt: U256) -> Option<U256> {
-    let (i, j) = if tin <= _tout { (i, j) } else { (j, i) };
-    let mut qa = Vec::with_capacity(96);
-    qa.extend_from_slice(&{ let mut w = [0u8; 32]; w[31] = i; w });
-    qa.extend_from_slice(&{ let mut w = [0u8; 32]; w[31] = j; w });
-    qa.extend_from_slice(&u256_word(amt));
-    let r = eth_call_raw(rpc, Address::from_slice(&pool), "get_dy(int128,int128,uint256)", Some(&qa)).ok()?;
-    if r.len() < 32 { return None; }
-    let out = U256::from_be_slice(&r[..32]);
-    if out.is_zero() { None } else { Some(out) }
-}
 
 
 /// The same search, keeping the winning QUOTE. ⭐ Not a second implementation: `best_plan` is one
