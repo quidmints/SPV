@@ -99189,3 +99189,103 @@ change address). **Miss any one and the signer refuses a good splice — the row
 ▶️ **NEXT, IN ORDER:** (1) enumerate the output classes from a real splice trace rather than from
 reading, (2) thread the claimed obligation into `TaprootSignerContext`, (3) verify it through the
 truth source that step 2 attached, (4) fail closed only on an output matching NO class.
+
+---
+
+## §SESS-119 — the reroute lands, and the design work that actually remains
+
+Tag is 119 because project-bc flagged a §SESS-116 collision (their `a96856c3` renamed to 118; 117 is the
+L4 close-out). §SESS-116 above stays mine. Rows here UPDATE §SESS-116's; they do not repeat it.
+
+### ✅ §PAUSED-VAULT-REROUTE — LANDED (`19bc517b`), supersedes §SESS-116's "NOT STARTED"
+A/B one pinned block: BEFORE liquid and debt both unchanged, no delivery (the DoS); AFTER $1,380.82
+consumed and **$1,380.60 debt retired**, a **1.57 bps** conversion cost matching the measured DAI hub
+row. The take's recipient moved from the venue to the manager, where `LevMath._consolidateTo` (now
+`public`, second caller) converts on the keyless `_hubRowOf` rows. LevMath **24,212 B, margin 364** —
+tight; re-measure before adding to it.
+🔴 **STILL OPEN INSIDE IT:** the `q != 0` gate SKIPS an off-table stable rather than reverting, so the
+reroute is BEST-EFFORT. An unroutable slice is drawn from the basket and refunded to the Vault without
+retiring debt — protocol-side, not an LP leak, but drawn-and-not-applied. The measured case produced
+none (pro-rata delivered only DAI, which is on-table). Raised by project-bc; needs a decision on whether
+to bound the draw to the routable subset.
+
+### ✅ ANSWERED, NOT JUST BOOKED — the two questions §SESS-116 filed as "unanswered"
+
+**"Why doesn't the code require debt reaching zero?"** Because it *cannot*, twice over, and the code says
+so at `LevVenueBase:377-387`. (1) `repayPool` is a **pooled pro-rata** repay: `r = min(stableAmount, d)`,
+and on the delivery path `stableAmount` is one LP's slice. Requiring `totalDebt() == 0` would demand one
+swapper retire **every** LP's debt. (2) An exact `d - repaid` is impossible because **Morpho accrues
+interest inside the same block**, so equality would revert on ordinary accrual and brick the de-lever —
+"a tolerance that bricks is as wrong as a tolerance that hides". ⇒ any decrease is the strongest
+non-bricking proof available. ⚠️ **THE REAL GAP, WHICH IS NOT THE ONE THE QUESTION ASSUMED:** the guard
+proves DIRECTION, not MAGNITUDE. A 1-wei decrease passes while `repaid` claims any amount.
+
+**"What is the reason for debt at all — is it part of our IL protect on behalf of LPs?"** **YES — the
+debt IS the hedge, and nothing else.** `LevMath.ilTargetBps` = `1 − √(ilBasisPx/pxNow)` clamped to
+`TARGET_LTV_CAP_BPS`: the target LTV is *literally the IL fraction*, so the borrowed short is sized to
+cancel the up-side IL the range accrues. It is not financing and not yield. **`pxNow <= ilBasisPx ⇒ 0`:
+no debt at or below entry.** Down-side IL is deliberately unhedged, with the reason stated at
+`LevMath:230` — it is impermanent and heals, so a below-entry short would realise the loss and forfeit
+the recovery. **Up-side-only is the design.**
+
+**"Why do swaps affect the IL-protect leverage? Is there a timeout so we can always unwind if swap
+volume stops?"** Swaps do **not** move the leverage target — `ilTargetBps` is a function of PRICE only.
+What a swap does is **remove collateral**: a BTC swap-out hands out the volatile, and the levered slice
+of it must be un-encumbered, which forces a proportional debt retirement so the position stays at its
+IL-derived LTV. IL sets how much debt *should* exist; swaps set how much collateral *remains*;
+`deleverOnDelivery` reconciles them. **And no timeout is needed, because unwinding never goes through the
+swap path:** `closeLev`/`closeLevFor` are the LP's own exit and `protectFromQuid` is PERMISSIONLESS and
+funded by the LP's opted-in QU!D. Zero swap volume blocks neither. **What DOES depend on volume is the
+REFILL** (restoring composition), not the unwind (retiring debt) — those are different mechanisms and
+should not be conflated.
+
+### 🔴 §SIGMA-FOURTH-CONSUMER — σ² feeds the EXPOSURE bound too, and Γ just widened it
+Owner: *"R = SKEW_UNFILLABLE/(Γ·σ²), so `_fillableDrain`'s bound is itself σ²-dependent … a fourth
+consumer of σ² (pricing, θ, the exemption threshold, and now the fillable bound)."* **Confirmed at
+`SwapLib:1815-1822`** and quantified — because Γ fell 5.475×, R rose by the same factor and the floor
+the range refuses to be drained below **fell with it**:
+
+| | σ²=1e18 (100% vol) | σ²=4e18 (200% vol) |
+|---|---|---|
+| Γ = 3e16 | invFloor **2.913%** of target | 10.714% |
+| Γ derived | invFloor **0.545%** of target | 2.145% |
+
+⇒ **the range now serves a drain 5.345× closer to empty before declining.** This is the SAME root as
+§GAMMA-WEAKENS-THE-BRAKE and doubles it: the price brake no longer reaches the haircut (§SESS-116) *and*
+the quantity brake loosened by the identical factor.
+⛔ **AND THE DEGRADATION IS ASYMMETRIC, WHICH IS THE PART THAT MATTERS.** At `sigmaSqWad == 0`
+`_fillableDrain` returns `wanted` — **no bound at all** (`SwapLib:1814`) — while pricing returns the
+conservative `UNKNOWN_VARIANCE_SKEW`. So one broken input makes **pricing fail SAFE and exposure control
+fail OPEN**, in opposite directions. σ² is now sourced from the Chainlink anchor as well as the ring
+(§E345, `max(ringVariance, anchorVarianceWad)`) so a zero is hard to reach, but the asymmetry is
+unguarded and is exactly the "different directions" coupling the owner named.
+
+### 📐 §BUNDLED-REFILL — the design that remains, with the argument that decides it
+Owner: *"the swapper funds the refill inside their own trade, which is the only actor with a reason to
+be there."* ⇒ **BUNDLED, NOT KEEPER, AND THE GROUND IS ECONOMIC:** the swapper's own trade is a DIRECT,
+SELF-FUNDING quantity, where a keeper's economics are a DERIVED one — a keeper needs gas and cost of
+capital covered by a margin that must itself be manufactured, and value-neutrality means there is no
+margin to pay them from. A refill bundled into the swap that CAUSED the depletion needs no incentive at
+all. Related ruling already settled 2026-08-22 (§E301): **the swapper pays the routing spread, on top of
+their skew premium** — so "paid against 1inch" is not open.
+**BUILDABLE NOW — the blocker is confirmed stale:** `_declineIfUnfillable` has ZERO references, and §E300
+(`SwapLib:1704`) records that *"the skew path never reverts"*, bounding quantity rather than price, so a
+solver can still size down or split. §E285's "a reverting quote tells a solver nothing" no longer applies.
+**WHAT IS ACTUALLY UNBUILT:** `SwapLib.refillNeeded` has SIX callers and **all six are in
+`RefillTriggerAndProRata.t.sol` — ZERO in `evm/src`.** The predicate exists, tested and unwired. The
+design work is the three things it does not yet have: the **trigger point** inside the swap, the
+**sizing** (§E301 deleted `refillPlacement`, and the owner has now superseded that deletion), and the
+**funding assertion** — which is §REFILL-AFFORDABILITY below.
+
+### 🟡 §REFILL-AFFORDABILITY — rebuilt, running, and only HALF the inequality is measured
+`19bc517b`. First real reading on a $20,000 drain: **premium retained $0.140415** (0.07 bps) against an
+**entry-side gain at oracle of $2.72**. ⛔ The **restoration** leg — what it costs to buy `ethGot` back
+through a live venue — is **NOT measured** and needs the 1inch route, so no inequality is claimed yet.
+📌 Read the premium figure against §GAMMA-WEAKENS-THE-BRAKE: 0.07 bps is *after* Γ fell 5.475×, and a
+stable-to-stable hub hop alone costs 1.57 bps (measured this session).
+
+### ⚠️ NOT MINE, CARRIED SO IT IS NOT LOST
+`testReal_Morpho_Liq…` — *"real venue ETH + the debt-funded buffer must cover the range (honest LPs
+whole)"* — is RED. A/B'd at one pinned block: the shortfall is **identical to the wei**
+(4,579,699,546,827,633) with and without the reroute, so the reroute did not cause it. **Whether §E274's
+Γ caused it is UNTESTED** — both arms carry the new Γ. Needs a pre-`a4787689` worktree to settle.
