@@ -124,5 +124,15 @@ Recovery on **unplanned** loss (dead enclave, migration impossible): the LP alwa
 - [ ] All of the SGX HARDWARE TAIL checked.
 - [ ] Both prod keys (signer MRSIGNER + governance) replace the dev/placeholder values.
 - [ ] Cold backup + hot replication live for the hop key (and documented for LPs).
+- [ ] **Back up the LP DATA DIRECTORY, not only the seed — the words do not restore a channel.**
+      The mnemonic restores the LP's KEYS; the channel MONITORS (`lp-store.json` and the `vault/`
+      subdirectory) live in the same data directory and are what a node needs to know which
+      commitment is current and to answer inside a CSV window. Restoring from words alone yields a
+      node holding the right keys that knows nothing about its channels. ⇒ the seed backup bounds
+      the damage; it does not make disk loss a non-event. (`quid-bridge/src/lp_seed.rs` states this
+      at the source; this line is the operator-facing half, which did not exist — SPRINT `D2 #15`.)
+      ⚠️ A lost disk is still survivable for FUNDS: `DeadManExitEmitted` publishes the fully-signed
+      exit tx on-chain, so anyone can broadcast the rung after its CLTV. That is a bounded exit that
+      RETIRES the channel — it is not a restore, and it is not a reason to skip this backup.
 - [ ] `docs/actionable/AUDIT-TODO.md` sensitive areas 🟢.
 - [ ] Watchtower + Bitcoin anti-eclipse config live.

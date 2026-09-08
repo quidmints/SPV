@@ -51,8 +51,18 @@
 //! part that is irreplaceable (nothing else in the system can regenerate it); the monitors are
 //! the part that ordinary backup of the data directory covers, and an LP should be doing that
 //! too. The escape that is supposed to survive a dead LP entirely is §E165's pre-signed exit
-//! ladder — but that is armed at open and, until the on-chain arming lands, is not public, so it
-//! is not yet a substitute for either. See §M1#2-PHASE-1C in the queue.
+//! ladder.
+//! ✅ **THAT LADDER IS NOW PUBLIC AND IS A REAL SUBSTITUTE — this paragraph used to say it was not.**
+//! It read *"until the on-chain arming lands, is not public, so it is not yet a substitute"*. The
+//! arming landed (`d13fde00`, all five rotation sites), and `BTCChannels.DeadManExitEmitted` carries
+//! **`bytes signedExitTx`** — the FULLY-SIGNED exit transaction, on-chain, readable by anyone. So an
+//! LP that has lost its disk entirely still has an escape it does not need to hold: anyone watching
+//! can broadcast the rung after its CLTV.
+//! ⚠️ **WHAT THAT DOES NOT GIVE BACK IS THE CHANNEL.** The ladder pays out and RETIRES; it is a
+//! bounded exit, not a restore. Backing up the data directory is still what keeps a channel alive,
+//! and it is an operator action nothing in this process performs.
+//! (The `§M1#2-PHASE-1C` pointer here named `QUEUE.md`, which no longer exists — it folded into
+//! `docs/actionable/SPRINT.md`, where this gap is `D2 #15`.)
 //!
 //! ⚠️ **AND IT NEVER FIRES TWICE.** The file is created with `create_new`, so an existing backup
 //! is an error rather than an overwrite, and the decision requires that no sealed seed existed
