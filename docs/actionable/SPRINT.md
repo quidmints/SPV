@@ -99289,3 +99289,61 @@ stable-to-stable hub hop alone costs 1.57 bps (measured this session).
 whole)"* — is RED. A/B'd at one pinned block: the shortfall is **identical to the wei**
 (4,579,699,546,827,633) with and without the reroute, so the reroute did not cause it. **Whether §E274's
 Γ caused it is UNTESTED** — both arms carry the new Γ. Needs a pre-`a4787689` worktree to settle.
+
+---
+
+## 🔴🔴 §GAMMA-BREAKS-HONEST-LP-MARGIN — the Γ ruling fails a SOLVENCY invariant, proven by toggle
+
+**This supersedes §SESS-119's "whether Γ caused it is UNTESTED". It is Γ, and it is not a stale test
+constant — it is a live assertion about LPs being made whole.**
+
+`LevYbReal.t.sol:480` — `assertGe(AUX.rangeETH() + ETH.levBuf(LP), CORE.POOLED(), "real venue ETH + the
+debt-funded buffer must cover the range (honest LPs whole)")`. `POOLED` is the range's CAPACITY
+(`Quid.sol:979`: `levPooled + levBuf`); `rangeETH` is ETH actually held at a venue.
+
+**PROVEN BY TOGGLE, NOT BY BISECT.** Γ is one constant, so the hypothesis is directly testable — no
+worktree and no 29-commit interval walk:
+
+| Γ | `testReal_Morpho_LiquidationLeavesBasketIntact` |
+|---|---|
+| `3e16` (inherited) | ✅ **PASS**, gas 34,117,051 |
+| `FLOW_HALFLIFE·WAD/365 days` (ruled) | ❌ **FAIL** — 4,910,306,168,987,357,142 < 4,914,885,868,534,184,775 |
+
+⇒ project-bc's two other candidates (`570fad87` LadderTooDeep, `37a34a01` ±20bps) are **exonerated for
+this test**. Their control is what made the toggle worth running: two full-suite runs at 11:02 and 11:26
+on 2026-09-08 had this test GREEN, and `a4787689` landed at 14:31 — green pre-Γ, red post-Γ.
+⚠️ Their stated limit, kept: those runs were against a working tree carrying uncommitted edits, so
+"green at 11:26" is not "green at exactly `073fb7cd`". It does not weaken the Γ claim (Γ did not exist in
+either run) but it is the loose variable if anything downstream looks surprising.
+
+**THE MAGNITUDE, IN THE UNITS THE TEST'S OWN §C25 NOTE ESTABLISHED.** That note measured the honest-LP
+margin at **0.00708 ETH to spare**. The shortfall is now **0.004580 ETH** (4,579,699,546,827,633 wei,
+identical to the wei with and without the reroute). ⇒ **Γ's reduction consumed the entire 0.00708 ETH
+margin and went 0.00458 ETH past it** — about $11.37 at $2,483/ETH, ~0.093% of a ~4.91 ETH range.
+
+**WHY, MECHANICALLY.** A smaller Γ prices drains cheaper, so more ETH leaves the range for the same
+dollars, while `POOLED` (capacity) does not fall with it. `rangeETH` drops relative to a claim that the
+debt-funded `levBuf` was sized to cover under the OLD premium. **This is the same root as
+§GAMMA-WEAKENS-THE-BRAKE and §SIGMA-FOURTH-CONSUMER — a third bound Γ widened that nobody reviewed with
+the other two.** The first two are threshold judgments; this one is a failing invariant.
+
+⛔ **NOT SILENTLY REVERTED. Γ STAYS ON ITS DERIVATION** — the owner ruled the value, and this is the
+consequence of that ruling, not grounds for me to undo it. **OWNER DECISION, three options and they are
+not equivalent:**
+1. **Keep the derived Γ and re-size `levBuf`** — the buffer is debt-funded and was calibrated against the
+   old premium; the honest reading may be that the buffer, not Γ, is the stale number.
+2. **Raise Γ off its derivation** — restores the margin, re-introduces a chosen constant, and re-opens
+   exactly the §E275 circularity the derivation removed.
+3. **Accept a thinner margin explicitly** — 0.093% against a stated "honest LPs whole" guarantee, which
+   contradicts *"never at a loss to the pool"* and should not happen by default.
+
+📌 **AND A FOURTH READING WORTH TESTING BEFORE CHOOSING:** the assertion may simply be the FIRST place a
+5.475× premium cut becomes visible, in which case reverting Γ hides a real under-collection rather than
+fixing it. §REFILL-AFFORDABILITY's $0.140 premium on a $20,000 drain (0.07 bps) points the same way.
+
+### 📌 project-bc's residue suggestion, adopted into §SESS-119's open item
+The reroute's measured case produced no unroutable residue **only because the pro-rata delivered DAI,
+which is on-table — a property of the basket's composition on that block, not of the mechanism.** The
+residue appears the first time the pro-rata delivers an off-table slice, and **nothing announces it**:
+`got` simply comes in lower. Cheap fix, no revert and no liveness cost: compare the drawn total against
+the sum of the routable subset before the loop and emit when they differ.
