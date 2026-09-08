@@ -184,6 +184,18 @@ contract SellSkewUnmeasuredVarianceProbe is AllesFixture {
             emit log("live range already overshoots; exemption not exercisable here");
             return;
         }
-        assertEq(SwapLib.sellSkew(core, px, 0), 0, "a non-overshooting sell must be exempt");
+        // §MIN-SWAP-FEE — "EXEMPT" MEANS EXEMPT FROM THE PREMIUM, NOT FREE. This asserted `== 0`,
+        // and that was the shape of the defect rather than a description of it: a balance-restoring
+        // swap paid literally nothing, because `sellSkew` returned 0 here, `_depletion` returns 0
+        // whenever `inv1 >= inv0`, and `retainSkewPremium` opens `if (skew == 0) return;`. The flat
+        // 420 ppm that used to catch it was deleted (§E311) on the argument that `_depletion`
+        // "already WAS that charge" — true on the DRAIN direction only.
+        // Owner, 2026-09-08: *"the minimum swap fee was just the fact that all swaps even balance
+        // restoring must pay at least the minimum"*, and on §SESS-18's "the direction we want free":
+        // *"by that free meaning it just means without encumbering extra beyond the minimum"*.
+        // ⇒ BOTH HALVES ARE ASSERTED, because either alone is satisfiable by a defect: not free
+        //   (a floor exists) AND not more than the floor (no scarcity premium on a refill).
+        assertEq(SwapLib.sellSkew(core, px, 0), SwapLib.MIN_SWAP_SKEW_WAD,
+                 "a non-overshooting sell must pay the minimum and NOTHING above it");
     }
 }

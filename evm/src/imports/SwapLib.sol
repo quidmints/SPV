@@ -805,6 +805,22 @@ library SwapLib {
     /// Scaled by the FRACTION DRAINED, so it is bounded BY this value: a full drain owes 2.1 bps,
     /// half a drain 1.05 bps, and a range that was never funded owes nothing at all.
     uint internal constant DEPLETION_RATE_WAD = 2.1e14;   // 210 ppm = half the pool fee tier
+    /// §MIN-SWAP-FEE — **EVERY SWAP PAYS THIS, INCLUDING A BALANCE-RESTORING ONE.** 420 ppm, the
+    /// exact flat tier §E311 deleted. Owner, 2026-09-08: *"the minimum swap fee was just the fact
+    /// that all swaps even balance restoring must pay at least the minimum."*
+    /// 🔑 **WHY THE DELETION LOST A PROPERTY NOBODY NOTICED.** §E311 removed the flat 420 arguing
+    /// `_depletion` *"already WAS that charge, in inventory-proportional form"* — true **on the drain
+    /// direction only**. `_depletion` returns 0 when `inv1 >= inv0`, which is precisely a swap that
+    /// does NOT deplete inventory; `sellSkew` returns 0 for the refill leg; and `retainSkewPremium`
+    /// opens `if (skew == 0) return;`. ⇒ a balance-restoring swap paid **exactly zero**, on both
+    /// assets. The substitution was justified against drains and applied to everything.
+    /// ⚠️ **THIS IS NOT THE SCARCITY PREMIUM, AND IT DOES NOT CONTRADICT §SESS-18's *"the refill
+    /// direction ... is the direction we want free"*.** Free of the PREMIUM is right — a refill
+    /// relieves scarcity and must not be charged for relieving it. This is the FLOOR every swap pays
+    /// for consuming the venue at all. Two quantities that happened to share one number.
+    /// ⛔ APPLIED AT THE PRODUCERS, NOT AT `retainSkewPremium`, so the published QUOTE carries it —
+    /// flooring only at the fill would quote 0 and then charge 420 ppm.
+    uint public constant MIN_SWAP_SKEW_WAD = 4.2e14;    // 420 ppm — the floor, on every swap
     // Avellaneda–Stoikov calibration. `realizedVarianceWad` is ANNUALIZED realized variance in WAD:
     // a fraction² scaled 1e18, e.g. 80%-annualized vol ⇒ σ² ≈ 0.64 ⇒ ~6.4e17. Γ folds the
     // risk-aversion γ and the horizon (T−t) into ONE coefficient (the horizon is already carried by
@@ -1916,7 +1932,7 @@ library SwapLib {
         // §E295 — ONE composer, both legs. `raw` already carries kernel + base + depletion from
         // `skewWad`, so it IS the pre-amplifier value; the sell leg sums its own inside
         // `_composePrice`. The `> splice` guard and both declines now live in `_amplify`.
-        return _amplify(core, raw, rk.spliceFloor);
+        return SoladyMath.max(_amplify(core, raw, rk.spliceFloor), MIN_SWAP_SKEW_WAD);
     }
 
     /// @notice SYMMETRIC A-S skew for a volatile-IN SELL (the self-funded short's
@@ -1952,7 +1968,7 @@ library SwapLib {
         // EXEMPT across a wider range (`inv <= target` below), which is the direction we want free.
         uint flow = ICore(core).skewTargetUsd();
         uint target = flow;
-        if (target == 0) return 0;
+        if (target == 0) return MIN_SWAP_SKEW_WAD;         // §MIN-SWAP-FEE: no premium, never free
         // inv IS `_skewBasis`'s post-add pool inventory — NOTHING is subtracted from it. Scope the
         // transient conversion local so it frees its stack slot before `_sharedScarcityWad` (no via_ir).
         uint inv;
@@ -1977,7 +1993,8 @@ library SwapLib {
         // INTO FLOW, and the holding time is qBar/flow.
         // A refill (inv ≤ target) stays exempt, exactly as the mirror's flush branch made it.
         uint over = inv > target ? inv - target : 0;
-        if (over == 0) return 0;                          // refill / at-target ⇒ EXEMPT
+        if (over == 0) return MIN_SWAP_SKEW_WAD;           // refill / at-target ⇒ EXEMPT from the
+                                                          // PREMIUM; §MIN-SWAP-FEE still applies
         // §E56 REFUSAL — WITH THE LIVENESS DISCRIMINATOR THAT THE FIRST ATTEMPT LACKED.
         //
         // `tau = qBar/flow` is UNDEFINED at flow == 0, not merely large, so the honest response is to
@@ -2096,7 +2113,7 @@ library SwapLib {
         // §E89b: and the SAME risk-vs-fee split — the settlement-window risk term rides the amplifier
         // with the kernel; only `SPLICE_FLOOR` stays outside it. Written here so both legs compose
         // their price identically; they had already drifted apart once (E68b).
-        return _composePrice(core, skew, sigmaSqWad);
+        return SoladyMath.max(_composePrice(core, skew, sigmaSqWad), MIN_SWAP_SKEW_WAD);
         // §E79 — `_maxWellSkew` is the shared BASE, not a ceiling: `_composePrice` ADDS it to this
         // kernel exactly as `wellSkew`'s `raw` already carries it. One rule, both legs.
 
