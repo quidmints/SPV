@@ -574,6 +574,14 @@ contract BTCChannels {
         bytes   signedExitTx
     );
     error SwapOutReplay();   // zeroed or reused swap-out swapId (distinct from SwapInReplay)
+    /// ⭐ §SESS-114 — **A DUST FILL IS NOT A REPLAY, AND CALLING IT ONE STOPS THE INVESTIGATION.**
+    /// `requestSwapOutOnchain` reverted `SwapOutReplay()` when `creditSwapOut` returned ZERO sats —
+    /// a record it had just created one line earlier, so a replay was the one thing it could not be.
+    /// A swapper whose amount was too small to clear a satoshi was told their `swapId` collided.
+    /// ⚠️ This is §SESS-99's `ZeroMinReturn()` inverted and worse. There, a self-describing revert
+    /// arrived ANONYMOUS four frames away and cost a day of misdiagnosis. Here it arrives CONFIDENTLY
+    /// MISLABELLED — which is worse, because a wrong name ends the search instead of starting it.
+    error SwapOutDust();     // the requested USD bought zero satoshis — too small, not a collision
     error NotExpired();      // swap-out self-refund called before the timeout
     uint constant SWAPOUT_REFUND_BLOCKS = 7200; // ~1 day @ 12s — swapper self-refund timeout (≫ the ~1-2h honest SPV delivery window)
     error NoSuchSwapOut();   // deliverSwapOutOnchain for an unknown/already-settled swapId
@@ -2240,7 +2248,9 @@ contract BTCChannels {
         swapOutUsed[swapId] = true;
         uint usd6;
         (sats, usd6) = btc.creditSwapOut(msg.sender, token, usdAmount, minSats);
-        if (sats == 0) revert SwapOutReplay(); // zero/dust fill → unwind the used-mark
+        // §SESS-114 — DUST, not replay. The revert still unwinds the used-mark (state rolls back
+        // with it), so the mechanics were always right; only the name was wrong.
+        if (sats == 0) revert SwapOutDust();
         // uint96 packing self-evidently safe (BTC supply ≪ 2^96; 6-dec usd ≪ 2^96/1e6).
         if (sats > type(uint96).max || usd6 > type(uint96).max) revert InvalidParam();
         pendingOnchainSwapOut[swapId] = PendingOnchainSwapOut({
