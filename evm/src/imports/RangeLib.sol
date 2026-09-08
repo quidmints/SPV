@@ -240,13 +240,17 @@ library RangeLib {
         q.syncKeyPx    = s;
         // ⛔ §C19 — DO NOT WRITE `q.ilBasisPx` HERE. IT MAKES THE LEVERED BOOK INERT.
         // `RANGE_ANCHOR = o.spotPrice` is unconditional (`Quid._rebalance:1481`), so the range recenters
-        // on spot at every repack and this reseat fires on any drift past `RANGE_DELTA` (20 bps).
+        // on spot at every repack and this reseat fires on any drift past `RANGE_DELTA`
+        // (`SwapLib.RANGE_DELTA = 200`, i.e. 200 bps / ±2% — widened from 20 on 2026-09-08).
         // Re-basing the IL basis on each reseat resets the very quantity the hedge measures, capping
-        // the most IL that can ever accumulate at ONE HALF-RANGE, `1 - sqrt(1/1.002)` = **9.99 bps**.
+        // the most IL that can ever accumulate at ONE HALF-RANGE, `1 - sqrt(1/1.02)` = **98.5 bps**.
         // Any no-trade band wider than that then makes `debtDelta` return `(false, 0)` on EVERY path,
         // and `venue.borrow` is UNREACHABLE BY CONSTRUCTION -- silently, because nothing reverts.
         // (`debtDelta` takes its `rangeBps` as an argument now, sized per position by
-        // `LevBase._bandBps`, so the exact width is not fixed here -- but it is not 10 bps.)
+        // `LevBase._bandBps`, so the exact width is not fixed here -- but it is bounded by the cap
+        // above, and the WIDENING RAISED THAT CAP ~10x: a band that was inert at 20 bps may not be
+        // at 200. The hazard is the same shape, just at a different number -- re-derive, do not
+        // carry the old 9.99 bps figure forward.)
         // ⚠️ THE INVARIANT THAT DEFENDS THIS RESEAT COVERS `entryEquity` ONLY. It reads: levering
         // moves collateral and debt by the SAME amount, so NET EQUITY is leverage-invariant -- true,
         // and it says nothing about a PRICE basis. A leverage-invariant equity base does not imply a

@@ -417,8 +417,12 @@ library BasketLib {
     /// over the period. This deletes the tick→sqrt→price round trip that was the single largest
     /// `TickMath` consumer, AND the `token0isUSD` argument: orientation is resolved once at write
     /// time rather than on every read, so it can no longer disagree between writer and reader.
-    /// ⚠️ The mean is now ARITHMETIC in price where it was geometric in log-price. Across the ±0.2%
-    /// `RANGE_DELTA` the two differ by O(σ²/8) ≈ 1e-6 relative — inside the rounding already here.
+    /// ⚠️ The mean is now ARITHMETIC in price where it was geometric in log-price. The gap is
+    /// O(σ²) in the RELATIVE excursion, so it scales with the SQUARE of the band width, and the
+    /// band is `SwapLib.RANGE_DELTA = 200` (±2%) — widened from 20 on 2026-09-08, i.e. 100× on
+    /// this term. ⛔ The old claim *"≈ 1e-6 relative, inside the rounding already here"* was
+    /// derived at ±0.2% and DOES NOT SURVIVE THE WIDENING: the same estimate is order 1e-4 at
+    /// ±2%, and nobody has re-measured it against the rounding. Treat the bound as UNVERIFIED.
     function cumsToPrice(uint192 cum0, uint192 cum1, uint32 period)
         external pure returns (uint price) {
         price = uint256(cum1 - cum0) / period;

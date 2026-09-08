@@ -33,8 +33,11 @@ import {Types, InsufficientAllowance} from "./imports/Types.sol";  // §E299: fi
 ///
 /// ⛔ DO NOT BUILD `redeemVBtc(sats, p2trScript)`. This header used to propose it (on privacy
 ///    grounds); the consuming repo analysed exactly that design and rejected it as a THEFT VECTOR.
-///    `../ibiza/TODO.md` §2.4d, quoting this repo's `BTCChannels._lpFinalBalance` docblock (cited
-///    there as `BTCChannels.sol:477-496`, since drifted — grep the symbol):
+///    Originally `../ibiza/TODO.md` §2.4d — ⚠️ THAT COORDINATE NO LONGER RESOLVES ANYWHERE THIS
+///    TREE CAN CHECK: the file was relocated to `docs/actionable/TODO.md` (2026-08-30) and the
+///    current copy contains no `vBTC` text at all, so THE VERBATIM QUOTE BELOW IS THE RECORD, not
+///    the pointer. It quotes this repo's `BTCChannels._lpFinalBalance` docblock (cited there as
+///    `BTCChannels.sol:477-496`, since drifted — grep the symbol):
 ///      "We REJECT any other output: without this, a malicious LP could route its withdrawal to a
 ///       script != btcRecipientOf, making `_lpFinalBalance` read 0 -> `delivered = shrinkSats` ->
 ///       OVER-CLAIM THE SHARED SWAP-OUT PROCEEDS POOL (CROSS-LP THEFT)."

@@ -83,8 +83,9 @@ contract Basket is ERC20, ERC6909,
         // NEVER mints (it only ever read depeg state), and the CRE `onReport` forwarder path is
         // RETIRED — see `Aux`. The audit conclusion stands: granting a rotatable forwarder address
         // an (unused) mint capability was a real over-privilege, and LINK is still correctly
-        // absent. Minting is AUX + V4 (fees) + BTC_VAULT — the regrouped BTC-LP fee/close mints,
-        // previously V4's, plus `Vault.creditSwapIn`/`creditSwapOut`, the swap-out reissuance
+        // absent. Minting is AUX + RANGE + BTC_VAULT, matching the `auth` body below exactly
+        // (`RANGE` is the ETH range manager, `Quid`). The BTC-LP fee/close mints were regrouped
+        // onto BTC_VAULT, plus `Vault.creditSwapIn`/`creditSwapOut`, the swap-out reissuance
         // leg. That last pair is why BTC_VAULT is in `auth` and not just AUX.
         return (who == address(AUX) || who == RANGE || who == BTC_VAULT);
     } // BTC_VAULT is `Vault` — the BTC RANGE MANAGER and only that; `Quid` is its ETH twin.
@@ -108,7 +109,9 @@ contract Basket is ERC20, ERC6909,
     mapping(address => uint) internal tranche;
 
     // Basket composition (the stable set + tranche rules) is fixed at deploy: ownership
-    // is renounced after `setup`, so there is no on-chain curation/governance surface to
+    // is renounced at deploy FINALIZE (`DeployL1_s`: `AUX.finalize()` then
+    // `Ownable(address(QUID)).renounceOwnership()` — Basket has no `setup` of its own), so
+    // there is no on-chain curation/governance surface to
     // re-weight, add, or remove stables post-launch. Any change is a fresh deploy.
 
     // ─── tranche-supply view ──────────────────────────────────────
@@ -286,7 +289,7 @@ contract Basket is ERC20, ERC6909,
         uint nextMonth = currentMonth() + 1;
         if (auth(msg.sender)) { // ETH LP swap fee dollar half...
             // protocol-internal mint + `Vault.creditSwapOut` for BTC
-            // swap-out reissuance; Quid for V4 fee distribution.
+            // swap-out reissuance; RANGE (`Quid`) for range fee distribution.
             // The supply cap is the structural defense against a
             // compromised hop signer: even with valid LP+hop
             // signatures, a protocol mint can only credit up to the

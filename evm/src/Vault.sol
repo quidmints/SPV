@@ -102,18 +102,20 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     /// @notice BTC-side LP accounting — parallel to the ETH-side trio in Quid.
     /// `autoManaged[user].pooled` slot holds the user's pooled WBTC
     /// (8-dec, type-reused from Types.Deposit). `lpShares` is the sum.
-    /// `feesPerShare` accumulates V4 BTC-side trading fees (in WBTC);
-    /// `USD_FEES` accumulates V4 USD-side trading fees from the BTC pool.
+    /// `feesPerShare` accumulates BTC-side RANGE trading fees (in WBTC);
+    /// `USD_FEES` accumulates USD-side RANGE trading fees from the BTC range.
+    /// Both accrue from RANGE fills, which settle AT ORACLE against inventory — there is no
+    /// Uniswap v4 pool anywhere in this tree, so nothing here is a pool-fee accrual.
 
     /// BTC IL-protect: per-LP LEVERED range slice (8-dec sats) — the mirror of Quid's `levPooled`.
-    /// Backed by the BtcLevManager net-equity (not real channel sats), it earns V4 fees but is
+    /// Backed by the BtcLevManager net-equity (not real channel sats), it earns RANGE fees but is
     /// UNWIND-ONLY: it never leaves via a channel splice/close (there's no channel BTC behind it), only
     /// via `syncLev` shrinking to match the manager. Excluded from the LP's withdrawable balance.
     /// @notice full-2×: 6-dec USD counterpart of an LP's DEBT-funded BTC buffer leg. Post-fold it folds
     ///         into POOLED_USD (no separate LEV bucket) and is excluded from committed via the live-debt
     ///         subtraction in committedUsd18. Bounded by the LP's own debt (enforced in BtcLib.levAddBufBtc).
     /// @notice NET model (mirror of Quid.levBuf): per-LP debt-funded BTC BUFFER depth (8-dec sats). It is
-    ///         fee-earning V4 depth but NOT equity — EXCLUDED from lpShares/pooled, INCLUDED in the GROSS
+    ///         fee-earning RANGE depth but NOT equity — EXCLUDED from lpShares/pooled, INCLUDED in the GROSS
     ///         fee weight (pooled + levBuf) and the fee denominator (lpShares + totalBuffer).
     /// @notice Sum of every BTC LP's levBuf — the gross buffer total. Fee denom = lpShares + this.
 
@@ -190,18 +192,19 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     receive() external payable {}
 
     /// @notice BTC-side init (formerly BtcVault.setup): pin QUID, read the BTC
-    ///         pool slot0 (needs CORE.setup done) and seed `RANGE_ANCHOR`. AUX/
+    ///         range price via `CORE.poolStats()` (needs CORE.setup done) and seed `RANGE_ANCHOR`.
+    ///         (There is no `slot0` and no pool to read one from; `poolStats` returns the observation
+    ///         ring's `obsState.lastPrice`.) AUX/
     ///         CORE are constructor-set immutables, so only QUID is taken here.
     function setup(address _quid) external {
         if (msg.sender != owner()) revert Unauthorized();   // was front-runnable
         if (address(QUID) != address(0)) revert AlreadyInitialized();
         QUID = Basket(_quid);
         (uint priceWad,) = CORE.poolStats();
-        // §ONE-ANCHOR — the seed IS the anchor. ⚠️ THIS NARROWS THE PRE-FIRST-REPACK RANGE: the old
-        // line seeded at delta=200 (±2%) while EVERY other site uses RANGE_DELTA=20 (±0.2%), an
-        // unexplained 10x the one-anchor form cannot express. The seed is superseded by the first
-        // repack, which `checkBacking` triggers on the first operation, so the window is narrow --
-        // but it IS a behaviour change, called out here rather than buried.
+        // §ONE-ANCHOR — the seed IS the anchor: bounds are DERIVED on read as
+        // `updateBounds(RANGE_ANCHOR, SwapLib.RANGE_DELTA)`, so ONE width governs the whole tree and
+        // this seed cannot disagree with it. ⛔ Do not re-introduce a literal delta beside this line:
+        // that is what the one-anchor form exists to delete. (`SwapLib.RANGE_DELTA = 200`, ±2%.)
         RANGE_ANCHOR = priceWad;
     }
 
@@ -368,7 +371,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     }
 
     /// @notice (B) The BTC range's ACTUAL sold-volatile fraction (WAD) since `syncKeyPx` — mirror of
-    ///         `Quid.soldFractionWad`, over the BTC ticks/ordering. Shared pure geometry lives in SwapLib.
+    ///         `Quid.soldFractionWad`, over the BTC range bounds/ordering. Shared pure geometry lives in SwapLib.
     function soldFractionWad(uint syncKeyPx) external view returns (uint) {
         (uint priceWad,) = CORE.poolStats();
         return SwapLib.soldFractionWad(syncKeyPx, priceWad, _lo(), _hi());
@@ -395,9 +398,9 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     ///         has no Morpho yield to sync and no _calcYield metric, so the
     ///         wrapper only reorders + distributes the repack/JIT fees and writes
     ///         the new range back.
-    /// @dev Thin forwarder: the fat body (rebalanceCore + fee distribution + reseat/tick writeback) moved to
+    /// @dev Thin forwarder: the fat body (rebalanceCore + fee distribution + reseat/bounds writeback) moved to
     ///      BtcLib.rebalanceBody (delegatecall — EIP-170). `feeDenom` = lpShares + totalBuffer (GROSS
-    ///      fee weight); the reseat-epoch bump and the V4 writes happen inside that body, and only the
+    ///      fee weight); the reseat-epoch bump and the range writes happen inside that body, and only the
     ///      value-type accumulators + `RANGE_ANCHOR` come back to be applied here. Logic unchanged.
     function _rebalance() internal returns (uint spotPrice,
         uint loPrice, uint upPrice, uint myLiquidity, uint resolvedTwap) {
@@ -417,7 +420,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     //
     // A BTC-LP position is created/sized by LOCKING NATIVE SATS IN A CHANNEL —
     // `requestDeposit` and `requestRedeem`/`resize` are all gated to BTCChannels,
-    // which calls them on open / close. The V4 BTC side is purely virtual (modLP mints/burns mockBTC; no
+    // which calls them on open / close. The BTC RANGE side is purely virtual (modLP mints/burns mockBTC; no
     // real WBTC moves), so the locked sats stay self-custodied in the channel.
 
 
@@ -449,7 +452,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     function requestDeposit(address lpEth, uint sats) external nonReentrant onlyBTCChannels {
         // Whole body (checkBacking/TWAP/_rebalance-via-repack + settle + in-range
         // pairing + out-of-range remainder) in BtcLib.requestDeposit (delegatecall):
-        // it operates on the Vault's storage via the passed refs and drives the tick
+        // it operates on the Vault's storage via the passed refs and drives the range
         // rebalance through the public repack self-call; the value-type lpShares
         // delta returns for the forwarder.
         lpShares += BtcLib.requestDeposit(
@@ -460,7 +463,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     // ═══════════════════════════ BTC IL-PROTECT: levered range slice ═══════════════════════════
     // Mirror of Quid.syncLev/_levAdd/_levBurn over the BTC range. The BtcLevManager holds the LP's
     // vBTC collateral on external Morpho; its NET-of-debt equity (8-dec sats) is paired here as
-    // TOKENLESS range depth so the LP earns V4 fees on its IL-protected position, backed by rangeBTC.
+    // TOKENLESS range depth so the LP earns RANGE fees on its IL-protected position, backed by rangeBTC.
 
     /// @notice Re-sync `lp`'s levered BTC range slice to the BtcLevManager's authoritative net-equity.
     ///         Permissionless (like Quid.syncLev): it only moves the tokenless levered slice to match
@@ -502,8 +505,9 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         totalBuffer = totalBuffer + d.bufAdded - d.bufBurned;   // GROSS buffer depth (fee weight)
     }
 
-    /// @notice Live θ for the BTC range (yield/(K·σ²)) at the Vault's CURRENT BTC range ticks. Asks Quid
-    ///         (the range-θ math home) with the BTC ticks so BtcLib.addLiqChannel can risk-budget the
+    /// @notice Live θ for the BTC range (yield/(K·σ²)) at the Vault's CURRENT BTC range BOUNDS. Asks Quid
+    ///         (the range-θ math home) with the BTC bounds (`_lo()`/`_hi()`, absolute WAD prices — there
+    ///         are no ticks) so BtcLib.addLiqChannel can risk-budget the
     ///         BTC range exactly like the ETH range -- without QuidLib linking QuidLib.
     function derivedThetaWad() external view returns (uint) {   // §SLOP: one name across both ranges
         return QuidLib.derivedThetaWad(address(CORE), _lo(), _hi());   // §ISBTC-SPLIT: OUR ring's variance, not the ETH range's
@@ -686,7 +690,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     ///         partial), so the hop refunds the `sats − consumedSats` remainder to the seller.
     function creditSwapIn(address seller, uint sats, address token, uint minDeliveredUsd)
         external onlyBTCChannels returns (uint consumedSats) {
-        // core = Core (POOLED_*/token1is reads); v4 = this Vault (its
+        // core = Core (POOLED_*/token1is reads); rangeVault = this Vault (its
         // no-arg `repack()` drives the BTC rebalance); aux = Aux (the
         // toIndex/getTWAPforAsset/deposit callbacks must target Aux).
         return SwapLib.creditSwapInBody(seller, sats, token, minDeliveredUsd,

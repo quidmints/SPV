@@ -834,8 +834,13 @@ interface ILevEthDeliver {
     function openLpAt(uint i) external view returns (address);
     function swapOutDeleverAmt(address lp, uint maxUsd18)
         external view returns (address venue, address stable, uint amtNative);
-    function swapOutDelever(address lp, uint stableUsd, address recipient, uint minWethOut)
-        external returns (uint usedUsd, uint wethDelivered);
+    // ⛔ DO NOT RE-ADD `swapOutDelever(address,uint,address,uint)` HERE. §J2-LEV-ARITY was RESOLVED BY
+    //    DELETION (see the block at `LevManager.sol` above `swapOutDeleverPooled`): the per-LP ETH form
+    //    is GONE from the tree, superseded by `swapOutDeleverPooled(venue, …)`. Only the BTC 3-arg
+    //    `swapOutDelever` on `ILevManagerDeliver` still has an implementation. A declaration of a
+    //    function that no contract implements COMPILES and reverts at run time on a missing selector —
+    //    the exact silent-failure shape this file exists to prevent. Removed 2026-09-08 with zero
+    //    callers in `evm/src`, `evm/test`, `evm/script`, `spa/`, `app/`, `indexer/` or `quid-ln/`.
     /// §POOL-VENUE — the pinned pool venue, or 0 if this range has never opened a position. Reading
     /// THIS rather than `openLpAt(0)` is what stops a de-lever silently skipping a pool that still
     /// holds collateral after its last LP closed.
