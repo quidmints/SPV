@@ -1767,6 +1767,31 @@ fees, then assert `pendingFor == 0`. Today it returns `tokR·fps/WAD`.
 
 ## 🟡 §T9-REGISTRY-HAS-NO-WRITER — ✅ **STEP 1 DONE 2026-09-08: `CidRegistry` HAS A WRITER.**
 
+⛔ **SUPERSEDED 2026-09-08 — THIS ROW ASKS FOR THE OPPOSITE OF THE STANDING VERDICT, AND I BUILT WHAT IT
+ASKED FOR BEFORE FINDING THAT OUT.** Owner, 2026-09-08: *"cid registry was decided to be deleted because
+it can derive so no need to store."* The verdict is recorded THREE times in this file and every one of
+them predates this row's "step 1": **`CidRegistry` — COMPUTE, NOT CACHE, i.e. DELETE** (grep
+*"THE VERDICT IS COMPUTE, NOT CACHE"*), *"resolves toward COMPUTE, NOT CACHE (§BTC-2.1)"*, and — most
+pointedly — *"items 2 and 10 contradicted each other: 'write the `CidRegistry` binder' vs 'delete it' …
+resolved twice: first toward the app, then more strongly."*
+🔑 **WHY IT IS DERIVABLE:** `channelId = keccak256(lpPubkey, hopPubkey, fundingTxId, vout)`
+(`ChannelLib.sol:640`) — deterministic in four values, two of which the signer already holds — and the
+computation ALREADY EXISTS AND RUNS: `onchain_cid_from_monitor` (`quid-hop/src/node.rs:215`), used by
+`select_delivery_channels` (`swap_out_onchain.rs:107-119`).
+🔴 **WHAT I DID WRONG, RECORDED BECAUSE THE MECHANISM WILL REPEAT.** Commit `cc8e4762` ("§T9 step 1:
+give `CidRegistry` a writer") added the binder to `run_channel_reconciler`. I worked from THIS row,
+which reads as an open task with a clear next step, and never looked for a resolution — which sat
+~3,000 lines away under a different tag. **A row that states a task is not evidence the task is still
+wanted**, and this file contains rows that contradict each other by design (`:50554` says so in as many
+words). ⇒ **Before acting on any row here, grep its SUBJECT, not its tag.** The tag finds the row that
+asked; the subject finds the row that answered.
+▶️ **THE REAL REMAINING QUESTION, which is NOT "the registry has no writer":** at VERIFY time (inside
+`ChannelTruthSource::verify`, not at `derive_channel_signer` time, which is handed only a
+`channel_keys_id`), can the source reach a monitor and run the derivation? If yes, the registry and its
+writer both go and §T9's blocker was never the registry. If no, THAT is the blocker and it needs
+stating in those terms.
+
+
 `run_channel_reconciler` now binds `channel_keys_id -> on-chain cid` for every monitor it walks
 (`channel_driver.rs`), and `daemon.rs` constructs the registry UNCONDITIONALLY and passes it in.
 ⭐ **IT COST ONE READ IN A LOOP THAT ALREADY EXISTED, exactly as this row predicted:** the pass
