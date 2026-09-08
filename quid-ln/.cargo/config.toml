@@ -33,10 +33,3 @@ rustflags = ["-Ctarget-cpu=x86-64-v3", "-Ctarget-feature=+adx,+aes,+pclmulqdq,+s
 # plain memcpy/memset, which the SGX libc provides. Target-scoped, so host builds (which
 # keep fortification) are unaffected.
 CFLAGS_x86_64_fortanix_unknown_sgx = "-U_FORTIFY_SOURCE"
-
-[net]
-# The LDK fork (`quidmints/rust-lightning`) is a PRIVATE repo referenced over
-# `ssh://`. Cargo's built-in libgit2 transport does not use the local SSH agent or
-# `~/.ssh/config`; shelling out to `git` does, so the same key that clones the repo
-# by hand also resolves it here. Harmless for every other dependency.
-git-fetch-with-cli = true

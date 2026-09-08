@@ -2333,7 +2333,7 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 [[package]]
 name = "lightning"
 version = "0.2.3"
-source = "git+ssh://git@github.com/quidmints/rust-lightning?rev=7c50bb599#7c50bb5996870dedc18fe268e7ebd024b811e2e1"
+source = "git+https://github.com/quidmints/rust-lightning?rev=7c50bb599#7c50bb5996870dedc18fe268e7ebd024b811e2e1"
 dependencies = [
  "bech32",
  "bitcoin",
@@ -2350,7 +2350,7 @@ dependencies = [
 [[package]]
 name = "lightning-invoice"
 version = "0.34.1"
-source = "git+ssh://git@github.com/quidmints/rust-lightning?rev=7c50bb599#7c50bb5996870dedc18fe268e7ebd024b811e2e1"
+source = "git+https://github.com/quidmints/rust-lightning?rev=7c50bb599#7c50bb5996870dedc18fe268e7ebd024b811e2e1"
 dependencies = [
  "bech32",
  "bitcoin",
@@ -2360,7 +2360,7 @@ dependencies = [
 [[package]]
 name = "lightning-macros"
 version = "0.2.1"
-source = "git+ssh://git@github.com/quidmints/rust-lightning?rev=7c50bb599#7c50bb5996870dedc18fe268e7ebd024b811e2e1"
+source = "git+https://github.com/quidmints/rust-lightning?rev=7c50bb599#7c50bb5996870dedc18fe268e7ebd024b811e2e1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2370,7 +2370,7 @@ dependencies = [
 [[package]]
 name = "lightning-transaction-sync"
 version = "0.2.1"
-source = "git+ssh://git@github.com/quidmints/rust-lightning?rev=7c50bb599#7c50bb5996870dedc18fe268e7ebd024b811e2e1"
+source = "git+https://github.com/quidmints/rust-lightning?rev=7c50bb599#7c50bb5996870dedc18fe268e7ebd024b811e2e1"
 dependencies = [
  "bitcoin",
  "esplora-client",
@@ -2382,7 +2382,7 @@ dependencies = [
 [[package]]
 name = "lightning-types"
 version = "0.3.2"
-source = "git+ssh://git@github.com/quidmints/rust-lightning?rev=7c50bb599#7c50bb5996870dedc18fe268e7ebd024b811e2e1"
+source = "git+https://github.com/quidmints/rust-lightning?rev=7c50bb599#7c50bb5996870dedc18fe268e7ebd024b811e2e1"
 dependencies = [
  "bitcoin",
 ]
@@ -2814,7 +2814,7 @@ checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
 [[package]]
 name = "possiblyrandom"
 version = "0.2.1"
-source = "git+ssh://git@github.com/quidmints/rust-lightning?rev=7c50bb599#7c50bb5996870dedc18fe268e7ebd024b811e2e1"
+source = "git+https://github.com/quidmints/rust-lightning?rev=7c50bb599#7c50bb5996870dedc18fe268e7ebd024b811e2e1"
 dependencies = [
  "getrandom 0.2.17",
 ]

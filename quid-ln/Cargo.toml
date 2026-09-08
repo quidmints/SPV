@@ -322,18 +322,12 @@ tokio = { version = "1", default-features = false }
 # divergence. Simple-taproot channels and MuSig2 splice signing are ours; upstream
 # has ZERO occurrences of `negotiate_simple_taproot` or `partially_sign_splice_
 # shared_input`. See QUID_PATCHES.md in that repo.
-# ⚠️ `ssh://` AND NOT `https://`, WHICH IS THE ONE WAY THIS DIFFERS FROM THE SEVEN
-#    FORKS ABOVE: they are public repos, this one is PRIVATE, so an https fetch
-#    needs a credential helper while ssh uses the key that is already there. Make
-#    the repo public and this becomes `https://github.com/quidmints/rust-lightning`
-#    like the rest. `.cargo/config.toml` sets `net.git-fetch-with-cli = true` so
-#    cargo shells out to git and inherits that key.
 # ▶️ TO EDIT LDK LOCALLY: clone the fork beside this repo and uncomment the
 #    `../../ldk/` overrides below; commit there, then bump `rev` here.
-lightning = { git = "ssh://git@github.com/quidmints/rust-lightning", rev = "7c50bb599" }
-lightning-invoice = { git = "ssh://git@github.com/quidmints/rust-lightning", rev = "7c50bb599" }
-lightning-transaction-sync = { git = "ssh://git@github.com/quidmints/rust-lightning", rev = "7c50bb599" }
-lightning-types = { git = "ssh://git@github.com/quidmints/rust-lightning", rev = "7c50bb599" }
+lightning = { git = "https://github.com/quidmints/rust-lightning", rev = "7c50bb599" }
+lightning-invoice = { git = "https://github.com/quidmints/rust-lightning", rev = "7c50bb599" }
+lightning-transaction-sync = { git = "https://github.com/quidmints/rust-lightning", rev = "7c50bb599" }
+lightning-types = { git = "https://github.com/quidmints/rust-lightning", rev = "7c50bb599" }
 # lightning.path = "../../ldk/lightning"
 # lightning-invoice.path = "../../ldk/lightning-invoice"
 # lightning-transaction-sync.path = "../../ldk/lightning-transaction-sync"
