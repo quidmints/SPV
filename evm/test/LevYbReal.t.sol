@@ -409,6 +409,56 @@ contract LevYbRealProbe is AllesFixture {
     /// @notice Capstone #10: real range + real Morpho Blue + REAL liquidation
     ///   driven by the live Chainlink feed, basket isolation proven. Morpho liquidation is atomic (no
     ///   liquidator-health deferral, no EVC), so the liquidator just repays + seizes in one call.
+    /// @notice 🔬 §LIQ-PENALTY-PROBE — **DOES THE OVER-CLAIM TRACK THE LIQUIDATED FRACTION?**
+    ///   `testReal_Morpho_LiquidationLeavesBasketIntact` is red by `POOLED − rangeETH − levBuf` =
+    ///   0.004915 ETH. Since `rangeETH = tokens + net` and `levBuf = gross − net`, that residual is
+    ///   `POOLED − tokens − gross`: the book claiming more than the ETH custodied plus the gross
+    ///   levered collateral. The leading hypothesis was the REAL Morpho liquidation's PENALTY, which
+    ///   `POOLED` has no path to absorb — it moves only on swap deltas (`Core:1204/1212`).
+    /// ⇒ **FALSIFIER: vary the liquidated fraction.** A penalty-driven residual must SCALE with it.
+    /// ⭐ **AND THE 0/1 ARM IS THE ONE THAT DECIDES IT.** If the residual is already non-zero with NO
+    ///   liquidation at all, the penalty cannot be the cause and the defect is upstream — in the
+    ///   fixture or in the book itself. Owner, 2026-09-08: *"maybe its a problem in the tests
+    ///   themselves"*. That arm is the control, and it is why this is four tests and not three.
+    /// @dev Returns SIGNED: negative means slack (the invariant holds), positive means over-claim.
+    function _residualAtFraction(uint numer, uint denom) internal returns (int256) {
+        _setupMorpho();
+        EV.setLevManager(address(rlm));
+        _openLp();
+        _calmVol();
+        ETH.syncLev(LP);
+        if (numer > 0) {
+            {   uint vdebt0 = rvenue.debtOf(LP);
+                uint collValue = rvenue.collateralOf(LP) * IMorphoOraclePrice(mOracle).price() / 1e36;
+                (uint80 rid, int256 pr,, uint256 ut, uint80 ar) = IChainlinkFeedT(CL_ETH_USD).latestRoundData();
+                vm.mockCall(CL_ETH_USD, abi.encodeWithSelector(IChainlinkFeedT.latestRoundData.selector),
+                    abi.encode(rid, int256(uint256(pr) * vdebt0 * 100 / (collValue * 92)), ut, ut, ar));
+            }
+            deal(address(USDC), address(this), 5_000_000 * USDC_PRECISION);
+            IERC20R(address(USDC)).approve(MORPHO, type(uint).max);
+            {   (,, uint128 poolColl) = IMorphoTest(MORPHO).position(rvenue.MARKET_ID(), address(rvenue));
+                IMorphoTest(MORPHO).liquidate(MarketParams({loanToken: address(USDC), collateralToken: WEETH,
+                    oracle: mOracle, irm: ADAPTIVE_IRM, lltv: 0.86e18}),
+                    address(rvenue), uint256(poolColl) * numer / denom, 0, "");
+            }
+            vm.clearMockedCalls();
+        }
+        _realignRangeToReal();
+        ETH.syncLev(LP);
+        int256 residual = int256(CORE.POOLED()) - int256(AUX.rangeETH()) - int256(ETH.levBuf(LP));
+        emit log_named_uint("  liquidated numer   ", numer);
+        emit log_named_uint("  POOLED             ", CORE.POOLED());
+        emit log_named_uint("  rangeETH           ", AUX.rangeETH());
+        emit log_named_uint("  levBuf             ", ETH.levBuf(LP));
+        emit log_named_int ("  RESIDUAL (+ = over-claim)", residual);
+        return residual;
+    }
+    /// ⭐ THE CONTROL. No liquidation at all. A penalty hypothesis REQUIRES this to be <= 0.
+    function testReal_LiqPenalty_0_ControlNoLiquidation() public { _residualAtFraction(0, 1); }
+    function testReal_LiqPenalty_1_Quarter()             public { _residualAtFraction(1, 4); }
+    function testReal_LiqPenalty_2_Half()                public { _residualAtFraction(1, 2); }
+    function testReal_LiqPenalty_3_ThreeQuarters()       public { _residualAtFraction(3, 4); }
+
     function testReal_Morpho_LiquidationLeavesBasketIntact() public {
         _setupMorpho();
         EV.setLevManager(address(rlm));
