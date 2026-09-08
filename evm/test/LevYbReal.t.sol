@@ -190,6 +190,7 @@ contract LevYbRealProbe is AllesFixture {
     /// horizon) via tiny alternating round-trip swaps, so θ=yield/(K·σ²) recovers from the rally spike. This is
     /// the realistic sequence — an IL event, then vol calms — and it's what lets syncLev add the levered range
     /// depth (the θ-budget cap refuses new exposure while vol is elevated; backing recognition is unaffected).
+    uint internal _calmOk;   // §GAMMA-TRACE: how many of the 16 try/catch swaps actually LANDED
     function _calmVol() internal {
         deal(address(USDC), address(this), 20_000 * USDC_PRECISION);
         USDC.approve(address(AUX), 20_000 * USDC_PRECISION);
@@ -198,8 +199,8 @@ contract LevYbRealProbe is AllesFixture {
             vm.warp(block.timestamp + 6 minutes); vm.roll(block.number + 1);
             uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px != 0) _setEthFeed(px / 1e10);
             // tiny alternating round-trips (θ ∝ 1/move² ⇒ small moves ⇒ σ²→~0 once the rally ages out of the 40min horizon)
-            if (i % 2 == 0) { try AUX.swap(address(USDC), address(WETH), true, 30 * USDC_PRECISION, 0, true) {} catch {} }
-            else            { try AUX.swap{value: 0.015 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch {} }
+            if (i % 2 == 0) { try AUX.swap(address(USDC), address(WETH), true, 30 * USDC_PRECISION, 0, true) { ++_calmOk; } catch {} }
+            else            { try AUX.swap{value: 0.015 ether}(address(USDC), address(WETH), false, 0, 0, true) { ++_calmOk; } catch {} }
         }
     }
 
@@ -497,6 +498,12 @@ contract LevYbRealProbe is AllesFixture {
         //      emits cost nothing and turn a bare pass/fail into a diagnosis.
         //    ⚠️ The direction is still UNTRACED — a smaller retained premium should make the book grow
         //      LESS, not more. Do not close that gap with a plausible story; one has already been wrong.
+        // 🔬 §GAMMA-TRACE — HOW MANY OF `_calmVol`'s 16 SWAPS LANDED. They are wrapped in
+        //    `try {} catch {}`, so a revert is SILENT: a Γ change that flips one marginal swap moves
+        //    `POOLED` by that swap's whole size while leaving venue-held `rangeETH` untouched (an
+        //    ETH-in swap sits IN-RANGE, not at a venue) — which is exactly the signature this red has.
+        //    §E71-r3 booked this class already: *"NO try/catch and NO minOut=0 mask"*.
+        emit log_named_uint("calmVol swaps LANDED /16  ", _calmOk);
         emit log_named_uint("rangeETH + levBuf (backing)", AUX.rangeETH() + ETH.levBuf(LP));
         emit log_named_uint("POOLED            (claim)  ", CORE.POOLED());
         emit log_named_uint("levBuf       (debt-funded) ", ETH.levBuf(LP));
