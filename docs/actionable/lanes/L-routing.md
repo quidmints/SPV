@@ -540,7 +540,16 @@ swapper agrees to load balance with 1inch) for either in range or out of range s
 dodge, so `unoswap3` is reachable through the existing `bytes route` with no new argument and no
 `LevManager` cost. Whitelisted by selector AND exact arity length. 106/106 green.
 
-### 🔴 NOT BUILT — 1. **CURVE IS NOT IN THE SEARCH AT ALL**
+### ⚠️ §SESS-107 DESTALE — 1. **CURVE IS IN THE SEARCH NOW, AND IS NO LONGER EXECUTABLE.** Both halves
+### of this row moved and in opposite directions. `venues_for` DOES discover Curve (`CURVE_SHORTLIST`)
+### and `curve_quote` prices it — so the planner is no longer blind. But §SESS-91 deleted `_hubHop`'s
+### `PROTO_CURVE` arm with the pool-word plumbing, so `venue_word(Venue::Curve) => None` and a
+### keeper-chosen Curve pool has NO EXECUTOR. ⛔ The sentence below — *"a Curve pool word is already
+### executable through `_hubHop`"* — was true when written and is FALSE now.
+### ⇒ what remains open is narrower: Curve executes only through `_hubRowOf`'s six fixed rows, for
+###   `consolidate` and for `_startsAt`'s table hop. Re-admitting keeper-chosen Curve means restoring
+###   an on-chain arm, and §SESS-101 measured the execution gap it would close as single-digit bps.
+### ORIGINAL ROW:
 `best_direct` asks the **UniV3 factory** and quotes **QuoterV2**. ⛔ **Curve pools are invisible to the
 planner**, and the owner is right that many pairs are best served by a direct Curve pool: **measured
 this session, 3pool beats the UniV3 0.01% tier for USDT→USDC above ~$500k (−0.42 vs −0.72 bps at $1M,
@@ -550,7 +559,18 @@ MetaRegistry's PLURAL `find_pools_for_coins` (the singular one returns dead pool
 `get_dy`, and let it compete on the same quote. **No on-chain change: a Curve pool word is already
 executable through `_hubHop`, and 1inch's own Curve encoding stays irrelevant.**
 
-### 🔴 NOT BUILT — 2. **IL-PROTECT: BORROW THE CHEAPEST DOLLAR, THEN HOP TO THE ONE WE NEED**
+### 🔴 STILL NOT BUILT — 2. **IL-PROTECT: BORROW THE CHEAPEST DOLLAR, THEN HOP TO THE ONE WE NEED**
+### ⚠️ §SESS-107 — **AND I MAY HAVE MISREAD THE OWNER'S INSTRUCTION ABOUT THE `immutable` HERE.**
+### Pre-compaction the owner said *"do the deploy change and kill the immutable"*. §SESS-93 read that
+### as killing the `public` on `MANAGER`/`STABLE` — measured, `.STABLE()` and `.MANAGER()` had ZERO
+### callers against 25 uses of `stable()`, so two dead getters per venue went. That was a real saving
+### and it is NOT what this row is blocked on. **This row names `LevVenueBase.STABLE` being
+### `immutable` as the blocker**: a position cannot change which dollar it borrows without a new
+### venue, so "pick the stable by TOTAL cost including the extra hop" has nowhere to land.
+### ⇒ if the instruction meant making `STABLE` MUTABLE, it is unbuilt and this row says why. Flagged
+###   rather than decided: mutability here is a money-path change, and the owner has separately ruled
+###   that this system has no governance knobs — a per-position stable is arguably not one, but that
+###   is the owner's call and not mine to infer from a four-word instruction.
 The owner's point: *"usdc might be overborrowed so not the most cost effective borrow, better to borrow
 something else then do an extra hop through 1inch."* §SESS-45 built joint venue scoring (borrow rate +
 route cost) and §SESS-49 built route quoting — **but nothing composes them into "pick the stable by
@@ -559,7 +579,10 @@ TOTAL cost including the extra hop".** The scorer's decision point is FIRST-OPEN
 new venue.** ⇒ this is blocked on the same thing §SESS-45 blocker #3 named, and the extra hop is now
 EXPRESSIBLE (unoswap2/3 via retargeting) where it was not before. **The hop is ready; the choice is not.**
 
-### 🔴 NOT BUILT — 3. **ALL-OR-NOTHING UNLESS THE SWAPPER CONSENTS**
+### 🔴 STILL NOT BUILT — 3. **ALL-OR-NOTHING UNLESS THE SWAPPER CONSENTS** (§SESS-107: re-checked,
+### unchanged. `loadBalance` still gates the shortfall arb rather than partial fills, and
+### `convertTo`'s `if (!ok) continue` is now MORE load-bearing than when this was written — §SESS-99
+### showed it is what turned `ZeroMinReturn()` into an anonymous zero for a day.)
 Partial fill and partial refund exist today in three places, none gated by consent:
 · `convertTo:702` `if (!ok) continue;` — one leg fails, the rest proceed, the aggregate floor decides
 · `_consolidateTo:1556` — an unroutable slice is **refunded to the LP** mid-protect
