@@ -876,71 +876,27 @@ pub fn score_bps(q: &VenueQuote, horizon_days: u32) -> Option<u128> {
     Some(carried + q.route_cost_bps as u128)
 }
 
-/// ⭐ §SESS-110 — **THE PRODUCER `score_bps` NEVER HAD, AND ITS ABSENCE IS WHY §SESS-65 ROW 2 READ AS
-///    BLOCKED ON AN `immutable`.**
+/// ⛔ §SESS-115 — **`quote_venues` DELETED, AND WHY §SESS-65 ROW 2 CANNOT CLOSE ON THIS SIDE.**
 ///
-/// 🔴 `VenueQuote` and `score_bps` have existed since §SESS-45 and route quoting since §SESS-49 — and
-///    `route_cost_bps` was constructed in exactly ONE place tree-wide: a unit-test helper. Nothing in
-///    production ever fed the scorer a live route cost, so "pick the stable by TOTAL cost including
-///    the extra hop" could not happen no matter what the venues did. **Two halves built and never
-///    joined** — the same shape as §SESS-99's `ZeroMinReturn` and §SESS-105's `prefer_fetched`, third
-///    time today.
-/// ⛔ **AND THIS IS WHY THE `immutable` WAS THE WRONG TARGET.** The row blamed `LevVenueBase.STABLE`
-///    being immutable for a position not being able to change which dollar it borrows. But `STABLE`
-///    RECONSTRUCTS the Morpho market (`_params()` at `LevVenueBase:250`) while `MARKET_ID` is a
-///    separate immutable — mutating it would point the venue at one market while its collateral and
-///    debt sit in another, stranding the position. The choice belongs at OPEN, among venues that each
-///    lend a different dollar, and that choice is exactly what this function informs.
-///
-/// ⚠️ **`route_cost_bps` IS RELATIVE TO THE BEST VENUE, AND THAT IS CORRECT FOR RANKING.** An absolute
-///    toll would need a USD reference per volatile; the scorer only ever COMPARES candidates, so the
-///    component common to all of them cancels. The cheapest route scores 0 and the others carry their
-///    shortfall against it — which composes with `score_bps`'s carried rate exactly as intended:
-///    a venue 30 bps dearer to route must be at least 30 bps cheaper to borrow over the horizon.
-/// ⚠️ A venue whose rate call REVERTS is `fundable: false`, not skipped — `borrowRateRay` refuses to
-///    price a draw it cannot fund, so fundability arrives with the rate and needs no depth call.
-pub fn quote_venues<R: JsonRpc, S: TxSigner>(
-    evm: &JsonRpcEvmClient<R, S>, lm: Address, volatile: LpAddr, usd18: U256,
-) -> Vec<VenueQuote> {
-    let Ok(cw) = evm.eth_read(lm, "poolVenueCount()", None) else { return Vec::new() };
-    let n = if cw.len() >= 32 { U256::from_be_slice(&cw[..32]).to::<u64>() } else { 0 };
-
-    // pass 1: rate + a live route quote per venue, in that venue's own stable units
-    let mut rows: Vec<(LpAddr, u128, bool, U256)> = Vec::new();
-    for i in 0..n {
-        let Ok(vw) = evm.eth_read(lm, "poolVenues(uint256)", Some(&u64_word(i))) else { continue };
-        let Ok(venue) = word_to_lpaddr(&vw) else { continue };
-        let va = Address::from_slice(&venue);
-        let Ok(sw) = evm.eth_read(va, "stable()", None) else { continue };
-        let Ok(stable) = word_to_lpaddr(&sw) else { continue };
-
-        // size the draw in the stable's own decimals — never infer them (BasketLib:282)
-        let Ok(dw) = evm.eth_read(Address::from_slice(&stable), "decimals()", None) else { continue };
-        let Ok(dec) = word_to_uint::<u64>(&dw, "decimals") else { continue };
-        if dec > 18 { continue; }
-        let amt = usd18 / U256::from(10u64).pow(U256::from(18u32 - dec as u32));
-        if amt.is_zero() { continue; }
-
-        // `borrowRateRay` REVERTS when the venue cannot fund this size — that revert IS the check.
-        let (rate, fundable) = match evm.eth_read(va, "borrowRateRay(uint256)", Some(&u256_word(amt))) {
-            Ok(r) if r.len() >= 32 => (U256::from_be_slice(&r[..32]).to::<u128>(), true),
-            _ => (0u128, false),
-        };
-        let out = best_plan_quoted(evm.rpc(), stable, volatile, amt).map(|(_, o)| o).unwrap_or(U256::ZERO);
-        rows.push((venue, rate, fundable, out));
-    }
-
-    // pass 2: the shortfall against the best route, in bps
-    let best_out = rows.iter().map(|r| r.3).max().unwrap_or(U256::ZERO);
-    rows.into_iter().map(|(venue, borrow_rate_ray, fundable, out)| {
-        let route_cost_bps = if best_out.is_zero() || out.is_zero() { u32::MAX }
-            else { ((best_out - out) * U256::from(10_000u64) / best_out).to::<u64>() as u32 };
-        // ⚠️ A venue we cannot route AT ALL is not merely dear, it is unusable: `fundable` false so
-        //    `score_bps` returns None rather than letting a `u32::MAX` toll pretend to be comparable.
-        VenueQuote { venue, borrow_rate_ray, route_cost_bps,
-                     fundable: fundable && !out.is_zero() }
-    }).collect()
-}
+/// §SESS-110 built it because `route_cost_bps` was constructed in exactly one place tree-wide — a
+/// unit-test helper — so `score_bps` had never seen a live route cost. That producer gap was real.
+/// 🔴 **BUT FILLING IT CREATED A CONSUMER GAP, AND THE CONSUMER CANNOT EXIST HERE.** Nothing called
+///    `quote_venues`, and nothing called `pick_cheapest` or `score_bps` either — because **this keeper
+///    never OPENS a position.** It rebalances, cascade-delevers, compounds and protects; the sends it
+///    makes are `rebalanceMany`, `cascadeDelever`, `compound`, `protectFromQuid`. Venue choice — and
+///    therefore which dollar is borrowed — happens at OPEN, which is LP-initiated on-chain.
+/// ⇒ **ROW 2'S BLOCKER WAS NEVER THE `immutable` AND NEVER THE MISSING PRODUCER.** The row blamed
+///   `LevVenueBase.STABLE` being immutable; §SESS-110 showed that is worse than wrong — `STABLE`
+///   reconstructs the Morpho market via `_params()` while `MARKET_ID` is a separate immutable, so
+///   mutating it points the venue at one market while its collateral and debt sit in another. Then I
+///   blamed the producer and built one. The actual blocker is structural: **a keeper-side venue
+///   chooser has nowhere to be called from.** "Pick the stable by TOTAL cost including the extra hop"
+///   belongs wherever `openLev` is invoked, which is not this process.
+/// ⚠️ `VenueQuote` / `score_bps` / `pick_cheapest` (§SESS-45) are LEFT IN PLACE deliberately — they
+///    are not mine, they carry their own tests, and they are the shape the open path would use. What
+///    is deleted is the live-RPC producer I added for a caller that does not exist. Building a
+///    producer for a consumer that cannot exist is the same defect this session found six times in
+///    other people's code, and this was the fourth instance I created myself.
 
 /// The cheapest fundable venue over `horizon_days`, or `None` if none can fund the size.
 /// Ties break on the LOWER route cost: a one-off toll is certain where a rate is a forecast.
@@ -1281,6 +1237,14 @@ fn venue_word(v: Venue) -> Option<[u8; 32]> {
 /// 📌 **BOOKED, NOT BUILT: the offline enumerator that REFRESHES this shortlist** — walk
 ///    `find_pools_for_coins`, reject metapools, quote every survivor at three sizes, keep the winners.
 ///    That is exactly how the on-chain rows were built by hand; it belongs in a tool, run rarely.
+/// ⚠️ §SESS-115 — **`#[cfg(test)]` BECAUSE IT REALLY IS TEST-ONLY NOW, AND SAYING SO BEATS AN
+/// `allow(dead_code)`.** §SESS-113 deleted the production consumer (the Curve venue candidate, which
+/// `venue_word` could not encode), leaving the coverage matrix's `on_contract_table` as the sole
+/// reader. It stays because it is the keeper's MIRROR of `LevMath._hubRowOf` — the thing that lets
+/// the matrix distinguish "no liquidity anywhere" from "liquidity the CONTRACT reaches without us",
+/// which is the difference between 11/14 and 7/14. ⛔ Suppressing the warning would have hidden that
+/// this mirror is no longer checked by anything the keeper runs in production.
+#[cfg(test)]
 const CURVE_SHORTLIST: [(LpAddr, LpAddr, LpAddr, u8, u8); 6] = [
     // (tokenA, tokenB, pool, indexA, indexB) — **THE SAME SIX ROWS `LevMath._hubRowOf` HOLDS.**
     // 🔴 §SESS-81 — this had TWO of them, and the coverage matrix caught it: crvUSD reported
