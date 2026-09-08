@@ -386,7 +386,13 @@ contract BtcLevManager is LevBase {
         //   overhang is refused, and `deleverOnDelivery` is not even reached when `shrinkSats <= funded`.
         uint amt = LevMath._fromUsd(address(AUX),p.venue.stable(), stableUsd);   // usd → native stable units
         uint debt = p.venue.debtOf(lp);
-        if (amt > debt) amt = debt;                                 // clamp to debt (never over-repay / strand)
+        // Clamp to debt (never over-repay / strand). ⭐ THE QUOTE NOW RECOMPUTES THIS SAME CLAMP —
+        // `LevBase.swapOutDeleverAmt` caps `amtNative` at `debtOf(lp)` in the same native units — so the
+        // two agree by construction and the Vault stops pre-funding stable this call would not approve.
+        // ⛔ THIS ONE STILL EARNS ITS PLACE: `swapOutDelever` is an entrypoint in its own right and takes
+        //    `stableUsd` from the caller, not from the quote. Deleting it would make the agreement depend
+        //    on every caller having asked for a quote first, which nothing here enforces.
+        if (amt > debt) amt = debt;
         if (amt > 0) {
             uint repaid = p.venue.repay(lp, amt);                   // stable pre-transferred to venue by the Vault
             usedUsd = LevMath._toUsd18(address(AUX),p.venue.stable(), repaid);   // USD 1e18 actually applied to the debt
@@ -418,10 +424,6 @@ contract BtcLevManager is LevBase {
             if (freedSats > 0) IVaultExposeB(VAULT).unexposeBtcFromLev(lp, freedSats);
         }
     }
-
-    /// @notice #54 funding quote: for `lp`, the venue stable + the EXACT native amount the Vault must fund to the
-    ///         venue to de-lever up to `maxUsd18` of debt — clamped to live debt so no stray stable is stranded on
-    ///         the venue adapter (swapOutDelever repays exactly this, recomputing the same clamp). View.
 
     /// @notice Fully retire the caller's position once debt is repaid: withdraw all remaining vBTC to the LP,
     ///         delete the position, and re-sync the levered range slice so it stops earning on vanished backing.

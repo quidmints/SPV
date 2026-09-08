@@ -134,9 +134,18 @@ library LevMath {
     ///         The cube root is not a coincidence either; it is the classic form of a no-trade
     ///         region under a fixed transaction cost (Constantinides; Janeček–Shreve).
     ///
-    ///         It behaves the way a hand-set band cannot: a $100k position at 3 gwei bands at ~62
-    ///         bps, a $1k position at ~288 bps — small positions rightly tolerate a wider error
-    ///         because gas dominates their economics, and both tighten as gas falls.
+    ///         It behaves the way a hand-set band cannot, and the SCALING LAW is the whole statement:
+    ///         `h = (g/(C·K))^⅓`, so **`h ∝ C^(−⅓)` and `h ∝ g^(⅓)`.** A position 100× smaller gets a
+    ///         band `100^⅓ ≈ 4.64×` WIDER; an 8× cheaper block tightens every band by 2×. Small
+    ///         positions rightly tolerate a wider error because gas dominates their economics, and
+    ///         every band tightens as gas falls — monotonically, with no threshold to tune.
+    ///         ⛔ **NO bps FIGURE BELONGS IN THIS DOCBLOCK, AND ONE USED TO.** Two worked examples sat
+    ///         here quoting a $100k position at ~62 bps and a $1k one at ~288 bps; they reproduced only
+    ///         under a `GAS_REBALANCE` and a `K` this tree no longer has, and nothing failed when both
+    ///         moved. **A literal cannot survive here even in principle:** `g` is `block.basefee ×
+    ///         measured gas × the LIVE ETH TWAP`, so the same position bands differently in two blocks
+    ///         of the same minute, and `K` is read from live range geometry. The ratio law above is a
+    ///         property of the cube root and cannot go stale; a bps number is a screenshot.
     ///
     ///         ⚠️ Returns 0 — rebalance ALWAYS — when any input is unmeasured. That is the fail-open
     ///         direction on purpose, and it is the opposite of θ's: θ failing open means "do not
@@ -1745,12 +1754,13 @@ library LevMath {
     ///    needs this body (`BtcLevManager.consolidateForRepay`, the reroute that replaced the
     ///    delivery-path DoS). `internal` would INLINE it into that manager; `public` keeps it one
     ///    delegatecall into this LINKED library, which is the same reason `convertShortfall` is public.
-    /// ⚠️ **`lp` IS THE REFUND DESTINATION, AND IT IS NOT ALWAYS AN LP.** For `protectFromQuid` the
-    ///    stables came from the LP's own QU!D redemption, so an unroutable remainder is theirs. On the
-    ///    DELIVERY path they came from the BASKET, and refunding them to the LP would be a leak of
-    ///    pool value — that caller passes the Vault instead. Read this parameter as "whoever owns the
-    ///    input", never as "the LP".
-    function _consolidateTo(address aux, address target, address lp) public {
+    /// ⚠️ **`refundTo` IS "WHOEVER OWNS THE INPUT", AND IT IS NOT ALWAYS AN LP** — it was named `lp`
+    ///    until the delivery-path caller landed, and a right-looking name beats a comment calling it
+    ///    wrong. For `protectFromQuid` the stables came from the LP's own QU!D redemption, so an
+    ///    unroutable remainder is theirs. On the DELIVERY path they came from the BASKET, and
+    ///    refunding them to the LP would be a leak of pool value — that caller passes the Vault.
+    ///    The tail comment at the transfer names both callers.
+    function _consolidateTo(address aux, address target, address refundTo) public {
         address[] memory sts = IAux(aux).getStables();
         for (uint256 i; i < sts.length; i++) {
             address s = sts[i];
@@ -1793,11 +1803,19 @@ library LevMath {
                   if (b2 > floor) floor = b2; }
                 _hubHop(target, _hubHop(s, bal, true, 0), false, floor);
             }
-            // Whatever of this slice did not move — an unroutable stable, or a remainder — goes back to the LP.
-            // Never strand the LP's own redeemed value in the manager (it only lowers `got`, which the
-            // aggregate floor already guards).
+            // Whatever of this slice did not move — an unroutable stable, or a remainder — goes back to
+            // WHOEVER OWNED THE INPUT, which is not the same party for the two callers and is why the
+            // parameter is `refundTo` rather than `lp`:
+            //   · `protectFromQuid` (`:1703`) passes the **LP**. The stables came out of that LP's own
+            //     QU!D redemption, so an unroutable remainder is theirs; stranding it in the manager
+            //     would take the LP's value and only lowers `got`, which the aggregate floor guards.
+            //   · `BtcLevManager.consolidateForRepay` passes the **VAULT**. Those stables came out of
+            //     the BASKET on the delivery path — refunding them to an LP would move pool value to
+            //     one holder, which is a leak, not a refund.
+            // ⇒ The DESTINATION is the caller's to decide because the SOURCE is; this body only
+            //   guarantees nothing is stranded here. Never re-read this as "the LP".
             uint256 rem = IERC20Min(s).balanceOf(address(this));
-            if (rem > 0) IERC20OZ(s).safeTransfer(lp, rem);
+            if (rem > 0) IERC20OZ(s).safeTransfer(refundTo, rem);
         }
     }
 
@@ -1875,10 +1893,14 @@ library LevMath {
 
     /// @notice De-lever `lp` by flashing `repayUsd`-worth of the debt stable (repay-first, mode-0). Reuses
     ///         `ExtractCfg` (weth/aux/flashProvider).
-    /// @dev    §E304-mintclose: mode 0 is the ONLY mode, and ⛔ do not re-introduce a mint-close fork beside
-    ///         it. Morpho does not mint — you borrow what exists — and no venue can, because `ILevVenue` is
-    ///         denominated in weETH collateral. The `uint8(0)` in the payload is a literal for that reason,
-    ///         not a placeholder awaiting a second value.
+    /// @dev    §E304-mintclose: mode 0 is the only mode THIS function emits, and ⛔ do not re-introduce a
+    ///         mint-close fork beside it. Morpho does not mint — you borrow what exists — and no venue can,
+    ///         because `ILevVenue` is denominated in weETH collateral. The `uint8(0)` below is a literal for
+    ///         that reason, not a placeholder awaiting a second value.
+    ///         ⚠️ The TAG is still load-bearing on the callback: `onMorphoFlashLoan` also receives **mode 2**
+    ///         (§G.3 `deleverToVault` extraction), which carries a WIDER payload, and the `uint8` is what
+    ///         tells the two layouts apart. "Mode 0 is the only mode" is true of this emitter, never of the
+    ///         dispatcher — do not delete the tag on the strength of this paragraph.
     /// @dev §SESS-19 — `dex2` and `route` ride the SAME payload the other five fields do. The close leg
     ///      could reach only the single-hop `unoswap` before this: `_delever` took all three and handed
     ///      on `dex` alone, and even had it not, the payload had nowhere to put them.

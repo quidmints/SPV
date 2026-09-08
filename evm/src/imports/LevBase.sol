@@ -113,9 +113,20 @@ abstract contract LevBase {
         // ⚠️ THE OLD NUMBER WAS TOO SMALL, SO THE BAND WAS TOO TIGHT — the system rebalanced MORE
         //    often than it needed to, never less, which is why this never surfaced as a failure.
         //    ⛔ AND THAT SAFETY WAS CONTINGENT, NOT STRUCTURAL: the series `h·H/(h+H)` only barely
-        //    binds while `K` is large. MEASURED at g=$5 / C=$100k — at the shipped K≈125 this fix
-        //    moves the band 69.0 → 72.4 bps; at a K of 0.71 the same fix moves it 300 → 377 bps.
-        //    A future change to `K` would have made a latent basis error suddenly load-bearing.
+        //    binds while `K` is large — the larger `K` is, the smaller `h` is, and a small `h` is
+        //    dominated by `h` rather than by `H`, so the headroom term barely moves the answer.
+        //    🔴 **AND THE CONTINGENCY HAS SINCE FIRED — THIS PARAGRAPH PREDICTED IT AND THEN WENT
+        //    STALE ON THE VERY NUMBER IT WARNED ABOUT.** It said *"at the shipped K≈125"*, which is
+        //    the RETIRED ±0.2% geometry: `K = 1/(4(2 − √(P/Pb) − √(Pa/P)))` is a function of
+        //    `RANGE_DELTA` alone, and at 20 bps it is 125.0 while at the live `RANGE_DELTA = 200`
+        //    (±2%) it is **≈12.56** — a 10× width change moved `K` by 10×.
+        //    ⇒ RE-DERIVED at g=$5 / C=$100k, so the comparison is like-for-like:
+        //        K = 125.0  (retired ±0.2%):  h = 73.7 bps   ⇒  69.1 → 72.4 bps
+        //        K = 12.56  (LIVE ±2%):       h = 158.5 bps  ⇒  138.5 → 152.9 bps
+        //      The basis error is now worth ~14 bps of band rather than ~3, i.e. the fix is doing
+        //      four times the work it was doing when it landed. **Do not read a bps figure here as a
+        //      constant: all three columns are functions of `RANGE_DELTA`, `g` and `C`, and only the
+        //      shape — a cube root damped by a series with the headroom — is stable.**
         // ⭐ The conversion is constant-folded (both operands are `constant`), so it costs no gas and
         //    no bytecode — and it is written as the algebra rather than as `4285` so the next reader
         //    can check it instead of trusting it.
@@ -431,7 +442,24 @@ abstract contract LevBase {
     // so it holds by a wide margin today — but it is an invariant on a constant, not a per-call
     // check, and moving either number has to preserve it.
 
-    /// @notice Venue + stable + native amount for a swap-out-driven delever of `lp`.
+    /// @notice §M.1 #54 FUNDING QUOTE — venue + stable + the EXACT native amount the Vault must
+    ///         pre-fund to the venue to de-lever up to `maxUsd18` of `lp`'s debt. `swapOutDelever`
+    ///         repays exactly this, recomputing the same clamp. View.
+    /// @dev §FOLD — ONE body for both managers, so the ETH and BTC swap-out quotes cannot drift.
+    ///      The two managers each carried their own #54 docblock describing this; both are folded
+    ///      here, because a quote that lives in one place is a quote that agrees with itself.
+    /// @dev §UNCLAMPED-AMTNATIVE — CLAMPED TO LIVE DEBT, AND THE CLAMP IS THE POINT. The quote used to
+    ///      return the full requested size converted to native units, whatever the position owed, while
+    ///      `BtcLevManager.swapOutDelever` re-clamped it at execution. The gap between the two is stable
+    ///      the Vault has already pushed to the venue and that `repay` will not approve — it strands on
+    ///      the adapter, off the basket's books, exactly as three docblocks promised it would not.
+    ///      Clamping HERE makes the quote and the executor agree by construction.
+    /// ⭐ AND IT MAKES `_sourceRepayFree`'s `amtNative == 0` BRANCH MEAN WHAT ITS COMMENT SAYS —
+    ///      "pure-equity levered slice (no debt)". Unclamped, that branch was reachable only by a
+    ///      sub-wei USD request, i.e. it was dead. With the clamp, zero debt IS zero `amtNative`.
+    /// ⚠️ `debtOf` is PRE-ACCRUAL on Morpho. That under-reports, so the clamp can only bind slightly
+    ///      EARLY — a smaller take, the same partial de-lever the `held` and headroom clamps already
+    ///      produce. Fail-safe direction; do NOT "fix" it by making this non-view to call `accrue()`.
     function swapOutDeleverAmt(address lp, uint256 maxUsd18)
         external view returns (address venue, address stable, uint256 amtNative) {
         Types.Pos memory p = pos[lp];
@@ -439,6 +467,8 @@ abstract contract LevBase {
         venue = address(p.venue);
         stable = p.venue.stable();
         amtNative = LevMath._fromUsd(address(AUX), stable, maxUsd18);
+        uint256 debtNative = p.venue.debtOf(lp);          // SAME native units — no conversion needed
+        if (amtNative > debtNative) amtNative = debtNative;
     }
 
     /// @notice §POOL-VENUE — THE PINNED POOL. Set on the FIRST open and never cleared.

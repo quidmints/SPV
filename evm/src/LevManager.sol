@@ -76,7 +76,10 @@ contract LevManager is LevBase {
     /// ⚠️ `ilBasisPx` AND `entryEquity` ARE STILL PER-LP AND THAT IS THE REMAINING HALF. A
     ///      protocol-wide liability wants a protocol-wide IL BASIS too, and §C22 already found the
     ///      obvious candidate empty: the range-level `soldFractionWad(syncKeyPx)` is a CONSTANT
-    ///      (~0.5008 = f(RANGE_DELTA)) because the range recentres on spot, so the price cancels.
+    ///      (0.507500313 at the live `RANGE_DELTA = 200`; it is f(RANGE_DELTA) ALONE, because the
+    ///      range recentres on spot so the price cancels — the ~0.5008 this line used to quote was
+    ///      the retired ±0.2% band, and the constant stays ~½ for ANY symmetric width, which is
+    ///      exactly why widening the range does not rescue it as an IL basis).
     ///      Replacing per-LP entry pinning needs a real aggregate basis, which is design, not a
     ///      deletion — do not remove these two by symmetry with the cap.
 
@@ -622,11 +625,6 @@ contract LevManager is LevBase {
         _syncRange(lp);
     }
 
-    /// @notice §M.1 #54-ETH funding quote: for `lp`, the venue stable + the EXACT native amount the Vault must
-    ///         pre-fund to the venue to de-lever up to `maxUsd18` of debt (clamped to LIVE debt so no stray stable
-    ///         strands on the adapter — `swapOutDelever` repays exactly this, recomputing the same clamp). View.
-    ///         IDENTICAL shape to `BtcLevManager.swapOutDeleverAmt` (the ETH swap-out mirror of #54).
-
     /// @notice §M.1 UNLEVERED (0-debt) net-equity delivery — the HODL slice below entry where the keeper has
     ///         de-levered target debt → 0. `swapOutDelever` no-ops here (nothing to repay), which would leave the
     ///         unlevered net-equity PHANTOM (priced in POOLED, undeliverable because its collateral sits in the
@@ -847,7 +845,6 @@ contract LevManager is LevBase {
     /// WETH reserve covering a keeper's de-lever/protect gas when the freed value's own headroom can't. The
     /// balance is ITSELF the bound (`LevMath._reimburse` clamps the shortfall to it and never reverts, so a
     /// safety unwind is never blocked by an empty reserve); permissionless top-up via `fundGasReserve`.
-    /// §E304-mintclose: the sentence broke off at "(mirrors" — it pointed at the BOLD-close reserve, deleted.
     uint256 public gasReserve;
     function fundGasReserve(uint256 amount) external {
         if (amount == 0) return;
