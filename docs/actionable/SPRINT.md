@@ -74,10 +74,16 @@ commit, and nobody had run it. Same family as §INSTRUMENT-DRIFT: the instrument
 thing being measured instead of at the reference.
 
 ▶️ **WHAT THIS CHANGES, IN ORDER:**
-1. 🔴 **`quidmints/rust-lightning` DOES NOT EXIST.** Probed over SSH with a working control —
-   `quidmints/tokio` resolves; `rust-lightning`, `ldk`, `lightning`, `rust-lightning-fork` all return
-   `Repository not found`. **Creating it is a prerequisite for any further LDK change**, and it is
-   the owner's to create (I cannot create a repo under the org).
+1. ✅ **DONE 2026-09-08 — `git@github.com:quidmints/rust-lightning.git` EXISTS** (private; owner
+   supplied a token). Branch **`quid-v0.2.2-2026_04_28`** at `73233fd`, base tagged
+   **`base-027c6a1`**, **10,466 commits of real upstream history** so `027c6a1` is a genuine
+   ancestor and the whole divergence is `git diff base-027c6a1..quid-v0.2.2-2026_04_28`
+   (36 files, +8,263/−581). ⭐ **The full history is what makes the `lexe-v0.2.3-2026_07_21`
+   catch-up a `git merge` instead of a re-vendor.** **Verified by re-cloning the pushed branch and
+   diffing it against the working tree — byte-identical, 435 files each side.** ⚠️ Confirmed with the
+   authenticated token that the repo did NOT previously exist (404 *with* `repo` scope, so it was
+   absent rather than private). ⚠️ **`quid-ln/Cargo.toml` is deliberately UNCHANGED** — the owner kept
+   the in-tree copy for e2e, so this directory is still what builds. LDK changes go in the fork first.
 2. **LDK IS THE ONE IN-TREE VENDOR EXCEPTION AND THE EXCEPTION'S JUSTIFICATION IS FALSE.** The
    workspace already consumes thirteen `github.com/quidmints/*` forks by git URL (`rust-sgx`,
    `axum-server`, `rust-esplora-client`, `hyper-util`, `mio`, `ring`, `tokio` — audited at

@@ -59,9 +59,25 @@ other thirteen `github.com/quidmints/*` forks the workspace already uses (`rust-
 `rust-esplora-client`, `hyper-util`, `mio`, `ring`, `tokio`). LDK is the one in-tree vendor exception,
 and the exception was justified by a "small local patch" that does not exist.
 ▶️ **Owner ruling 2026-09-08: *"make any changes to ldk that are needed but that involves cloning our
-fork repo and doing it there."*** ⚠️ **`quidmints/rust-lightning` DOES NOT EXIST YET** — probed over
-SSH with a working control (`quidmints/tokio` resolves; the four candidate LDK names return
-`Repository not found`). **Creating it is the prerequisite for any further LDK change.**
+fork repo and doing it there."***
+✅ **THE FORK REPO NOW EXISTS: `git@github.com:quidmints/rust-lightning.git`** (created 2026-09-08,
+private). **Default branch `quid-v0.2.2-2026_04_28`, head `73233fd`.** Its history is REAL upstream
+history — 10,466 commits — with `027c6a1` as a genuine ancestor, tagged **`base-027c6a1`**, so:
+
+```
+git diff base-027c6a1..quid-v0.2.2-2026_04_28      # the entire QU!D divergence, one command
+```
+
+**Verified after pushing, not assumed:** a fresh clone of the pushed branch is byte-identical to this
+directory (`diff -rq --exclude=.git` → empty, 435 files each side).
+⚠️ **THIS DIRECTORY IS STILL THE ONE THAT BUILDS.** `quid-ln/Cargo.toml` still points
+`[patch.crates-io]` at `path = "lib/rust-lightning/..."` and is deliberately unchanged — the owner
+kept the in-tree copy for the e2e tests. **Any LDK change goes in the fork repo first**, then comes
+back here as a re-vendor. To switch the build over later, replace the four `path =` lines with
+`git = "https://github.com/quidmints/rust-lightning", rev = "<sha>"` — the same shape as the seven
+`quidmints/*` SGX forks below — and uncomment the `../../ldk/` overrides for local editing.
+⭐ **AND THE REASON THE FULL HISTORY WAS WORTH THE UPLOAD:** catching up to `lexe-v0.2.3-2026_07_21`
+is now a `git merge`, not a re-vendor-and-reapply.
 
 ⚠️ **RE-VENDORING IS NO LONGER "re-copy and re-apply".** Upstream lexe is three releases ahead
 (`lexe-v0.2.3-2026_07_21`, `a3ba0972`). Rebasing an 11,202-line patch is a project, not an errand.
