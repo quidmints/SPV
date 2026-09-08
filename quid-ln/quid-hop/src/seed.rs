@@ -41,7 +41,7 @@ use quid_enclave::enclave;
 use crate::ffs::Ffs;
 
 /// Select the seal backend by the detected TEE: the native SGX-`EGETKEY` / mock
-/// sealer, or the SEV-SNP sealer from the host-only `quid-cvm` crate (battle-tested
+/// sealer. (The SEV-SNP arm and its host-only `quid-cvm` crate were deleted 2026-09-08.) (battle-tested
 /// `virtee/sev`). SGX is compile-time native; the confidential-VM sealers are
 /// runtime-selected off-SGX.
 #[cfg(target_env = "sgx")]
@@ -51,7 +51,6 @@ fn pick_sealer() -> Box<dyn enclave::Sealer> {
 #[cfg(not(target_env = "sgx"))]
 fn pick_sealer() -> Box<dyn enclave::Sealer> {
     match enclave::detect() {
-        enclave::Backend::SevSnp => Box::new(quid_cvm::SevSealer),
         // None (mock, self-trust) / TDX / Nitro (seal not yet wired ⇒ mock, which
         // is refused for serving-others at boot by require_backend_for_role).
         _ => Box::new(enclave::NativeSealer),

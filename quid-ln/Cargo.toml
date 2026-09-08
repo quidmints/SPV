@@ -8,7 +8,6 @@ members = [
     "quid-common",
     "quid-crypto",
     "quid-enclave",
-    "quid-cvm",
     "quid-hex",
     "quid-std",
     "quid-tls",

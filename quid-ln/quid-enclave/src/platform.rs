@@ -269,7 +269,7 @@ pub fn unseal(sealed: Sealed<'_>, label: &[u8]) -> Result<Vec<u8>, Error> {
 // --- Sealer trait (injectable seal backend) --- //
 
 /// An injectable seal backend, so the SEAL implementation — native SGX-`EGETKEY` /
-/// mock here, or a confidential-VM sealer from the host-only `quid-cvm` crate — can
+/// mock here — can
 /// be chosen at the seal call site (`SealedSeed`) WITHOUT `quid-api-core` (or any
 /// light consumer) depending on the heavy vendor crates. Object-safe.
 pub trait Sealer {
@@ -283,7 +283,8 @@ pub trait Sealer {
 }
 
 /// The native sealer: SGX `EGETKEY` inside an enclave, the mock off-SGX. (The
-/// SEV-SNP sealer lives in `quid-cvm` behind this same trait.)
+/// The SEV-SNP sealer and its `quid-cvm` crate were deleted 2026-09-08; TDX/Nitro would land behind
+/// this same trait if they are ever wired.)
 pub struct NativeSealer;
 
 impl Sealer for NativeSealer {

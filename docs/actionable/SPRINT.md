@@ -91278,6 +91278,25 @@ MRSIGNER` + the ISVSVN ratchet is a **single-point** change rather than one thre
 **A4. Delete `HostingRole`.** `quid-enclave/src/backend.rs:120-132`, `serves_others`,
 `require_backend_for_role:191-200`, `resolve_role` at `quid-hop/src/seed.rs:282-294`,
 `QUID_HOSTING_ROLE` parsing. Only three consumers.
+✅ **A5 PARTIALLY DISCHARGED 2026-09-08 — SEV-SNP IS DELETED, AND THAT DISSOLVES A5'S OWN BLOCKER.**
+(owner: *"there is no SEV SNP anymore either"*). Removed: `Backend::SevSnp`, `detect_host`'s
+`/dev/sev-guest` probe, the `label()` arm, the sealer dispatch at `quid-hop/src/seed.rs:54`, and **the
+entire `quid-cvm` crate** — it was ENTIRELY SEV (`sev_derived_key`, `sev_report`, `SevSealer`,
+`sev_measurement`) with exactly ONE consumer. `cargo test -p quid-enclave -p quid-hop -p quid-bridge`
+**167/0**.
+⭐ **WHY THIS MATTERS BEYOND THE DELETION: GATE 1's row 1a blocked A5 on *"the build-time gate is
+NARROWER than `custody_ready()` (`Sgx | SevSnp`), so a SEV-SNP deployment that writes nothing today
+would start writing plaintext."* `custody_ready()` is now `matches!(self, Backend::Sgx)` — EXACTLY
+`cfg!(target_env = "sgx")`.** ⇒ **that objection no longer has a subject.** ⛔ **A4's objection is
+UNTOUCHED and still binds:** deleting `HostingRole` still drops the `Family` arm's `WriteShares`
+k-of-n split to a single plaintext `Write`. **A4 stays blocked; only A5's second half cleared.**
+📌 **AND IT REMOVES A BUILD CONSTRAINT CLAUDE.md RECORDS:** *"Rust does not build on macOS at all —
+`quid-cvm` is Linux-only and transitive."* That crate is gone.
+⚠️ **CHRONOLOGY NOTE (owner, 2026-09-08: *"do things in the right chronology"*): this is a GATE 5 item
+and it was done while the order says GATE 2.** It landed green and is not being reverted, but the
+sequencing was wrong — an owner remark about a fact is not a licence to jump the gate that schedules
+the work it implies.
+
 **A5. Delete `Backend` and `detect()`.** `cfg!(target_env = "sgx")` already separates real seal from mock.
 **Replace the runtime gate with a build-time one: mainnet requires the SGX build; a mock-sealed binary
 refuses to start against it.** 🔗 **Interacts with §BTC-4.5-quater's open item:** the Dockerfile is

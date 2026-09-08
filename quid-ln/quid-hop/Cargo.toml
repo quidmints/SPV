@@ -75,7 +75,6 @@ required-features = ["harness"]
 # Host-only: confidential-VM sealers (SEV-SNP via battle-tested virtee/sev). NOT in
 # the SGX enclave build, which uses EGETKEY (the native sealer in quid-enclave).
 [target.'cfg(not(target_env = "sgx"))'.dependencies]
-quid-cvm = { path = "../quid-cvm" }
 
 [dev-dependencies]
 # Regtest harness: bitcoind (auto-downloaded) + Blockstream esplora-electrs

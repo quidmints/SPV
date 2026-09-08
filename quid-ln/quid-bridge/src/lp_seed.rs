@@ -322,7 +322,7 @@ mod test {
                 b.as_str(),
             );
         }
-        for b in [Backend::Sgx, Backend::SevSnp] {
+        for b in [Backend::Sgx] {
             assert_eq!(
                 decide(false, false, b, SOLO, SPLIT),
                 BackupDecision::SkipCustodyReadyBackend,

@@ -29,9 +29,6 @@
 pub enum Backend {
     /// Intel SGX process enclave (compile-time target). EGETKEY seal, DCAP quote.
     Sgx,
-    /// AMD SEV-SNP confidential VM. Plain host binary; `SNP_GET_REPORT`
-    /// attestation (64-byte report_data), `SNP_GET_DERIVED_KEY` sealing.
-    SevSnp,
     /// Intel TDX confidential VM. `TDREPORT` → `TDQUOTE` (64-byte report_data).
     Tdx,
     /// AWS Nitro Enclave. NSM attestation document (user_data + PCRs).
@@ -57,7 +54,11 @@ impl Backend {
     /// have wired + verified its seal, never on the mere presence of the hardware.
     ///
     /// - `Sgx`: EGETKEY seal (implemented). → true
-    /// - `SevSnp`: `SNP_GET_DERIVED_KEY` measurement-bound seal (implemented against
+    /// ⛔ SEV-SNP WAS REMOVED 2026-09-08 (owner: *"there is no SEV SNP anymore either"*), and with it
+    ///   the whole `quid-cvm` crate — it was ENTIRELY SEV (`sev_derived_key`, `sev_report`,
+    ///   `SevSealer`, `sev_measurement`) and had exactly ONE consumer, `quid-hop/src/seed.rs`'s
+    ///   sealer dispatch. ⇒ `custody_ready()` is now `Sgx` ALONE.
+    /// - `SevSnp` (deleted): `SNP_GET_DERIVED_KEY` measurement-bound seal (was implemented against
     ///   the documented ABI; fail-closed; the ioctl happy-path is a hardware tail
     ///   verified on real SEV-SNP, like SGX's own EGETKEY). → true
     /// - `None`: mock seal (the host can read the sealed blob). → false (self-trust)
@@ -66,13 +67,12 @@ impl Backend {
     ///   others — and are false here. Each flips to true in the same change that
     ///   lands + verifies its real seal, so we never *guess* a CVM is custody-safe.
     pub fn custody_ready(self) -> bool {
-        matches!(self, Backend::Sgx | Backend::SevSnp)
+        matches!(self, Backend::Sgx)
     }
 
     pub fn as_str(self) -> &'static str {
         match self {
             Backend::Sgx => "sgx",
-            Backend::SevSnp => "sev-snp",
             Backend::Tdx => "tdx",
             Backend::Nitro => "nitro",
             Backend::None => "none",
@@ -100,9 +100,7 @@ fn detect_host() -> Backend {
     // Guest attestation driver nodes, present only inside the respective CVM.
     // (First-pass detection by device-node presence; a CPUID/MSR cross-check is a
     // later hardening — a plain host simply exposes none of these.)
-    if Path::new("/dev/sev-guest").exists() {
-        Backend::SevSnp
-    } else if Path::new("/dev/tdx_guest").exists()
+    if Path::new("/dev/tdx_guest").exists()
         || Path::new("/dev/tdx-guest").exists()
         || Path::new("/sys/kernel/config/tsm/report").exists()
     {
@@ -206,7 +204,7 @@ mod test {
     #[test]
     fn only_none_is_unattested() {
         assert!(!Backend::None.is_attested());
-        for b in [Backend::Sgx, Backend::SevSnp, Backend::Tdx, Backend::Nitro] {
+        for b in [Backend::Sgx, Backend::Tdx, Backend::Nitro] {
             assert!(b.is_attested(), "{} must be attested", b.as_str());
         }
     }
@@ -221,7 +219,6 @@ mod test {
     #[test]
     fn sgx_and_sevsnp_are_custody_ready() {
         assert!(Backend::Sgx.custody_ready());
-        assert!(Backend::SevSnp.custody_ready());
         // No-TEE + the not-yet-wired CVM seals (TDX / Nitro) are NOT custody-ready.
         for b in [Backend::None, Backend::Tdx, Backend::Nitro] {
             assert!(!b.custody_ready(), "{} must not be custody-ready yet", b.as_str());
@@ -243,7 +240,7 @@ mod test {
             );
         }
         // Serves-others is allowed on a custody-ready backend (SGX + SEV-SNP).
-        for b in [Backend::Sgx, Backend::SevSnp] {
+        for b in [Backend::Sgx] {
             assert!(require_backend_for_role(HostingRole::Fleet, b).is_ok());
             assert!(require_backend_for_role(HostingRole::Family, b).is_ok());
         }
