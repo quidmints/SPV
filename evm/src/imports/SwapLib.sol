@@ -2,7 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
-import {WAD, BadAsset} from "./Types.sol";
+import {WAD, FLOW_HALFLIFE, BadAsset} from "./Types.sol";
 // §A.52: the canonical view (was a file-local `IBasketTurn2`).
 import {IBasket} from "./Interfaces.sol";   // §rule-2: Interfaces.sol is the canonical declaration site
                                                      // (BasketLib only RE-imports it, so importing from there does not resolve)
@@ -734,10 +734,23 @@ library SwapLib {
     ///
     /// Γ — the Avellaneda–Stoikov scale, folding risk-aversion γ and the horizon (T−t) into one
     /// coefficient. THIS IS PRICING, NOT A BOUND: it multiplies `σ²·qBar` (`skewWad`, `sellSkew`).
-    /// ⚠️ Still the inherited 3e16 (⇒ a 10.95-day horizon nobody chose). §E274 measured the
-    /// replacement but does NOT land it here — that is a separate money-path change, deliberately
-    /// not bundled with the cap removal so a regression can be attributed to one of them.
-    uint internal constant GAMMA_WAD = 3e16;
+    /// §E274-LAND (owner ruling: *"move gamma to 5.48e15 … but avoid strange hardcoded constants if
+    /// we can find more natural dynamic alternatives"*) — **THE INHERITED 3e16 IS GONE.** It encoded a
+    /// 10.95-day horizon that nobody chose: it was `MAX_WELL_SKEW` under a second name (§E275), so the
+    /// curve was calibrated to land on its own cap and the "horizon" was read back OUT of that number.
+    /// ⇒ Γ IS NOT A LITERAL HERE. It is γ·(T−t) with γ = 1 (dimensionless) and T−t taken from the ONE
+    ///   window the system already commits to — `FLOW_HALFLIFE`, `Core.FLOW_DECAY`'s 48h half-life,
+    ///   documented there as *"the timescale on which an imbalance is worked off"*. `σ²` is ANNUALIZED
+    ///   (`realizedVarianceWad`), so the horizon must be in YEARS: 48h/365d = 5.479452e-3 ⇒ 5.48e15 WAD,
+    ///   which is what §E274 derived independently. The expression EVALUATES to the ruled value; it is
+    ///   written as a derivation so the two cannot drift apart.
+    /// ⛔ A FULLY DYNAMIC HORIZON (T−t = imbalance/flow) WAS CONSIDERED AND IS NOT SAFE AS STATED:
+    ///   `skewWad` ALREADY multiplies by `qBar`, so a horizon proportional to the imbalance makes the
+    ///   premium ∝ q² — the exact shape §E287 shipped and `0505a993` refuted ("the citation puts
+    ///   q-squared in the DENOMINATOR where it creates the pole; I moved it to the numerator"). A
+    ///   horizon ∝ 1/flow alone avoids that, but `target = flowEwmaUsd + redeemEwmaUsd` already carries
+    ///   flow in q's denominator, so it compounds — and flow→0 is a SECOND pole. Measure before landing.
+    uint internal constant GAMMA_WAD = FLOW_HALFLIFE * WAD / 365 days;
     /// §E289 — **THE POLE'S LOCATION, in units of `target`** — our analogue of A–S's ω.
     /// A–S do NOT clamp: they place the singularity where the agent cannot go. §2.3's denominator is
     /// `2ω − γ²q²σ²`, and the paper says ω *"may be interpreted as an upper bound on the inventory

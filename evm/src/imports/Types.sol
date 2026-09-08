@@ -11,6 +11,15 @@ import {ILevVenue} from "./Interfaces.sol";
 ///      propagate to every importer (§E267).
 uint256 constant WAD = 1e18;
 
+/// @dev §E274-LAND — **THE ONE MEMORY WINDOW, DECLARED ONCE.** `Core.FLOW_DECAY` is the per-minute
+///      decay `0.5^(1/2880)` that realises this half-life, and `Core._prem` already reuses it with
+///      the note that *"a THIRD decay constant would be an unjustified magic number"*. Γ
+///      (`SwapLib.GAMMA_WAD`) is that third consumer, so it derives from HERE rather than carrying a
+///      literal: the timescale on which an inventory imbalance is worked off is the SAME timescale
+///      the flow-EWMA remembers, and if that window ever moves, Γ must move WITH it or the skew
+///      silently reprices. A hardcoded Γ cannot track it; this expression does.
+uint256 constant FLOW_HALFLIFE = 48 hours;
+
 error NotOpen();
 error BadTarget();
 
