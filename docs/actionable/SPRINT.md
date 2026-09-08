@@ -98329,11 +98329,22 @@ or unusable route is skipped, so the test reads `0 <= 0` instead of reverting. *
 found the test-side twin — `ConvertToRouted:55` is `vm.skip(true)` with no `return`, and `vm.skip`
 does not halt execution** — so the harness ALSO falls through into its assertions. Two independent
 silences on the same path, which is why it read as a routing defect for two sessions.
-▶️ **THE OPEN QUESTION, NOT DECIDED HERE:** whether the zero-route synthesis should be restored to a
-revert. §SESS-91 removed it for a stated reason (*"no route" stopped meaning "names no venue"* once
-pool words were deleted, and `test_MEV_OracleFloorRejectsSandwich` reverted on routing before the
-sandwich). ⚠️ **Do not simply re-add the revert** — read §SESS-91 first; the fix may belong at the
-CALLER, which knows whether an empty route is legitimate.
+✅ **RESOLVED 2026-09-08 — THE SYNTHESIS STAYS; THE REVERT MUST NOT COME BACK.** I left this open and
+project-bc answered it with the mechanism, which I then verified rather than accepted:
+· `LevManager.closeLevFor(lp, minOut)` (`:497`) is **`_onlyRange()`** and calls
+  `_closeLev(lp, minOut, true, _unwindDex())` — it passes a POOL-WORD DEFAULT
+  (`_unwindDex() → DEFAULT_UNWIND_DEX`, `LevBase:273`), **never a caller-supplied route**.
+· Its caller is the range's own withdraw path (`Quid.sol:805`,
+  `ILevClose(_levManager()).closeLevFor(msg.sender, 0)`).
+⇒ **The range is not a keeper and CANNOT discover a route.** Re-adding the revert to the shared
+executor would break §G.7's auto-de-lever on withdraw — the §SESS-92 finding that cost 39 lev tests to
+learn.
+▶️ **SO THE FIX BELONGS AT THE CALLER THAT SHOULD HAVE SUPPLIED ONE, NOT IN THE SHARED EXECUTOR.** A
+keeper entrypoint passing `""` is a defect; the range passing a pool word is correct. **One executor
+cannot tell those apart, which is exactly why the check does not belong there.**
+⚠️ **What remains genuinely open is narrower and still real: a keeper path that forgets the route now
+fails SILENTLY.** That is the §EMPTY-ROUTE-IS-SILENT hazard proper, and it wants a guard at each
+keeper entrypoint, not a global one.
 
 ## §K-IS-A-SAMPLING-ARTEFACT-WHEN-MEASURED — ⛔ BOTH published K_eff numbers RETRACTED by their author
 
@@ -98371,9 +98382,20 @@ same number.** But **out of range the true instantaneous LVR is ZERO**: the posi
 and there is nothing to arbitrage against. ⇒ **whenever price is outside the band, `kLvrWad` reports
 ~125 where the truth is 0.** Direction of the bias is CERTAIN; magnitude is exactly what the table
 above shows cannot be measured with the bars available.
+⭐ **AND IT IS A STEP FUNCTION, NOT AN EDGE EFFECT — WHICH RULES OUT THE CHEAP FIX BEFORE ANYONE
+SPENDS A DAY ON IT.** MEASURED at δ=20 bps: **centre 125.06, clamped-to-lo 125.12, clamped-to-hi
+125.12 — a spread of 0.05% across the ENTIRE band.** `kLvrWad` is effectively CONSTANT in-band, so the
+clamp does not make it "slightly wrong near the edges": it returns ~125 everywhere inside and ~125
+everywhere outside, where the truth outside is **0**. **There is no gradient for anything downstream to
+respond to.**
+⛔ ⇒ **Reading `kLvrWad` more often, at a better price, or averaged over the band CHANGES NOTHING.** A
+point-in-time function of `(price, bounds)` cannot express time-averaged exposure at ANY price you feed
+it. **Any real correction needs a SECOND SIGNAL — in-range time — which is state this tree does not
+have.** That is the cost of the fix, and it is why the fix is not a one-liner.
 ⚠️ **This compounds the θ regime question already booked in §BASIS-FIXED-K-NOT** — θ divides an ANNUAL
 yield by an instantaneous IN-RANGE rate, and the clamp makes that rate apply even when the position is
-out of range. **Same defect from two directions; fix them as one thing or not at all.**
+out of range. **Same defect from two directions; fix them as one thing or not at all** — make both
+sides realized over the same window, or leave it alone.
 
 ### ▶️ AND THE LEVER IS NOT `K` — IT IS `RANGE_DELTA`, WHICH IS AN OWNER DECISION
 `K_geom = 1/(4δ)` exactly (verified: 125.06 at δ=20 bps, 12.56 at δ=200 bps). So **the only honest way

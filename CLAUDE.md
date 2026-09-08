@@ -281,6 +281,21 @@ environment actually is*. Every line below was verified in-repo, not recalled.
     claim that sounded right; the slither one was found by measuring a claim that was ALREADY
     labelled stale and turned out to be stale in the opposite direction.
 
+    ### ⭐ HOW A STALE IS ACTUALLY PRODUCED — NAME THE MECHANISM, NOT THE HABIT (2026-09-08)
+    Measured across five stale docblocks caught in one day, three of them by their own author:
+    **the edit updates the CODE and the ASSERTION, and leaves the PARAGRAPH THAT MOTIVATED THEM.**
+    The author is looking at a diff; the paragraph is above the diff and does not appear in it.
+    ⇒ **A READER HITS THE PARAGRAPH FIRST**, which is why the reader catches what the author misses —
+    and why *"read the docblock, not the diff"* is the review move that finds these.
+    *Worked example, same file, same paragraph, both by one author:* `LevMath._retarget`'s docblock
+    said `minReturn` is *"0 on purpose"* while the body two hunks later wrote `1` (the router reverts
+    `ZeroMinReturn()` on the generic descriptor but not on `unoswap` — the asymmetry was real and
+    unstated); the line ABOVE it still said `routedSwap` *"encodes one from pool words"* after §SESS-91
+    deleted that encoder. **The fix landed twice and the motivation was destaled zero times.**
+    ▶️ **THE CHEAP HABIT: after changing a body, re-read the WHOLE docblock above it, not the lines the
+    diff shows you.** The diff is the wrong unit for prose, because prose's blast radius is the
+    paragraph and `git` does not know where paragraphs begin.
+
     ### 🔴 NO TOMBSTONES (owner, 2026-09-06: *"we dont need tombstones. genuinely useless
     comments have to go"*). A comment whose SUBJECT is a deletion answers a question nobody
     asked and buries the one rule that still binds. **The discriminator, validated across
