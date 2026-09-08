@@ -454,8 +454,26 @@ contract LevCascadeProbe is AllesFixture {
         // note in the fee-lane test: `_rallyRange` moves the MOCK range and the real pool does not.
         _realignRangeToReal();
 
+        // ⚠️ §SESS-104 — **THE WITHDRAW IS WRAPPED SO A MARKET-DEPENDENT REVERT NAMES ITSELF.** This
+        //    test asserts MECHANISM — slice crystallised, debt repaid, position closed — and none of
+        //    those are price claims. But the auto-de-lever's sell leg must clear the oracle floor to
+        //    reach them, and at some market states it cannot: MEASURED, this fails `Slippage()` at
+        //    block 25927822 and passes at head, **on pre-§SESS-91 code as well as current** (gas
+        //    36,073,968 vs 36,072,330 — different code, same fall), so it is the market and not a
+        //    regression. I initially blamed my own deploy change for it.
+        // 🔑 The bare `Slippage()` is what made that misdiagnosis easy — the same shape as §SESS-99's
+        //    `ZeroMinReturn()`, where a self-describing revert four frames down arrived as an
+        //    anonymous number. ⇒ catch it and say which of the two it is. The test still FAILS, on
+        //    purpose: a de-lever that cannot clear the floor is a real condition, not one to skip past.
         vm.prank(lps[0]);
-        ETH.withdraw(type(uint).max, lps[0], lps[0]);
+        try ETH.withdraw(type(uint).max, lps[0], lps[0]) {}
+        catch (bytes memory err) {
+            if (bytes4(err) == bytes4(keccak256("Slippage()")))
+                revert("G7: the auto-de-lever could not clear the oracle floor AT THIS BLOCK - this is "
+                       "market state, not a routing or accounting defect. Re-run, or pin FORK_BLOCK to "
+                       "a block where the sell leg clears SELL_SLIP_BPS. See L-routing SESS-104.");
+            assembly { revert(add(err, 0x20), mload(err)) }
+        }
 
         assertEq(ETH.levPooled(lps[0]), 0, "#109: past free depth, the levered slice is crystallised");
         assertEq(venue.debtOf(lps[0]), 0, "#109: the auto-de-lever repaid the venue debt in full");

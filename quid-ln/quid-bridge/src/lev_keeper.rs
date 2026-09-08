@@ -972,7 +972,24 @@ impl Plan {
         let sel = match self.hops.len() {
             1 => SEL_UNOSWAP,
             2 => SEL_UNOSWAP2,
-            _ => return Vec::new(),
+            _ => {
+                // 🔴 §SESS-104 — **AN EMPTY ROUTE FROM THE KEEPER IS NOW SILENT ON-CHAIN, SO IT MUST
+                //    BE LOUD HERE.** §SESS-92 replaced `routedSwap`'s empty-route REVERT with the
+                //    protocol's default venue, because `LevBase.closeLevFor` is `_onlyRange()` and
+                //    the range cannot discover a route — §G.7 requires it trade anyway. Correct for
+                //    the range, and it means a KEEPER that forgets its route no longer fails: it
+                //    silently trades at `DEFAULT_UNWIND_DEX` instead of the venue it planned.
+                // ⛔ **THE GUARD CANNOT GO IN `routedSwap`.** One executor cannot tell a range
+                //    passing a pool word from a keeper passing nothing, and `rebalance` is
+                //    PERMISSIONLESS — reverting there would break the liveness §SESS-92 restored.
+                //    ⇒ it belongs where the mistake is made, per producer, which is here.
+                // ⚠️ WARN AND STILL SEND: an unplanned rebalance at the default venue is worse than a
+                //    planned one and better than none, and this path fires when positions are
+                //    stressed. Visibility, not a stall.
+                tracing::error!(hops = self.hops.len(),
+                    "keeper produced NO usable route (hops must be 1 or 2) - the contract will fall                      back to DEFAULT_UNWIND_DEX and the planned venue is discarded");
+                return Vec::new();
+            }
         };
         let mut d = Vec::with_capacity(4 + (3 + self.hops.len()) * 32);
         d.extend_from_slice(&sel);
@@ -1560,6 +1577,38 @@ fn venue_stable_of<R: JsonRpc, S: TxSigner>(
     Some(out)
 }
 
+/// ⭐ §SESS-105 — **THE CHOICE, EXTRACTED SO IT CAN BE TESTED AT ALL.**
+///
+/// 🔴 `plan_for_lp` needs a live `JsonRpcEvmClient` and a deployed manager, so the four lines that
+///    decide between our route and 1inch's were the ONLY part of the integration no test could reach.
+///    Both halves were verified separately — `route_bytes` honours `fetched`, and the condition fires
+///    on live data — and the WIRING between them was taken on trust. That is the shape §SESS-99 just
+///    cost a day for: two verified halves and an unexercised join.
+/// ⛔ A declaration that exists to serve a test would be standing rule 23's failure. This one exists
+///    because the alternative is UNTESTABLE, which is the exception the rule names.
+/// ⚠️ Strictly `>`: a tie keeps OUR route. Their quote is a promise about a route we cannot replay on
+///    a fork (§SESS-101 — maker orders), ours is a pool we can name, so equal numbers are not equal
+///    confidence.
+#[cfg(test)]
+pub fn prefer_fetched_for_test(planned: Option<(Plan, U256)>, fetched: Option<(U256, Vec<u8>)>)
+    -> Option<Plan> { prefer_fetched(planned, fetched) }
+
+fn prefer_fetched(planned: Option<(Plan, U256)>, fetched: Option<(U256, Vec<u8>)>) -> Option<Plan> {
+    let (base, base_out) = match planned {
+        Some((p, out)) => (Some(p), out),
+        None => (None, U256::ZERO),
+    };
+    match fetched {
+        Some((out, data)) if out > base_out => {
+            let mut p = base.unwrap_or(Plan {
+                dex: dex_word(), dex2: [0u8; 32], hops: vec![dex_word()], fetched: Vec::new() });
+            p.fetched = data;          // `route_bytes` prefers `fetched` when non-empty
+            Some(p)
+        }
+        _ => base,
+    }
+}
+
 /// §SESS-47 — 🔑 **THE KEEPER SUPPLIES THE HUB HOP, SO THE CONTRACT NEVER HAS TO GUESS ONE.**
 ///
 /// Resolve THIS LP's venue stable, plan `stable → volatile` against it, and send BOTH pool words.
@@ -1580,7 +1629,8 @@ fn venue_stable_of<R: JsonRpc, S: TxSigner>(
 /// 📌 Costs two `eth_read`s per LP per cycle against a 5-minute poll. `position_view` already reads
 ///    `pos(lp)`; threading the stable through it would save one read at the price of widening the
 ///    `LevKeeperEvm` trait and its mock, so the duplicate read is the smaller change.
-pub fn plan_for_lp<R: JsonRpc, S: TxSigner>(
+pub 
+fn plan_for_lp<R: JsonRpc, S: TxSigner>(
     evm: &JsonRpcEvmClient<R, S>, lm: Address, lp: LpAddr, volatile: LpAddr,
 ) -> Plan {
     let planned = venue_stable_of(evm, lm, lp).and_then(|stable| {
@@ -1590,28 +1640,15 @@ pub fn plan_for_lp<R: JsonRpc, S: TxSigner>(
         //    and is available only while the API is. ⛔ Neither is preferred by class — that is the
         //    same mistake §SESS-71 made asserting a two-hop beats a direct pool, which failed at
         //    three blocks on identical bytecode.
-        let (mut best, mut best_out) = match best_plan_quoted(evm.rpc(), stable, volatile, amt) {
-            Some((p, out)) => (Some(p), out),
-            None => (None, U256::ZERO),
-        };
-        // ⚠️ **EVERY FAILURE HERE IS A FALLBACK, NEVER A STALL.** No key, a revoked key, a rate limit,
-        //    a timeout, or a selector `_retarget` would refuse — all of them leave `best` exactly as
-        //    our own planner left it. `rebalance` and `deleverMany` are permissionless and fire when
-        //    positions are stressed; an outage must cost us a better price, never a rebalance.
-        if crate::oneinch::api_key().is_some() {
-            if let Some((out, data)) =
-                crate::oneinch::swap_quote_and_calldata(stable, volatile, amt, lm.into_array(), 100)
-            {
-                if out > best_out {
-                    let mut p = best.clone().unwrap_or(Plan {
-                        dex: dex_word(), dex2: [0u8; 32], hops: vec![dex_word()], fetched: Vec::new() });
-                    p.fetched = data;          // `route_bytes` prefers `fetched` when non-empty
-                    best_out = out;
-                    best = Some(p);
-                }
-            }
-        }
-        best
+        let planned = best_plan_quoted(evm.rpc(), stable, volatile, amt);
+        // ⚠️ EVERY FAILURE HERE IS A FALLBACK, NEVER A STALL. No key, a revoked key, a rate limit, a
+        //    timeout, or a selector `_retarget` would refuse all leave `planned` as it was.
+        //    `rebalance` and `deleverMany` are permissionless and fire when positions are stressed —
+        //    which is when everyone else is hammering this API too.
+        let fetched = if crate::oneinch::api_key().is_some() {
+            crate::oneinch::swap_quote_and_calldata(stable, volatile, amt, lm.into_array(), 100)
+        } else { None };
+        prefer_fetched(planned, fetched)
     });
     planned.unwrap_or(Plan { dex: dex_word(), dex2: [0u8; 32], hops: vec![dex_word()], fetched: Vec::new() })
 }

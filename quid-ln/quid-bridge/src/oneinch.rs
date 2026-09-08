@@ -259,4 +259,38 @@ mod tests {
             "our planner quoted ZERO on USDC->WBTC at $1M - the comparison is vacuous and a fetched route would win by default, not on merit");
     }
 
+    /// ⭐ §SESS-105 — **THE JOIN, WHICH NEITHER HALF-TEST REACHED.** `route_bytes` honouring
+    /// `fetched` and the condition firing on live data were both verified; the four lines that WIRE
+    /// them were not, because `plan_for_lp` needs a live client and a deployed manager. §SESS-99 cost
+    /// a day for exactly that shape — two verified halves and an unexercised join.
+    #[test]
+    fn prefer_fetched_takes_the_better_quote_and_ties_go_to_us() {
+        use crate::lev_keeper::{prefer_fetched_for_test as pf, Plan};
+        let mine = |o: u64| Some((Plan { dex: [1u8; 32], dex2: [0u8; 32],
+                                         hops: vec![[1u8; 32]], fetched: Vec::new() }, U256::from(o)));
+        let theirs = |o: u64| Some((U256::from(o), vec![0x07u8, 0xed, 0x23, 0x79, 0xAB]));
+
+        // theirs wins ⇒ the calldata is carried and `route_bytes` will emit it
+        let p = pf(mine(100), theirs(101)).expect("a plan");
+        assert_eq!(p.fetched, vec![0x07u8, 0xed, 0x23, 0x79, 0xAB], "the better fetched route was dropped");
+        assert_eq!(p.route_bytes(), p.fetched, "fetched set but route_bytes ignored it");
+
+        // ours wins ⇒ fetched must NOT be attached, or we would send a route we did not choose
+        let p = pf(mine(100), theirs(99)).expect("a plan");
+        assert!(p.fetched.is_empty(), "a WORSE fetched route was attached anyway");
+
+        // ⚠️ A TIE KEEPS OURS. Their quote is a promise about a route we cannot replay on a fork
+        //    (§SESS-101, maker orders); ours names a pool we can execute. Equal numbers are not equal
+        //    confidence, and `>` rather than `>=` is what encodes that.
+        let p = pf(mine(100), theirs(100)).expect("a plan");
+        assert!(p.fetched.is_empty(), "a TIE handed the trade to the route we cannot verify");
+
+        // no plan of our own ⇒ their route still wins, over the default word rather than over nothing
+        let p = pf(None, theirs(1)).expect("a plan even with no self-planned route");
+        assert!(!p.fetched.is_empty(), "with no plan of ours, the fetched route must still be taken");
+
+        // neither ⇒ no plan, which is what makes `plan_for_lp` fall back to the default word
+        assert!(pf(None, None).is_none(), "no producer answered but a plan appeared");
+    }
+
 }
