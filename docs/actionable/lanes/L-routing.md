@@ -861,3 +861,62 @@ dropped **silently and the direct arm produced NOTHING** — not the second-best
 stable↔USDC leg takes the on-chain Curve table and **the volatile leg falls back to a single pool
 word**, throwing away whatever route the keeper computed. So for every NON-HUB stable a two-hop or
 split volatile route is unusable. Not previously written down as a gap.
+
+---
+
+## §SESS-99 — 🔴 **`ZeroMinReturn()`: THE GENERIC ARM HAD NEVER FILLED ONCE**
+
+`LevMath._retarget` wrote `minReturnAmount = 0` into 1inch's generic `swap()` descriptor, deliberately
+— *"the aggregate delta floor is the bound"* — and `AggregationRouterV6` **reverts `ZeroMinReturn()`
+on exactly that**. The right security design and an impossible call. Every generic-descriptor route
+reverted at the router; `convertTo` skipped the leg as an ordinary failure; the conversion returned 0
+four frames later. ⇒ **`1`**: satisfies the router's sanity check, leaves the real bound on the
+MEASURED balance delta across the whole conversion, which a per-leg `minReturn` cannot express anyway.
+📊 It fills now, first time ever: **250,000 USDC → 100.112677 WETH**, and 250k USDC + 250k USDT →
+**200.208348 WETH** in one call.
+
+⛔ **WHAT THIS VOIDS.** The generic arm is the ONLY door to v4, Balancer, Fluid and split routing, so
+every claim resting on it was untested: §SESS-88's A/B measured QUOTES against a route that could not
+execute; §SESS-90 wired `plan_for_lp` to PREFER it, which in production would have sent a reverting
+route and degraded silently to a skipped leg; GHO and FRXUSD were never reachable even with the key.
+
+⚠️ **WHY IT SURVIVED A DAY AND THREE WRONG DIAGNOSES** (stale fork pin → dead API key → bad `from`):
+**an error path that CONTINUES converts a self-describing failure into an anonymous zero.**
+`convertTo` skips a failed leg BY DESIGN so one bad leg cannot void a multi-leg conversion — correct,
+and it means a named revert never reaches the assertion. Compounded by `vm.skip(true)` without
+`return`, which made an EMPTY route and a REVERTING router produce identical output.
+
+## §SESS-94 — ⭐ **`proto = 0` FILLS: THE UNISWAP-V2 FAMILY WAS ALWAYS REACHABLE**
+
+Executed at FORK_BLOCK 25927822, 25,000 USDC in: **UniV2 9.983 WETH · Sushi 8.480 · V3 control 10.019
+under proto 1 · Curve (2) and 3 filled ZERO on every pool, both direction bits.**
+🔴 §SESS-22 concluded *"proto = 1 is the ONLY protocol id measured to fill"* — but it only ever tested
+CURVE, and the conclusion was generalised to every non-V3 venue. One untested generalisation capped
+keyless discovery at UniswapV3 for months.
+⚠️ V2 filled only with bit 247 set, and `_deriveBit` skipped every non-V3 word — so that `zeroForOne`
+arrived CALLER-SUPPLIED. Deriving it for `proto = 0` is what makes the family safe to admit rather
+than merely reachable.
+
+## §SESS-101 — 📊 **THE A/B ON FILLS RETRACTS THE NUMBER THAT DROVE THREE SESSIONS**
+
+    USDC → WETH  $1M    ours 399.007948  ·  1inch 399.653594  ·  +5 to +16 bps
+    USDC → WBTC  $100k  ours   1.2677861 ·  1inch   1.2672785 ·  **-4 bps — OURS WINS**
+
+**"+57 to +68 bps to 1inch on WBTC at $1M" does not survive execution.** It was a quote comparison
+against an arm that had never filled. Their verifiable edge is single-digit bps.
+⇒ this retroactively settles backing out the split executor (§SESS-97/98): framed as a reluctant trade
+against 111 bytes of margin, it was simply correct.
+⛔ **WE CANNOT FORK-TEST A 1inch ROUTE CONTAINING MAKER ORDERS.** The WBTC routes carry maker
+signatures and expiry timestamps (limit-order/RFQ legs) signed against live state; they return zero on
+a fork while the pure-AMM WETH route replays fine. Ruled out first: the gas cap (zero at 12M too) and
+the EVM version (`prague` made it worse). Any future claim about 1inch execution at size needs a
+simulation against live state, not a pinned fork.
+
+## 📌 STILL OPEN IN THIS LANE
+· `plan_for_lp` prefers a fetched route on QUOTE; with maker-order routes unverifiable on a fork, that
+  preference is unproven at size. Re-measure against live state before trusting it.
+· A keeper entrypoint that forgets its route now fails SILENTLY — §SESS-92 replaced the revert with a
+  default venue for the RANGE's sake, and one executor cannot tell a range from a forgetful keeper.
+  The guard belongs per keeper entrypoint, not in `routedSwap`.
+· Coverage is **11/14** (basket is 14, `STABLECOINS`, BOLD last). Holes: GHO, FRXUSD (v4-only) and
+  cUSD (no liquidity anywhere — 1inch's own best is −96.8% at $100k, saturating near $3.2k of depth).

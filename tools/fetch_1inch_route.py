@@ -42,7 +42,12 @@ def main():
         # No key -> emit empty calldata. `_aggSwap` then reverts NoVolatileRoute(), which
         # is the HONEST pre-key behaviour rather than a fabricated route.
         print("0x", end=""); return 0
-    url = (f"https://api.1inch.dev/swap/v6.0/1/swap?src={src}&dst={dst}&amount={amount}"
+    # ⚠️ §SESS-102 — **v6.1, MATCHING `quid-bridge/src/oneinch.rs`.** This read v6.0 while the keeper
+    #    called v6.1, so every fork test exercised a DIFFERENT API version than production — and
+    #    §SESS-99's `ZeroMinReturn()` fix was therefore validated against routes the keeper would
+    #    never receive. Two producers of the same calldata must not drift on version; the selector
+    #    (0x07ed2379) happens to match across both, which is exactly what made the drift invisible.
+    url = (f"https://api.1inch.dev/swap/v6.1/1/swap?src={src}&dst={dst}&amount={amount}"
            f"&from={frm}&slippage={slip}&disableEstimate=true")
     # ⚠️ SHELL OUT TO `curl`, NOT `urllib`. MEASURED: the identical request via
     #    `urllib.request` returns **HTTP 403 Forbidden** while `curl` succeeds — the API

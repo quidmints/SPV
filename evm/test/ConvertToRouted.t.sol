@@ -95,7 +95,11 @@ contract ConvertToRoutedTest is Test {
             //    that asserted nothing is precisely the vacuous-pass this repo keeps being bitten by
             //    (§VACUOUS-BOUNDS, and the sell-leg backing test earlier today). Reporting SKIPPED
             //    makes the missing key visible in the suite output instead of hiding behind a tick.
-            vm.skip(true);
+            // §SESS-102 — `return` ADDED. The note above is right that a bare `return` reports PASS,
+            // but `vm.skip(true)` alone does not HALT: execution fell through into the assertions and
+            // reported `0 <= 0`, so a missing key looked identical to a reverting router. `skip` THEN
+            // `return` reports SKIPPED, which is what this comment always wanted.
+            vm.skip(true); return;
         }
 
         // ⚠️ `deal` IS THE WRONG TOOL HERE AND IT COST A FALSE FAILURE. On a fork it drives
