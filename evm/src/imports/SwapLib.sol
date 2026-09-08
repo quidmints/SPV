@@ -2255,6 +2255,33 @@ library SwapLib {
         if (venue == address(0)) return 0;
         uint takeUsd18 = LevMath._toUsd18(aux,stable, amtNative);
         { uint held = _heldUsd18(aux, stable); if (takeUsd18 > held) takeUsd18 = held; } // stay on the cherry-pick leg
+        // 🔴 §REFILL-HEADROOM — ONLY DOLLARS ABOVE WHAT THE BASKET ALREADY OWES (owner, 2026-09-08:
+        //    *"if you fund by basket you can only use dollars over the supply of what is redeemable
+        //    now"*). `takeToSettle` passes `softBacking = true`, so its terminal check is
+        //    `tryCheckBacking()` — which REPACKS AND RETURNS REGARDLESS. Every user-facing drain gets
+        //    the STRICT `checkBacking()` that reverts on `committed > liquid`; this path alone was
+        //    permitted to leave the invariant violated, on the stated ground that "its mid-drain
+        //    instant is offset by an in-tx debt-repay".
+        //    ⚠️ MEASURED, AND THE STATED OFFSET DOES NOT HAPPEN: across a delivery, committed moved
+        //      by ZERO (it is a PUSHED value this path never re-pushes) while liquid fell by the full
+        //      repay. There is no offset on either side. The pool is not worse off — obligations fall
+        //      ~2.4x faster than liquidity — but nothing ENFORCES that, and a level check that never
+        //      reverts is not enforcement.
+        //    ⇒ Bound the DRAW by the headroom instead: a refill may consume only what the basket
+        //      holds ABOVE its committed claim. Fail-SAFE — it can only ever REDUCE the take, and a
+        //      smaller take is the same partial de-lever the `held` clamp already produces (the sats
+        //      are freed regardless; see `swapOutDelever` below).
+        //    ⛔ Do NOT "restore" this to the soft check alone: a non-reverting solvency probe sizes
+        //       nothing, and this is the ONLY drain in the tree without a hard bound.
+        //    📌 READS THE SAME TWO QUANTITIES `Core._poolUsdInRange`'s gate compares — `_d[14]`
+        //       (18-dec TVL) less `depegLoss`, against `committedUsd18()` — so the bound and the gate
+        //       cannot disagree about what "backed" means.
+        {   (uint[15] memory amts,,, uint depeg) = IAux(aux).get_deposits();
+            uint liquid = amts[14] > depeg ? amts[14] - depeg : 0;
+            uint committed = ICore(core).committedUsd18();
+            uint headroom = liquid > committed ? liquid - committed : 0;
+            if (takeUsd18 > headroom) takeUsd18 = headroom;
+        }
         if (takeUsd18 == 0) {
             // #13/H2: the channel BTC has ALREADY physically left to the swapper (splice-proven), so we must not
             // silently `return 0` — that truncates the position shrink to `funded` while settleDelivered draws +

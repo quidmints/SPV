@@ -34,6 +34,7 @@ import {ICore} from "../src/imports/Interfaces.sol";
 contract RestoreProfitability is AllesFixture {
     address lpA = User02;
     address drainer = address(0xBEEF02);
+    address attacker = address(0xBEEF03);
     address restorer = address(0xBEEF03);
     address bold;
 
@@ -200,6 +201,79 @@ contract RestoreProfitability is AllesFixture {
             assertGt(atOracle, 0, "zero oracle value - nothing measured");
             vm.revertToState(snap);
         }
+    }
+
+    /// @notice 🔴 §REFILL-GRIEF — **CAN AN ATTACKER MOVE THE DEFICIT SO AN HONEST RESTORER OVERSHOOTS?**
+    ///         This is the "cannot be manipulated" half of the refill goal, and it is NOT the same
+    ///         question as "is the charge a cliff". The charge being LINEAR bounds the DAMAGE per
+    ///         wei of overshoot; it says nothing about whether the overshoot can be INDUCED.
+    /// ⇒ THE ATTACK. A restorer sizes a sell to exactly the deficit — free at 0 bps, the mirror/flush
+    ///   exemption. An attacker sells a SMALL amount one transaction earlier, shrinking the deficit
+    ///   by ε. The victim's already-sized trade now lands ε PAST target and pays the A-S premium.
+    ///   ⚠️ The attacker's own sell is ALSO a refill, so it is exempt too — the attack may cost
+    ///   nothing but gas. That asymmetry is what would make it a griefing vector.
+    /// ⇒ MEASURED AS AN A/B ON IDENTICAL STATE (snapshot/revert), so the only difference is the
+    ///   attacker's presence: victim's proceeds ALONE vs victim's proceeds AFTER the attacker.
+    /// ⛔ NO INEQUALITY ASSERTED on the damage — the numbers are the finding. The two `assertGt`
+    ///   guards only prove the run reached the code, because a zero-proceeds run would otherwise
+    ///   read as "no damage".
+    function test_REFILLGRIEF_CanAnAttackerInduceOvershoot() public {
+        _seedBasket();
+        vm.prank(lpA);
+        ETH.deposit{value: 400 ether}(0, lpA);
+        _settle();
+        emit log_named_uint("sigma^2 (0 == SENTINEL, charge would be flat)",
+                            warmVarianceFromRealRounds(12));
+        for (uint i = 0; i < 30; ++i) {
+            _drainEth(40_000 * 1e18);
+            (uint iv, uint tg) = _state();
+            if (iv < tg) break;
+        }
+        (uint inv1, uint tgt1) = _state();
+        if (inv1 >= tgt1) { emit log("INCONCLUSIVE: never reached inv < target"); vm.skip(true); }
+        uint pxNow     = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint deficit18 = (tgt1 - inv1) * 1e12;
+        uint honestSize = (deficit18 * 1e18 / pxNow);          // EXACTLY the deficit ⇒ free
+        emit log_named_uint("deficit (usd18)          ", deficit18);
+
+        // ── ARM A: the honest restorer alone ────────────────────────────────────────────────
+        uint snapA = vm.snapshotState();
+        uint gotAlone = _sell(restorer, honestSize);
+        uint atOracle = honestSize * pxNow / 1e18;
+        uint bpsAlone = atOracle > gotAlone ? (atOracle - gotAlone) * 10_000 / atOracle : 0;
+        emit log_named_uint("A: honest alone  proceeds", gotAlone);
+        emit log_named_uint("A: honest alone  shortfall bps", bpsAlone);
+        vm.revertToState(snapA);
+
+        // ── ARM B: attacker shrinks the deficit by 5%, THEN the identical honest sell ───────
+        uint snapB = vm.snapshotState();
+        uint attackSize = honestSize * 5 / 100;
+        uint attackerGot = _sell(attacker, attackSize);
+        uint attackerAtOracle = attackSize * pxNow / 1e18;
+        uint attackerBps = attackerAtOracle > attackerGot
+            ? (attackerAtOracle - attackerGot) * 10_000 / attackerAtOracle : 0;
+        uint gotAfter = _sell(restorer, honestSize);
+        uint bpsAfter = atOracle > gotAfter ? (atOracle - gotAfter) * 10_000 / atOracle : 0;
+        emit log_named_uint("B: attacker      cost bps", attackerBps);
+        emit log_named_uint("B: honest        proceeds", gotAfter);
+        emit log_named_uint("B: honest        shortfall bps", bpsAfter);
+        emit log_named_uint("  VICTIM EXTRA LOSS (usd18)", gotAlone > gotAfter ? gotAlone - gotAfter : 0);
+        emit log_named_uint("  ATTACKER COST     (usd18)", attackerAtOracle > attackerGot ? attackerAtOracle - attackerGot : 0);
+        vm.revertToState(snapB);
+
+        assertGt(atOracle, 0, "zero oracle value - nothing measured");
+        assertGt(gotAlone, 0, "honest arm produced no proceeds - nothing measured");
+    }
+
+    /// Sell `size` WETH through the range as `who`, returning stable proceeds (18-dec).
+    function _sell(address who, uint size) internal returns (uint got) {
+        deal(address(WETH), who, size);
+        uint before = _stableValue18(who);
+        vm.startPrank(who);
+        WETH.approve(address(AUX), size);
+        try AUX.swap(bold, address(WETH), false, size, 1, true) {} catch { }
+        vm.stopPrank();
+        got = _stableValue18(who) - before;
     }
 
     /// @notice ⭐ IS THE OVERSHOOT CHARGE A CLIFF OR A SLOPE? THE ORIGINAL SWEEP COULD NOT TELL.

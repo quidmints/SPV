@@ -364,6 +364,9 @@ contract MorphoEscrowVenue is LevVenueBase {
     ///         and the pool got smaller, which is exactly what a pro-rata repay means.
     /// ⇒ This is what removes the swap-size ceiling: size is now bounded by stable liquidity, not by
     ///   how many LP repays fit in a block.
+    /// @dev §REPAY-PROVEN — the venue reported a repay that did not reduce `totalDebt()`.
+    error RepayNotApplied();
+
     function repayPool(uint256 stableAmount) external onlyManager nonReentrant returns (uint256 repaid) {
         if (stableAmount == 0) return 0;
         uint256 d = totalDebt();
@@ -371,6 +374,17 @@ contract MorphoEscrowVenue is LevVenueBase {
         if (r == 0) return 0;
         IERC20OZ(STABLE).forceApprove(address(MORPHO), r);
         (repaid,) = MORPHO.repay(_params(), r, 0, address(this), "");
+        // 🔴 §REPAY-PROVEN — THE DEBT MUST ACTUALLY HAVE FALLEN. Every caller checked only
+        //    `repaid != 0`, which is the VENUE's report of what it applied, not evidence the
+        //    position shrank. "How do we know the borrow gets paid off" was answerable only by
+        //    MEASUREMENT (a fork test watched debt reach 0) — a measurement standing in for an
+        //    invariant, which is exactly the substitution this repo keeps being bitten by.
+        //    ⇒ One extra read turns it into an invariant the code enforces.
+        // ⛔ DELIBERATELY `>=`, NOT AN EXACT `d - repaid`. Interest accrues inside the same block on
+        //    Morpho, so an exact equality would revert on ordinary accrual and brick the de-lever —
+        //    a tolerance that bricks is as wrong as a tolerance that hides. ANY decrease is proof the
+        //    repay landed; no decrease is proof it did not, whatever `repaid` reported.
+        if (repaid > 0 && totalDebt() >= d) revert RepayNotApplied();
     }
 
     function withdraw(address lp, uint256 collAmount) external onlyManager nonReentrant returns (uint256) {
