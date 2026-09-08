@@ -99493,3 +99493,64 @@ same. **They had been re-landed in `f189301e` with RENAMED labels** (`"rangeETH 
 the whole answer.** This is CLAUDE.md's *"audit by structure, never by a name — a name matches its
 obituary"* landing on three sessions at once, through a grep for a string somebody chose to change.
 
+
+---
+
+## ✅ §GAMMA-BREAKS-HONEST-LP-MARGIN — **TRACED. THE INVARIANT WAS PASSING BY UNDER-BOOKING.**
+
+Owner: *"trace why levPooled grows when the premium falls. i think you are running in circles."* Both
+halves right — I was measuring and booking instead of reading, and **`levPooled` does not grow at all.**
+
+### THE MEASUREMENT THAT ENDED THE GUESSING
+One pinned block, both Γ arms, every component the test already emits. **Everything is Γ-INDEPENDENT
+except `CORE.POOLED`:**
+
+| quantity | Δ (derived − 3e16) |
+|---|---:|
+| `ETH.levPooled(LP)` | **0** |
+| `ETH.levBuf(LP)` | **0** |
+| `lm.totalNetEquity` | **0** |
+| `rvenue.collateralOf` | **0** |
+| `AUX.rangeETH` | −371,029,319 wei (3.7e-10 ETH, dust) |
+| **`CORE.POOLED`** | **+12,182,457,395,197,268 (+0.012182457 ETH)** |
+
+⇒ The leverage accounting is not involved. **Every prior framing of this row that reached for
+`levPooled`, `levBuf` or "more ETH leaves the range" was wrong**, mine included, twice.
+
+### THE CODE PATH, READ RATHER THAN INFERRED
+· `Core.swap` (`:1032-1046`) → `_fillDelta` → `_handleDelta`. **NONE of them contains a skew term** —
+  §E279 deleted the duplicate application from `_fillDelta`, which is now pure oracle conversion.
+  `POOLED` moves ONLY in `_handleDelta` (`Core:1204/1212`), by the delta Core is handed.
+· `SwapLib._applySkew` has **ZERO call sites** — the parked dead function §SESS-116 already listed.
+· The premium is withheld one level up, in `SwapLib.retainSkewPremium` (`:2662-2668`):
+  `premium = r.amount·skew/1e18` … `r.amount -= premium`, and its own comment states **"ONLY the sell
+  leg holds a NATIVE amount"**. ⇒ on the sell leg the premium is deducted **in ETH**, and Core books
+  `POOLED += (amount − premium)`.
+
+### ⇒ **POOLED IS UNDER-BOOKED BY EXACTLY THE RETAINED PREMIUM, ON EVERY SELL LEG.**
+The premium's ETH arrives physically and is never added to the range's book. At Γ = 3e16 that
+under-booking is **5.475× larger**, and that — not any solvency property — is what made
+`rangeETH + levBuf >= POOLED` pass. **Lower the premium and the book counts more of what is really
+there, which is what "broke" the assertion.**
+
+🔴 **SO THE CONCLUSION INVERTS. Γ DID NOT BREAK SOLVENCY; IT REMOVED A MASK.** The residual is real and
+pre-existing: `POOLED − rangeETH` = 0.112575 ETH against `levBuf` = 0.107660, so **the book claims
+0.004915 ETH more range depth than venue ETH plus the debt-funded buffer justify.** That gap did not
+appear with `a4787689`; it was hidden underneath a larger retained premium.
+⛔ **THIS RETIRES OPTION 2 (`raise Γ off its derivation`). It would re-hide the over-claim, not fix it** —
+and re-hiding is strictly worse than the thinner margin, because the assertion would go green while the
+book still over-claims. Option 1 as originally written ("re-size `levBuf`") is also dead: `levBuf` is
+Γ-independent to the wei.
+📌 **THE REAL QUESTION IS NOW A DIFFERENT ONE:** where does the retained sell-leg premium ETH go, and
+what should book it? `recordSkewPremium` takes a USD figure; `rangeETH` (venue-held) is unchanged
+between arms, so the ETH is at neither the venue nor in `POOLED`. That is the thing to fix, and it is
+§PREMIUM-TO-BASKET-HOLE's question arriving from the other side.
+
+### REFUTED ALONG THE WAY, recorded so nobody re-runs it
+**`_calmVol`'s `try {} catch {}` was NOT the cause.** Its 16 swaps are silently swallowed on revert, so a
+Γ change flipping one marginal swap would move `POOLED` by that swap's whole size while leaving
+venue-held `rangeETH` untouched — the exact signature. **Instrumented: 16/16 landed in BOTH arms.** The
+counter is committed (`ee46a825`) rather than deleted, because it is the control that kills the
+hypothesis. ⚠️ Two earlier instrumented runs produced NO probe output because `LevYbReal.t.sol` was
+reverted under me mid-run by another session; the third worked only because the probe was COMMITTED
+first. On a shared checkout, instrumentation must be committed to be trusted.
