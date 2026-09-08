@@ -178,6 +178,12 @@ contract AllesFixture is ForkPin, ExitFixture {
         address stable = sts[sts.length - 1];
         (, , , , uint80 latest) = IAggProxy(hist).latestRoundData();
         uint256 prevTs;
+        // 🔴 σ² = Σr²·31536000/Σdt, and Σdt accumulates from the FIRST sample the fixture ever took
+        //    — not from this warm-up. If the host test already swapped (seeding `_varSq.ts`) and then
+        //    warped, Σdt spans its whole setup while this walk contributes only Σr², DILUTING the
+        //    result. Log the entry state so a small σ² can be attributed rather than guessed at.
+        emit log_named_uint("  warm-up ENTRY: block.timestamp", block.timestamp);
+        emit log_named_uint("  warm-up ENTRY: sigma^2 already", CORE.realizedVarianceWad());
         for (uint256 i = nRounds; i > 0; --i) {
             (bool ok, bytes memory ret) = hist.staticcall(
                 abi.encodeWithSignature("getRoundData(uint80)", latest - uint80(i)));
@@ -215,6 +221,7 @@ contract AllesFixture is ForkPin, ExitFixture {
             //    price fed is identical to `_varPx` so `Σr²` gains nothing.
             _logRound(uint256(px), swapped, v0, CORE.realizedVarianceWad());
         }
+        emit log_named_uint("  warm-up EXIT : block.timestamp", block.timestamp);
         sigma = CORE.realizedVarianceWad();
     }
 
