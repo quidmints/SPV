@@ -540,7 +540,7 @@ swapper agrees to load balance with 1inch) for either in range or out of range s
 dodge, so `unoswap3` is reachable through the existing `bytes route` with no new argument and no
 `LevManager` cost. Whitelisted by selector AND exact arity length. 106/106 green.
 
-### ✅ §SESS-116 CLOSED — 1. **THE TWO HALVES NO LONGER DISAGREE, AND THE MEASURED WIN WAS NEVER
+### ✅ §SESS-118 CLOSED — 1. **THE TWO HALVES NO LONGER DISAGREE, AND THE MEASURED WIN WAS NEVER
 ### THE KEEPER'S TO CHOOSE.** This row's whole premise was *"the two halves disagree about what
 ### venues exist"* — planner blind to Curve, contract knowing six pools. Both halves moved since:
 ### §SESS-113 deleted `Venue::Curve` (`venue_word` could not encode it) and §SESS-115 deleted
@@ -599,7 +599,14 @@ TOTAL cost including the extra hop".** The scorer's decision point is FIRST-OPEN
 new venue.** ⇒ this is blocked on the same thing §SESS-45 blocker #3 named, and the extra hop is now
 EXPRESSIBLE (unoswap2/3 via retargeting) where it was not before. **The hop is ready; the choice is not.**
 
-### ✅ §SESS-116 BUILT — 3. **THE CONSENT WAS ALREADY IN THE SIGNATURE; THE FILL FRAME NEVER ASKED.**
+### ⚠️ **TAG NOTE — THIS WORK WAS COMMITTED AS `§SESS-116` (`a96856c3`) AND THE CODE NOW SAYS
+### `§SESS-118`.** A peer lane independently took `§SESS-116` for an unrelated SPRINT block
+### (`87baf039`, *"book the thread's loose ends in one block, deduped"*) — two threads, one number,
+### which is the navigation trap this file's own header warns about. **The COMMIT MESSAGE cannot be
+### changed (it is pushed), so the mismatch is recorded here rather than left to be discovered.**
+### Grep `§SESS-118` for this work; `§SESS-116` in `SPRINT.md` is the peer's and is a different thing.
+
+### ✅ §SESS-118 BUILT — 3. **THE CONSENT WAS ALREADY IN THE SIGNATURE; THE FILL FRAME NEVER ASKED.**
 ### This row proposed threading `loadBalance` down into the conversion path. It needed no threading:
 ### `loadBalance` is a field of `OorIntent` and sits INSIDE the EIP-712 typehash (`SwapLib:1193`), so
 ### the MAKER signs it and a filler cannot forge it — `Quid.sol:1255` was already handing it to

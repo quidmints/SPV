@@ -275,8 +275,16 @@ contract OorIntentTest is AllesFixture {
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
         SwapLib.OorIntent memory i = SwapLib.OorIntent({
             owner: maker, buyVolatile: false, size: 5_000 * 1e6, limitPx: px,
-            expiry: uint64(block.timestamp + 1 days), nonce: 77, loadBalance: false,
+            expiry: uint64(block.timestamp + 1 days), nonce: 77, loadBalance: true,
             payoutToken: address(USDC) });
+        // 🔴 §SESS-118 — **THIS FLIPPED FROM `false`, AND THE REASON IS A FINDING, NOT A REPAIR.**
+        //    `AUX.take` is PRO-RATA, so a 5,000 USDC ask against a basket holding many stables
+        //    delivers only the USDC slice — `proceeds6 < ask6`. **This test has ALWAYS asserted on a
+        //    PARTIAL FILL**, and it was signing `loadBalance: false` while doing it: exactly the
+        //    combination the owner ruled out (*"no notion of a partial fill … if and only if the
+        //    swapper agrees"*). It passed because nothing asked. ⇒ signing `true` makes the test say
+        //    what it actually exercises — a CONSENTED partial fill, which is legitimate — and the
+        //    refusal of the UNCONSENTED one is its own test below, so both directions are pinned.
 
         vm.prank(User02);                              // a relayer, not the maker
         ETH.fillIntent(i, _sign(i, MAKER_PK), _noRoutes());
@@ -421,6 +429,57 @@ contract OorIntentTest is AllesFixture {
     /// 📌 **AND 1inch IS NOT ON THIS PATH AT ALL.** `ONEINCH_ROUTER`/`routedSwap` appear only in
     ///    `LevMath.sol` (the levered unwind). Nothing `settleOor` reaches touches an aggregator.
     ///    Asserted here so a future reader does not go looking for routing that was never wired.
+    /// ⛔ **§SESS-118 — "INERT" IS TRUE ONLY OF THE `settleOor` LEG THIS TEST EXERCISES, AND THE
+    ///    UNQUALIFIED CLAIM ABOVE WAS ALREADY MISLEADING WHEN WRITTEN.** The same signed bool ALSO
+    ///    reaches `Quid.fillIntent`, which now reads it to decide whether a PARTIAL fill is
+    ///    permitted — and on THAT path 1inch genuinely is downstream (`_convertShortfall` →
+    ///    `LevMath.convertShortfall` → `convertTo` → `ONEINCH_ROUTER`). ⇒ the sentence *"1inch is
+    ///    not on this path"* is scoped to `settleOor`; do not carry it to `fillIntent`.
+    /// ⭐ §SESS-118 — **A MAKER WHO DID NOT CONSENT IS NOT FILLED SHORT.**
+    /// The owner's constraint: *"there is no notion of a partial fill and partial refund (or shouldnt
+    /// be, if and only if the swapper agrees to load balance with 1inch) for either in range or out
+    /// of range swaps."* This is the OOR half, and the twin of the sell test above — SAME size, SAME
+    /// payout token, SAME basket, differing in the ONE signed bool.
+    /// 🔴 **WHAT IT PINS IS A CONSENT DEFECT, NOT A ROUNDING ONE.** `OorIntent.loadBalance` sits
+    /// inside the EIP-712 typehash, so the MAKER signs it and a filler cannot forge it — yet
+    /// `fillIntent` used to route an opted-out maker's pro-rata draw through `ONEINCH_ROUTER` purely
+    /// because the FILLER passed `routes`. The party bearing the risk had declined; the party
+    /// electing to take it was someone else.
+    /// ⚠️ **THE REVERT MUST BE `PartialFillNotConsented`, NOT `IntentUnpayable`.** The basket CAN pay
+    /// something here — the sell test above proves it from identical setup — so accepting either
+    /// error would let the two collapse together, and then a filler is told to abandon an intent
+    /// that is merely too big for the basket right now.
+    function test_AnUnconsentedMakerIsRefusedRatherThanFilledShort() public {
+        vm.deal(maker, 100 ether);
+        vm.prank(maker);
+        ETH.deposit{value: 40 ether}(0, maker);
+
+        deal(address(USDC), User01, 200_000 * 1e6);
+        vm.startPrank(User01);
+        USDC.approve(address(AUX), type(uint).max);
+        QUID.mint(User01, 200_000 * 1e6, address(USDC), 0);
+        vm.stopPrank();
+
+        uint pooledBefore = ETH.balanceOf(maker);
+        assertGt(pooledBefore, 0, "premise: the maker must hold an in-range position");
+        uint usdcBefore = USDC.balanceOf(maker);
+
+        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        SwapLib.OorIntent memory i = SwapLib.OorIntent({
+            owner: maker, buyVolatile: false, size: 5_000 * 1e6, limitPx: px,
+            expiry: uint64(block.timestamp + 1 days), nonce: 78, loadBalance: false,
+            payoutToken: address(USDC) });
+
+        vm.prank(User02);                              // a relayer, not the maker
+        vm.expectRevert(Quid.PartialFillNotConsented.selector);
+        ETH.fillIntent(i, _sign(i, MAKER_PK), _noRoutes());
+
+        // ⭐ AND THE REFUSAL IS TOTAL — the point of all-or-nothing is that NOTHING moved. A revert
+        //    that had already paid or debited would be the same defect wearing an error.
+        assertEq(USDC.balanceOf(maker), usdcBefore, "an unconsented maker must not be paid at all");
+        assertEq(ETH.balanceOf(maker), pooledBefore, "and their ether claim must not be debited");
+    }
+
     function test_LoadBalanceConsentIsInertOnTheEthRange() public {
         // The no-op accepts any caller and any amount and does nothing observable.
         uint before = CORE.POOLED();
