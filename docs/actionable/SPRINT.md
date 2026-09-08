@@ -24053,7 +24053,7 @@ documented property, unchanged by being moved. ⚠️ Some of its citations poin
 | **Fork-test flakes** | 🟡 dominant class FIXED (`7c04fe2`); lev px=0 class REMAINS | Stale TVL-index [12]→[14] fixed → 23/23 sim suites green. Remaining: lev tick-underflow px=0 class (dead-ends recorded). Full detail + next step §A.2.  🔁 **§SEQ-AUDIT: MERGED into the row at :23810 — same task. Verbatim duplicate of 23810** |
 | **Doc self-containment** | ✅ DONE (`0e56125`+`1ec64f7`) | Portability banner + all memory-only context inlined (§A.1) so this repo alone is a complete handoff on a machine with no agent-memory/JSONLs. |
 | — — — 2026-07-24 threads (the substantive open work) — — — | | |
-| **#113 ETH swap-out de-lever** | KEEP (user); core DONE, forge-UNVERIFIED | Decided KEEP (net-equity ranged; de-lever unlocks Morpho collateral, keeper re-levers = wash+fees). DONE this turn: deleted `fundVenueForDelever` + `takeToSettle` called DIRECTLY (Quid IS auth); **added `swapOutDeliverUnlevered` 0-debt branch** (the HODL slice — no repay/no backing hazard); docstrings fixed. **Remaining:** `DeleverEthBackingProbe` (fork-verify levered QD-burn path) + purge arbETH tombstones. §M.1. 🔴 **AND IT IS UNREACHABLE AS SHIPPED — found 2026-09-01 by `tools/check-orphans.py`, which is the only thing that would have. `swapOutDeliverUnlevered` has ZERO callers and ZERO tests.** `SwapLib.deleverEthOnDelivery` DOCUMENTED routing 0-debt LPs to it, but the §POOL-VENUE collapse replaced the per-LP walk with one `swapOutDeleverPooled` call and the branch went with it; the docblock outlived the branch and is why this went unseen. ⇒ If the pooled position has no debt the pooled repay no-ops and the unlevered net-equity stays PHANTOM — the exact hole this function closes. ▶️ **The open question is whether the 0-debt case is still reachable under §POOL-VENUE** (per-LP debt survives via `debtOf`/`positionOf`, but the repay is pool-wide). Answer it with a fork test alongside `DeleverEthBackingProbe`, then either wire the branch back or delete the entrypoint. Held in `tools/orphans-allow.txt` CLASS 3 so the gate stays green while it is open — removing that entry MUST mean fixing it.  📌 **§SEQ-AUDIT: GATE 8 · lane L6. swapOutDeliverUnlevered exists but SwapLib:2268 records ZERO callers/tests; DeleverEthBackingProbe.t.sol absent** |
+| **#113 ETH swap-out de-lever** | KEEP (user); core DONE, forge-UNVERIFIED | Decided KEEP (net-equity ranged; de-lever unlocks Morpho collateral, keeper re-levers = wash+fees). DONE this turn: deleted `fundVenueForDelever` + `takeToSettle` called DIRECTLY (Quid IS auth); **added `swapOutDeliverUnlevered` 0-debt branch** (the HODL slice — no repay/no backing hazard); docstrings fixed. **Remaining:** `DeleverEthBackingProbe` (fork-verify levered QD-burn path) + purge arbETH tombstones. §M.1. 🔴 **AND IT IS UNREACHABLE AS SHIPPED — found 2026-09-01 by `tools/check-orphans.py`, which is the only thing that would have. `swapOutDeliverUnlevered` has ZERO callers and ZERO tests.** `SwapLib.deleverEthOnDelivery` DOCUMENTED routing 0-debt LPs to it, but the §POOL-VENUE collapse replaced the per-LP walk with one `swapOutDeleverPooled` call and the branch went with it; the docblock outlived the branch and is why this went unseen. ⇒ If the pooled position has no debt the pooled repay no-ops and the unlevered net-equity stays PHANTOM — the exact hole this function closes. ✅ **ANSWERED 2026-09-08 BY FORK TEST — SEE §SESS-117 / §M.1-SETTLED. VERDICT: KEEP.** The 0-debt case is reachable at EVERY open, the delivery path refuses it, and `swapOutDeliverUnlevered` closes it. ⛔ The `orphans-allow.txt` CLASS 3 entry STAYS — now KEEP-with-a-test rather than KEEP-pending-a-question. ▶️ Follow-on §M.1b: the WIRING cannot be written as a branch. Held in `tools/orphans-allow.txt` CLASS 3 so the gate stays green while it is open — removing that entry MUST mean fixing it.  📌 **§SEQ-AUDIT: GATE 8 · lane L6. swapOutDeliverUnlevered exists but SwapLib:2268 records ZERO callers/tests; DeleverEthBackingProbe.t.sol absent** |
 | **#114 BTC dead-man exit** | ✅ BUILT + security-reviewed (forge/BTC-broadcast unverified) | Full daemon done: sign-in-place (funding key NEVER exported — verified), 2-signer orchestrator, rust-bitcoin exit builder, `emitDeadManExit` encoder, heartbeat task (spawned), keyless `quid-recover-exit` broadcaster CLI + SPA link. 108+ tests green. **CORRECTED 2026-08-01: the splice residual is CLOSED** — `quid-bridge/src/deadman_exit.rs` `arm_signer` takes `splice_parent_funding_txid: Option<Txid>` and threads the CURRENT funding scope into both signers (structural check, not just the comment claiming it). **The real residual is VERIFICATION, not implementation:** 0 of 88 forge test files mention the dead-man path at all; the 293-line heartbeat has 0 tests; `presign_deadman_exit` (the MuSig2 2-of-2 orchestration) is uncovered — the 4 tests in `quid-ln/src/deadman_exit.rs` cover only the BUILDER (tx shape, sighash/CLTV binding, fee underflow, witness assembly). Never broadcast on regtest/testnet; the spliced-channel exit is not fork-verified end to end. This is a BACKSTOP — it only runs once everything else has failed, so nothing will reveal a defect before it is needed. §N. |
 | **#115 simplification sweep** | TIER-1 EXECUTED (partial) | ✅ DONE: 3 dead internals + dead vBTC roundtrip (mintVBTC/burnVBTC + BtcLib bodies) + unused rangeEthOf/rangeBtcOf iface decls + `debtUsd` dedup (routed to `LevMath._toUsd18`, DRY/bytecode-neutral). SKIPPED: `swapOutDeleverAmt` dedup (needs a new LevMath fn — can't verify vs the stack-too-deep WIP) + `_trackOpen`/set-primitives (invasive, follow-up). `vbtcTransfer`/`vbtcTransferFrom` + concrete `rangeEthOf/Of` untouched. |
 | **✅ WHOLE EVM SESSION SOLC-CLEAN (2026-07-24)** | targeted per-contract solc, all exit 0 | After the LevMath fix: `LevMath` + `LevManager` + `BtcLevManager` + `SwapLib` + `BtcLib` + `Quid` + `Vault` ALL compile clean (project optimizer/evm, solc 0.8.35). So the #113 ETH de-lever chain + #115 deletions + the IAux*→IAuxM refactor state are mutually solc-clean. STILL forge-UNVERIFIED (behavioral) — that needs the big box. NOTE: single-file solc needs the FULL v4 remapping set (`v4-core/`+`v4-periphery/`+`permit2/`) or Quid/Vault throw phantom "IPoolManager→IPoolManager" dup-type errors. |
@@ -65407,7 +65407,7 @@ documented property, unchanged by being moved. ⚠️ Some of its citations poin
 | **Fork-test flakes** | 🟡 dominant class FIXED (`7c04fe2`); lev px=0 class REMAINS | Stale TVL-index [12]→[14] fixed → 23/23 sim suites green. Remaining: lev tick-underflow px=0 class (dead-ends recorded). Full detail + next step §A.2.  🔁 **§SEQ-AUDIT: MERGED into the row at :23810 — same task. Verbatim duplicate of 23810** |
 | **Doc self-containment** | ✅ DONE (`0e56125`+`1ec64f7`) | Portability banner + all memory-only context inlined (§A.1) so this repo alone is a complete handoff on a machine with no agent-memory/JSONLs. |
 | — — — 2026-07-24 threads (the substantive open work) — — — | | |
-| **#113 ETH swap-out de-lever** | KEEP (user); core DONE, forge-UNVERIFIED | Decided KEEP (net-equity ranged; de-lever unlocks Morpho collateral, keeper re-levers = wash+fees). DONE this turn: deleted `fundVenueForDelever` + `takeToSettle` called DIRECTLY (Quid IS auth); **added `swapOutDeliverUnlevered` 0-debt branch** (the HODL slice — no repay/no backing hazard); docstrings fixed. **Remaining:** `DeleverEthBackingProbe` (fork-verify levered QD-burn path) + purge arbETH tombstones. §M.1. 🔴 **AND IT IS UNREACHABLE AS SHIPPED — found 2026-09-01 by `tools/check-orphans.py`, which is the only thing that would have. `swapOutDeliverUnlevered` has ZERO callers and ZERO tests.** `SwapLib.deleverEthOnDelivery` DOCUMENTED routing 0-debt LPs to it, but the §POOL-VENUE collapse replaced the per-LP walk with one `swapOutDeleverPooled` call and the branch went with it; the docblock outlived the branch and is why this went unseen. ⇒ If the pooled position has no debt the pooled repay no-ops and the unlevered net-equity stays PHANTOM — the exact hole this function closes. ▶️ **The open question is whether the 0-debt case is still reachable under §POOL-VENUE** (per-LP debt survives via `debtOf`/`positionOf`, but the repay is pool-wide). Answer it with a fork test alongside `DeleverEthBackingProbe`, then either wire the branch back or delete the entrypoint. Held in `tools/orphans-allow.txt` CLASS 3 so the gate stays green while it is open — removing that entry MUST mean fixing it.  📌 **§SEQ-AUDIT: GATE 8 · lane L6. swapOutDeliverUnlevered exists but SwapLib:2268 records ZERO callers/tests; DeleverEthBackingProbe.t.sol absent** |
+| **#113 ETH swap-out de-lever** | KEEP (user); core DONE, forge-UNVERIFIED | Decided KEEP (net-equity ranged; de-lever unlocks Morpho collateral, keeper re-levers = wash+fees). DONE this turn: deleted `fundVenueForDelever` + `takeToSettle` called DIRECTLY (Quid IS auth); **added `swapOutDeliverUnlevered` 0-debt branch** (the HODL slice — no repay/no backing hazard); docstrings fixed. **Remaining:** `DeleverEthBackingProbe` (fork-verify levered QD-burn path) + purge arbETH tombstones. §M.1. 🔴 **AND IT IS UNREACHABLE AS SHIPPED — found 2026-09-01 by `tools/check-orphans.py`, which is the only thing that would have. `swapOutDeliverUnlevered` has ZERO callers and ZERO tests.** `SwapLib.deleverEthOnDelivery` DOCUMENTED routing 0-debt LPs to it, but the §POOL-VENUE collapse replaced the per-LP walk with one `swapOutDeleverPooled` call and the branch went with it; the docblock outlived the branch and is why this went unseen. ⇒ If the pooled position has no debt the pooled repay no-ops and the unlevered net-equity stays PHANTOM — the exact hole this function closes. ✅ **ANSWERED 2026-09-08 BY FORK TEST — SEE §SESS-117 / §M.1-SETTLED. VERDICT: KEEP.** The 0-debt case is reachable at EVERY open, the delivery path refuses it, and `swapOutDeliverUnlevered` closes it. ⛔ The `orphans-allow.txt` CLASS 3 entry STAYS — now KEEP-with-a-test rather than KEEP-pending-a-question. ▶️ Follow-on §M.1b: the WIRING cannot be written as a branch. Held in `tools/orphans-allow.txt` CLASS 3 so the gate stays green while it is open — removing that entry MUST mean fixing it.  📌 **§SEQ-AUDIT: GATE 8 · lane L6. swapOutDeliverUnlevered exists but SwapLib:2268 records ZERO callers/tests; DeleverEthBackingProbe.t.sol absent** |
 | **#114 BTC dead-man exit** | ✅ BUILT + security-reviewed (forge/BTC-broadcast unverified) | Full daemon done: sign-in-place (funding key NEVER exported — verified), 2-signer orchestrator, rust-bitcoin exit builder, `emitDeadManExit` encoder, heartbeat task (spawned), keyless `quid-recover-exit` broadcaster CLI + SPA link. 108+ tests green. **CORRECTED 2026-08-01: the splice residual is CLOSED** — `quid-bridge/src/deadman_exit.rs` `arm_signer` takes `splice_parent_funding_txid: Option<Txid>` and threads the CURRENT funding scope into both signers (structural check, not just the comment claiming it). **The real residual is VERIFICATION, not implementation:** 0 of 88 forge test files mention the dead-man path at all; the 293-line heartbeat has 0 tests; `presign_deadman_exit` (the MuSig2 2-of-2 orchestration) is uncovered — the 4 tests in `quid-ln/src/deadman_exit.rs` cover only the BUILDER (tx shape, sighash/CLTV binding, fee underflow, witness assembly). Never broadcast on regtest/testnet; the spliced-channel exit is not fork-verified end to end. This is a BACKSTOP — it only runs once everything else has failed, so nothing will reveal a defect before it is needed. §N. |
 | **#115 simplification sweep** | TIER-1 EXECUTED (partial) | ✅ DONE: 3 dead internals + dead vBTC roundtrip (mintVBTC/burnVBTC + BtcLib bodies) + unused rangeEthOf/rangeBtcOf iface decls + `debtUsd` dedup (routed to `LevMath._toUsd18`, DRY/bytecode-neutral). SKIPPED: `swapOutDeleverAmt` dedup (needs a new LevMath fn — can't verify vs the stack-too-deep WIP) + `_trackOpen`/set-primitives (invasive, follow-up). `vbtcTransfer`/`vbtcTransferFrom` + concrete `rangeEthOf/Of` untouched. |
 | **✅ WHOLE EVM SESSION SOLC-CLEAN (2026-07-24)** | targeted per-contract solc, all exit 0 | After the LevMath fix: `LevMath` + `LevManager` + `BtcLevManager` + `SwapLib` + `BtcLib` + `Quid` + `Vault` ALL compile clean (project optimizer/evm, solc 0.8.35). So the #113 ETH de-lever chain + #115 deletions + the IAux*→IAuxM refactor state are mutually solc-clean. STILL forge-UNVERIFIED (behavioral) — that needs the big box. NOTE: single-file solc needs the FULL v4 remapping set (`v4-core/`+`v4-periphery/`+`permit2/`) or Quid/Vault throw phantom "IPoolManager→IPoolManager" dup-type errors. |
@@ -98933,3 +98933,151 @@ there is no duplication)"*. Dedup checked against this file before writing: `PAU
 **A measurement's scope is not the sentence's scope.** `a4787689` reported 17/17 across five suites — true — and then asserted *"no test in the skew family binds Γ's magnitude"*, which was about the tree. Four tests bound it. project-bc independently made the identical error the same day (26/26 + 165/165, then "tree is green", 39 reds outside the run). **The mechanical tell both of us missed: a commit touching `evm/src/` with ZERO `evm/test/` files.** Run it before claiming a value change is unbound.
 
 **A shared checkout loses uncommitted work.** §REFILL-AFFORDABILITY was destroyed mid-session by another thread's operation on `DrainAtomicity.t.sol`. Commit red tests behind a skip rather than holding them in the working tree.
+
+---
+
+# 🧵 §SESS-117 — L4 (IL-protect overlay) thread close-out, 2026-09-08
+
+Booked in ONE block, deduped against §SESS-116 (zero overlap) and §K-AND-HEADROOM-2026-09-07 (my K and
+headroom findings live THERE and are not restated). The lane book `docs/actionable/lanes/L4.md` is
+folded into this section and deleted, so there is exactly one copy.
+
+## ✅ §M.1-SETTLED — `swapOutDeliverUnlevered` is KEEP, measured not argued
+`evm/test/LevYbReal.t.sol`, merged `7cb53d39`, real Morpho market, both new tests green:
+· **REACHABLE AT EVERY OPEN** — an open is at zero leverage (`LevManager.sol:253-258`), so
+  `totalDebt()==0` while `totalCollateral()>0` and `netEquity(LP)>0`. Not an exotic corner.
+· **THE HOLE** — `SwapLib.deleverEthOnDelivery:2434-2437` is `poolDebtUsd == 0 ? 0 : …` then
+  `if (amtNative == 0) return 0`, so a pooled position holding collateral at zero debt is refused
+  delivery **before** the repay path it exists to drive. Measured: returns 0 **and emits no skip**.
+· **THE CLOSURE** — `swapOutDeliverUnlevered` delivers: `got>0`, the WETH arrives, and it comes out of
+  the LP's own venue collateral.
+⚠️ **THE TEST NEEDED A DISCRIMINATOR AND ITS FIRST VERSION HAD NONE.** `deleverEthOnDelivery` is a
+**public** library fn, so calling it from a test DELEGATECALLS with the test as context;
+`IAux.takeToSettle` is `onlyUs`, reverts, and the §SILENT-SKIP catch turns that into `return 0`. A bare
+`assertEq(delivered,0)` passes for TWO reasons and distinguishes neither — measured: the naive control
+(rally, rebalance, call again) also returned 0. **The fix uses §SILENT-SKIP's own emit: no event ⇒ the
+0-debt early return; `DeliverDeleverSkipped` ⇒ it reached the try.**
+📌 **Generalises: a public library fn cannot be driven from a test whose context fails the callee's auth
+gate, and a swallowing catch makes that indistinguishable from the branch under test.**
+
+## 🔴 §M.1b — the wiring is NOT a branch. OWNER DECISION.
+Raised by project-bc, verified here from source. Two independent blockers:
+1. **NO LP IN THE CALL CHAIN.** `deleverEthOnDelivery(mgr, aux, px, shortfallEth, recipient)` takes no
+   LP and reads `poolVenue()`. Its only caller is `QuidLib.sendEth(…, toWhom)` at `:430`, where
+   `toWhom` is the **ETH payee of a withdrawal** and the `recipient` passed down is `address(this)`. A
+   pool-level top-up, no per-LP intent. `swapOutDeliverUnlevered(lp, …)` is per-LP ⇒ routing to it
+   needs the O(book) walk §POOL-VENUE deleted for gas (§E342).
+2. 🔴 **THE POOLED FORM BREAKS THE INVARIANT THE PATH IS BUILT ON.** `swapOutDeleverPooled`'s own
+   docblock: *"THE PAIR IS THE INVARIANT … the repay lowers every LP's debt in proportion and the
+   withdraw lowers every LP's collateral in the same proportion … the two effects cancel per LP."* At
+   zero debt there is no repay to pair with, and `withdrawPool` (`LevVenueBase.sol:449`) moves RAW
+   collateral out of Morpho decrementing **no per-LP units**. ⇒ a pooled unlevered delivery shrinks the
+   pot while every LP's collateral units stay whole: **the units over-claim.** Not a missing credit
+   rule — a solvency break in the unit ledger.
+⇒ **Needs a value-attribution design: who is credited for collateral freed against no debt.**
+⛔ Do not read the KEEP verdict as licence to implement the branch.
+
+## 🟠 §LEVYBREAL-RED — `testReal_Morpho_LiquidationLeavesBasketIntact` is RED, cause NOT yet found
+`[FAIL: real venue ETH + the debt-funded buffer must cover the range (honest LPs whole):
+4872845850960172853 < 4880365173479059059]` — ~0.15% short. Reproduces at current HEAD.
+**ELIMINATED, each by direct test at controlled pins (25933152 and 25932788, crossed design):**
+· **NOT pin drift** — fails at BOTH pins in the parent, passes at BOTH in a clean lane.
+· **NOT the §M.1 change** — identical test file in both trees.
+· **NOT `bdfcd6fd` (RANGE_DELTA 20→200)** — `git show 8a72d2cf:…/SwapLib.sol` reads `RANGE_DELTA = 200`
+  and `bdfcd6fd` is an ancestor of the PASSING lane commit.
+· **NOT `a37b0c12` (Ownable deletion)** — tested in ISOLATION in a worktree cut at that commit: PASS,
+  gas identical (34,099,244). project-c5 independently cleared it by restoring `is Ownable`.
+· **NOT the uncommitted `SwapLib.sol` / `Types.sol`** — copied into the clean lane: PASS, identical gas.
+· `162a4d3c` touches only `ConvertToRouted.t.sol`; `a5d7c433` only `SPRINT.md`. Neither can reach it.
+▶️ **NEXT, AND IT IS THE ONE VARIABLE NOT YET ELIMINATED: the shared fixture.** `LevYbRealProbe is
+AllesFixture`, and `evm/test/Alles.t.sol` moved **+34/−7** in `37d752b4` (§E274-LAND) after the lane
+base. Test it the same way — clean lane plus that fixture alone. ⚠️ A peer reported that file failing
+to compile (`Stack too deep` at `:2825`) while dirty, so pin a committed revision, not a worktree copy.
+
+## 🟠 §SOLVER-IS-A-GLOSS — `SPRINT.md:17722` attributes to the owner a phrase the owner did not say
+**PRIMARY SOURCE, dated and verbatim, `:88869-88871` (owner, 2026-08-19):** *"refill only when not
+enough in the pool to cover a swap, paid against 1inch (routes the swap) and rebalances the pool. so a
+keeper is not needed"*. The owner said **1inch**. The heading above it glosses that as *"THE SOLVER
+ROUTES THE PART WE DECLINE"*, and `:17722` restates the gloss as **"The solver routes what we decline
+(owner)"** — a bare `(owner)` with no date and no quoted words, where substantive attributions use
+`(owner, YYYY-MM-DD: *"…"*)`. **Dependents reasoning from the gloss: 17920, 18674, 18888, 19059,
+19080.** The region is duplicated at 59058+, so each fix is two edits.
+**Corroboration it is a gloss, not a lost quote:** ZERO solver code in `evm/src`, `quid-bridge/src`,
+`spa/src`; the 16 `solver` mentions in `evm/src` are an external RFQ counterparty that quotes AGAINST
+us (`Aux.sol:843`, `Core.sol:1424`); §E357 at `:4632` says *"Aggregation was never on the table (no
+solver, no route parameter)."*
+⇒ **IT RELOCATES THE REFILL DEFECT.** Under the owner's actual words there is no restoration ACTION —
+we are one liquidity source and 1inch routes the remainder — so there is no actor to incentivise. The
+chain *"value-neutral ⇒ nobody is paid ⇒ E48's async keeper is REQUIRED"* rests on the gloss. The
+measured *"0 bps below the deficit"* is real, but it means **the QUOTE is the bug, not a missing
+keeper** — a much smaller job. Keeper refill has zero code: `grep -riE "refill|restor|replenish|
+inventory" quid-ln/quid-bridge/src` returns only `lp_seed.rs` seed restoration.
+📌 Refill primitive census, comments stripped, 2026-09-08: `refillNeeded` 7 refs (all test + its own
+decl, **0 in src**) · `proRataShortfall` 9 refs (same shape, **0 in src**, despite `:1942`'s standing
+"wire it into the redeem path") · `refillPlacement` **deleted** (`0be9a1c7`) · `imbalanceFeeUsd6`
+**deleted** (`dc6500b7`).
+
+## ✅ §SILENT-SKIP PART (1) HAS LANDED — row `0g` is STALE
+`SwapLib.sol:2373` declares `event DeliverDeleverSkipped(address indexed venue, uint fundUsd, bool
+takeFailed)` and BOTH catches emit it (`:2460`, `:2461`). Row `0g` still describes that path as
+unobservable. **Part (2) — why `LevCascade.t.sol:491`'s stuck-LP fixture produces an LP that is not
+stuck — remains OPEN.** The emit is what made §M.1's discriminator possible.
+
+## 🔴 §IMPACTED-TESTS-BASE-CLASS-BLINDSPOT — a named false-negative class
+`tools/impacted-tests.py` routes by **SYMBOL**. A contract whose **inheritance list** changes names no
+new symbol, so the tool has no edge to follow and a base-class change is invisible **by construction**.
+That is how an `Ownable` removal verified at *"133/0 across the BTC suites"* could sit beside a red lev
+suite. ▶️ Add it to the tool's docblock beside the existing address / raw-slot / deploy-script caveats.
+
+## 📊 §RANGE-WIDTH-IS-A-LEVERAGE-KNOB — what the δ sweep actually shows
+New: `sims/overlay_vs_yb.js` (`node sims/overlay_vs_yb.js --delta-sweep`).
+· **`fee/LVR` is INVARIANT in δ** — 0.0956 at ±2%, 0.0840 at ±40%, across a 20× width change.
+  Concentration multiplies fee income and LVR by the same `1/d` (`K = 1/(4d)` exactly). **Width scales
+  the BET, not the EDGE.**
+· ⇒ `net = LVR·(ratio−1) − refill`, LVR ∝ 1/d and refill ∝ 1/d², so **there is no interior optimum**:
+  the argmax sits at a boundary and *which* boundary flips exactly at `ratio = 1`. Measured: argmax
+  ±40% at turnover ≤2000× (fee/LVR 0.78), ±2% at ≥5000× (2.80). **Crossover ~2500× at COVID's 168% vol,
+  scaling with σ²: ~570× at 80%, ~320× at 60%.**
+· ⇒ **δ is a design constant for the TARGET regime, and a dynamic δ is largely redundant with θ** —
+  both scale the same quantity and θ already reads live inputs. The only genuine job for an adaptive δ
+  is the knife edge at `ratio = 1`, tuned against a turnover estimate nobody has.
+· ⚠️ **The refill spread is the term that creates the optimum, and it is unbuilt and unmeasured** — the
+  sweep assumes 5 bps. **Wiring the refill is what would let δ be pinned. Refill first, then δ.**
+· ⚠️ **±2% vs ±0.2% cannot be decided from the data in this repo**: ±2% is the narrowest row minute bars
+  can resolve. See §HARNESS-RETRACTIONS.
+
+## ⛔ §HARNESS-RETRACTIONS — four numbers withdrawn, so nobody quotes them
+From `sims/overlay_vs_yb.js` during this session: **`K_eff = 2.7`** (the metric was not LVR at all) ·
+**`K_eff = 28.9`** (LVR measured correctly, but the estimator's answer moves **27× with bar size**, so
+it measured the sampling) · the **4.3× band correction** built on it · the **+7.47% up-side over-hedge**
+(closed form AND sim agreed because both pinned E0 — which `RangeLib.reanchorIfReseated:256` shows the
+code does NOT do; modelling the re-base cuts it to +2.58% and the residual is not trusted).
+⭐ **THE TRANSFERABLE LESSON: a closed form agreeing with a simulation is not corroboration when both
+inherit one assumption. Two methods that share a premise are one method.** The harness now leads with a
+CONTROL section, and section (2) publishes the bar-size control INSTEAD of an estimate.
+✅ **WHAT SURVIVES is in §K-AND-HEADROOM-2026-09-07** — `kLvrWad = 1/(4·RANGE_DELTA)` exactly, and θ
+pins **below 0.10 for every K ≥ ~0.5**, so no defensible correction to K's source changes θ's verdict.
+`fc6eeb6e`'s headroom fix verified independently (capVenueBasis 4285, headroom 4315, all four band
+figures reproduce).
+
+## ✅ §C19-EQUITY-BASIS — raised by me, then REFUTED by me. Do not re-open on the symmetry argument.
+I argued that re-basing `entryEquity` to `netEquity` is exposed to the same objection §C19 uses to
+protect `ilBasisPx`, because net equity is leverage-invariant but not IL-invariant. **Wrong.**
+`netEquity = collateral − debt/px` and the collateral is weETH at the venue; range IL lands on the
+mirrored range slice (`levPooled`), not on the collateral. Net equity falls with slippage, gas, weETH
+rate drift and extractions — absorbing those is defensible. **No fix needed.**
+📎 The E0-pinned experiment ran anyway (comment out `RangeLib.sol:256`): **64 passed / 0 failed** across
+the seven E0-sensitive suites. ⚠️ **That null is a COVERAGE statement, not a safety one** — the lev
+suites move price with `vm.mockCall` on the oracle rather than by trading, so no friction accrues and
+E0 never diverges from netEquity. **The suite cannot distinguish a pinned E0 from a re-based one**,
+which is precisely what L4 item 1 below would fix.
+
+## 📋 L4 — WHAT REMAINS, unstarted, in priority order
+1. **Teach `LeverageCrossSubsidyProbe` to measure the cross-LP subsidy.** `LevVenueBase.sol:196-206`
+   names that test by name as *"the test that should be taught to measure it"* — pooling averages LPs'
+   pinned `ilBasisPx`, so a late high-LTV entrant is carried by an early one. §E338 guesses ~13-15 bp
+   typical and ~147 bp across a cycle; **never measured on this axis.**
+2. **§SILENT-SKIP part (2)** — `LevCascade.t.sol:491`, the stuck-LP fixture producing an unstuck LP.
+3. **Keeper vs contract on where liquidation is** — `LevManager.sol:51-58`: the band reads
+   `liqThresholdBps()` on-chain while the keeper carries a hardcoded `QUID_LEV_VENUE_LIQ_BPS`
+   (`quid-bridge/src/daemon.rs`). Make the keeper read it, or prove they cannot diverge.
