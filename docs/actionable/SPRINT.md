@@ -98785,7 +98785,41 @@ landed, not after.**
 · `Alles.t.sol`'s *"capped at 20bps = 0.002e18"* → 200 bps, with a note that the assertion derives its
   bound from live state and must not be re-keyed to the literal.
 
-## §THE-QUOTE-IS-THE-BUG-2026-09-08 — 🔴 **THE ETH SKEW CEILING IS 0.000054 bps. MEASURED.**
+## ⛔ §THE-QUOTE-IS-THE-BUG-2026-09-08 — **RETRACTED IN FULL, SAME DAY, BY ITS AUTHOR.**
+
+🔴 **`_maxWellSkew` IS NOT A CAP. IT IS AN ADDITIVE BASE, AND MY WHOLE FINDING RESTED ON THE NAME.**
+`skewWad:1373` is `return _maxWellSkew(sigmaSqWad, rk) + _depletion(inv0, inv1);` — **added, never
+`min`'d.** §E79 performed a *"cap→base inversion"* (named at `:1100` and `:1377`) and I read the
+function `max…` prefix, computed its value, and concluded it clamped the kernel. **It bounds nothing.**
+⇒ *"On ETH the skew is numerically inert"* is **FALSE**. The magnitude term is `_depletion`, which is
+`DEPLETION_RATE_WAD · (inv0−inv1)/inv0` and is **~2.1 bps on a full drain** — four orders of magnitude
+above the base I mistook for a ceiling.
+⇒ *"The ETH skew ceiling is 0.000054 bps"* was the **BASE**, and it is **CORRECT**.
+
+⭐ **AND THE CODE HAD ALREADY MEASURED MY NUMBER AND EXPLAINED IT, TWENTY LINES BELOW WHERE I STOPPED
+READING:** *"MEASURED: `_maxWellSkew(σ², ethRisk)` = σ²·(12s/1yr)/8 is **0.000233 bps at 70% annual
+vol**, against DEPLETION's **2.1 bps** on a full drain"* and *"⚠️ **THE ~0 BASE IS CORRECT AND IS WHY
+THIS HID: ETH settles in ONE BLOCK, so there is almost no inventory-risk window to charge for. Nothing
+is mis-parameterised.**"* **The defect I "found" was found before me, is already FIXED (the flush arm
+now adds `_depletion`), and the file says in capitals that the parameter I proposed changing is right.**
+
+⛔ **THEREFORE THE OWNER'S DECISION — *"use the holding time"* — RESTS ON A PREMISE I SUPPLIED AND THAT
+IS FALSE, AND MUST NOT BE IMPLEMENTED AS SCOPED.** Re-basing `_maxWellSkew` on `τ = qBar/flow` would
+**INFLATE an adverse-selection base that is correctly ~0 on ETH**, charging a one-block settlement
+exposure as if it lasted until flow rebalances. That is the opposite of a root fix: it would break a
+correct term to compensate for a defect that does not exist.
+📌 **WHAT THE OWNER'S ROOT-FIX PREFERENCE ACTUALLY POINTS AT, now that the cap is not a cap:** nothing
+here needs one. **The two exposures are ALREADY separated** — base = settlement-window adverse
+selection (`_maxWellSkew`, correctly tiny on ETH), depletion = inventory consumed by THIS swap
+(`_depletion`, the term with magnitude). §E79 did that separation. **There is no clamp left to dissolve.**
+
+⚠️ **HOW I GOT IT WRONG, because it is the same shape twice in one session:** I read a DEFINITION and
+its CONSTANTS, computed a number, and never read the CONSUMER. That is exactly the error that produced
+the `_aggSwap`/`routedSwap` confusion and the K_eff retraction — **a quantity's meaning is fixed by
+where it is USED, not by its declaration or its name.** `grep` the call site before believing an
+arithmetic result about it.
+
+*(the retracted finding, kept so the retraction is legible:)* THE ETH SKEW CEILING IS 0.000054 bps.
 
 Owner: *"fix the quote"* — after the solver gloss was struck (§17722). Under the owner's actual words
 the mechanism IS the skew, so the question became *what does the skew actually charge?* **Computed at
