@@ -99409,8 +99409,8 @@ consequence of that ruling, not grounds for me to undo it. **OWNER DECISION, thr
 not equivalent:**
 1. **Keep the derived Γ and re-size `levBuf`** — the buffer is debt-funded and was calibrated against the
    old premium; the honest reading may be that the buffer, not Γ, is the stale number.
-2. **Raise Γ off its derivation** — restores the margin, re-introduces a chosen constant, and re-opens
-   exactly the §E275 circularity the derivation removed.
+2. ~~Raise Γ off its derivation~~ — **STRUCK. THIS WAS NEVER AN OPTION AND I SHOULD NOT HAVE LISTED IT.**
+   See §GAMMA-IS-NOT-A-DIAL below: Γ = γ·(T−t) is a DERIVATION, not a parameter.
 3. **Accept a thinner margin explicitly** — 0.093% against a stated "honest LPs whole" guarantee, which
    contradicts *"never at a loss to the pool"* and should not happen by default.
 
@@ -99453,7 +99453,7 @@ and would paper over a book-vs-backing gap rather than close it. The live option
    `levBuf` is flat, so `levPooled` grew. ⚠️ **THE CAUSAL STEP IS MEASURED BUT NOT TRACED** — a smaller
    retained premium should make the book grow *less*, not more, so the direction is not yet explained.
    **Do not act on a mechanism until this is traced; I already published one wrong mechanism here.**
-2. **Raise Γ off its derivation** — restores the margin, re-opens the §E275 circularity.
+2. ~~Raise Γ off its derivation~~ — **STRUCK, see §GAMMA-IS-NOT-A-DIAL.**
 3. **Accept a thinner margin explicitly** — now known to mean accepting an unbacked capacity claim, which
    is a different and worse thing than accepting a smaller ETH balance.
 📌 §C25's 0.00708 figure is superseded for this purpose by the same-fixture +0.007267; they are close,
@@ -99742,3 +99742,39 @@ ONLY at `Core:1204/1212` (swap deltas) — fees never write it — so a liquidat
 liquidation leaves the range over-claimed and **the skew premium was silently absorbing the difference** —
 i.e. LPs paying for it out of premium that was owed to them. That is *"at a loss to the pool"* in the
 owner's own terms, and it is why the honest Γ turning this red is worth more than the green it replaced.
+
+
+---
+
+## ⛔ §GAMMA-IS-NOT-A-DIAL — I offered Γ as a tuning option three times. It never was one.
+
+Owner: *"i thought gamma was mathematically derived so doesnt need to be tuned."* **Correct, and it
+invalidates an option I put in front of them three times** (`:99412`, `:99456`, and in session prose).
+Both prior instances are struck above.
+
+**Γ IS A DERIVATION WITH NO FREE TERM ON THE MONEY PATH.** `GAMMA_WAD = FLOW_HALFLIFE * WAD / 365 days`
+— Avellaneda–Stoikov's `γ·(T−t)`, with `T−t` taken from the ONE window the system already commits to
+(`Core.FLOW_DECAY`'s 48h half-life, the timescale an imbalance is worked off) and expressed in years
+because `realizedVarianceWad` is annualized. **Nothing in it is chosen to make an outcome come out.**
+That is the entire content of §E275: the old `3e16` WAS a dial (`Γ ≡ MAX_WELL_SKEW`), the curve was
+calibrated to land on its own cap, and the "10.95-day horizon" was read back OUT of that number.
+
+⇒ **SO A RED CAUSED BY Γ IS EVIDENCE ABOUT THE CODE, NEVER ABOUT Γ.** Offering "raise Γ" as a remedy
+re-opens precisely the circularity the derivation closed, and it would have made three separate real
+defects invisible again. The investigation bears that out — every one of them was found only because Γ
+stopped masking it:
+· §PREMIUM-DENOM-ROOT — the retained sell-leg premium is counted as range backing (`rangeETH`) while the
+  claim on it is booked in dollars. Real, and independent of Γ's value.
+· §LEVBUF-NOT-STALE's residual — `POOLED − tokens − gross = 0.004915 ETH`, a post-liquidation over-claim.
+· §GAMMA-WEAKENS-THE-BRAKE / §SIGMA-FOURTH-CONSUMER — these two ARE Γ's magnitude, and they are
+  therefore statements about the MECHANISM being too weak at the honest coefficient, not about the
+  coefficient being wrong. **The response is a brake that is not Γ, never a bigger Γ.**
+
+### THE ONLY TWO THINGS THAT CAN LEGITIMATELY MOVE Γ
+1. **`FLOW_HALFLIFE` changing** — and then Γ moves WITH it automatically, which is why it ships as an
+   expression rather than a number. No second edit, no possibility of drift.
+2. **γ ≠ 1 being justified from something.** ⚠️ **THIS IS THE ONE HONEST GAP AND IT SHOULD BE NAMED:**
+   γ = 1 is an ASSUMPTION, not a derivation — A–S's risk-aversion coefficient set to dimensionless unity
+   because nothing in this system prices it. It is the single place a number was chosen. Changing it needs
+   a derivation of its own, not a fit to a failing test; fitting γ to make an assertion pass is exactly
+   the §E275 circularity wearing a different letter.
