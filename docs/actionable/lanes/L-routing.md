@@ -517,9 +517,10 @@ floor, and forward it.** Then:
 ⚠️ **THE GUARD THAT MAKES IT SAFE, and it must be exact:** whitelist the selector
 (`unoswap`/`unoswap2`/`unoswap3` ONLY), require the EXACT calldata length for that selector
 (4+4*32 / 4+5*32 / 4+6*32), and only then patch words 1 and 2. **A selector we do not recognise, or a
-length that does not match, is refused** — never patched-and-hoped. ⛔ The generic `swap()` descriptor
-is DELIBERATELY excluded: it carries a `dstReceiver` and a nested struct, so its amount is not at a
-fixed offset and patching it is not checkable.
+length that does not match, is refused** — never patched-and-hoped. ⭐ The generic `swap()` descriptor
+is ALSO admitted (§SESS-69/99): its descriptor is a STATIC struct, so the head is at fixed offsets,
+and requiring the tail offset to equal the head size exactly is the dynamic-call equivalent of the
+arity check — see the closed row below.
 ✅ **SAFETY IS OTHERWISE UNCHANGED:** `convertTo` still pins the callee, caps gas per leg, enforces
 `spent>0 ⇒ delivered>0`, and bounds the result on a MEASURED balance delta against an oracle floor. A
 hostile keeper picks a worse venue and the floor refuses it — it never gains authority.
@@ -559,26 +560,9 @@ dodge, so `unoswap3` is reachable through the existing `bytes route` with no new
 ###   an on-chain `PROTO_CURVE` arm (§SESS-91 deleted it with the pool-word plumbing) on a library
 ###   with ~436 B of EIP-170 margin, to capture a gap §SESS-101 measured at SINGLE-DIGIT bps on pairs
 ###   the fixed table already routes. ⛔ Do not reopen without a NEW measurement on a pair `_hubRowOf`
-###   does NOT cover — that, and not the USDT number below, is what would justify the arm.
-### ORIGINAL §SESS-107 DESTALE — **CURVE IS IN THE SEARCH NOW, AND IS NO LONGER EXECUTABLE.** Both halves
-### of this row moved and in opposite directions. `venues_for` DOES discover Curve (`CURVE_SHORTLIST`)
-### and `curve_quote` prices it — so the planner is no longer blind. But §SESS-91 deleted `_hubHop`'s
-### `PROTO_CURVE` arm with the pool-word plumbing, so `venue_word(Venue::Curve) => None` and a
-### keeper-chosen Curve pool has NO EXECUTOR. ⛔ The sentence below — *"a Curve pool word is already
-### executable through `_hubHop`"* — was true when written and is FALSE now.
-### ⇒ what remains open is narrower: Curve executes only through `_hubRowOf`'s six fixed rows, for
-###   `consolidate` and for `_startsAt`'s table hop. Re-admitting keeper-chosen Curve means restoring
-###   an on-chain arm, and §SESS-101 measured the execution gap it would close as single-digit bps.
-### ORIGINAL ROW:
-`best_direct` asks the **UniV3 factory** and quotes **QuoterV2**. ⛔ **Curve pools are invisible to the
-planner**, and the owner is right that many pairs are best served by a direct Curve pool: **measured
-this session, 3pool beats the UniV3 0.01% tier for USDT→USDC above ~$500k (−0.42 vs −0.72 bps at $1M,
-−0.68 vs −2.16 at $5M).** The on-chain `_hubRowOf` knows six Curve pools; the planner knows none.
-⇒ **the two halves disagree about what venues exist.** ▶️ Add Curve to `best_direct` via the
-MetaRegistry's PLURAL `find_pools_for_coins` (the singular one returns dead pools — CLAUDE.md) plus
-`get_dy`, and let it compete on the same quote. **No on-chain change: a Curve pool word is already
-executable through `_hubHop`, and 1inch's own Curve encoding stays irrelevant.**
-
+###   does NOT cover. The row's original evidence was USDT→USDC (3pool beating the UniV3 0.01% tier
+###   above ~$500k: −0.42 vs −0.72 bps at $1M, −0.68 vs −2.16 at $5M) — a pair the table ALREADY
+###   routes to 3pool, so it justifies nothing further.
 ### 🔴 STILL NOT BUILT — 2. **IL-PROTECT: BORROW THE CHEAPEST DOLLAR, THEN HOP TO THE ONE WE NEED**
 ### ⚠️ §SESS-107 — **AND I MAY HAVE MISREAD THE OWNER'S INSTRUCTION ABOUT THE `immutable` HERE.**
 ### Pre-compaction the owner said *"do the deploy change and kill the immutable"*. §SESS-93 read that
@@ -598,13 +582,6 @@ TOTAL cost including the extra hop".** The scorer's decision point is FIRST-OPEN
 `LevVenueBase.STABLE` is `immutable`, so **a position cannot change which dollar it borrows without a
 new venue.** ⇒ this is blocked on the same thing §SESS-45 blocker #3 named, and the extra hop is now
 EXPRESSIBLE (unoswap2/3 via retargeting) where it was not before. **The hop is ready; the choice is not.**
-
-### ⚠️ **TAG NOTE — THIS WORK WAS COMMITTED AS `§SESS-116` (`a96856c3`) AND THE CODE NOW SAYS
-### `§SESS-118`.** A peer lane independently took `§SESS-116` for an unrelated SPRINT block
-### (`87baf039`, *"book the thread's loose ends in one block, deduped"*) — two threads, one number,
-### which is the navigation trap this file's own header warns about. **The COMMIT MESSAGE cannot be
-### changed (it is pushed), so the mismatch is recorded here rather than left to be discovered.**
-### Grep `§SESS-118` for this work; `§SESS-116` in `SPRINT.md` is the peer's and is a different thing.
 
 ### ✅ §SESS-118 BUILT — 3. **THE CONSENT WAS ALREADY IN THE SIGNATURE; THE FILL FRAME NEVER ASKED.**
 ### This row proposed threading `loadBalance` down into the conversion path. It needed no threading:
@@ -626,26 +603,10 @@ EXPRESSIBLE (unoswap2/3 via retargeting) where it was not before. **The hop is r
 ### continue`, or `routes.length == 0`). That is the behaviour the signature bought.
 ### ⛔ **THE OTHER TWO SITES ARE NOT SWAPS AND ARE DELIBERATELY UNTOUCHED.** `_consolidateTo:1556`
 ### refunds an unroutable slice to the LP mid-protect — the LP's OWN value returned, not a
-### counterparty served short; `QuidLib:699`'s shrink is a REDEMPTION, argued below. The owner's
-### constraint names swaps, and the OOR fill was the swap among the three.
-### ORIGINAL ROW (§SESS-107: re-checked,
-### unchanged. `loadBalance` still gates the shortfall arb rather than partial fills, and
-### `convertTo`'s `if (!ok) continue` is now MORE load-bearing than when this was written — §SESS-99
-### showed it is what turned `ZeroMinReturn()` into an anonymous zero for a day.)
-Partial fill and partial refund exist today in three places, none gated by consent:
-· `convertTo:702` `if (!ok) continue;` — one leg fails, the rest proceed, the aggregate floor decides
-· `_consolidateTo:1556` — an unroutable slice is **refunded to the LP** mid-protect
-· `QuidLib:699` *"NEVER GATE — shrink"* — the offramp serves part and defers the rest
-⚠️ **`loadBalance` ALREADY EXISTS AS A USER-SUPPLIED CONSENT BOOL** (`Aux.swapTo:885`,
-`Core.settleOor:944`; §E347 calls it *"the consent gate"*) — **but it gates the SHORTFALL ARB, not
-partial fills.** So the consent primitive is there and wired to the wrong question.
-▶️ **THE SHAPE:** thread the existing `loadBalance` into the conversion path; `false` ⇒ any leg that
-cannot fill reverts the whole swap, `true` ⇒ today's behaviour. ⛔ **DO NOT default it on**: the owner's
-wording is *"if and only if the swapper agrees"*, so absent consent the answer is revert.
-⚠️ **AND THE OFFRAMP IS A DELIBERATE EXCEPTION TO ARGUE, NOT ASSUME** — its shrink exists because a
-2,000 weETH exit asks more than the pool holds, and gating it would defer the whole exit instead of
-serving most of it. That is a redemption, not a swap; the owner's constraint names swaps.
-
+### counterparty served short. `QuidLib:699`'s *"NEVER GATE — shrink"* is a REDEMPTION, and its shrink
+### exists because a 2,000 weETH exit asks more than the pool holds: gating it would defer the WHOLE
+### exit instead of serving most of it. The owner's constraint names swaps, and the OOR fill was the
+### swap among the three.
 ### ✅ §SESS-118 CLOSED — the generic `swap()` descriptor. **BUILT, AND THE ROW WAS STALE BY TWO
 ### SESSIONS.** §SESS-69 admitted `SWAP_SELECTOR` and §SESS-99 made the arm actually execute. Read
 ### `_retarget`: it whitelists the selector, requires `len >= 4 + 10*32`, and **checks that the tail
@@ -657,11 +618,6 @@ serving most of it. That is a redemption, not a swap; the owner's constraint nam
 ### 🔑 **WHY IT MATTERS BEYOND THE GUARD:** a v4 pool has no address (a singleton keyed by `PoolKey`),
 ### so no pool word can name one — same for Balancer. Admitting `swap()` is not "one more venue", it
 ### is **every venue a pool word cannot spell.**
-### ⚠️ **AND THE PARAGRAPH ABOVE IN THIS SAME SECTION IS ALSO STALE:** *"The generic `swap()`
-### descriptor is DELIBERATELY excluded… its amount is not at a fixed offset and patching it is not
-### checkable"* — false on both counts. The descriptor is a STATIC struct, so the head is at fixed
-### offsets, and the offset word is what makes the tail checkable. Left in place as the record of what
-### was believed, flagged here so it is not read as current.
 
 ---
 
