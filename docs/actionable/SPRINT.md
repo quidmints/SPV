@@ -99699,3 +99699,46 @@ step is `RangeLib`'s buffer burn on the liquidation path, not the premium.
   three are Γ's magnitude directly**, one constant, no other cause.
 · this margin assertion — **Γ only as a REVEALER.** Its own root is the `levBuf`-outlives-its-debt tell
   above, which was masked by premium slack and is not a Γ defect at all.
+
+---
+
+## ⛔ §LEVBUF-NOT-STALE — "the buffer that outlived its debt" IS REFUTED. `levBuf` is correct.
+
+Owner: *"fix the levbuf that outlived its debt."* **There is nothing to fix — the premise was mine and it
+was wrong.** Checked before changing anything, and the measurement is unambiguous:
+
+    levPooled        2,762,836,981,602,135,476
+    totalNetEquity   2,762,836,981,602,135,476     EQUAL TO THE WEI, both Γ arms, every run
+    ⇒ levPooled IS the NET leg, gross = levPooled + levBuf, and gross − net == levBuf EXACTLY.
+
+**`levBuf` IS the debt.** It tracks it precisely; nothing outlived anything.
+
+### 🔴 THE WRONG ROOT CAME FROM A FALSE COMMENT, NOW FIXED
+`QuidLib:486` read *"the 2× range depth … lives in `levPooled = gross`"*. That contradicts `Quid:975-977`
+(*"`levPooled` is the NET leg and `levBuf` the debt-funded buffer, so the live gross depth is their SUM"*)
+and `Quid:978`, which ENFORCES `gross == levPooled + levBuf`. Believing the false version makes
+`levPooled − totalNetEquity` look like the debt; it measures **0**, which reads as *"the debt is gone but
+`levBuf` still reports 0.1077 ETH"*. **The subtraction was meaningless — both terms are the net leg.**
+Corrected in place with the measurement and an explicit ⛔ against re-deriving that conclusion.
+Comment-only; `tools/comment-only.sh` reports `OK +14 −2`, so the bytecode is unchanged by construction.
+📌 That is now **four** wrong turns today traceable to auditing by name or by comment rather than by
+measurement — the src-with-no-test tell, `impacted-tests.py` routing by symbol, the Γ-value sweep missing
+kernel-OUTPUT literals, and this. The common fix is the same: derive the claim from a live read.
+
+### ✅ WHAT THE RESIDUAL ACTUALLY IS, stated exactly
+`rangeETH = tokens + net` and `levBuf = gross − net`, so `rangeETH + levBuf = tokens + gross`, and:
+
+    residual = POOLED − tokens − gross = 4,915,390,237,519,040 = 0.004915 ETH
+
+⇒ **The range's book claims 0.004915 ETH more than the ETH it custodies plus the gross levered
+collateral.** Not a buffer defect, and not the premium — the premium explains the Γ *delta*, this is the
+*level*.
+🔎 **LEADING CANDIDATE, UNTESTED, AND I AM NOT ASSERTING IT:** this is a POST-LIQUIDATION state. The test
+performs a REAL Morpho liquidation of half the pooled collateral, which takes a liquidation PENALTY. If
+`POOLED` is not written down by that penalty, the book over-claims by exactly this shape. `POOLED` moves
+ONLY at `Core:1204/1212` (swap deltas) — fees never write it — so a liquidation loss has no path into it.
+▶️ Test by varying the liquidated fraction: if the residual tracks it, the penalty is the cause.
+⚠️ **IF CONFIRMED THIS IS THE OWNER'S HEADLINE CONCERN, NOT A ROUNDING ITEM:** it would mean a real
+liquidation leaves the range over-claimed and **the skew premium was silently absorbing the difference** —
+i.e. LPs paying for it out of premium that was owed to them. That is *"at a loss to the pool"* in the
+owner's own terms, and it is why the honest Γ turning this red is worth more than the green it replaced.

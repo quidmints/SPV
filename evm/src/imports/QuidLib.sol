@@ -482,8 +482,20 @@ library QuidLib {
         // IL-protect: count the leveraged book's net-equity (gross collateral - debt), not gross. The buffer
         // half is debt-funded (offset by the LP's borrow), so counting gross would overstate solvency by the debt
         // -- the same error the fold fixed for `committed`. Net-equity is the LP's real deliverable claim (what
-        // `closeLev` returns after auto-repaying the debt). The 2x range depth is untouched -- it lives in
-        // `levPooled = gross`, not here. try/catch degrades to "no lev credit". Unified with the BTC model.
+        // `closeLev` returns after auto-repaying the debt).
+        // 🔴 §LEVBUF-NOT-STALE — **THIS SAID `levPooled = gross` AND THAT IS FALSE.** `Quid:975-977` states
+        //    the real split — *"`levPooled` is the NET leg and `levBuf` the debt-funded buffer, so the live
+        //    gross depth is their SUM"* — and `Quid:978` enforces exactly that (`gross == levPooled + levBuf`).
+        //    MEASURED, both Γ arms, every run: `levPooled` and `ILevEquity.totalNetEquity()` are equal TO THE
+        //    WEI (2,762,836,981,602,135,476), so `levPooled` is the NET leg and `gross − net == levBuf` exactly.
+        //    ⛔ THE FALSE VERSION COST A WRONG ROOT-CAUSE. Reading `levPooled = gross` here makes
+        //      `levPooled − totalNetEquity` look like the debt; it measures 0, which reads as "the debt is
+        //      gone but `levBuf` still reports 0.1077 ETH" — a buffer that outlived its debt. **There is no
+        //      such defect.** `levBuf` is correct; the subtraction was meaningless because both terms are the
+        //      net leg. Do not re-derive that conclusion from this line.
+        //    ⇒ The 2× range depth is `levPooled + levBuf`, and only the NET half is counted here — which is
+        //      the whole point of the paragraph above: counting gross would overstate solvency by the debt.
+        // try/catch degrades to "no lev credit". Unified with the BTC model.
         if (c.levManager != address(0)) {
             try ILevEquity(c.levManager).totalNetEquity() returns (uint n) { total += n; } catch {}
         }
