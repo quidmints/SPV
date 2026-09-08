@@ -91975,7 +91975,9 @@ On the **flush/exempt** branch (`inv ≤ target`) σ²=0 does return 0 through t
 **OVERSHOOT** branch it returns **`UNKNOWN_VARIANCE_SKEW = 3e16`** — a flat 300 bps, measured
 constant from +1% to +200% overshoot — because `sellSkew` branches on `sigmaSqWad == 0` and never
 evaluates `qBar`. Anyone reaching for the sentinel-split work needs the second form.
-⭐ **THE EVIDENCE FOR "NEVER EXECUTED" IS §E277, AND IT PREDATES ME BY THREE WEEKS.**
+⭐ **THE EVIDENCE FOR "NEVER EXECUTED" IS §E277 — ⚠️ AS A DATED MEASUREMENT, NOT A LIVE STATE.**
+Its instrument went GREEN via §E327 (SPRINT.md:21021) and I cited it as current in `40860805`; that
+citation is corrected here.
 `DrainAtomicity.test_UNITA_FixtureDrivesRealVariance` measured **σ² = 1, 1, 1, 0 wad across FOUR full
 suite runs (2026-08-21)** — deterministic, against a suite carrying a ±2-test noise floor — and is
 kept DELIBERATELY RED as the standing proof that *"`realizedVarianceWad()` is pinned at ~0 and 20
@@ -97645,10 +97647,12 @@ invisible without that split.
 `AllesFixture` and wired into **`SkewCalibration`, `SkewVsUniswapV3`, `PremiumIsCarryNotIncome`,
 `DerivedTheta`, `RestoreProfitability`** — all five now measure σ² ≈ **0.113 wad (σ ≈ 34%)** and
 exercise the A-S curve. ⛔ **THREE MUST NEVER BE WARMED, and wiring them would destroy the
-instruments that recorded this problem:** `DrainAtomicity` (`test_UNITA_FixtureDrivesRealVariance` is
-§E277's DELIBERATE RED — *"DO NOT WEAKEN OR DELETE THIS TO GET THE SUITE GREEN"*; the warm-up moves
-the ANCHOR and σ² is `max(ring, anchor)`, so it would green the red while the RING stays exactly as
-unresponsive), `SkewLivePathReachesKernel` (§E306's sentinel instrument), `VarPrecision` (it measures
+instruments that recorded this problem:** `DrainAtomicity` — ⚠️ **BUT ON A CORRECTED BASIS: that test is
+`[PASS]` and has been since §E327 pinned a fixture source (σ² 0 → ~23.6 wad, SPRINT.md:21021). I
+excluded it on the strength of a stale "EXPECTED TO FAIL" comment.** The exclusion still stands, for
+the ORIGINAL reason rather than the red: σ² is `max(ring, anchor)`, so an anchor-side warm-up can
+green it while the RING stays unresponsive — the same objection §E327's pinned SOURCE arguably
+already runs into, `SkewLivePathReachesKernel` (§E306's sentinel instrument), `VarPrecision` (it measures
 the measurement). ▶️ **WHAT REMAINS IS THE RING, NOT THIS ROW** — see §E277, whose stated fix is
 *"FIX THE RING so a driven tick moves σ²"*. The warm-up is an ANCHOR-SIDE workaround and does not
 close that.

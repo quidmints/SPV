@@ -1306,7 +1306,21 @@ contract DrainAtomicity is AllesFixture {
         emit log_named_uint("sigma^2 AFTER  (wad)", s2);
         // annualized vol = sqrt(sigma^2); report in bps so the level is readable at a glance.
         emit log_named_uint("annualized vol (bps)", Math.sqrt(s2 * 1e18) / 1e14);
-        // 🔴 §E277 — **THIS ASSERTION IS EXPECTED TO FAIL, AND THE FAILURE IS THE MEASUREMENT.**
+        // ⚠️ §E277-SUPERSEDED (2026-09-08) — **THIS COMMENT SAID "EXPECTED TO FAIL" AND THE TEST
+        //    PASSES.** Verified `[PASS]`, gas 49,233,102, and SPRINT.md:21021 already recorded it:
+        //    §E327 pinned a fixture observation source and σ² went 0 → ~23.6 wad. The paragraph below
+        //    is the ORIGINAL 2026-08-21 finding and is kept for its measurement (σ² = 1,1,1,0 across
+        //    four suite runs), NOT as a live expectation.
+        // 🔴 **A STALE ⛔ IS MORE EXPENSIVE THAN A STALE ✅, AND THIS ONE COST REAL WORK.** A stale
+        //    green hides a defect; a stale prohibition SUPPRESSES WORK, and nothing fails to signal
+        //    it. On 2026-09-08 this comment stopped three σ²-warm-up wirings that were otherwise
+        //    correct, and was then cited into two SPRINT rows as current evidence.
+        // ▶️ **AND THE QUESTION UNDERNEATH MAY STILL BE OPEN.** §E327 pinned a SOURCE, which is not
+        //    the ring becoming responsive: `realizedVarianceWad = max(ringVariance, anchorVariance)`,
+        //    so a pinned source can green this while the RING stays exactly as unresponsive. Decide
+        //    what this test is FOR before pointing it anywhere — a green instrument reporting success
+        //    for a property it may not test is worse than a red one.
+        // 📜 ORIGINAL §E277 FINDING, retained as the measurement it was:
         // It is the LIVE evidence for §UNIT-SERIES-MEASURED after that row's original instrument
         // (`test_UNIT_PoolVarianceVsChainlinkVariance`) was retracted by `5b6e96c9` for *"never
         // producing a comparable number across three scaling attempts"*. Measured 2026-08-21:
