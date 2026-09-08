@@ -99382,3 +99382,55 @@ which is on-table — a property of the basket's composition on that block, not 
 residue appears the first time the pro-rata delivers an off-table slice, and **nothing announces it**:
 `got` simply comes in lower. Cheap fix, no revert and no liveness cost: compare the drawn total against
 the sum of the routable subset before the loop and emit when they differ.
+
+### 🔧 §GAMMA-BREAKS-HONEST-LP-MARGIN — CORRECTED. The mechanism I gave was wrong, and it changes the options.
+
+project-bc questioned the arithmetic: §C25's 0.00708 ETH margin and this test's 0.004580 ETH shortfall
+were measured under **different conditions**, so subtracting them was not a delta — the same error class
+as *"a delta computed across two runs is not a delta"*. They were right. **Both numbers re-measured from
+the SAME fixture at one pin**, by probing `rangeETH + levBuf`, `POOLED` and `levBuf` in each arm:
+
+| | Γ = 3e16 | Γ derived | delta |
+|---|---:|---:|---:|
+| `rangeETH + levBuf` | 4,925,305,260,073,929,011 | 4,925,368,211,597,702,940 | **+62,951,523,773,929** |
+| `POOLED` (capacity) | 4,918,038,192,545,221,464 | 4,930,283,601,835,221,980 | **+12,245,409,290,000,516** |
+| `levBuf` | 107,659,990,943,916,395 | 107,659,990,943,916,395 | **0** |
+| **MARGIN** | **+0.007267 ETH** | **−0.004915 ETH** | **−0.012182 ETH** |
+
+Attribution closes to the wei: `ΔPOOLED − Δ(rangeETH+levBuf) = 12,182,457,766,226,587` = the margin loss.
+
+**⛔ WHAT I SAID WAS WRONG.** I wrote *"a smaller Γ prices drains cheaper, so more ETH leaves the range."*
+**The ETH did not leave.** `rangeETH + levBuf` is FLAT — it rose 0.0000630 ETH, +0.0013%. And **`levBuf`
+is IDENTICAL in both arms**, so the debt-funded buffer did not move at all.
+**⇒ THE ENTIRE LOSS IS `POOLED` — the range's CLAIMED CAPACITY — RISING 0.012245 ETH WHILE ITS BACKING
+STAYED PUT.** This is a **book-versus-backing divergence, not an outflow.**
+
+**THAT INVALIDATES OPTION 1 AS I STATED IT.** "Re-size `levBuf`" targets a quantity that did not change
+and would paper over a book-vs-backing gap rather than close it. The live options are now:
+1. **Trace why `POOLED` rises when the premium falls.** `POOLED = levPooled + levBuf` (`Quid.sol:979`) and
+   `levBuf` is flat, so `levPooled` grew. ⚠️ **THE CAUSAL STEP IS MEASURED BUT NOT TRACED** — a smaller
+   retained premium should make the book grow *less*, not more, so the direction is not yet explained.
+   **Do not act on a mechanism until this is traced; I already published one wrong mechanism here.**
+2. **Raise Γ off its derivation** — restores the margin, re-opens the §E275 circularity.
+3. **Accept a thinner margin explicitly** — now known to mean accepting an unbacked capacity claim, which
+   is a different and worse thing than accepting a smaller ETH balance.
+📌 §C25's 0.00708 figure is superseded for this purpose by the same-fixture +0.007267; they are close,
+which is why the wrong reading looked plausible.
+
+### ✅ ATTRIBUTION IS NOW THREE-WAY INDEPENDENT
+· **this session** — toggled `GAMMA_WAD` in place: PASS at 3e16 (gas 34,117,051), FAIL at the derived value.
+· **project-2d** — bisected in clean detached worktrees, one commit per worktree, all at pin 25933152:
+  `7b1f19db` PASS · `a37b0c12` PASS · `7cb53d39` (= `a4787689^`) PASS · **`a4787689` FAIL**.
+· **project-bc** — pre-Γ full-suite controls, green at 11:02 and 11:26 with `a4787689` landing at 14:31;
+  their 11:02 gas is within 1,831 of the toggled-back run on a 34.1M-gas test — the same execution PATH,
+  not merely the same verdict.
+⇒ Two tests, three methods, four symptoms of one constant (this margin, the haircut kernel topping out at
+3.82e17 instead of 1e18, `_fillableDrain`'s floor falling 2.913% → 0.545% of target, and
+§REFILL-AFFORDABILITY's 0.07 bps premium).
+
+**📌 WHY NO TOOL COULD HAVE CAUGHT THIS, worth keeping (project-2d):** `impacted-tests.py` routes by
+SYMBOL, and **a constant's VALUE change names no new symbol.** The lev suite was never run against Γ.
+⇒ A commit that changes a VALUE needs its consumers run, and the consumer set cannot be derived from the
+diff. This is the same gap as §SESS-116's "a commit touching `evm/src/` with ZERO `evm/test/` files".
+**A suspect that is a single named value should be TOGGLED before the history is walked** — a toggle is a
+controlled experiment where a bisect is only a search (project-bc's framing, and it generalises).
