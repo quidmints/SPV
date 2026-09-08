@@ -98454,3 +98454,44 @@ the denominator must be scaled by expected time-in-range. **Neither is establish
 question and it should be settled analytically before any constant moves.**
 📌 ⇒ §K-AND-HEADROOM's basis half is CLOSED; its K half is re-scoped to the θ regime question above.
 The peer's backtest is kept as evidence FOR that question and against nothing else.
+
+## §RANGE-DELTA-WIDENED-2026-09-08 — ⚠️ K cut 10× by the only lever that exists. θ is still small.
+
+**Owner:** *"widen the range delta, K is too high."* `SwapLib.RANGE_DELTA` **20 → 200 (±0.2% → ±2%)**.
+
+⭐ **THIS IS THE ONLY LEVER, AND THAT IS ARITHMETIC.** `kLvrWad` is the LVR-to-VALUE ratio of a v3
+position and reduces to **`K = 1/(4δ)`** exactly — 125.06 at ±0.2%, **12.56 at ±2%**. There is no
+coefficient to re-tune: the formula was verified correct from first principles, so K was large because
+the RANGE was tight. ✅ **±2% is not a new number** — every θ/K figure in `IL-CERTIFICATION.md` is
+keyed to it, and the BTC range's own seed used `delta=200` until §ONE-ANCHOR unified it (`Vault.setup`
+calls that gap *"an unexplained 10x"*). **The widening closes a drift rather than making a choice.**
+
+🔴 **WHAT IT DOES NOT FIX, AND THIS MUST NOT BE READ AS SOLVED:** `θ = feeYield/(K·σ²)` moves from
+~0.0006 to **~0.0062** at σ=80% and a 5%/yr realised yield — `applyTheta` still caps pooled near
+**0.6% of backing**. A 10× improvement that does not change the regime. **θ ≈ 0.1 would need K ≈ 0.8,
+i.e. δ ≈ 32% — essentially full-range.** ⇒ the remaining question is θ's TIME BASE (an ANNUAL yield
+divided by an INSTANTANEOUS in-range rate, made worse by the clamp — §K-IS-A-SAMPLING-ARTEFACT), not
+this constant. **Widening again would be treating the symptom.**
+
+### ▶️ VERIFICATION — PARTIAL, AND SAID SO
+`forge build` green (605 files). **173/173** across `Alles`, `UnificationControls`, `LevCascade`,
+`VBtcLevFeeLane`, `DerivedTheta`, `SkewCalibration` at a fresh pin, 0 setUp failures.
+⚠️ **I PREDICTED BREAKAGE AND WAS WRONG, WHICH IS THE PART TO CHECK RATHER THAN CELEBRATE.** Rule 10
+asks for a falsifiable prediction first; mine was *"assertions keyed to 20 bps will fail"*. **None did**
+— because the ones that could have are DERIVED from live state (`Alles`'s TWAP-deviation bound reads
+`_bLo`/`_bHi`, not a literal). ⇒ the suite is insensitive to range width by construction, which is
+good design and ALSO means **a green run here is weak evidence about a 10× geometry change.**
+📌 **A FULL SUITE IS OWED AND NOT RUN** — the builder was handed to another lane. Until it runs, treat
+the widening as compiled-and-spot-checked, not verified.
+🔴 **AND THE SUITES MOST LIKELY TO MOVE ARE ANOTHER SESSION'S:** the σ² warm-up work
+(`SkewCalibration`, `SkewVsUniswapV3`, `PremiumIsCarryNotIncome`, `DerivedTheta`) calibrates against
+in-range fraction, which is exactly what a 10× width changes. **They were warned before the change
+landed, not after.**
+
+### DESTALED WITH IT (both comment-only, verified byte-identical)
+· `LevMath`'s `soldFraction` worked example — re-derived at the new width: `holdingRatio` 0.499250000
+  → **0.492499687**, `soldFraction` 0.500750000 → **0.507500313**. ⭐ **The 10× width moved it ~0.7
+  percentage points, which STRENGTHENS that paragraph's finding:** soldFraction is ≈½ for any
+  symmetric width, so widening does not rescue it as an IL measure.
+· `Alles.t.sol`'s *"capped at 20bps = 0.002e18"* → 200 bps, with a note that the assertion derives its
+  bound from live state and must not be re-keyed to the literal.

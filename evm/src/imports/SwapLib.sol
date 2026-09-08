@@ -832,7 +832,29 @@ library SwapLib {
     // degeneracy, not a price one, and `updateBounds` is degenerate only at delta = 0. Quoting a
     // measured-looking threshold that no live code can produce is how a comment becomes the premise
     // of a re-tune (§E18 at `:690`).
-    uint internal constant RANGE_DELTA = 20;
+    /// 🔴 **WIDENED 20 → 200 (±0.2% → ±2%) ON 2026-09-08 (owner: *"widen the range delta, K is too
+    /// high"*). THIS IS THE ONLY LEVER ON `K`, AND THAT IS ARITHMETIC, NOT PREFERENCE.**
+    /// `QuidLib.kLvrWad` is the LVR-to-VALUE ratio of a v3 position — derived from scratch and
+    /// confirmed exact: for `V(P) = L(2√P − √Pa − P/√Pb)`, `V'' = −L/(2P^1.5)`, so
+    /// `LVR/V = σ²/(4(2 − √(Pa/P) − √(P/Pb)))`, which reduces to **`K = 1/(4δ)`**.
+    ///     δ = 20 bps ⇒ K = 125.06        δ = 200 bps ⇒ K = 12.56
+    /// ⇒ The formula was never wrong; K was large because the RANGE was tight. Nothing else in the
+    /// tree can move K — there is no coefficient to re-tune, only this width.
+    /// ⭐ **±2% IS NOT A NEW NUMBER, IT IS THE ONE THE REST OF THE SYSTEM ALREADY ASSUMED.** Every
+    /// θ/K figure in `IL-CERTIFICATION.md` is keyed to ±2%, and the BTC range's own seed used
+    /// `delta=200` until §ONE-ANCHOR unified it (the note at `Vault.setup` calls that gap "an
+    /// unexplained 10x"). Widening closes the drift rather than introducing a choice.
+    /// ⚠️ **WHAT IT DOES NOT FIX, STATED SO NOBODY READS MORE INTO IT: θ IS STILL SMALL.**
+    /// `θ = feeYield/(K·σ²)`, so at σ=80% and a 5%/yr realised yield this moves θ from ~0.0006 to
+    /// ~0.0062 — `applyTheta` still caps pooled near 0.6% of backing. **A 10× improvement that does
+    /// not change the regime.** Reaching θ ≈ 0.1 needs K ≈ 0.8, i.e. δ ≈ 32%, i.e. essentially
+    /// full-range. ⇒ the remaining question is θ's TIME BASE (an annual yield over an instantaneous
+    /// in-range rate — §K-IS-A-SAMPLING-ARTEFACT), not this constant.
+    /// ⛔ **DEGENERACY BOUND: `updateBounds` is degenerate only at δ = 0** — the old "delta=10
+    /// collapses lower==upper" figure described a TICK-SPACING degeneracy that left with v4, per the
+    /// paragraph above. Widening has no lower-bound hazard; it is `soldFraction` and every 20-bps
+    /// assertion that move (see `LevMath`'s worked example and `Alles.t.sol`'s TWAP-deviation cap).
+    uint internal constant RANGE_DELTA = 200;
 
     // DYNAMIC CAP calibration. Instead of a fixed 3%, the ceiling tracks the native-BTC MM's
     // REAL drain-edge cost, which is dominated by the BTC-price risk while its capital is

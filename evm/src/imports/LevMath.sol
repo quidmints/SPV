@@ -281,11 +281,17 @@ library LevMath {
     //     unconditionally on every repack, so the range recentres and the triple is always
     //     (lo, P, hi) = (P(1-d), P, P(1+d)). P CANCELS:
     //         holdingRatio = sqrt(1-d) * (sqrt(1+d) - 1) / (sqrt(1+d) - sqrt(1-d))
-    //     With RANGE_DELTA = 20 bps that is 0.499250000, i.e. soldFraction = **0.500750000** — a
+    //     With RANGE_DELTA = 200 bps that is 0.492499687, i.e. soldFraction = **0.507500313** — a
     //     function of RANGE WIDTH ALONE, with no price in it.
-    //   MEASURED over a rally that doubled the price (2716.84 -> 5430.99, ten steps): the range's
-    //   real inventory `POOLED` fell 7.566 -> 2.331 ETH while `soldFractionWad` returned
-    //   0.500750000312500535 at EVERY step, moving only in the 18th decimal.
+    //     ⚠️ RE-DERIVED 2026-09-08 WITH THE WIDTH. At the former 20 bps the pair was
+    //     0.499250000 / 0.500750000; the width moved 10x and these moved ~0.7 percentage points,
+    //     which is the point of the paragraph — soldFraction is nearly 1/2 for ANY symmetric width,
+    //     so widening the range does NOT rescue it as an IL measure.
+    //   MEASURED over a rally that doubled the price (2716.84 -> 5430.99, ten steps) AT THE 20 bps
+    //   WIDTH: the range's real inventory `POOLED` fell 7.566 -> 2.331 ETH while `soldFractionWad`
+    //   returned 0.500750000312500535 at EVERY step, moving only in the 18th decimal. ⚠️ That run
+    //   pre-dates the widening — the CONSTANT it reports is now 0.507500313, and the FINDING (a
+    //   constant regardless of price) is unaffected, which is why it is kept rather than re-run.
     //   => It is not a measure of IL. It reports a 50.075% hedge at open, at +100%, and the same on
     //      the way down. ⚠️ SUCH A BRANCH LOOKS HARMLESS ONLY WHILE THE REANCHOR KEEPS
     //      `syncKeyPx == spot` and `sf` comes back 0 — the estimate then runs, correctly, BY ACCIDENT.

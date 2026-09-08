@@ -1791,7 +1791,9 @@ contract Alles is AllesFixture {
 
         // Spot vs the anchor. BOUND DERIVED FROM LIVE STATE, not a fitted literal: the swap can
         // only walk the spot to the range edge, and the range is built by SwapLib.updateTicks with
-        // RANGE_DELTA = 20bps, so |spot/twap - 1| is structurally capped at 20bps = 0.002e18.
+        // RANGE_DELTA = 200bps (widened from 20 on 2026-09-08), so |spot/twap - 1| is structurally
+        // capped at 200bps = 0.02e18. ⚠️ The assertion below derives its bound from LIVE STATE and
+        // not from this number, which is why the widening did not move it — do not re-key it here.
         // Measured residual is 0.0999% (9.99bps) — the centre-to-edge distance after tick
         // alignment — and it is bit-stable across fork blocks (the fork is unpinned, so the
         // absolute price moves run to run, but this RATIO does not). Old bound was 0.06e18 (6%),
