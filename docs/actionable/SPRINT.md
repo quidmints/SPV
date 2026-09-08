@@ -93055,7 +93055,32 @@ lazily. It costs a wider `h` and a larger `C·K·σ²·h/2` term, and **no new m
    item 4 resolves toward governance, costs the 278 B, and makes the chain agree with the comment.
    ⚠️ **NOT LANDED EITHER WAY.** Both are authority decisions on an immutable contract, and GATE 3's
    own framing is *"there is one attempt"*.
-5. the `immutable` external addresses — decide which must be settable;
+5. ✅ **DECIDED 2026-09-08 BY MEASUREMENT: NONE OF THEM. The five stay `immutable`, and the reason is
+   a chain that closes rather than a preference.** The five are `spv`, `btc`, `MAIN_HOP`,
+   `FALLBACK_HOP`, `BTC_DEPOSIT_KEY`.
+   ▶️ **THE TEST THAT MATTERS IS NOT "could an operator want to move it" — IT IS "does losing it TRAP
+   FUNDS".** Traced end to end:
+   · **Both hops lost.** 22 entrypoints are `_onlyHop()`-gated — `openChannel`, `splice`,
+     `settleSwapInProven`, `reverseSwapOut`, `deliverSwapOutOnchain`, `commitFreshness`. So the
+     protocol goes dead for NEW activity. ✅ **But every ESCAPE is permissionless by construction:**
+     `recordClose` (`:1778`, §E153 — permissionless on purpose), `registerChannelClaim` (`:1067`),
+     `refundExpiredSwapOut` (`:2172`), and the dead-man ladder, whose `DeadManExitEmitted` publishes
+     the FULLY-SIGNED exit tx so anyone can broadcast it after its CLTV. ⇒ **nobody's funds are
+     trapped; the system stops rather than seizes.** §E164's *"pinned at construction, no setter, by
+     design"* survives the test.
+   · 🔑 **`spv` IS THE ONE THAT COULD HAVE TRAPPED THEM, because every one of those escapes verifies
+     through it** (`_verifyTxSpendsChannel` → `spv.checkTxInclusion`). A stalled gateway would freeze
+     the exits, not merely the entrances. ✅ **MEASURED: `SPVGateway.addBlockHeader` and
+     `addBlockHeaderBatch` have NO access gate — anyone can advance the chain.** So the escape path is
+     permissionless END TO END, and the single point of failure is not one.
+   ⛔ **AND A SETTER WOULD BE STRICTLY WORSE ON EVERY ONE.** Settable `spv` = whoever sets it decides
+   what *"Bitcoin says"*. Settable `BTC_DEPOSIT_KEY` = redirect every future deposit address (§E159
+   derives them all from it). Settable hops = the submitter binding §E183 relies on becomes movable.
+   **Each setter buys recovery from a failure that does not trap funds, and sells the property that
+   makes the contract trustworthy.**
+   📌 **This is item 4's answer arriving from the other side:** the constants question asks whether to
+   ADD an authority; this one asks whether to add five. The same answer, for the same reason — and it
+   is why the inert `Ownable` found under item 4 should be resolved toward *no owner*, not toward one.
 6. ✅ **DONE 2026-09-08 — `LadderTooDeep` LANDED, AND THE CEILING IS DERIVED FROM A MEASUREMENT.**
    ⭐ **MEASURED** (`DeadManExitVerify.test_ladderRungGasIsMeasured_forTheMissingCeiling`):
    `verifyDeadManExit` = **452,660 gas per rung**, + one cold `exitArmedOnOutpoint` SSTORE (~20,000)
