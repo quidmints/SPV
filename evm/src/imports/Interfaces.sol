@@ -821,6 +821,9 @@ interface ILevManagerDeliver {
         external view returns (address venue, address stable, uint amtNative);
     function swapOutDelever(address lp, uint stableUsd, uint freeSats)
         external returns (uint usedUsd, uint freedSats);
+    /// §PAUSED-VAULT-REROUTE — convert whatever the basket ACTUALLY paid into the venue's own loan
+    /// token and deliver it there, so a paused vault reroutes instead of denying service.
+    function consolidateForRepay(address lp, address refundTo) external returns (uint sent);
 }
 /// M.1 ETH delivery-side de-lever. Distinct from BTC's `swapOutDelever` (ETH DELIVERS WETH to a
 /// recipient; BTC un-encumbers spliced sats), and ETH is POOLED so it walks the book.

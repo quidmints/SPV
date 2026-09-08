@@ -6,6 +6,11 @@ import {IVaultExposeB, IVBtcToken, ILevVenue, IERC20Min, IMorphoBase as IMorphoF
 import {BtcLib} from "./imports/BtcLib.sol";
 import {LevBase} from "./imports/LevBase.sol";
 import {LevMath} from "./imports/LevMath.sol";
+// §PAUSED-VAULT-REROUTE: `IERC20Min.transfer` declares `returns (bool)` and USDT RETURNS NOTHING, so
+// the decoder reverts on it — the same latent break `LevMath.convertTo` records for `approve`. The
+// venue's loan token is caller-chosen, so this transfer must be the safe one.
+import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 // §A.52: the oracle face is the SHARED `IAux` from `Interfaces.sol`, never a file-local restatement
 // of the same signature — one declaration, so a change to it cannot silently miss this consumer.
 
@@ -31,6 +36,7 @@ import {LevMath} from "./imports/LevMath.sol";
 ///         renamed collateral-agnostic `MorphoEscrowVenue`, deployed against a vBTC market). Acquisition
 ///         is EXTERNAL (never the swap-out rail → the range is never traded → no encroachment on other LPs).
 contract BtcLevManager is LevBase {
+    using SafeERC20 for IERC20OZ;
     address public immutable WBTC;   // oracle key
     /// The Vault behind `COLL` — range authority for expose/unexpose. Distinct from `COLL` since §J.2
     /// split the token face out of the Vault; before that split one address served as both.
@@ -325,6 +331,44 @@ contract BtcLevManager is LevBase {
     ///         ⇔ equal-value collateral) keeps LTV IMPROVING; any collateral freed beyond the repaid value is
     ///         zero-debt (LTV already 0 or falling) so the venue withdraw stays healthy. Returns (usedUsd 1e18,
     ///         freedSats) — usedUsd is the debt actually retired (the caller withholds only THIS from the QUI mint).
+    /// @notice 🔴 §PAUSED-VAULT-REROUTE — **THE REROUTE THAT REPLACED A DENIAL OF SERVICE.** Owner,
+    ///         2026-09-08: *"paused vault shouldnt block but rather reroute to accomplish our goals by
+    ///         a different means (no denial.of service)"*.
+    /// @dev THE FAILURE THIS EXISTS FOR, MEASURED (`testReal_MEASURE_ProRataFallback_VenueStableVaultPaused`):
+    ///      with the USDC vault paused, `Aux.takeToSettle` cannot serve the venue's own loan token, so
+    ///      its PRO-RATA leg pays a DIFFERENT stable — measured, 1,377,974,721,301,924,123,210 of DAI —
+    ///      which the venue cannot repay with. The delivery then SUCCEEDED while retiring ZERO debt.
+    ///      `SwapLib` caught that with `revert DeleverStableUnavailable()`, which is safe but is a DoS:
+    ///      the LP's channel BTC has already physically left, and they wait for a third party to unpause.
+    /// ⇒ THE VALUE IS FINE, IT IS JUST IN THE WRONG DENOMINATION — so convert it rather than refuse.
+    ///   `LevMath._consolidateTo` already does exactly this for `protectFromQuid`: `stable → USDC →
+    ///   target` on the `_hubRowOf` Curve rows, which need NO keeper and NO off-chain calldata, each
+    ///   slice floored and gated by `_selfServableQuote` so a paused POOL is skipped rather than
+    ///   reverting. Nothing new is built here; a live mechanism gains its second caller.
+    /// ⛔ **THE RECIPIENT MOVED, AND IT HAD TO.** `takeToSettle` used to pay the VENUE directly, and
+    ///   `LevVenueBase` only ever moves its own `STABLE` — so by the time the wrong denomination is
+    ///   observable it is already somewhere nothing can convert it. The take now lands HERE, where the
+    ///   consolidation machinery lives, and the venue is paid afterwards.
+    /// ⚠️ `refundTo` IS THE VAULT, NOT THE LP. These stables are the BASKET's; `_consolidateTo`'s third
+    ///   parameter refunds whatever it could not route, and sending that to the LP — correct for
+    ///   `protectFromQuid`, where the input was the LP's own redeemed QU!D — would be a leak here.
+    /// 📌 Sends its WHOLE `stable` balance. The manager custodies none in the normal course (the same
+    ///   premise `_consolidateTo` and `protectFromQuid` are written on); any residue that did exist
+    ///   goes to retiring debt, which cannot be a loss to the pool.
+    /// 📌 `got` is still measured by the caller AT THE VENUE, so the repay is sized by what actually
+    ///   arrived — never by what this function reports. A conversion that under-delivers lowers `got`
+    ///   and the existing fail-safe still fires; the reroute can only ever ADD an outcome.
+    function consolidateForRepay(address lp, address refundTo)
+        external nonReentrant returns (uint sent) {
+        if (msg.sender != RANGE) revert BadAuth();          // Vault settle path only, as swapOutDelever
+        Types.Pos memory p = pos[lp];
+        if (!p.open) return 0;
+        address stable = p.venue.stable();
+        LevMath._consolidateTo(address(AUX), stable, refundTo);
+        sent = IERC20OZ(stable).balanceOf(address(this));
+        if (sent > 0) IERC20OZ(stable).safeTransfer(address(p.venue), sent);   // venue.repay expects it pre-transferred
+    }
+
     function swapOutDelever(address lp, uint stableUsd, uint freeSats)
         external nonReentrant returns (uint usedUsd, uint freedSats) {
         if (msg.sender != RANGE) revert BadAuth();          // Vault settle path only

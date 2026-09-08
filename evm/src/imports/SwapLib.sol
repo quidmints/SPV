@@ -2321,7 +2321,22 @@ library SwapLib {
             // units — passing USD 1e18 was a 1e12x over-request that drained the basket's stable. Masked
             // because `got` measures the OUTCOME, so the repay was sized off the full drain. Converted
             // HERE, at the call site: the shared helper serves two unit conventions (§A.50).
-            IAux(aux).takeToSettle(venue, BasketLib.scaleTokenAmount(takeUsd18, stable, false), stable); // basket → venue (soft backing = final-state solvency)
+            // 🔴 §PAUSED-VAULT-REROUTE — **THE TAKE LANDS AT THE MANAGER, NOT THE VENUE, AND THAT MOVE
+            //    IS THE WHOLE FIX.** `takeToSettle` cannot always serve the venue's own loan token: a
+            //    PAUSED vault sends `Aux`'s PRO-RATA leg down a different stable (measured: DAI at a
+            //    USDC-debt venue). Paid straight to the venue that value is unreachable — `LevVenueBase`
+            //    only ever moves its own `STABLE` — so the old code could only `revert`, which is a
+            //    denial of service on an LP whose channel BTC has ALREADY left.
+            //    ⇒ Landing it at the manager puts it where `LevMath._consolidateTo` can convert it
+            //      (`stable → USDC → target` on the keyless `_hubRowOf` Curve rows), then the manager
+            //      pays the venue. The happy path is UNCHANGED in effect: when `Aux` serves the venue's
+            //      own stable, consolidation skips it (`s == target ⇒ continue`) and the same amount
+            //      arrives at the same place.
+            //    ⚠️ REFUND DESTINATION IS `address(this)` — THE VAULT — NOT THE LP. `_consolidateTo`'s
+            //      third argument returns whatever it could not route, and these stables are the
+            //      BASKET's; the LP-refund that is correct in `protectFromQuid` would be a leak here.
+            IAux(aux).takeToSettle(mgr, BasketLib.scaleTokenAmount(takeUsd18, stable, false), stable); // basket → manager
+            ILevManagerDeliver(mgr).consolidateForRepay(lp, address(this));                           // → venue's own token → venue
             got = IERC20(stable).balanceOf(venue) - bal0;        // venue-stable actually sourced (native units)
         }
         // 🔴 §HELD-IS-NOT-WITHDRAWABLE — THE SAME FAIL-SAFE AS THE `takeUsd18 == 0` BRANCH ABOVE, ON
@@ -2339,9 +2354,12 @@ library SwapLib {
         //      stable. A `maxWithdraw` probe would be a SECOND accounting figure that can lie the
         //      same way `held` does; this one cannot. The revert unwinds the mis-sent stable with the
         //      rest of the tx, so nothing strands.
-        //    ⛔ BLOCKING BEATS SETTLING UNBACKED, same rule and same reason as the branch above: the
-        //       splice already paid the swapper, so a revert re-tries the EVM leg against a still-
-        //       valid SPV proof once the vault unpauses. Nothing is lost by refusing.
+        //    ⛔ STILL THE FAIL-SAFE, BUT NO LONGER THE FIRST ANSWER. The reroute above runs BEFORE this
+        //       line, so reaching it now means the basket paid nothing the hub table could convert —
+        //       not merely that the venue's own vault was paused. Blocking still beats settling
+        //       unbacked (the splice already paid the swapper, and a revert re-tries the EVM leg
+        //       against a still-valid SPV proof), but it is now the LAST resort rather than the only
+        //       one, which is what the owner asked for: *"no denial.of service"*.
         if (got == 0 && amtNative > 0) revert DeleverStableUnavailable();
         // Repay `got` (0 if the position had no debt — a pure-equity levered slice) and free `want` sats regardless.
         ILevManagerDeliver(mgr).swapOutDelever(lp, LevMath._toUsd18(aux,stable, got), want);

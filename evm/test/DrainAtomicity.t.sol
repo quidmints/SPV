@@ -92,6 +92,74 @@ contract DrainAtomicity is AllesFixture {
         }
     }
 
+    /// @notice 🔴 §REFILL-AFFORDABILITY — **THE ONE INEQUALITY THE WHOLE REFILL RESTS ON.** The owner's
+    ///   design is that a drain does not make the range POORER, only MIS-COMPOSED: `POOLED` falls by
+    ///   `D` while `POOLED_USD` rises by `D·px`, so the buyback principal is the drainer's OWN dollars,
+    ///   already resident — **nothing external funds it.** What is NOT free is the SPREAD to turn those
+    ///   dollars back into volatile, and the skew premium is what exists to pay it. ⇒ the economics is:
+    ///
+    ///           skew premium collected   >=   restoration spread paid
+    ///
+    /// 🔴 §E65 BOOKED THIS AS "UNMEASURED and gating" AND IT STILL IS: `skewPremiumCum` is read in
+    ///   exactly ONE place in `evm/src` (`SwapLib:1957`) and it is a REFUSAL, not a funding source.
+    /// ⛔ **THIS TEST WAS WRITTEN ONCE, NEVER RAN, AND ITS SOURCE WAS DESTROYED** by another session's
+    ///   operation on this file in a shared checkout while it sat uncommitted. Rebuilt from the diff.
+    ///   ITS ORIGINAL BUG, NOW FIXED AND WORTH NAMING: it never called `_seedBasket()`, so `bold` was
+    ///   `address(0)` and the failure read `Contract 0x0 does not exist … makePersistent` — which looks
+    ///   like a fork-persistence problem and is actually an uninitialised fixture field.
+    /// @dev THE ROUND TRIP IS THE MEASUREMENT. The range gave up `ethGot` for `boldAmt`; to restore it
+    ///   must reacquire `ethGot`. Pricing what it gave up at the oracle and comparing with what it took
+    ///   in IS the spread, and it needs no exact-output quote and no modelled fee.
+    /// ⚠️ `skewPremiumCum` IS THE RIGHT INSTRUMENT *HERE* AND THE WRONG ONE ELSEWHERE. This suite warns
+    ///   never to measure the TRADER's cost with it, because our ledger and their receipt diverge —
+    ///   that warning is about the TAX. This asks what WE RETAINED to spend on repair, which is our
+    ///   ledger by definition. The ETH leg is still a balance delta, never our own books.
+    function test_REFILL_AFFORDABILITY_PremiumVsRestorationSpread() public {
+        // ⛔ `_setupRange()`, NOT `_seedBasket()` — AND THE DIFFERENCE IS WHY THE FIRST TWO ATTEMPTS
+        //    REVERTED `SlippageMaxS()`. `_seedBasket` funds the BASKET; it puts NO volatile in the
+        //    RANGE, so there was nothing to drain and any size tripped slippage. The tell was gas
+        //    IDENTICAL to the wei (2,625,949) across a 12.5x size change — a revert that does not
+        //    move with size is not a sizing problem. `_setupRange` adds the 400 ETH deposit and the
+        //    pre-drain that lands in the SCARCE region, which is also the only region where a premium
+        //    is charged at all — so it is what CONTROL 2 below needs to be non-vacuous.
+        _setupRange();
+        uint boldAmt = 20_000e18;
+
+        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint p0 = CORE.skewPremiumCum();
+        uint ethGot = _drain(boldAmt);
+        uint premium6 = CORE.skewPremiumCum() - p0;
+
+        // CONTROL 1 — the drain must have MOVED something. A zero makes every number below arithmetic
+        // on nothing, which is exactly how §E69's fixture produced an invalid result.
+        assertGt(ethGot, 0, "CONTROL: the drain must actually deliver volatile");
+        emit log_named_uint("drain: bold spent (18d)      ", boldAmt);
+        emit log_named_uint("drain: volatile out (18d)    ", ethGot);
+        emit log_named_uint("oracle px (USD18/ETH)        ", px);
+        emit log_named_uint("premium retained, cum delta 6d", premium6);
+
+        // The restoration spread at the oracle: what the SAME dollars can no longer buy back.
+        // ⚠️ SIGNED, AND THE FIRST VERSION WAS NOT — it read `usdOut18 > boldAmt ? usdOut18 - boldAmt
+        //    : 0`, which is 0 on EVERY premium-charging drain (the swapper always pays more than the
+        //    volatile is worth at oracle, that being the premium). A metric that is structurally zero
+        //    measures nothing, and it reported exactly that. Both directions are emitted now.
+        uint usdOut18 = ethGot * px / 1e18;
+        emit log_named_uint("drained volatile @oracle 18d ", usdOut18);
+        emit log_named_uint("ENTRY: range gain @oracle 18d", boldAmt > usdOut18 ? boldAmt - usdOut18 : 0);
+        emit log_named_uint("ENTRY: range loss @oracle 18d", usdOut18 > boldAmt ? usdOut18 - boldAmt : 0);
+        // ⛔ THIS IS THE ENTRY LEG ONLY. The RESTORATION spread — what it costs to buy `ethGot` back
+        //    through a real venue — is NOT measured here and needs the live 1inch route. Do not read
+        //    the entry gain as "the refill is affordable": it is one side of the inequality.
+        emit log_named_uint("premium scaled to 18d        ", premium6 * 1e12);
+
+        // CONTROL 2 — the premium leg must be REACHABLE, or the inequality is vacuous from the other
+        // side: a zero premium satisfies "spread >= premium" trivially and says nothing.
+        emit log_named_uint("premium non-zero (1) or leg never fired (0)", premium6 > 0 ? 1 : 0);
+        // ⛔ NO INEQUALITY ASSERTED, ON PURPOSE (§VACUOUS-BOUNDS). A one-sided bound cannot fail when
+        //    the defect drives the value toward the asserted side, and BOTH sides are still being
+        //    established. The SIGN is the result; asserting it now would encode a conclusion.
+    }
+
     /// §E72 — THE σ² CLIFF. E59 made `sigmaSqWad == 0` return the CAP, on the reasoning that
     /// UNMEASURED variance should be priced conservatively. But σ² enters the kernel
     /// MULTIPLICATIVELY (`K·σ²·qBar`), so σ² = 1 wei of variance is not "slightly less

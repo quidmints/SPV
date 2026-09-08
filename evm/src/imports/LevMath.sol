@@ -1741,7 +1741,16 @@ library LevMath {
     ///    as sometimes UNMEETABLE). **Size-awareness belongs where impact grows, and here it does not.**
     uint256 internal constant CONSOL_SLIP_BPS = 20;
 
-    function _consolidateTo(address aux, address target, address lp) private {
+    /// ⭐ §PAUSED-VAULT-REROUTE — **`public`, NOT `private`, AND NOT `internal`.** A second caller now
+    ///    needs this body (`BtcLevManager.consolidateForRepay`, the reroute that replaced the
+    ///    delivery-path DoS). `internal` would INLINE it into that manager; `public` keeps it one
+    ///    delegatecall into this LINKED library, which is the same reason `convertShortfall` is public.
+    /// ⚠️ **`lp` IS THE REFUND DESTINATION, AND IT IS NOT ALWAYS AN LP.** For `protectFromQuid` the
+    ///    stables came from the LP's own QU!D redemption, so an unroutable remainder is theirs. On the
+    ///    DELIVERY path they came from the BASKET, and refunding them to the LP would be a leak of
+    ///    pool value — that caller passes the Vault instead. Read this parameter as "whoever owns the
+    ///    input", never as "the LP".
+    function _consolidateTo(address aux, address target, address lp) public {
         address[] memory sts = IAux(aux).getStables();
         for (uint256 i; i < sts.length; i++) {
             address s = sts[i];
