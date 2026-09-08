@@ -99241,7 +99241,8 @@ added here, which sizes the crash off `totalCollateral`/`totalDebt` the way Morp
 what it is. **Do not read the O(1) repay win without this number beside it.**
 
 ## 📋 L4 — WHAT REMAINS, unstarted, in priority order
-1. ✅ **DONE — see §CROSS-SUBSIDY-MEASURED above.**
+1. ✅ **DONE — see §CROSS-SUBSIDY-MEASURED above.** (§M.1b is now MEASURED too — see §M.1b below;
+   the FIX remains an owner choice between delivering it and not counting it.)
 2. **§SILENT-SKIP part (2)** — `LevCascade.t.sol:491`, the stuck-LP fixture producing an unstuck LP.
 3. ✅ **DONE — see §KEEPER-LIQ-FALLBACK below.**
 
@@ -100048,3 +100049,34 @@ The interleaved arm does NOT conserve: sum went −577,021,548,053,173 → **+7,
 sells**, not drains as such. ▶️ Next: run the drains against a range whose inventory the sells have
 already moved, and check whether a drain that exceeds unlevered inventory pulls from the venue (reducing
 `gross`) by more than it reduces `POOLED`. The instrument is `testReal_Identity_B_Interleaved`, committed.
+
+## 🔴 §M.1b — MEASURED: **100% COUNTED, 0% DELIVERABLE.** No longer a design question; a solvency number.
+`testReal_M1b_ZeroDebtEquityIsCountedDeliverableButIsNot` (real Morpho, green):
+```
+counted deliverable : 13,741.61 USD      (LevManager.deliverableDollars(LP))
+actually delivered  :      0 wei         (SwapLib.deleverEthOnDelivery)
+```
+**EVERY CITATION HERE IS A BODY, NOT A DOCBLOCK** (owner, 2026-09-08: *"dont trust the docs"* — I had
+cited `withdrawPool`'s comment as evidence and re-verified against the code):
+· `LevMath.deliverableDollars` computes `buffer = collValueUsd·(safeLtv − curLtvBps)/safeLtv` and
+  returns `min(netEquityUsd, buffer)`. At **zero debt `curLtvBps == 0`**, so `buffer == collValueUsd`
+  and the WHOLE net equity is returned. `LevBase.totalDeliverableDollars:491-514` sums exactly that
+  across the book ⇒ it is counted as protocol-wide backing.
+· `SwapLib.deleverEthOnDelivery:2434-2437` is `poolDebtUsd == 0 ? 0 : …` then
+  `if (amtNative == 0) return 0` ⇒ it delivers none of it, returning before `swapOutDeleverPooled`.
+· The mechanics for a pooled release DO exist and are well-defined: `collateralOf:436` is
+  `_unitSlice(collUnits[lp], totalCollUnits, _poolColl())` — a share of the LIVE pool balance — and
+  `withdrawPool:449-457` writes **no** unit (the only `collUnits`/`totalCollUnits` writes in the file
+  are `:293` and `:399-400`, plus the Aave twin at `:635`/`:698-699`). So a raw withdraw lowers every
+  LP's collateral pro-rata by construction.
+⇒ **WHAT IS MISSING IS ENTITLEMENT, NOT MACHINERY.** In the levered case the paired `repayPool`
+retires each LP's debt in the same proportion, so the two cancel per LP. **At zero debt there is no
+repay to pair with**, so freeing collateral is an uncompensated transfer from every LP to the payee —
+and `QuidLib.sendEth:418`'s `toWhom` is a withdrawal PAYEE, not an LP.
+▶️ **THE OWNER'S CHOICE, and both sides are one-directional:**
+  **(A) DELIVER IT** — free collateral against no debt and credit the LPs (e.g. the range buys the ETH
+  at oracle, crediting `POOLED_USD`). Needs a value-attribution rule that does not exist today.
+  **(B) STOP COUNTING IT** — make `deliverableDollars` return 0 (or exclude the 0-debt lev slice) when
+  the delivery path cannot reach it. **No new machinery, and it makes the books honest immediately** —
+  but it reduces reported deliverable backing by the measured amount.
+⛔ **DOING NEITHER IS THE STATUS QUO AND IT OVERSTATES SOLVENCY BY EXACTLY THIS NUMBER.**
