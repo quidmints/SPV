@@ -1620,8 +1620,27 @@ pairing; a conflicting re-bind is refused and warned rather than overwritten.
 ⚠️ **THIS ARMS NOTHING BY ITSELF, AND THAT IS THE POINT.** Both daemons still pass `truth_factory:
 None` with the reason written at each. What changed is that attaching one is no longer guaranteed to
 be *permanently permissive* — the failure mode this row exists to prevent.
-⛔ **DO NOT MARK §T9 DONE.** Step 2 (attach the factory — LP-side belongs in the react-native wallet,
-since the LP runs no daemon) and step 3 (the delivery-output bound) are untouched.
+✅ **STEP 2 — BOTH SIDES LANDED 2026-09-08 (owner: *"you can do both sides"*).**
+· **HOP SIDE (code):** `quid-bridge-daemon` now builds an `OnChainTruthFactory` over
+  `evm.rpc_handle()` — **the QUORUM transport, not a single endpoint, because a comparand read from
+  one node the host could choose is a fact the fleet can author** — and passes `Some(factory)` to
+  `quid_hop::node::boot` with `FundingRole::Hop`. The registry is threaded from the binary into
+  `daemon::run` so the reconciler WRITES THE SAME `Arc` the signer READS. ⚠️ **A second `new()` there
+  would have been the permanently-permissive failure reached by a different door** — `has_truth_source()`
+  true, every check `NotRecorded` forever — so `run` now takes it as a parameter and says why.
+  `cargo test -p quid-bridge -p quid-hop -p quid-ln`: **167/0.**
+· **LP SIDE (spec):** `docs/actionable/TODO.md`'s LP-SIDE SIGNER item now states **what the app must
+  verify before co-signing**, which it did not: `keysHash != 0` as the recorded test (⛔ NOT
+  `amountSats != 0`, which reports a CLOSED channel as never-recorded — the exact state a downgrade
+  wants); `keysHash == keccak(abi.encode(lpPubkey, hopPubkey))` using the CURRENT post-splice pair,
+  with the order fixed rather than guessed; and the funded SIZE, which is committed in the BIP-341
+  sighash. Plus the one-way latch (unknown is permissive ONCE, never again for that channel).
+⛔ **STILL NOT §T9 DONE, AND THE HOP HALF IS THE WEAKER ONE.** `check_against_chain` *"only means
+anything against a source the fleet does not author"*, and `BTCChannels` records arrive through
+`_onlyHop()` — the fleet's own submissions. **The hop now binds the fleet to its published record;
+only the LP's refusal is independent, and that is an ibiza implementation against the spec above.**
+▶️ **Step 3 (the delivery-output bound) is untouched:** a splice paying `S` for `V` sats is legitimate
+only if `BTCChannels` records a matching swap-out obligation.
 🔴 **AND THE ROW'S OWN HEADLINE CLAIM WAS ALREADY STALE BEFORE THIS:** it says *"`with_truth_factory`
 has ZERO production callers"*. **Measured: it has one** — `quid-hop/src/node.rs:866`, reached through
 `boot`/`boot_vault`'s injected trait object. The PLUMBING landed; only the registry was missing. The

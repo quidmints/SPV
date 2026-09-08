@@ -835,6 +835,36 @@ a gap where one used to be.
         * **`auth.lp_sig`** - an EVM signature over `openAuthDigest`. Small; the wallet already signs.
         * **`exits` ladder** - one pre-signed spend of the 2-of-2 PER RUNG, each requiring an
           INTERACTIVE MuSig2 session between the LP's vault node and the fleet's hop at open.
+      🔑 **WHAT THE APP MUST VERIFY BEFORE IT CO-SIGNS — §T9's LP HALF, AND THIS IS THE ONE THAT
+      MATTERS.** The fleet's own signer now carries the same comparand (SPV wired it 2026-09-08), but
+      `check_against_chain` *"only means anything against a source the fleet does not author"* — and
+      `BTCChannels` records arrive through `_onlyHop()`, i.e. the fleet's own submissions. **The hop
+      checking itself binds the fleet to its published record; only the LP's refusal is independent.**
+      ⇒ Before producing ANY MuSig2 partial over a spend of the 2-of-2, read `BTCChannels` for this
+      channel and REFUSE unless all three hold:
+        1. **The channel IS recorded: `keysHash != 0`.** ⛔ **DO NOT USE `amountSats != 0` AS THE
+           RECORDED TEST.** `keysHash` is pinned at open and never cleared, whereas `amountSats`
+           legitimately reaches 0 on a CLOSED channel — so testing the amount reports a closed channel
+           as never-recorded, **which is exactly the state a downgrade attack wants to reach.** An
+           unwritten mapping entry reads as all-zero words, so `keysHash == 0` is the honest absence.
+        2. **The funding PAIR matches: `keysHash == keccak(abi.encode(lpPubkey, hopPubkey))`.**
+           ⚠️ **ORDER IS SIGNIFICANT AND YOU MUST NOT TRY BOTH.** Guessing by attempting each ordering
+           pins only the SET, which is a strictly weaker claim for no gain — the LP knows it is the
+           `lpPubkey` side, so it can order the pair correctly.
+           🔴 **USE THE CURRENT-SCOPE PAIR, NOT THE BASE ONE.** `splice` RE-PINS `keysHash` to the
+           rotated pair (§SPLICE-ROTATES-BOTH-FUNDING-KEYS), so supplying the pair from open for a
+           channel that has been spliced yields a mismatch and the app refuses a legitimate splice.
+           This exact bug existed on the SPV side and was fixed there; do not reproduce it.
+        3. **The funded SIZE matches `amountSats`.** Not a nicety: the value is committed in the
+           BIP-341 key-path sighash, so it is part of the identity being signed over.
+      ⚠️ **AN UNKNOWN CHANNEL IS PERMISSIVE, DELIBERATELY.** If the chain has no record yet, proceed —
+      a channel the EVM has not recorded is a channel being opened, and refusing would make opening
+      impossible. **But make it ONE-WAY: once the chain has answered for a channel, never accept
+      "unknown" for that channel again.** SPV's signer does this with a `truth_recorded` latch; the
+      app needs the same property or the check can be downgraded by withholding an answer.
+      ⛔ **AND DO NOT DESCRIBE THIS AS PROTECTING AN OFFLINE LP.** §T9 bounds what the LP signs WHEN
+      IT SIGNS. A phone that is off runs no check at all — the offline case is carried by the
+      pre-signed exit ladder and on-chain bounds, never by a runtime refusal.
       ⚠️ **DO NOT HAND-ROLL MuSig2.** BIP-327 nonce handling is where reuse silently leaks the
       private key, and this signs spends of a live 2-of-2.
       ✅ **THE LIBRARY QUESTION IS SETTLED, AND THE ANSWER WAS IN A README WE ALREADY SHIP** (checked

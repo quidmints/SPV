@@ -251,10 +251,32 @@ async fn main() -> anyhow::Result<()> {
     );
 
     tracing::info!(%network, "quid-bridge-daemon: booting hop node");
-    // (§T9) `None` — NOT because the hop needs no comparand, but because `CidRegistry` has no
-    // writer yet (§T9-REGISTRY-HAS-NO-WRITER). Attaching a factory over an unpopulated registry
-    // reports `NotRecorded` forever, i.e. a check that never fires. A dormant check is honest; a
-    // permanently-permissive one claims a guarantee it does not provide.
+    // (§T9) ✅ **ATTACHED 2026-09-08. THIS WAS `None` AND THE REASON IT WAS `None` IS GONE.** The
+    // note here read: *"NOT because the hop needs no comparand, but because `CidRegistry` has no
+    // writer yet — attaching a factory over an unpopulated registry reports `NotRecorded` forever."*
+    // `run_channel_reconciler` now WRITES that registry (`channel_keys_id -> on-chain cid`, bound
+    // from the monitor it already walks), so the comparand resolves.
+    // ⭐ **THE QUORUM TRANSPORT, NOT A SINGLE ENDPOINT, AND THAT IS THE POINT OF A TRUTH SOURCE.**
+    //    `evm.rpc_handle()` is the same `QuorumJsonRpc` every other reader shares — a comparand read
+    //    from one node the host could pick would be a fact the fleet can author, which is exactly
+    //    what this check exists to refuse.
+    // ⚠️ **EMPTY AT BOOT AND THAT IS CORRECT, NOT A GAP.** The registry fills on the first reconciler
+    //    pass, so early channels resolve `NotRecorded` — which `CidRegistry`'s own docblock calls
+    //    permissive ON PURPOSE ("a channel whose cid is not yet known is a channel the EVM has not
+    //    recorded"), and the signer's `truth_recorded` latch makes it ONE-WAY the moment the chain
+    //    first answers. So this cannot be used to downgrade a channel that has already been seen.
+    // ⛔ **AND IT IS THE HOP HALF, WHICH IS THE WEAKER ONE — do not read it as §T9 complete.**
+    //    `check_against_chain` "only means anything against a source the fleet does not author", and
+    //    `BTCChannels` records arrive through `_onlyHop()`, i.e. the fleet's own submissions. This
+    //    binds the fleet to its own published record; the refusal that MATTERS is the LP's, and the
+    //    LP runs no daemon (§E175) — that half lives in the wallet.
+    let cid_registry = std::sync::Arc::new(quid_bridge::channel_truth::CidRegistry::new());
+    let truth_factory: std::sync::Arc<dyn quid_ln::validating_signer::TruthSourceFactory> =
+        std::sync::Arc::new(quid_bridge::channel_truth::OnChainTruthFactory::new(
+            std::sync::Arc::new(evm.rpc_handle()),
+            cfg.btc_channels,
+            cid_registry.clone(),
+        ));
     let node = quid_hop::node::boot(
         network,
         env("QUID_ESPLORA_URL")?,
@@ -262,7 +284,7 @@ async fn main() -> anyhow::Result<()> {
         data_dir.clone(),
         lsp_info,
         anchor,
-        None,
+        Some(truth_factory),
         quid_ln::validating_signer::FundingRole::Hop,
     )
     .await
@@ -419,6 +441,9 @@ async fn main() -> anyhow::Result<()> {
 
     daemon::run(
         node, cfg, evm, store, start_block, swap_in_listen, swap_in_token,
+        // (§T9) THE SAME `Arc` the hop's truth factory holds. Passing a fresh one here would arm a
+        // check that can never resolve — see `run`'s note on the parameter.
+        cid_registry,
         // (§M1#2) The Option built above: `None` unless this deployment explicitly opted into
         // co-hosting. Phase 1a made `run` accept `None`; this is what finally passes it.
         vault,
