@@ -93066,6 +93066,9 @@ lazily. It costs a wider `h` and a larger `C·K·σ²·h/2` term, and **no new m
    `Core`, whose harness DOES and is coupled to its state order), and `BTCChannels` deploys FRESH and
    immutable, so there is no prior state for a shift to corrupt. **The comment is rewritten in the
    same commit rather than left to assert a slot identity that no longer holds.**
+   ✅ **VERIFIED 2026-09-08 after the block cleared: 133 passed / 0 failed / 1 skipped** across
+   `BtcLpMintStress`, `Alles`, `DeadManExitVerify`, `BtcSelfManaged`, `OpenChannelE2E` and
+   `RecipientPin` at a fresh pin. The slot shift moved nothing that any test reads.
 5. ✅ **DECIDED 2026-09-08 BY MEASUREMENT: NONE OF THEM. The five stay `immutable`, and the reason is
    a chain that closes rather than a preference.** The five are `spv`, `btc`, `MAIN_HOP`,
    `FALLBACK_HOP`, `BTC_DEPOSIT_KEY`.
