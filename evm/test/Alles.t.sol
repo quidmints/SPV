@@ -1762,6 +1762,7 @@ contract Alles is AllesFixture {
 
         uint pooledUsdAtSeed = CORE.POOLED_USD();
         assertGt(pooledUsdAtSeed, 0, "PREMISE: deposit seeded a USD leg to skew");
+        (uint spotAtSeed,) = CORE.poolStats();   // the pre-swap spot, for the ARMED premise below
 
         // Sizeable swap: pre-grind-removal this partial-filled at the 0.5% cap; now it walks the
         // curve until the range's USD leg is exhausted at the upper edge.
@@ -1779,29 +1780,49 @@ contract Alles is AllesFixture {
         assertLt(pooledBeforeReseat, pooledUsdAtSeed / 100,
             "PREMISE: swap drained >=99% of the range's USD leg (composition really is skewed)");
 
-        // PREMISE: the swap saturated AT the range edge — it did not leave the range. This is what
-        // makes the reseat a structural no-op below, so assert it rather than letting it hide.
+        // PREMISE, ARMED: the swap moved NO price at all. §V4-CUT settles fills AT ORACLE against
+        // inventory, so `poolStats()` hands back `obsState.lastPrice` (`Core.sol:1416-1418`) and a
+        // swap of any size leaves it untouched. THAT — not "it saturated at the edge" — is what makes
+        // the reseat a structural no-op below, and it is a discriminator: the day a fill starts
+        // writing the spot, this equality fires.
+        // ⛔ THE TWO ASSERTIONS THIS REPLACES COULD NOT FAIL, WHILE READING AS THE PREMISE. They were
+        //    `assertLe(priceBefore, _bHi(ETH))` / `assertGe(priceBefore, _bLo(ETH))`, captioned "swap
+        //    saturates inside the range". But `rangeBounds()` IS `SwapLib.updateBounds(RANGE_ANCHOR,
+        //    SwapLib.RANGE_DELTA)` (`Vault.sol:721`) and `RANGE_ANCHOR` is written only by a repack,
+        //    FROM the spot. The band is recentred on the very number under test, so spot is inside
+        //    its own bounds by construction — for every `RANGE_DELTA` and every swap size. The
+        //    widening 20 → 200 did not make them vacuous; it only made them 10× more so. Do not
+        //    restore them: the reachable question is whether the spot MOVED, and it is asked below.
         (uint priceBefore,) = CORE.poolStats();   // §DE-TICK: was a tick
-        assertLe(priceBefore, _bHi(address(ETH)), "PREMISE: swap saturates inside the range (upper)");
-        assertGe(priceBefore, _bLo(address(ETH)), "PREMISE: swap saturates inside the range (lower)");
+        assertEq(priceBefore, spotAtSeed,
+            "PREMISE: fills settle AT ORACLE, so a 200 ETH swap must move no spot (Core.sol:1416)");
         uint loBefore = _bLo(address(ETH)); uint hiBefore = _bHi(address(ETH));
 
         // The permissionless reseat must handle the skewed pool without reverting.
         ETH.reseat();
 
-        // Spot vs the anchor. BOUND DERIVED FROM LIVE STATE, not a fitted literal: the swap can
-        // only walk the spot to the range edge, and the range is built by SwapLib.updateTicks with
-        // RANGE_DELTA = 200bps (widened from 20 on 2026-09-08), so |spot/twap - 1| is structurally
-        // capped at 200bps = 0.02e18. ⚠️ The assertion below derives its bound from LIVE STATE and
-        // not from this number, which is why the widening did not move it — do not re-key it here.
-        // Measured residual is 0.0999% (9.99bps) — the centre-to-edge distance after tick
-        // alignment — and it is bit-stable across fork blocks (the fork is unpinned, so the
-        // absolute price moves run to run, but this RATIO does not). Old bound was 0.06e18 (6%),
-        // i.e. 60x the measured value and 30x the structural maximum.
+        // Spot vs the anchor, READ FROM THE LIVE CONSTANT.
+        // ⛔ THE COMMENT THAT STOOD HERE WAS WRONG TWICE, AND ITS SECOND ERROR WAS THE LITERAL IT
+        //    DEFENDED. It insisted the bound was "DERIVED FROM LIVE STATE ... do not re-key it here"
+        //    while the bound was a hardcoded `0.002e18` — 20 bps, i.e. the PRE-2026-09-08
+        //    `RANGE_DELTA`, frozen in. A tolerance spelled as a decimal literal is derived from
+        //    nothing, and the sentence forbidding a re-key is precisely what carried it, unread,
+        //    through the 20 → 200 widening. A caption naming a number ("20bps") is not a derivation.
+        // ⛔ THE JUSTIFICATION WAS DEAD TOO: "the swap can only walk the spot to the range edge" is a
+        //    pre-§V4-CUT claim. Fills settle AT ORACLE (see the armed premise above), so no swap walks
+        //    the spot anywhere; what separates spot from anchor here is the observation ring, not the
+        //    curve. The band is still the right SCALE to test against — a spot more than one
+        //    `RANGE_DELTA` off the anchor IS an out-of-range range, exactly the state a reseat exists
+        //    to clear — so keep the band and read it from its source.
+        // ⇒ The interval comes from the SAME production call the range itself uses,
+        //   `SwapLib.updateBounds(anchor, SwapLib.RANGE_DELTA)`, so the next widening OR narrowing
+        //   lands here automatically instead of being re-pinned by hand.
         (uint sp,) = CORE.poolStats();
         uint spot = sp;   // §DE-TICK: already a price
         uint twap = AUX.getTWAPforAsset(address(WETH), 1800);
-        assertApproxEqRel(spot, twap, 0.002e18, "spot within one RANGE_DELTA (20bps) of the anchor");
+        (uint anchorLo, uint anchorUp) = SwapLib.updateBounds(twap, SwapLib.RANGE_DELTA);
+        assertLe(spot, anchorUp, "spot is more than one LIVE RANGE_DELTA above the anchor -- the range is OUT of range");
+        assertGe(spot, anchorLo, "spot is more than one LIVE RANGE_DELTA below the anchor -- the range is OUT of range");
 
         // Capital-neutral, EXACTLY. Residual is 0 wei — not "small", but structurally zero: as
         // established above the reseat takes neither the repack nor the auto-heal branch, so it

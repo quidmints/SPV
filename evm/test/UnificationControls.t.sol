@@ -1244,14 +1244,27 @@ contract UnificationControls is AllesFixture {
 
         // §E46 — I WENT LOOKING FOR A RESEAT-FIRING CRANK AND COULD NOT PRODUCE ONE. 30 further
         // trades at 4x the size, with the time warps `_trade` already does so the TWAP manipulation
-        // guard would not reject a recenter, left `reseatEpoch` at 0 and the crank CHEAPER (warm
-        // storage, nothing pending). ⇒ THE REASON IS STRUCTURAL: `_rebalance()` is repack-FIRST on
-        // the SWAP path too, so the range is recentred inside the swapper's own tx and a later crank
-        // never finds an out-of-range range. The reseat's gas is borne by the SWAPPER, not the
-        // cranker — which is the right party, and it means COMPOUND_GAS does NOT have to carry a
-        // reseat. Kept in the test because "I could not make it happen, and here is why" is the
-        // evidence for that claim; delete it and the sizing becomes an assertion again.
+        // guard would not reject a recenter, left the frame where it was and the crank CHEAPER (warm
+        // storage, nothing pending).
+        // 🔴 THE REASON RECORDED HERE WAS THE WEAKER OF TWO, AND THE FRAME ASSERTION BELOW WAS
+        //    RESTING ON IT. The note said "`_rebalance()` is repack-FIRST on the SWAP path too, so
+        //    the range is recentred inside the swapper's own tx and a later crank never finds an
+        //    out-of-range range" — which describes a race that is never even entered. §V4-CUT
+        //    settles fills AT ORACLE against inventory, so `poolStats()` returns `obsState.lastPrice`
+        //    (`Core.sol:1416-1418`) and 30 × 12,000e18 of flow moves NO price whatsoever; and this
+        //    fixture leaves `assetPriceFeed(WETH)` at `address(0)` (bare `AllesFixture` never pins
+        //    it), so `_observeIfSourced` gets `twapResolve(0, …) == 0` and never writes the ring
+        //    either. Nothing can drift, so nothing can be out of range, so no repack — cranker's or
+        //    swapper's — is reachable at all.
+        // ⇒ AND SINCE 2026-09-08 THERE IS A SECOND, INDEPENDENT REASON: the frame is
+        //   `SwapLib.updateBounds(RANGE_ANCHOR, SwapLib.RANGE_DELTA)` and `RANGE_DELTA` went 20 → 200,
+        //   so the drift a repack needs is now ±2% instead of ±0.2%. An assertion with two sufficient
+        //   causes measures neither. The frame check is kept — it still pins "the cranker pays for no
+        //   reseat", which is the sizing claim COMPOUND_GAS rests on — but the MECHANISM is asserted
+        //   directly below it, on the spot itself. That one discriminates: if a fill ever writes the
+        //   spot, or if a feed gets pinned into this fixture, `spotBeforeHeavy` moves and it fires.
         uint lo0 = _bLo(address(ETH)); uint hi0 = _bHi(address(ETH));  // the FRAME (reseatEpoch removed 2026-08-09)
+        (uint spotBeforeHeavy,) = CORE.poolStats();
         for (uint i; i < 30; i++) _trade(12_000e18);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 1 hours);
         vm.txGasPrice(10 gwei);
@@ -1261,8 +1274,13 @@ contract UnificationControls is AllesFixture {
         emit log_named_uint("compound() gas, HEAVY crank   ", usedHeavy);
         emit log_named_uint("frame lower price before/after", lo0);
         emit log_named_uint("                              ", _bLo(address(ETH)));
+        (uint spotAfterHeavy,) = CORE.poolStats();
+        assertEq(spotAfterHeavy, spotBeforeHeavy,
+            "30 x 12,000e18 of flow moved the SPOT -- fills no longer settle at oracle, and the "
+            "no-reseat conclusion below is then unsupported rather than merely unsurprising");
         assertTrue(_bLo(address(ETH)) == lo0 && _bHi(address(ETH)) == hi0,
-            "no reseat fired: the SWAP path recentres first, so the cranker never pays for one");
+            "no reseat fired: nothing moved the spot, so nothing could leave the frame -- the cranker "
+            "pays for no reseat and COMPOUND_GAS does not have to carry one");
         emit log_named_uint("WORST observed crank (gas)    ", usedHeavy > used ? usedHeavy : used);
     }
 

@@ -5,6 +5,7 @@ import {AllesFixture} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {ICore} from "../src/imports/Interfaces.sol";
 import {Core} from "../src/Core.sol";
+import {SwapLib} from "../src/imports/SwapLib.sol";
 
 /// @notice #12 PREREQUISITE MATRIX — BOTH RANGES. Is the LP-owned claim well defined?
 ///
@@ -28,9 +29,12 @@ import {Core} from "../src/Core.sol";
 ///   • `reseatEpoch` IS NOT A REPACK SIGNAL. It bumps only when the RANGE changes
 ///     (`QuidLib:519`); a repack onto the same boundaries fires without it. The true signal is
 ///     `LAST_REPACK` (`Quid.sol:113`), stamped only under `if (r.didRepack)`.
-///   • A LARGE ONE-SHOT SWAP CANNOT REPACK. `rebalanceCore:1620-1629` re-centres only when out
-///     of range AND `!isManipulated(spot, twap, 300)` — flow big enough to leave the range also
-///     breaks the 300-bps tolerance, so the repack REFUSES and the range strands.
+///   • A LARGE ONE-SHOT SWAP CANNOT REPACK — BUT NOT FOR THE REASON THIS LINE USED TO GIVE. It read
+///     "flow big enough to leave the range also breaks the 300-bps tolerance, so the repack REFUSES
+///     and the range strands", which describes a race that is never entered: §V4-CUT settles fills
+///     AT ORACLE against inventory, so a swap of any size moves NO price (`Core.sol:1416-1418`), and
+///     the frame is re-anchored on that unmoved spot at every `_rebalance`. The 300-bps guard is
+///     real; nothing in this fixture can reach it. Full derivation at §OOR-UNCONSTRUCTIBLE below.
 ///   • AN UNSEEDED RANGE MAKES EVERY ISOLATION ASSERTION VACUOUS. A previous version of this
 ///     file "proved" cross-range isolation while every BTC field was 0 at both ends, i.e. it
 ///     asserted 0 == 0. `_seedBoth` now seeds BOTH ranges and PREMISE-asserts both are live.
@@ -196,6 +200,56 @@ contract PooledUsdRepackMatrix is AllesFixture {
         emit log_named_address("   assetPriceFeed  ", AUX.assetPriceFeed(address(WETH)));
     }
 
+    // ⛔ §OOR-UNCONSTRUCTIBLE (2026-09-08) — **"A RANGE LEFT OUT OF RANGE MUST RE-CENTRE" CANNOT BE
+    //    POSED IN THIS FIXTURE, OR IN ANY OTHER, AND THE THREE ASSERTIONS THAT ASKED IT (S3, S3b, S3c)
+    //    PASSED BECAUSE THEIR ANTECEDENT IS UNREACHABLE.** Each read
+    //        assertTrue(!outOfRange || s2.eth.lastRepack != s0.eth.lastRepack, ...)
+    //    over `outOfRange = price >= _bHi(ETH) || price < _bLo(ETH)`, and BOTH sides of that
+    //    comparison are functions of the SAME number:
+    //      • `rangeBounds()` IS `SwapLib.updateBounds(RANGE_ANCHOR, SwapLib.RANGE_DELTA)`
+    //        (`Quid.sol:1970`), and
+    //      • `Quid._rebalance` assigns `RANGE_ANCHOR = o.spotPrice` **UNCONDITIONALLY**
+    //        (`Quid.sol:1549`) — NOT under `if (o.setLastRepack)` — where `o.spotPrice` is
+    //        `poolStats().priceWad` (`SwapLib.rebalanceCore`, the `poolStats()` read at its head).
+    //    Every swap, deposit, withdraw and `reseat()` runs `_rebalance`, so the band is re-centred ON
+    //    the spot at each one, and `p·0.98 <= p < p·1.02` is then an arithmetic identity for any
+    //    positive price and any `RANGE_DELTA`. **A range is never out of its own range.**
+    // ⇒ §V4-CUT closed the other door in the same breath: fills settle AT ORACLE against inventory,
+    //   so `poolStats()` returns `obsState.lastPrice` (`Core.sol:1416-1418`) and no amount of trading
+    //   walks the spot toward an edge — which also retires this file's own docblock warning that "a
+    //   LARGE ONE-SHOT SWAP CANNOT REPACK" because it breaks the 300-bps tolerance. It cannot repack
+    //   because it cannot move the price at all. The `RANGE_DELTA` 20 → 200 widening is a THIRD
+    //   independent reason and the least of them: it only put an already-unreachable antecedent ten
+    //   times further away.
+    // ⛔ AND DO NOT REWRITE IT AS AN INJECTED-DRIFT TEST. Moving the anchor with `_setLiveEthFeed`
+    //    does not help: the drift is absorbed by the very next `_rebalance`, which re-anchors, so an
+    //    out-of-range STATE never survives to a snapshot. Stranding becomes constructible again only
+    //    if `RANGE_ANCHOR = o.spotPrice` moves under the `didRepack` guard — which is precisely what
+    //    the identity below detects. That is why this replaced the implication rather than deleting it.
+    /// @dev What the three stranding scenarios CAN assert, asserted identically at all three so none
+    ///      can quietly opt out. Two claims, both able to fail:
+    ///        1. THE IDENTITY, keyed to the live constant: the live frame equals
+    ///           `updateBounds(spot, SwapLib.RANGE_DELTA)` to the wei. It fires if the re-anchor is
+    ///           ever made conditional, if the band stops being symmetric about the anchor, or if
+    ///           `RANGE_DELTA` is read from anywhere but `SwapLib`.
+    ///        2. NO REPACK LANDED. `LAST_REPACK` is stamped only under `didRepack`, which needs an
+    ///           out-of-range spot at the head of a `_rebalance`. Since (1) holds, none is reachable,
+    ///           so this must not move — and if it ever does, a range DID strand and re-centre and
+    ///           the §OOR-UNCONSTRUCTIBLE note above is what needs re-reading.
+    function _assertFrameTracksSpot(string memory tag, Pair memory s0, Pair memory s2) internal {
+        (uint frameLo, uint frameHi) = SwapLib.updateBounds(s2.eth.price, SwapLib.RANGE_DELTA);
+        emit log_string(tag);
+        emit log_named_uint("   frame lo live / derived", _bLo(address(ETH)));
+        emit log_named_uint("                          ", frameLo);
+        assertEq(_bLo(address(ETH)), frameLo,
+            "frame lower != updateBounds(spot, SwapLib.RANGE_DELTA) -- the band is no longer re-anchored on spot");
+        assertEq(_bHi(address(ETH)), frameHi,
+            "frame upper != updateBounds(spot, SwapLib.RANGE_DELTA) -- the band is no longer re-anchored on spot");
+        assertEq(s2.eth.lastRepack, s0.eth.lastRepack,
+            "a repack LANDED -- a range reached out-of-range, which the re-anchor is supposed to make "
+            "unconstructible. Re-read the OOR-UNCONSTRUCTIBLE note; the stranding question is live again");
+    }
+
     /// @dev The invariant every scenario must satisfy, asserted identically everywhere so a
     ///      scenario cannot quietly opt out of it.
     function _assertClaimsSane(Pair memory s0, Pair memory s1, uint pxE, uint pxB) internal {
@@ -295,8 +349,6 @@ contract PooledUsdRepackMatrix is AllesFixture {
         _log("S3 t2 (one-shot on top)", s2);
         _oracleTrace("S3 t2 oracle");
 
-        bool outOfRange = s2.eth.price >= _bHi(address(ETH)) || s2.eth.price < _bLo(address(ETH));
-        emit log_named_uint("out of range?", outOfRange ? 1 : 0);
         emit log_named_uint("LAST_REPACK moved?", s2.eth.lastRepack != s0.eth.lastRepack ? 1 : 0);
         emit log_named_uint("UPPER_PRICE", _bHi(address(ETH)));
         emit log_named_uint("LOWER_PRICE", _bLo(address(ETH)));
@@ -317,10 +369,19 @@ contract PooledUsdRepackMatrix is AllesFixture {
         emit log_named_uint("(c) spot deviation bps ", devBps);
         emit log_named_uint("    manipulated @300bps?", rTwap != 0 && devBps > 300 ? 1 : 0);
 
-        // A range left OUT of range MUST have re-centred. If this fails, the stranding is real
-        // and `reseat()` cannot recover it — which is the defect E6 needs to fix, not a bad test.
-        assertTrue(!outOfRange || s2.eth.lastRepack != s0.eth.lastRepack,
-            "a range left OUT OF RANGE must re-centre; stranded-out-of-range is the defect");
+        // §OOR-UNCONSTRUCTIBLE (see the note on `_assertFrameTracksSpot`): the implication that stood
+        // here could not fail. S3 is additionally the UNANCHORED arm — `_seedBoth` never pins a WETH
+        // feed, so `assetPriceFeed(WETH)` is `address(0)`, `twapResolve` short-circuits to
+        // `(ringTwap, false)` (`SwapLib.twapResolve:120`), `Core._observeIfSourced` gets a zero anchor
+        // and never writes, and the ring's `lastPrice` is frozen at its seed for the whole test. That
+        // is asserted rather than assumed, because it is what distinguishes S3 from the anchored S3b
+        // and S3c below; if the base fixture ever starts pinning a feed, this arm silently becomes a
+        // duplicate of them and the first line here is what says so.
+        assertEq(AUX.assetPriceFeed(address(WETH)), address(0),
+            "PREMISE: S3 is the UNANCHORED arm -- pinning a feed here collapses it into S3b/S3c");
+        assertEq(s2.eth.price, s0.eth.price,
+            "the spot MOVED in an unanchored fixture: nothing writes the ring here, so this cannot happen");
+        _assertFrameTracksSpot("S3 frame", s0, s2);
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -392,12 +453,14 @@ contract PooledUsdRepackMatrix is AllesFixture {
         _log("S3b t2 (one-shot on top, ANCHORED)", s2);
         _oracleTrace("S3b t2 oracle (anchored)");
 
-        bool outOfRange = s2.eth.price >= _bHi(address(ETH)) || s2.eth.price < _bLo(address(ETH));
-        emit log_named_uint("out of range?", outOfRange ? 1 : 0);
         emit log_named_uint("LAST_REPACK moved?", s2.eth.lastRepack != s0.eth.lastRepack ? 1 : 0);
 
-        assertTrue(!outOfRange || s2.eth.lastRepack != s0.eth.lastRepack,
-            "ANCHORED: a range left OUT OF RANGE must re-centre -- if this fails, production is exposed too");
+        // §OOR-UNCONSTRUCTIBLE — the implication that stood here could not fail either, and the
+        // ANCHOR does not change that: the frame is re-anchored on spot at every `_rebalance`
+        // whatever the oracle does. What the pinned anchor DOES buy is that the ring can now move at
+        // all, so the identity below is being asserted against a spot that a real feed wrote — which
+        // is the only sense in which this is still a control for S3.
+        _assertFrameTracksSpot("S3b frame (ANCHORED)", s0, s2);
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -426,12 +489,14 @@ contract PooledUsdRepackMatrix is AllesFixture {
         emit log_named_uint("opens landed", opens);
         emit log_named_uint("hours warped", (block.timestamp - s0.eth.lastRepack) / 3600);
 
-        bool outOfRange = s2.eth.price >= _bHi(address(ETH)) || s2.eth.price < _bLo(address(ETH));
-        emit log_named_uint("out of range?", outOfRange ? 1 : 0);
         emit log_named_uint("LAST_REPACK moved?", s2.eth.lastRepack != s0.eth.lastRepack ? 1 : 0);
 
-        assertTrue(!outOfRange || s2.eth.lastRepack != s0.eth.lastRepack,
-            "ANCHORED+FRESH: out-of-range range must re-centre -- failing here means PRODUCTION is exposed");
+        // §OOR-UNCONSTRUCTIBLE — same as S3b, and the FRESHNESS this scenario buys does not reach the
+        // question either. Keeping the Chainlink read inside `ASSET_FEED_MAX_AGE` only decides which
+        // price `resolvedTwap` returns; it cannot make the spot leave a band that is recentred on the
+        // spot. This scenario's remaining, real content is that the identity holds on the freshest
+        // oracle path the fixture can produce.
+        _assertFrameTracksSpot("S3c frame (ANCHORED+FRESH)", s0, s2);
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
