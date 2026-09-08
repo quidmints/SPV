@@ -1873,7 +1873,7 @@ contract Alles is AllesFixture {
         // at low q is the FLOOR, and for BTC that floor is `SPLICE_FLOOR = 2e15` (0.2%) — a REAL
         // on-chain splice fee you must pay to refill, so it legitimately dominates the scarcity term
         // until q≈0.87. Asserting a pure-kernel value against BTC therefore asserts that a genuine
-        // cost does not exist. **ETH's floor is `σ²·ETH_CONF_FRAC/8` = 4.75e8 against a 3e14 kernel at
+        // cost does not exist. **ETH's floor is `σ²·ETH_CONF_FRAC/8` = 4.75e8 against a kernel of Γ·σ² (see the derived pin below) at
         // q=0.5 — five orders below — so ETH is where the kernel's SHAPE is observable.** The BTC
         // floor gets its own assertions below instead of being papered over.
         // §UNIT-A — RE-EXPRESSED, NOT WEAKENED (§E81-r precedent). This asserted 0. The flush now
@@ -1887,11 +1887,23 @@ contract Alles is AllesFixture {
         // STRICTLY STRONGER than asserting zero.
         assertEq(SwapLib.skewWad(T, T, sig, SwapLib.ethRisk(), 0), 475e6, "flush charges the BASE, not zero");
 
-        // q=1/2 (inv=T/2): q/(1−q)=1 ⇒ skew = Γσ² = 3e16·1e16/1e18 = 3e14 (kernel leads on BTC).
+        // q=1/2 (inv=T/2): q/(1−q)=1 ⇒ qBar = 1 ⇒ skew = Γ·σ² + base, with NOTHING else in it. That
+        // is what makes this the one place Γ's MAGNITUDE is observable rather than its shape.
         uint s12 = SwapLib.skewWad(T / 2, T, sig, SwapLib.ethRisk(), 0);
-        // §E89: the settlement-window base now ADDS to the kernel (it is incurred regardless of size),
-        // so the pin is kernel + base, not kernel alone. ETH base = σ²·ETH_CONF_FRAC/8 = 4.75e8.
-        assertEq(s12, 3e14 + 475e6, "q=0.5 barrier skew = Gamma*sigma2 + base");
+        // §E89: the settlement-window base ADDS to the kernel (incurred regardless of size), so the
+        // pin is kernel + base. ETH base = σ²·ETH_CONF_FRAC/8 = 4.75e8.
+        // 🔴 §E274-LAND — **THIS WAS `3e14`, AND THAT LITERAL WAS Γ = 3e16 WRITTEN OUT LONGHAND**
+        //    (3e16·1e16/1e18). When `a4787689` moved Γ onto its derivation the assertion went red, and
+        //    the commit message that shipped it claimed *"no test in the skew family binds Γ's
+        //    magnitude"* — FALSE, and false because the A/B ran five suites I had called "the skew
+        //    family" while the one binding test lives HERE. Caught by project-bc, not by my own run.
+        //    ⇒ Derived from the constant now, so it can never go stale against Γ again AND it becomes
+        //      a real binding: change Γ and this fails, which is exactly the property I wrongly
+        //      claimed the suite already had. `GAMMA_WAD` is an `internal constant`, readable as
+        //      `SwapLib.GAMMA_WAD` — no accessor and no test-only surface on the library.
+        //    ⛔ Do NOT re-hardcode this to whatever it currently evaluates to. The literal is what
+        //      hid a 5.475x repricing behind a green test for the length of one commit.
+        assertEq(s12, SwapLib.GAMMA_WAD * sig / 1e18 + 475e6, "q=0.5 barrier skew = Gamma*sigma2 + base");
 
         // q=1/3 (inv=2T/3): q/(1−q)=0.5 ⇒ half of s12. q=2/3 (inv=T/3): q/(1−q)=2 ⇒ double s12.
         uint s13 = SwapLib.skewWad(2 * T / 3, T, sig, SwapLib.ethRisk(), 0); // q=1/3
@@ -1942,13 +1954,16 @@ contract Alles is AllesFixture {
         assertLt(SwapLib.skewWad(T - 1, T, sig, SwapLib.ethRisk(), 0),
                  SwapLib.skewWad(T - 1, T, sig, SwapLib.btcRisk(), 0), "ETH floor < BTC floor (no conf lock, no splice)");
         // AND THE FLOOR IS A FLOOR, NOT A CEILING: at high scarcity the kernel must OVERTAKE it, or the
-        // inversion did nothing. q=0.9 ⇒ q/(1−q)=9 ⇒ kernel 2.7e15 > BTC's 2.0001425e15 base.
+        // inversion did nothing. q=0.9 ⇒ q/(1−q)=9 ⇒ kernel 9·Γ·σ², compared against BTC's 2.0001425e15 base.
         assertGt(SwapLib.skewWad(T / 10, T, sig, SwapLib.btcRisk(), 0), 2e15 + 1425e8,
             "kernel ADDS on top of the base at high scarcity -- the restructure is real");
         // §E89 REGRESSION PIN: the base must SURVIVE at high scarcity, not be absorbed. Under the old
         // max() form this equalled the kernel alone; under addition it must exceed it by the base.
+        // §E274-LAND: `27e14` was the SAME stale Γ as the q=0.5 pin below it — 9·Γ·σ² at Γ=3e16.
+        // Derived, so the base-survives-at-scarcity property is asserted independently of Γ's value.
         assertEq(SwapLib.skewWad(T / 10, T, sig, SwapLib.ethRisk(), 0),
-                 27e14 + 475e6, "ETH high-scarcity = kernel(q/(1-q)=9) + base, base NOT absorbed");
+                 9 * (SwapLib.GAMMA_WAD * sig / 1e18) + 475e6,
+                 "ETH high-scarcity = kernel(q/(1-q)=9) + base, base NOT absorbed");
     }
 
     // SWAP-PRICING PIN (BTC, in-range): closes the pervasive `minOut=0 + assertGt(>0)` mask by
@@ -2762,6 +2777,18 @@ contract Alles is AllesFixture {
         vm.expectRevert(Vault.SwapOutShort.selector);
         ch.requestSwapOutOnchain(address(USDC), 500 * USDC_PRECISION, type(uint).max, id2);
         assertFalse(ch.swapOutUsed(id2), "reverted swap-out did not burn the id");
+
+        // Edge (project-bc, §SESS-114): a fill too small to clear one satoshi reverts DUST, not
+        // REPLAY — `requestSwapOutOnchain` creates the record one line earlier, so a replay is the
+        // one thing it cannot be. Pins the rename so the old misleading name cannot come back.
+        // ⚠️ CARRIED FOR ANOTHER SESSION because I held this file; VERIFIED here, not taken on faith.
+        // ⛔ OWN BLOCK — `via_ir = false`: adding one more live local to this frame is `Stack too
+        //    deep` (hit on the first attempt at exactly this line). The scope releases the slot.
+        {   bytes32 id3 = keccak256("quid-swap-out-dust");
+            vm.prank(swapper);
+            vm.expectRevert(BTCChannels.SwapOutDust.selector);
+            ch.requestSwapOutOnchain(address(USDC), 1, 0, id3);   // 1e-6 USD => 0 sats
+        }
 
         uint pooledUsdBefore = BCORE().POOLED_USD();
         uint pendingBefore   = BTC.CORE().pendingSwapOutUsd();

@@ -4,6 +4,8 @@ pragma solidity ^0.8.28;
 import {AllesFixture} from "./Alles.t.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {SwapLib} from "../src/imports/SwapLib.sol";
+
+interface IWETHDeposit { function deposit() external payable; }
 import {ICore} from "../src/imports/Interfaces.sol";
 
 
@@ -201,6 +203,88 @@ contract RestoreProfitability is AllesFixture {
             assertGt(atOracle, 0, "zero oracle value - nothing measured");
             vm.revertToState(snap);
         }
+    }
+
+    /// @notice 🔴 §REFILL-FARM — **CAN THE EXEMPTION BE FARMED BY ROUND-TRIPPING?** A falsification
+    ///         test, written to BREAK the mechanism rather than confirm it.
+    /// ⇒ THE THEORY OF THE ATTACK. The refill direction is EXEMPT (0 bps) and the drain direction
+    ///   PAYS a premium. If a single actor can drain and then refill, they pay the premium on one leg
+    ///   and nothing on the other — so the question is whether the round trip nets NEGATIVE for them
+    ///   (the mechanism holds: they funded LPs) or POSITIVE (the exemption is farmable income and the
+    ///   pool is being drained by design).
+    /// ⚠️ N CYCLES, NOT ONE. A single round trip can net ~0 by luck of rounding; a FARM has to
+    ///   COMPOUND. Running five and reporting the per-cycle trend is what separates "noise around
+    ///   zero" from "a slow bleed", and only the second is a defect.
+    /// 🔴 THE POOL-SIDE CHECK IS THE ONE THAT MATTERS. An actor losing money does not by itself mean
+    ///   the pool gained it — value can leak to a third party or be destroyed in slippage. So this
+    ///   measures BOTH ends: the farmer's net AND the range's own equity across the cycles.
+    /// ⛔ NO PASS/FAIL ON THE ECONOMICS. The numbers are the finding; the guards only prove the run
+    ///   reached the code, because a zero-trade run would otherwise read as "not farmable".
+    function test_REFILLFARM_DoesRoundTrippingTheExemptionPay() public {
+        _seedBasket();
+        vm.prank(lpA);
+        ETH.deposit{value: 400 ether}(0, lpA);
+        _settle();
+        emit log_named_uint("sigma^2 (0 == SENTINEL, curve inactive)", warmVarianceFromRealRounds(12));
+
+        address farmer = address(0xBEEF04);
+        vm.deal(farmer, 0);                    // start from zero so `farmer.balance` IS the payout
+        uint startStable = _stableValue18(farmer);
+        uint eq0 = CORE.rangeEquityUsd18();
+        uint traded;
+        emit log_named_uint("range equity BEFORE (18d)", eq0);
+
+        for (uint c = 0; c < 5; ++c) {
+            // DRAIN leg: buy volatile out of the range — this direction PAYS the A-S premium.
+            uint boldAmt = 60_000 * 1e18;
+            deal(bold, farmer, boldAmt);
+            vm.startPrank(farmer);
+            IERC20(bold).approve(address(AUX), boldAmt);
+            bool drainOk;
+            try AUX.swap(bold, address(WETH), true, boldAmt, 0, true) { drainOk = true; }
+            catch (bytes memory e) { emit log_named_bytes("    DRAIN REVERTED ", e); }
+            vm.stopPrank();
+            _settle();
+            // ⛔ THE DRAIN PAYS OUT **NATIVE ETH**, NOT WETH. Reading `WETH.balanceOf(farmer)` here
+            //    returned 0 while the drain reported SUCCESS, so the refill leg never ran and the
+            //    loop measured nothing — the same token-identity error this repo has recorded before
+            //    ("measured native ETH when payout was WETH"), in the opposite direction. Wrap what
+            //    actually arrived, then sell that.
+            uint native = farmer.balance;
+            if (native > 0) { vm.prank(farmer); IWETHDeposit(address(WETH)).deposit{value: native}(); }
+            // REFILL leg: sell it back — EXEMPT while inv <= target.
+            uint back = WETH.balanceOf(farmer);
+            bool refillOk;
+            if (back > 0) {
+                vm.startPrank(farmer);
+                WETH.approve(address(AUX), back);
+                try AUX.swap(bold, address(WETH), false, back, 1, true) { refillOk = true; }
+                catch (bytes memory e) { emit log_named_bytes("    REFILL REVERTED", e); }
+                vm.stopPrank();
+            }
+            _settle();
+            emit log_named_uint("  cycle", c);
+            emit log_named_uint("    drain ok / refill ok    ", (drainOk ? 10 : 0) + (refillOk ? 1 : 0));
+            emit log_named_uint("    WETH held after drain   ", back);
+            emit log_named_uint("    farmer stable now (18d) ", _stableValue18(farmer));
+            emit log_named_uint("    range equity      (18d) ", CORE.rangeEquityUsd18());
+            // 🔴 THE LOOP MUST HAVE TRADED. Without this the try/catch turns a fixture that cannot
+            //    execute into a SILENT PASS reporting "not farmable" — which is what the first run of
+            //    this test did: five cycles, every figure 0, range equity byte-identical, green.
+            //    A falsification test that cannot execute falsifies nothing.
+            traded += (drainOk && refillOk) ? 1 : 0;
+        }
+
+        uint endStable = _stableValue18(farmer);
+        uint eq1 = CORE.rangeEquityUsd18();
+        emit log_named_uint("range equity AFTER  (18d)", eq1);
+        emit log_named_uint("  FARMER NET (0 == lost or broke even)", endStable > startStable ? endStable - startStable : 0);
+        emit log_named_uint("  FARMER LOST                         ", startStable > endStable ? startStable - endStable : 0);
+        emit log_named_uint("  RANGE EQUITY GAINED                 ", eq1 > eq0 ? eq1 - eq0 : 0);
+        emit log_named_uint("  RANGE EQUITY LOST                   ", eq0 > eq1 ? eq0 - eq1 : 0);
+        assertGt(eq0, 0, "zero range equity - nothing was measured");
+        assertGt(traded, 0,
+            "NO CYCLE COMPLETED BOTH LEGS - this test measured an EMPTY LOOP. A green here would\n             report 'not farmable' on the strength of no trades at all.");
     }
 
     /// @notice 🔴 §REFILL-GRIEF — **CAN AN ATTACKER MOVE THE DEFICIT SO AN HONEST RESTORER OVERSHOOTS?**

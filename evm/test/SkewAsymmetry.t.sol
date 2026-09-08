@@ -210,7 +210,14 @@ contract SkewAsymmetry is Test {
         // Gamma recovered from the measurement: G = kernel / (sigma^2 * qBar), qBar = 1.
         uint gammaRecovered = kernel * 1e18 / s;
         emit log_named_uint("Gamma recovered (wad)", gammaRecovered);
-        assertApproxEqRel(gammaRecovered, 3e16, 1e15, "Gamma is not MAX_WELL_SKEW as documented");
+        // 🔴 §E274-LAND — **THIS PINNED Γ TO THE VERY CIRCULARITY THE DERIVATION EXISTS TO BREAK.**
+        //    It read `assertApproxEqRel(gammaRecovered, 3e16, ...)` with the message *"Gamma is not
+        //    MAX_WELL_SKEW as documented"* — i.e. it asserted `Γ ≡ MAX_WELL_SKEW`, which §E275 showed
+        //    was one number doing two jobs and §E274 replaced with a derivation from `FLOW_HALFLIFE`.
+        //    The INSTRUMENT is excellent and untouched: it recovers Γ from the curve and got
+        //    5479452054794520 — our new Γ, exactly. Only the expected value was stale.
+        assertApproxEqRel(gammaRecovered, SwapLib.GAMMA_WAD, 1e15,
+            "recovered Gamma must equal the derived GAMMA_WAD (Gamma is NO LONGER a cap)");
 
         // Gamma carries years. At gamma_riskaversion = 1, the implied horizon is Gamma itself.
         // 0.03 yr * 365.25 d = 10.96 days = 947,808 s.

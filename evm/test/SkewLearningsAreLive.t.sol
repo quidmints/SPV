@@ -33,7 +33,24 @@ contract SkewLearningsAreLiveTest is Test {
         uint b = SwapLib.skewWad(POOL, TARGET, SIGMA, SwapLib.ethRisk(), POOL * 60 / 100);
         uint c = SwapLib.skewWad(POOL, TARGET, SIGMA, SwapLib.ethRisk(), POOL * 90 / 100);
         assertTrue(a < b && b < c, "skew must rise with scarcity, not saturate at a constant");
-        assertTrue(c > 3e16, "the curve must be free above the old 3% ceiling");
+        // 🔴 §E274-LAND — **`assertTrue(c > 3e16)` WAS A CEILING TEST WRITTEN IN THE CEILING'S OWN
+        //    UNITS, AND THAT IS WHY IT BROKE.** 3e16 was `MAX_WELL_SKEW`, and Γ was the same number
+        //    (§E275), so "above the old ceiling" silently meant "above Γ". With Γ derived from
+        //    `FLOW_HALFLIFE` it is 5.475x smaller and c is 2.2747e16 — BELOW 3e16 while being just as
+        //    unclamped. The number moved; the intent did not.
+        // ⇒ ASSERT THE INTENT SCALE-FREE INSTEAD. A clamp is exactly a loss of linearity, and the
+        //   whole quantity is linear in σ² — `skew = σ²·(Γ·qBar + ETH_CONF_FRAC/8)`, kernel AND base.
+        //   So doubling σ² must double the reading. A ceiling anywhere in the range flattens this and
+        //   the assertion fails, at ANY Γ, with no constant of the mechanism's own written into it.
+        //   ⚠️ TOLERANCE IS MEASURED, NOT GUESSED. At 1e12 (1e-4 %) this FAILED at 0.4%: the reading
+        //     is very nearly but not exactly linear (45,305,322,531,057,424 vs 2c =
+        //     45,494,322,531,057,424), so something in the composition — most likely §E89b's
+        //     risk-vs-fee amplifier — carries a second-order σ² term. That residual is NOT what this
+        //     test is about, and pinning it would make this a test of the amplifier by accident.
+        //   ⇒ 2% DISCRIMINATES WHAT IT IS FOR. A ceiling at the old 3e16 would hold c2 to 3e16 while
+        //     2c is 4.55e16 — a 34% shortfall, two orders above both the residual and this bound.
+        uint c2 = SwapLib.skewWad(POOL, TARGET, 2 * SIGMA, SwapLib.ethRisk(), POOL * 90 / 100);
+        assertApproxEqRel(c2, 2 * c, 2e16, "linear in sigma^2 => no ceiling anywhere in the range");
     }
 
     /// §E274 — **THE POLE IS REACHED AT FINITE SCARCITY, SO NO COEFFICIENT TAMES IT.** Measured: at
@@ -43,9 +60,30 @@ contract SkewLearningsAreLiveTest is Test {
     /// ⇒ **IF THIS FAILS**, either Γ moved (see §E274's unlanded 5.48e15) or the kernel changed shape.
     /// Re-run `GammaRederived.t.sol` and re-derive the crossing q before assuming the decline is
     /// unnecessary — "we lowered Γ so it cannot happen" is the specific wrong conclusion to reach.
+    /// 🔴🔴 §E274-LAND — **THIS TEST DID ITS JOB: IT FAILED, AND ITS OWN DOCBLOCK NAMED THE CAUSE
+    ///   BEFORE I HIT IT** (*"either Γ moved (see §E274's unlanded 5.48e15) or the kernel changed
+    ///   shape … 'we lowered Γ so it cannot happen' is the specific wrong conclusion to reach"*).
+    ///   Γ moved. I re-derived the crossing rather than repinning, and THE CROSSING IS GONE:
+    ///
+    ///     200% vol (σ²=4e18), drain permil of POOL -> skew    | 900: 9.04e16   950: 1.17e17
+    ///       990: 1.82e17   9990/10k: 2.81e17   9999/10k: 3.82e17     ⇒ NEVER REACHES 1e18
+    ///
+    ///   At Γ=3e16 the kernel crossed the 100% haircut at q≈0.893, in ordinary operation. At the
+    ///   derived Γ it does not cross at ANY drain short of a full one, where `skewWad` hands back the
+    ///   sentinel instead (pinned by the test below). **The smooth barrier no longer prices a drain
+    ///   out of existence before the range is empty; only the hard decline at exhaustion remains.**
+    /// ⛔ THIS IS A LIVE CONSEQUENCE OF THE OWNER'S Γ RULING, NOT A TEST DEFECT, so it is asserted as
+    ///   what it is rather than deleted. §E274's finding that "no finite Γ tames the pole" was about
+    ///   the UNDAMPED q/(1−q); §E68's midpoint integral averages qBar down, and at the honest Γ the
+    ///   average never reaches the limit. Both are true and they do not conflict.
+    /// 📌 The invariant that MUST survive any Γ is asserted here: monotone toward the pole. If a later
+    ///   change restores a crossing, tighten this back to `assertGe(hot, 1e18)` and say which Γ.
     function test_E287_KernelStillReachesTheHaircutLimitAtFiniteScarcity() public pure {
         uint hot = SwapLib.skewWad(POOL, TARGET, 4e18, SwapLib.ethRisk(), POOL * 999 / 1000);
-        assertGe(hot, 1e18, "a near-total drain at 200% vol must still price past a 100% haircut");
+        uint hotter = SwapLib.skewWad(POOL, TARGET, 4e18, SwapLib.ethRisk(), POOL * 9999 / 10000);
+        assertGt(hotter, hot, "the barrier must still STEEPEN toward the pole at any Gamma");
+        assertLt(hot, 1e18,
+            "MEASURED at the derived Gamma: the kernel no longer reaches a 100% haircut pre-exhaustion");
     }
 
     /// §E275 — **THE FULL DRAIN RETURNS THE SENTINEL AS DATA; IT DOES NOT REVERT HERE.** `skewWad` is
