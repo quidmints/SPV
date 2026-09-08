@@ -148,6 +148,19 @@ contract AllesFixture is ForkPin, ExitFixture {
     //    · warping BACKWARDS to that timestamp — `block.timestamp` behind the fork underflows the
     //      swap path (Panic 0x4e487b71). Warp FORWARD by the real GAP instead.
     //
+    /// @dev Per-round registration log, in its OWN frame. ⛔ Do NOT inline this back into the warm
+    ///      loop: that frame is already at the legacy-stack limit (`via_ir = false`) and adding these
+    ///      reads there is `Stack too deep` — the same wall `_pullForExtract` exists for on the src
+    ///      side. `dReg` is the point: it says whether THIS round contributed, which a final σ²
+    ///      cannot. `ok == 1` with `dReg == 0` means the swap landed and the anchor did not move.
+    function _logRound(uint256 px, bool ok, uint256 v0, uint256 v1) internal {
+        emit log_named_uint("    real px (8dec)       ", px);
+        emit log_named_uint("      block.timestamp    ", block.timestamp);
+        emit log_named_uint("      swap ok (1=yes)    ", ok ? 1 : 0);
+        emit log_named_uint("      sigma^2 after      ", v1);
+        emit log_named_int("      d(sigma^2) REGISTER", int(v1) - int(v0));
+    }
+
     /// @param nRounds how many consecutive real rounds to replay (12 is ample; σ² ≈ 0.10–0.16 wad).
     /// @return sigma  `CORE.realizedVarianceWad()` after the walk — 0 means the warm-up FAILED.
     function warmVarianceFromRealRounds(uint256 nRounds) public returns (uint256 sigma) {
@@ -176,14 +189,31 @@ contract AllesFixture is ForkPin, ExitFixture {
             vm.mockCall(feed, abi.encodeWithSignature("decimals()"), abi.encode(uint8(8)));
             vm.mockCall(feed, abi.encodeWithSignature("latestRoundData()"),
                 abi.encode(latest - uint80(i), px, uint256(0), block.timestamp, latest - uint80(i)));
-            uint256 amt = 25_000 * 1e18;
+            // ⛔ SMALL. $25k reverted `SlippageMaxS()` on every round in `SkewCalibration` — a
+            //    USD-IN swap BUYS volatile FROM the range, so against a range with little or no
+            //    inventory it hits the max-slippage guard immediately and the try/catch below eats
+            //    it. The warm-up only needs `Core.swap` to RUN (that is where
+            //    `_sampleAnchorVariance` lives); the size is irrelevant to the anchor sample, so
+            //    keep it small enough to clear the guard in a thin fixture.
+            uint256 amt = 200 * 1e18;
             deal(stable, warmer, amt);
             vm.startPrank(warmer);
             IERC20(stable).approve(address(AUX), amt);
             // USD-IN, deliberately: `_sampleAnchorVariance` lives in `Core.swap`, whose only src
             // caller is `BasketLib.routeSwap` — the DRAIN leg reaches it, a volatile-in sell does not.
-            try AUX.swap(stable, address(WETH), true, amt, 0, true) {} catch {}
+            uint256 v0 = CORE.realizedVarianceWad();
+            bool swapped;
+            try AUX.swap(stable, address(WETH), true, amt, 0, true) { swapped = true; }
+            catch (bytes memory err) { emit log_named_bytes("      swap REVERTED", err); }
             vm.stopPrank();
+            // 🔴 LOG WHETHER THIS ROUND **REGISTERED**, SEPARATELY FROM THE FINAL VALUE. A single
+            //    σ² at the end cannot distinguish "the sampler ran and recorded nothing" from "the
+            //    sampler never ran" — five of the six ways this measurement previously read zero
+            //    were invisible without that split, and the try/catch above hides the sixth.
+            //    `dReg == 0` with `ok == 1` means the swap landed but the anchor did NOT move:
+            //    either the host fixture's own `_setEthFeed` mock is overwriting this one, or the
+            //    price fed is identical to `_varPx` so `Σr²` gains nothing.
+            _logRound(uint256(px), swapped, v0, CORE.realizedVarianceWad());
         }
         sigma = CORE.realizedVarianceWad();
     }

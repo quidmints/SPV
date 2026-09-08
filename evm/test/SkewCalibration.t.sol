@@ -50,6 +50,7 @@ contract SkewCalibration is AllesFixture {
     /// Fixed fixture, fixed flow, then read the LIVE skew off the public surface.
     function test_E58_SkewMagnitudeOnAFixedFixture() public {
         _seedBasket();
+        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         // ⭐ §SKEW-COVERAGE-HOLE — WARM σ² FROM REAL MAINNET ROUNDS. Without it
         //    `realizedVarianceWad()` is 0 (this suite runs its swaps at ONE pinned block, and
         //    `_sampleAnchorVariance` advances only on a MOVE with `dt > 0`), so the kernel returns the
@@ -57,7 +58,6 @@ contract SkewCalibration is AllesFixture {
         //    asks ("whether the curve EVER engages") cannot be answered against a constant.
         emit log_named_uint("sigma^2 after real-round warm-up (0 == SENTINEL)",
                             warmVarianceFromRealRounds(12));
-        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         vm.roll(block.number + 1);
         // §E58 DRAIN FIXTURE: 12x3,000 left inv/target at 20x and the flush branch firing. To reach
         // the SCARCITY regime the range must shed most of its ~$714k, so drain hard and let the TWAP
