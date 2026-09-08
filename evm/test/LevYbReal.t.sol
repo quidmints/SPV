@@ -307,6 +307,45 @@ contract LevYbRealProbe is AllesFixture {
         for (uint i; i < logs.length; i++) if (logs[i].topics.length > 0 && logs[i].topics[0] == sig) n++;
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════════════════════
+    // §M.1b — THE BOOKS COUNT IT, THE DELIVERY PATH REFUSES IT. Stated as a measurement so the
+    // owner's decision rests on a number rather than on my prose.
+    //
+    // `LevMath.deliverableDollars` is `min(netEquity, C·(1 − curLtv/(LLTV − margin)))`. At ZERO debt
+    // `curLtv == 0`, so the bound is `C` and the whole net equity is counted — and
+    // `LevBase.totalDeliverableDollars:491` sums exactly that across the book. Meanwhile
+    // `SwapLib.deleverEthOnDelivery` returns at `poolDebtUsd == 0` and delivers none of it (§M.1).
+    // ⇒ **100% counted, 0% deliverable.** That is the §M.1b hole in one line, and it is a SOLVENCY
+    //   accounting statement, not a delivery inconvenience.
+    // ⚠️ THE FIX IS A CHOICE AND IS NOT MADE HERE. Either the delivery path learns to free collateral
+    //   against no debt — which needs a value-attribution rule, because `withdrawPool`'s own docblock
+    //   says it writes no per-LP units and "MUST be paired with a `repayPool`", and at zero debt there
+    //   is no repay to pair with — or `deliverableDollars` stops counting what cannot be delivered.
+    // ═══════════════════════════════════════════════════════════════════════════════════════════
+    function testReal_M1b_ZeroDebtEquityIsCountedDeliverableButIsNot() public {
+        _setupMorpho();
+        _openLpFlat();
+
+        // ── PREMISE: a real 0-debt levered position with real collateral ─────────────────────────
+        assertEq(rvenue.totalDebt(), 0, "premise: an open is at ZERO leverage");
+        assertGt(rvenue.collateralOf(LP), 0, "premise: and it holds real collateral");
+
+        // ── THE BOOKS SAY IT IS DELIVERABLE ──────────────────────────────────────────────────────
+        uint counted = rlm.deliverableDollars(LP);
+        assertGt(counted, 0, "M.1b: deliverableDollars COUNTS the 0-debt net equity");
+        assertGt(rlm.totalDeliverableDollars(), 0, "M.1b: and the book-wide sum counts it too");
+
+        // ── THE DELIVERY PATH DELIVERS NONE OF IT ────────────────────────────────────────────────
+        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        vm.recordLogs();
+        uint delivered = SwapLib.deleverEthOnDelivery(address(rlm), address(AUX), px, 1 ether, LP);
+        assertEq(_countSkips(vm.getRecordedLogs()), 0, "returned at the 0-debt branch, nothing swallowed");
+        assertEq(delivered, 0, "M.1b: and it delivers ZERO of what the books counted");
+
+        emit log_named_uint("M.1b counted deliverable (USD 1e18)", counted);
+        emit log_named_uint("M.1b actually deliverable (wei)    ", delivered);
+    }
+
     /// @notice §M.1 second half — the function that closes the hole actually closes it.
     ///         If this passes, `swapOutDeliverUnlevered` is load-bearing and must NOT be deleted.
     function testReal_M1_UnleveredDeliveryClosesTheHole() public {
@@ -486,15 +525,31 @@ contract LevYbRealProbe is AllesFixture {
         emit log_named_uint("   retainedEthPremium    ", prem);
         emit log_named_int ("   residual + premium (0?)", res + int256(prem));
     }
-    /// The two paths that produced opposite-signed residuals, now with the premium visible.
+    /// @notice ⭐ §PREMIUM-READABLE — **THE REAL IDENTITY, AND IT IS A CONSERVATION LAW.**
+    ///   `POOLED − rangeETH − levBuf + retainedEthPremium` is INVARIANT across the sell path.
+    ///   MEASURED, to the wei: the residual fell from −577,021,548,053,173 to
+    ///   −6,788,994,715,881,832 while `retainedEthPremium` rose 0 → 6,211,973,167,828,659, and the
+    ///   SUM did not move by one wei. ⇒ the residual is exactly minus the retained ETH premium, plus
+    ///   a constant that setup establishes before any swap runs.
+    /// 🔑 **THAT IS WHY `rangeETH + levBuf >= POOLED` IS NOT A SOLVENCY CHECK.** Its slack IS the
+    ///   retained premium. Every sell widens it, so the assertion measures how much premium has been
+    ///   taken, not whether LPs are covered — and Γ moves it because Γ sizes the premium.
+    /// ⛔ ASSERTED ON THE DELTA, NOT ON A LEVEL. The setup constant (−577,021,548,053,173 here) is a
+    ///   separate open question (§CALMVOL-LEG-SPLIT); pinning the level would fold that unknown into
+    ///   this one and make the test fail for two reasons at once.
     function testReal_Identity_A_SellsWithWarps() public {
         _setupToRebalanced(); vm.deal(address(this), 20 ether);
         _identity("before");
+        int256 inv0 = _res() + int256(CORE.retainedEthPremium());
         for (uint i; i < 8; i++) {
             vm.warp(block.timestamp + 12 minutes); vm.roll(block.number + 1);
             try AUX.swap{value: 0.015 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch {}
         }
         _identity("after 8 sells + warps");
+        // CONTROL: the premium must actually have moved, or the invariant below is vacuous.
+        assertGt(CORE.retainedEthPremium(), 0, "CONTROL: sells must retain a native premium");
+        assertEq(_res() + int256(CORE.retainedEthPremium()), inv0,
+            "POOLED - rangeETH - levBuf + retainedEthPremium is CONSERVED across sells");
     }
     function testReal_Identity_B_Interleaved() public {
         _setupToRebalanced();

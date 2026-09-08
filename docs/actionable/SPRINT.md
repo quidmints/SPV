@@ -100001,3 +100001,50 @@ The `LevManager.sol` edit is comment-only (`tools/comment-only.sh` → OK), i.e.
 📌 **THE SHAPE, since this is the second row today whose DIAGNOSIS was stale while its SUBJECT was
 real:** the warning named the right file and the wrong defect. `0g` did the same. **A row that names
 a mechanism deserves the same re-measurement as a row that names a line number.**
+
+---
+
+## ✅ §PREMIUM-READABLE — the retained ETH premium is readable, and the real identity is a CONSERVATION LAW
+
+Owner: *"make the retained eth premium readable and assert the real identity."* Both done, and the
+identity turned out to be stronger than a level check.
+
+### THE COUNTER — read-only, and that is the whole difference from §E42-DENOM
+`Core.retainedEthPremium` (wei), fed from `SwapLib.retainSkewPremium`'s existing `premium` on the NATIVE
+leg only. **No mirror is touched: `POOLED`, `POOLED_USD` and `creditSkewPremium` are byte-for-byte
+unchanged.** §E42-DENOM made `POOLED` *count* this and was measured wrong (GAP grew by exactly the
+premium; three OOR tests broke). The defect was never the booking — it was that the quantity was
+**unreadable**, so the identity could not be written down.
+✅ **59/59 green across the suites that change broke**, including the three OOR fills and both
+`kappa=1` identities.
+
+### THE IDENTITY, MEASURED THEN ASSERTED
+    POOLED − rangeETH − levBuf + retainedEthPremium   is INVARIANT across the sell path
+
+| | residual | `retainedEthPremium` | sum |
+|---|---:|---:|---:|
+| before | −577,021,548,053,173 | 0 | **−577,021,548,053,173** |
+| after 8 sells + warps | −6,788,994,715,881,832 | 6,211,973,167,828,659 | **−577,021,548,053,173** |
+
+**Not one wei of movement.** The residual is exactly minus the retained ETH premium, plus a constant
+established during setup. Asserted on the DELTA, with a live control (`retainedEthPremium > 0`) so it
+cannot pass vacuously; the level is deliberately not pinned because the setup constant is a separate
+open question and pinning it would make the test fail for two reasons at once.
+📌 **PRINTED BEFORE IT WAS ASSERTED.** The claim could have been false — a cumulative premium is ≥ 0 so
+it can only explain a NEGATIVE residual, and `_calmVol` produced a positive one. Two wrong mechanisms
+already reached this row by asserting an unchecked sign.
+
+### 🔑 WHAT IT SETTLES
+**`rangeETH + levBuf >= POOLED` IS NOT A SOLVENCY CHECK. ITS SLACK *IS* THE RETAINED PREMIUM.** Every
+sell widens it, so the assertion measures how much premium has been taken, not whether LPs are covered —
+and **Γ moves it only because Γ sizes the premium.** That closes the last thread from §GAMMA-BREAKS-
+HONEST-LP-MARGIN: the red was never a solvency failure, and the four symptoms are now fully separated
+from Γ's correctness.
+
+### 🔴 STILL OPEN — the drains break it, and only in context
+The interleaved arm does NOT conserve: sum went −577,021,548,053,173 → **+7,502,868,408,435,343** with
+`retainedEthPremium` at 2,722,360,613,170,921. ⇒ **the drains break the identity by ~0.00808 ETH.**
+⚠️ But drains ALONE are −9 wei and drains+warps +376e9 — both ≈ 0. So it is drains **in the presence of
+sells**, not drains as such. ▶️ Next: run the drains against a range whose inventory the sells have
+already moved, and check whether a drain that exceeds unlevered inventory pulls from the venue (reducing
+`gross`) by more than it reduces `POOLED`. The instrument is `testReal_Identity_B_Interleaved`, committed.
