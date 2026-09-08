@@ -99629,8 +99629,12 @@ framing that called it one was wrong.
 · **The Γ attribution stands** (three methods, four symptoms) — `a4787689` is why the assertion is red.
 · **The over-claim stands and is real:** at the derived Γ the book claims **0.004915 ETH** more range
   depth than venue ETH plus the debt-funded buffer justify, and a larger Γ hid it by booking less.
-· **project-bc's ruling stands and is the important one:** *you cannot re-baseline an invariant that was
-  passing on an accounting artefact.* That retires "just move the assertion".
+· **project-bc's ruling stands only in its NARROW form, and they corrected it themselves.** It was offered
+  as *"you cannot re-baseline an invariant that was passing on an accounting artefact"* — on the shared
+  assumption that the under-booking WAS the defect. That assumption is now refuted, so the phrasing is
+  wrong even though the conclusion holds: **the 0.004915 ETH gap is real and a larger Γ masked it, so it
+  is not a baselining artefact** — but "the invariant was passing on an accounting error" is NOT why.
+  ⛔ Do not put that sentence in front of the owner; it describes a mechanism we disproved.
 · **The fix is NOT KNOWN.** It is not "make POOLED count the premium" — that is now measured and refuted.
   Booked unfixed rather than shipping a second wrong mechanism; one has already been published wrong on
   this row and that is the whole reason this section exists.
