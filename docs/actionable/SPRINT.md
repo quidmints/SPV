@@ -93049,12 +93049,23 @@ lazily. It costs a wider `h` and a larger `C·K·σ²·h/2` term, and **no new m
    forever and `transferOwnership` is callable, granting nothing today and contradicting the stated
    posture to anyone who reads the chain rather than the comment. **`docs/FAQ.md`'s trust-model
    section is argued from that posture.**
-   ▶️ **Two ways to close it, and the choice is the owner's because it is about authority:**
-   **(a) DELETE `is Ownable`** — makes "no governance" structural rather than incidental, frees 278 B,
-   and forecloses item 4's "add a setter" answer; or **(b) RENOUNCE at deploy** — keeps the hook if
-   item 4 resolves toward governance, costs the 278 B, and makes the chain agree with the comment.
-   ⚠️ **NOT LANDED EITHER WAY.** Both are authority decisions on an immutable contract, and GATE 3's
-   own framing is *"there is one attempt"*.
+   ✅ **DECIDED AND LANDED 2026-09-08 (owner: *"delete the ownable, no owner"*).** `is Ownable` is
+   GONE from `BTCChannels`: **21,519 → 21,241 bytes (margin 3,057 → 3,335)**, and `owner`,
+   `transferOwnership` and `renounceOwnership` are out of the ABI — verified by reading the rebuilt
+   artifact, not the build's exit code.
+   ⇒ **"No governance" is now STRUCTURAL rather than incidental**, and item 4's "add a setter" answer
+   is foreclosed by construction: there is no authority left to hang one on. `MIN_CONFIRMATIONS` and
+   `SWAPOUT_REFUND_BLOCKS` are therefore FIXED AT DEPLOY, deliberately, and that is the answer to
+   item 4 — not "make them settable", but **choose them once and let the contract prove it cannot
+   change them.**
+   ⚠️ **AND IT MOVED THE STORAGE LAYOUT, WHICH THE OLD COMMENT'S WHOLE ARGUMENT DEPENDED ON.**
+   `Ownable._owner` no longer occupies a slot, so `locked` and everything after it shift UP BY ONE —
+   retiring the *"THE STORAGE SLOT IS UNCHANGED"* paragraph that justified the solmate-`ReentrancyGuard`
+   fold. ✅ **Safe, and checked rather than assumed, for two independent reasons:** nothing reads this
+   contract by raw slot (`vm.load`/`vm.store` against `BTCChannels`: ZERO hits in `evm/test`, unlike
+   `Core`, whose harness DOES and is coupled to its state order), and `BTCChannels` deploys FRESH and
+   immutable, so there is no prior state for a shift to corrupt. **The comment is rewritten in the
+   same commit rather than left to assert a slot identity that no longer holds.**
 5. ✅ **DECIDED 2026-09-08 BY MEASUREMENT: NONE OF THEM. The five stay `immutable`, and the reason is
    a chain that closes rather than a preference.** The five are `spv`, `btc`, `MAIN_HOP`,
    `FALLBACK_HOP`, `BTC_DEPOSIT_KEY`.

@@ -6,7 +6,6 @@ import {Types, AlreadyOpen, BadSPV, ChannelKeysMismatch, InvalidParam} from "./i
 import {ISPVGateway} from "./spv/interfaces/ISPVGateway.sol";
 import {BitcoinTx} from "./imports/BitcoinTx.sol";
 import {ChannelLib} from "./imports/ChannelLib.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 // (E125-d) ERC-1271 + ECDSA in one call, so a SMART-WALLET LP can register. Tries ECDSA
 // first, so the EOA path — the common one — keeps its cost.
 
@@ -110,7 +109,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 /// only as strong as whoever controls the whitelist and buys nothing against the attacks that
 /// matter — every one of them is available to a hop running perfectly attested code (§M1).
 
-contract BTCChannels is Ownable {
+contract BTCChannels {
     // ════════════════════════════════════════════════════════════════════════════════════════
     // §E347b-BTC — THE REENTRANCY GUARD IS DECLARED HERE, NOT INHERITED, AND `BTCChannels` IS NOW
     // THE CONTRACT THAT NEEDS IT MOST. Measured 2026-08-23 after the fleet's folds: `Quid` fell to
@@ -124,18 +123,22 @@ contract BTCChannels is Ownable {
     //  WHY IT COULD NOT BE DONE BY OVERRIDING: solmate declares `uint256 private locked = 1`, so a
     //  derived contract cannot read it and cannot write the split modifier. The base had to go.
     //
-    //  ⚠️ THE STORAGE SLOT IS UNCHANGED, AND IT IS A NO-OP HERE ONLY BECAUSE OF THE BASE ORDER.
-    //  `is Ownable, ReentrancyGuard` put solmate's `locked` LAST among the bases, i.e. immediately
-    //  after `Ownable._owner` and immediately before this contract's own state — so declaring it as
-    //  the FIRST member of the body lands it on exactly that slot. Same slot, same name, same
-    //  initial value, same 1/2 discipline (never 0/1 — a 0→1 SSTORE is 20k gas, which is why
-    //  solmate uses 1 and 2), same `"REENTRANCY"` string, so no revert-data consumer moves.
-    //  ⛔ THIS DOES NOT GENERALISE BY INSPECTION — CHECK THE BASE ORDER EVERY TIME. `Vault is
-    //  Ownable, ReentrancyGuard, Shares` and `Basket is ReentrancyGuard, Ownable` both put `locked`
-    //  BEFORE another base's state, so the identical edit there SHIFTS that base's slots. It is
-    //  still safe if nothing reads them by raw slot, but it is NOT a no-op and must not be landed
-    //  as one. VERIFIED for this contract by diffing `forge inspect BTCChannels storageLayout`
-    //  against the pristine parent — identical, which is the only acceptable evidence.
+    //  ⚠️ THE SLOT-PRESERVATION ARGUMENT THAT USED TO SIT HERE IS RETIRED, AND ON PURPOSE.
+    //  It read: *"`is Ownable, ReentrancyGuard` put solmate's `locked` LAST among the bases, i.e.
+    //  immediately after `Ownable._owner` … so declaring it as the FIRST member of the body lands it
+    //  on exactly that slot"* — true while `Ownable` was inherited. **`Ownable` is DELETED (owner,
+    //  2026-09-08: *"delete the ownable, no owner"*), so `_owner` no longer occupies a slot and
+    //  everything here moves UP BY ONE.**
+    //  ✅ SAFE, AND CHECKED RATHER THAN ASSUMED — two independent reasons: **(1)** nothing reads this
+    //  contract by raw slot (`vm.load`/`vm.store` against `BTCChannels`: ZERO hits in `evm/test`),
+    //  unlike `Core`, whose harness DOES and is therefore coupled to its state order; and **(2)**
+    //  `BTCChannels` is deployed FRESH and is immutable — there is no prior state for a shift to
+    //  corrupt, which is the only situation where slot identity is load-bearing at all.
+    //  ⛔ THE 1/2 DISCIPLINE IS UNCHANGED AND IS NOT ABOUT SLOTS: never 0/1, because a 0→1 SSTORE is
+    //  20k gas where 1→2 is 2.9k. Same `"REENTRANCY"` string, so no revert-data consumer moves.
+    //  ⚠️ AND THE GENERAL WARNING STILL STANDS FOR THE OTHER CONTRACTS: `Vault is Ownable,
+    //  ReentrancyGuard, Shares` and `Basket is ReentrancyGuard, Ownable` put `locked` BEFORE another
+    //  base's state, so the identical edit there SHIFTS that base's slots and is NOT a no-op.
     // ════════════════════════════════════════════════════════════════════════════════════════
     uint private locked = 1;
     function _lock()   private { require(locked == 1, "REENTRANCY"); locked = 2; }
@@ -769,7 +772,6 @@ contract BTCChannels is Ownable {
     ///      it preserved was with callers we control — none external, none in `quid-ln`.
     constructor(address _spv, address _btcVault, address _mainHop, address _fallbackHop,
                 bytes32 _btcDepositKey)
-        Ownable(msg.sender)
     {
         if (_mainHop == address(0) || _fallbackHop == address(0) || _mainHop == _fallbackHop)
             revert InvalidParam();
