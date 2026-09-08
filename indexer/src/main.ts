@@ -20,7 +20,7 @@ async function run(): Promise<void> {
   const prot = protocolAddrs(cfg)
   if (prot.length === 0) {
     console.warn('[main] WARNING: no protocol contract addresses set (all 0x0). ' +
-      'Transfers cannot be attributed to the protocol — set QUID_BASKET/QUID_AUX/QUID_VOGUE ' +
+      'Transfers cannot be attributed to the protocol — set QUID_BASKET/QUID_AUX/QUID_RANGE ' +
       'post-deploy. The indexer will run but record zero stable/ETH flow until then.')
   }
   if (cfg.contracts.btcChannels === ZERO_ADDR) {

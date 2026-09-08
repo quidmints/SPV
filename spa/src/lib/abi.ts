@@ -14,7 +14,8 @@ export const ERC20_ABI = [
   'event Transfer(address indexed from, address indexed to, uint256 value)',
 ] as const
 
-// Core = the V4 pool engine (rangeCore). Only the oracle ring is consumed here —
+// Core = the range ENGINE (`rangeCore`). There is no Uniswap v4 pool: the range is a ±2% band
+// on an absolute price (`SwapLib.updateBounds`). Only the oracle ring is consumed here —
 // observe() returns cumulative usd18 PRICE·seconds (it returned Uniswap-style
 // tickCumulatives before the tick removal). `regime.decodeTwapLogPrices` differences them into
 // TWAP prices and takes their natural log, which is the series the regime brain is
@@ -76,8 +77,8 @@ export const BASKET_ABI = [
 export const AUX_ABI = [
   // Swap (5-arg shape):
   //   token        = input stable or QUID (or zero when paying volatile)
-  //   asset        = WETH or WBTC — the volatile side. WBTC (BitGo) is the V4
-  //                  BTC pool's volatile/pricing leg and SOR inventory; it is
+  //   asset        = WETH or WBTC — the volatile side. WBTC (BitGo) is the BTC
+  //                  range's volatile/pricing leg and SOR inventory; it is
   //                  Aux-internal and never delivered to users (BTC payout is
   //                  native, via the hop). There is no separate "lnBTC" token.
   //   forVolatile  = true: stable→volatile  | false: volatile→stable
@@ -118,8 +119,8 @@ export const AUX_ABI = [
   // protocol-internal entry — exposed here for read/debug only)
   'function deposit(address from, address token, uint amount) returns (uint usd)',
 
-  // References. `WBTC()` returns the single BTC ERC20 (BitGo WBTC) — the V4
-  // BTC pool's volatile/pricing leg. No distinct "lnBTC" token exists.
+  // References. `WBTC()` returns the single BTC ERC20 (BitGo WBTC) — the BTC
+  // range's volatile/pricing leg. No distinct "lnBTC" token exists.
   'function WETH() view returns (address)',
   'function WBTC() view returns (address)',
 ] as const
@@ -135,10 +136,16 @@ export const AUX_ABI = [
 // BTC-side via depositBTC/withdrawBTC kept exposed for completeness, but the
 // SPA's "BTC path" goes through BTCChannels.openChannel, not Quid.depositBTC.
 export const RANGE_ABI = [
-  // Auto-managed (ERC4626 shape on the ETH side). The ETH yield-VENUE rides each
-  // deposit call (setEthVenue was removed): 0=Split(Galaxy+AAVE,default) 1=ether.fi
-  // 2=AAVE-v4 3=Galaxy 4=ether.fi Rover 5=Euler. Hard-walled per-LP: your exit is
-  // served from YOUR venue only.
+  // Auto-managed (ERC4626 shape on the ETH side).
+  // ⛔ THERE IS NO VENUE ARGUMENT AND NO VENUE ENUM. This comment used to read
+  // "the ETH yield-VENUE rides each deposit call: 0=Split(Galaxy+AAVE,default) 1=ether.fi
+  // 2=AAVE-v4 3=Galaxy 4=ether.fi Rover 5=Euler". **None of those codes exist** — `evm/src`
+  // has no `VENUE_*` constant, no `Rover`, and no `setEthVenue`/`setWithdrawInstant`. The
+  // declarations below were already 2-arg and correct; only the prose was stale, which is the
+  // dangerous direction: a reader who trusted it would have added a third argument and every
+  // deposit would revert. §ETHVENUE-FOLD collapsed the axis — every ETH deposit's WETH goes to
+  // ONE destination, ether.fi weETH (`imports/QuidLib.sol:109-113`), and a zero placement
+  // reverts `VenueUnavailable`. See `spec.md §4.1`.
   'function deposit(uint assets, address receiver) payable returns (uint shares)',
   'function mint(uint shares, address receiver) payable returns (uint assets)',
   'function withdraw(uint assets, address receiver, address owner) returns (uint shares)',

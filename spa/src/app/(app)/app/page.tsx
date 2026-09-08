@@ -192,7 +192,8 @@ export default function QuidApp() {
   // ── Balances ────────────────────────────────────────────────────────
   // Note: no on-chain BTC balance stat — there is no user-facing BTC token.
   // The user's BTC stake is QUID (minted at channel open); BTC-leg fees accrue
-  // as native sats (Quid.btcFeesOwedSats). WBTC is an Aux-internal pricing/SOR
+  // as native sats (the BTC position's token-side fee leg on `Vault`; there is no
+  // `btcFeesOwedSats` getter). WBTC is an Aux-internal pricing/SOR
   // leg only. Native BTC is delivered by the hop on swap-out — never wrapped.
   const [ethBal, setEthBal] = useState('0')
   const [wethBal, setWethBal] = useState('0')
@@ -203,7 +204,7 @@ export default function QuidApp() {
 
   // ── Protocol state ──────────────────────────────────────────────────
   const [ethTwap, setEthTwap] = useState(0)
-  const [btcTwap, setBtcTwap] = useState(0)  // WBTC TWAP (= BTC/USD via the V4 BTC pool)
+  const [btcTwap, setBtcTwap] = useState(0)  // WBTC TWAP (= BTC/USD, the BTC range's pricing leg)
   const [currentMonth, setCurrentMonth] = useState(0)
   const [redeemable, setRedeemable] = useState('0')
   const [qdTotalSupply, setQdTotalSupply] = useState('0')
@@ -249,8 +250,8 @@ export default function QuidApp() {
   const [withdrawAmount, setWithdrawAmount] = useState('')
 
 
-  // BTC direction is "USD → BTC" externally — internally it's USD → WBTC on
-  // the V4 BTC pool (pricing leg only); the hop daemon broadcasts native BTC
+  // BTC direction is "USD → BTC" externally — internally it's USD → WBTC against the BTC
+  // `Core` instance's inventory (pricing leg only); the hop daemon broadcasts native BTC
   // to the user's btcRecipientOf address.
   const [swapDirection, setSwapDirection] = useState<'usdToEth' | 'ethToUsd' | 'usdToBtc' | 'btcToUsd' | 'usdToUsd'>('usdToEth')
   // BTC→USD swap-in (on-chain, invoice-free): request a deposit address, send BTC, poll.
@@ -387,7 +388,7 @@ export default function QuidApp() {
     if (!chainOk || CONTRACTS.aux === ZERO_ADDR) return
     // ETH TWAP — getTWAPforAsset(WETH, …); there is no ETH-only getTWAP on Aux.
     try { setEthTwap(Number(BigInt(await ethCall(CONTRACTS.aux, enc.twapAsset(CONTRACTS.weth, 1800)))) / 1e18) } catch {}
-    // WBTC TWAP (BTC/USD on the V4 BTC pool, via Aux.getTWAPforAsset)
+    // WBTC TWAP (BTC/USD from the pinned Chainlink anchor, via Aux.getTWAPforAsset)
     try { setBtcTwap(Number(BigInt(await ethCall(CONTRACTS.aux, enc.twapAsset(CONTRACTS.wbtc, 1800)))) / 1e18) } catch {}
     // get_metrics (not view — state-mutating in some paths; eth_call still works)
     try {
@@ -507,7 +508,7 @@ export default function QuidApp() {
       if (wethAmount > 0n) {
         await ensureAllowance(CONTRACTS.weth, CONTRACTS.range, wethAmount, address, setStatus)
       }
-      setStatus('Depositing to V4 LP…')
+      setStatus('Depositing to the ETH LP…')
       const tx = await sendTx({
           from: address, to: CONTRACTS.range,
           data: enc.rangeDeposit(wethAmount, address),
@@ -528,7 +529,7 @@ export default function QuidApp() {
     setTxMutex(true); setBusy(true); setError(null); setLastTx(null)
     try {
       const assets = ethers.parseEther(withdrawAmount)
-      setStatus('Withdrawing from V4 LP…')
+      setStatus('Withdrawing from the ETH LP…')
       const tx = await sendTx({
           from: address, to: CONTRACTS.range,
           data: enc.rangeWithdraw(assets, address, address),
@@ -1086,7 +1087,7 @@ export default function QuidApp() {
 
       {/* ── Deposit (ETH LP) ─────────────────────────────────────────── */}
       {tab === 'deposit' && (
-        <Section title="Deposit to ETH LP (Quid V4)">
+        <Section title="Deposit to ETH LP">
           {/* §OOR-BOOK-DELETED (2026-08-29) — the "Self-managed (custom range)" sub-tab and its
               whole panel are gone with `Quid.outOfRange`/`pull`. A resting order is a signed
               EIP-712 intent now (`Quid.fillIntent`), which is a WALLET-SIGNING flow, not a
@@ -1095,8 +1096,8 @@ export default function QuidApp() {
               because a form that cannot submit is worse than an absent one. */}
             <>
               <p className="text-xs opacity-70 mb-3">
-                Single-sided ETH placed out-of-range on the V4 vanilla ETH/USD pool —
-                one shared vault, pro-rata fees + ether.fi (weETH) yield. ERC4626 shares.
+                Single-sided ETH placed as range depth on the ETH engine — one shared
+                vault, pro-rata fees + ether.fi (weETH) yield. ERC4626 shares.
                 Combined ETH + WETH balance: <strong>{fmt(combinedEth)}</strong>.
               </p>
 
@@ -1205,7 +1206,7 @@ export default function QuidApp() {
           ) : (
             <>
               <p className="text-xs opacity-70 mb-3">
-                Pull ETH back from the V4 LP position. ERC4626-shaped:{' '}
+                Pull ETH back from the ETH LP position. ERC4626-shaped:{' '}
                 <code className="opacity-60">withdraw(assets, receiver, owner)</code>{' '}
                 — owner must equal msg.sender (no allowance flow).
               </p>
@@ -1601,9 +1602,11 @@ export default function QuidApp() {
         <Modal onClose={() => setShowAbout(false)} title="About QU!D">
           <div className="text-sm space-y-3 max-h-96 overflow-y-auto pr-2">
             <p>
-              QU!D (QUI) is a stablecoin-basket token with built-in yield, native
-              ETH/BTC liquidity via Uniswap V4, and Bitcoin-native LP onboarding
-              via 2-of-2 Lightning channels with on-chain SPV verification.
+              QU!D (QUI) is a stablecoin-basket token with built-in yield, two
+              independent concentrated-liquidity ranges (one ETH, one native BTC),
+              and Bitcoin-native LP onboarding via 2-of-2 Lightning channels with
+              on-chain SPV verification. There is no AMM dependency and no Uniswap
+              v4: the range is a ±2% band computed on an absolute price.
             </p>
             <p>
               <strong>Mint:</strong> deposit any whitelisted stable → receive QUI with a
@@ -1611,16 +1614,17 @@ export default function QuidApp() {
               yield venues (depositors select their preference), and mints yield upfront.
             </p>
             <p>
-              <strong>LP:</strong> Quid runs a single-sided V4 position out-of-range
-              on the vanilla ETH/USD and BTC/USD pools. ETH side earns trading
-              fees + ether.fi (weETH) yield. BTC side earns trading fees settled as
-              native sats (<code>btcFeesOwedSats</code>, paid by the hop at close).
+              <strong>LP:</strong> single-sided inventory paired as range depth on
+              two independent engines, one per asset. ETH side earns trading fees +
+              ether.fi (weETH) yield. BTC side earns trading fees settled as native
+              sats (the position&rsquo;s token-side fee leg, paid by the hop at close).
             </p>
             <p>
               <strong>Swap:</strong> Aux.swap is the single entry — accepts QUID, any
-              stable, or volatile (WETH / WBTC) and routes via the V4 vanilla pool
-              with TWAP guarding, plus "smart order routed" multi-hop fallbacks, for
-              when in-pool liquidity is thin.
+              stable, or volatile (WETH / WBTC), and dispatches to the engine that owns
+              that asset. Fills settle at the oracle against inventory: one price, no
+              traversal and no price discovery, which is why a swap does not move the
+              pool statistics. Your protection is your own minOut.
             </p>
           </div>
         </Modal>

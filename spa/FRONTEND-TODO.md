@@ -18,34 +18,54 @@ swapper's protection is their own `minOut`:
   reverts and the swapper keeps their USD. Strand-3 only guards the
   `max == 0` case — partial fills are the frontend's job.
 - **Quote against DELIVERABLE depth, not solvency**: read
-  `Vault.deliverableETH()` (not `vogueETH()`) + `CORE.POOLED_USD_ETH/BTC`
+  `Quid.deliverableETH()` (`evm/src/Quid.sol:237`; `Aux.deliverableETH()`,
+  `Aux.sol:1039`, is a thin forwarder to the same number) and `POOLED_USD()`
   before sizing. If requested size > instant-deliverable, warn: "reduce size
   or expect a partial/revert".
+  ⛔ **`Vault.deliverableETH()` DOES NOT EXIST** — `deliverableETH` is on
+  `Quid` and `Aux`. Neither does `vogueETH()`.
+  ⛔ **NOR DO `POOLED_USD_ETH` / `POOLED_USD_BTC`.** There is exactly ONE
+  `POOLED_USD()` per `Core` instance (`Core.sol:68`) and there are TWO
+  instances (`DeployLib.sol:139-140`) — pick the range by ADDRESS
+  (`chains.ts` `rangeCore` for ETH, `rangeCoreBtc` for BTC), never by a name
+  suffix. The suffixed names are exactly what took the SPA down before.
 - **ETH-side health banner** when ether.fi dominates the ETH backing: show
-  instant ETH depth ≈ idle WETH + Galaxy `maxWithdraw` + AAVE + Rover WETH
-  leg + (weETH × pool-health). When the weETH/WETH v3 pool can't pay fair
-  (the Rover's fair-gate refuses, `sourceWethBody` returns 0), ETH fills
-  degrade to the smaller instant set — surface it, don't let users discover
-  it via reverts.
+  instant ETH depth ≈ idle WETH + (weETH × what the Curve weETH/WETH-ng pool
+  can pay). `QuidLib.deliverableETH` (`:618`) bounds the weETH slice at 90% of
+  that pool's WETH balance, so the surplus DEFERS rather than being counted;
+  the exit ladder below it is idle WETH → the Curve sale (floored 25 bps under
+  oracle) → the ether.fi wait-NFT. Surface the degradation, don't let users
+  discover it via reverts.
+  ⛔ There is no Rover, no Galaxy `maxWithdraw` rung and no weETH/WETH **v3**
+  pool in the ETH ladder — those names have no symbol in `evm/src`.
 
-## 2. ETH LP — per-deposit venue + the exit ladder
+## 2. ETH LP — one destination, and the exit ladder
 
-- Venue rides the call now: `deposit(assets, receiver, venue)` /
-  `mint(shares, receiver, venue)` / `outOfRange(..., venue)`;
-  0 = 50/50 Galaxy+AAVE (default), 1 = ether.fi (weETH), 2 = AAVE-v4,
-  3 = all-Galaxy, 4 = ether.fi Rover. **No setter tx exists anymore.**
-- Tooltips: venue 1/4 exit via the offramp ladder (v3 pool → Rover →
-  0.3% instant → wait-NFT). Venue 4 = same wall as venue 1 plus the
-  protocol-owned weETH/WETH LP overlay (fee capture; fair-gated).
-- `setWithdrawInstant(bool)` toggle for ether.fi-slice exits: false (default)
-  = free wait-NFT on a drained pool; true = accept ~0.3% instant. Show the
-  REAL instant capacity: `EtherFiRedemptionManager.totalRedeemableAmount(
-  0xEeee…EEeE)` — it is frequently **zero** on mainnet (low-watermark vs
-  free pool ETH), in which case "instant" silently degrades to the wait-NFT.
-- **Wait-NFT tracking**: LP exits AND redemption shortfalls can mint an
-  ether.fi `WithdrawRequestNFT` (0x7d5706f6ef3F89B3951E23e557CDFBC3239D4E2c)
-  to the user. The frontend must list these (claimable-after-finalization)
-  or users won't know they hold value.
+⛔ **THERE IS NO VENUE AXIS. DO NOT BUILD A VENUE PICKER, AND DO NOT ENCODE ONE.**
+`Quid.deposit(uint assets, address receiver)` (`evm/src/Quid.sol:1789`) and
+`Quid.mint(uint shares, address receiver)` (`:1803`) take **two arguments**.
+There is no third `venue` argument, no `VENUE_*` constant anywhere in `evm/src`,
+and no `setEthVenue`/`setWithdrawInstant` setter. Every ETH deposit's WETH goes
+to ONE destination — ether.fi weETH via `QuidLib._supplyEtherFi`
+(`imports/QuidLib.sol:109-113`) — and a placement of zero reverts
+`VenueUnavailable`. `spec.md §4.1` states it: "no venue choice, no deposit code,
+no dispatch and no fallback".
+⛔ **`outOfRange(...)` DOES NOT EXIST EITHER.** The on-chain out-of-range book was
+deleted (§OOR-BOOK-DELETED). Its successor is a signed EIP-712 intent,
+`Quid.fillIntent` (`evm/src/Quid.sol:1246`), which costs nothing on chain until
+it fills — a wallet SIGNING flow, not a transaction. **Do not add a `fillIntent`
+encoder until that signing flow exists**; an encoder with no caller is the
+§E154-client-ghosts shape, and `tools/check-client-abis.py` reads
+`spa/src/lib/abi.ts` for exactly this.
+- What IS still true, and is the whole of the ETH-LP UX obligation: show the
+  **exit ladder** and where it degrades. `QuidLib.withdrawETH` (`:682`) serves
+  idle WETH first, then opportunistically sells weETH on the Curve
+  weETH/WETH-ng pool, then falls to the ether.fi wait-NFT rung for the
+  remainder. A partial fill is not an error — it is the deferral working.
+- **Wait-NFT tracking**: LP exits AND redemption shortfalls can leave the user
+  holding an ether.fi withdraw request (`IEtherFiLiquidityPool.requestWithdraw`,
+  `QuidLib.sol:791`). The frontend must list these
+  (claimable-after-finalization) or users won't know they hold value.
 
 ## 3. REDEEM — matured vs forward, clamp, deferral
 
@@ -60,16 +80,32 @@ swapper's protection is their own `minOut`:
 
 ## 4. BTC LP — parity screens (sync to latest contracts)
 
-- openChannel flow: fund the 2-of-2 (hop-negotiated), sign `lpAuth`
-  (`openChannelDigest`), hop relays. Show channel status from
-  `BTCChannels.channels(channelId)` + `ChannelOpened/Closed` events.
-- Exit: cooperative close vs `recordForceClose` (permissionless — works even
-  if the hop is dead; CSV/CLTV timing on the Bitcoin side).
-- Show `Vault.btcFeesOwedSats(lp)` ("BTC-leg fees, paid by the hop to your
-  channel key after close — as a separate Bitcoin tx, not inside the close").
-- swap-out: `requestSwapOutOnchain(... swapperScript, swapId)` — the **on-chain**
-  rail (the LN swap-out rail was removed; the hop splice-out pays the swapper's
-  Bitcoin address). Show pending obligation + reversal state.
+- openChannel flow: **the LP signs nothing on the EVM.** `openChannel` is
+  hop-gated (`BTCChannels.sol:942`), `lpEth` is DERIVED from `p.lpPubkey`
+  rather than supplied, and the LP's consent arrives as a BIP-340 *Bitcoin*
+  signature over `btcRecipientPoPDigest(lpEth)` (`:936-946`, `spec.md §4.2`).
+  The frontend's job is the payout key and the status read, not a digest
+  signature. Show channel status from `BTCChannels.channels(channelId)`
+  (`:206`) + `ChannelOpened/Closed` events.
+- Exit: cooperative close vs `recordForceClosePermissionless`
+  (`BTCChannels.sol:1949` — permissionless, works even if the hop is dead;
+  CSV/CLTV timing on the Bitcoin side). ⛔ The name is
+  `recordForceClosePermissionless`; there is no `recordForceClose` and no
+  `forceCloseByLP`.
+- Show the LP's BTC-leg fee accrual from `Vault.autoManaged(lp)` — the
+  `fees_tok` field of `Types.Deposit` is the token-side (sats) fee leg on the
+  BTC range manager (`Shares.sol:136`). ⛔ There is no
+  `Vault.btcFeesOwedSats(lp)`; that name survives only as a stale comment in
+  `Quid.sol:329`.
+- swap-out: `requestSwapOutOnchain(address token, uint usdAmount, uint minSats,
+  bytes32 swapId)` (`BTCChannels.sol:2251`) — the **on-chain** rail (the LN
+  swap-out rail was removed; the hop splice-out pays the swapper's Bitcoin
+  address, taken from `btcRecipientOf`, not from a `swapperScript` argument).
+  Show pending obligation + reversal state.
+  ⚠️ **Gate the button on `Aux`/`BTCChannels.btcRecipientOf(user) != 0`.** With
+  no registered payout key the call reverts `NotPubkeyHash` before any USD
+  moves (`BTCChannels.sol:2265`), so the user must `setBtcRecipient` (`:2443`)
+  first. Surface that as a prerequisite step, not as a failed transaction.
 
 <!-- §5 "Existing stubs to finish" (venue param, swap minOut, BTC-channel
 hopPubkey/lpAuth/close-tracking) PURGED 2026-06-24 — those screens are wired

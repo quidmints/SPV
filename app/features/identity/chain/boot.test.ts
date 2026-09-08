@@ -90,7 +90,7 @@ test('addresses are injected at boot, and a malformed one is refused not zeroed'
 })
 
 test('unset addresses stay zero, which the read path treats as not-deployed', () => {
-  assert.strictEqual(CONTRACTS.vogue, '0x0000000000000000000000000000000000000000')
+  assert.strictEqual(CONTRACTS.range, '0x0000000000000000000000000000000000000000')
   // and the public token facts are defaulted, not injected
   assert.match(CONTRACTS.weth, /^0xC02aaA39/)
 })

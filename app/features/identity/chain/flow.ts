@@ -5,8 +5,8 @@
 //   The protocol emits no domain flow events (by design, this thread adds no
 //   Solidity), so net flow is RECONSTRUCTED from ERC20 Transfer logs to/from
 //   the protocol addresses:
-//     • stable in  = Transfer(user → {basket,aux,vogue})   [mint / swap-in]
-//     • stable out = Transfer({basket,aux,vogue} → user)   [redeem / swap-out]
+//     • stable in  = Transfer(user → {basket,aux,range})   [mint / swap-in]
+//     • stable out = Transfer({basket,aux,range} → user)   [redeem / swap-out]
 //     • ETH flow   = WETH Transfer to/from the same set
 //     • BTC flow   = BTCChannels ChannelOpened (in) / ChannelClosed (out), in sats
 //
@@ -31,7 +31,7 @@ export interface NetFlow {
   partial: boolean      // true if any getLogs call came back empty/limited
 }
 
-const PROTOCOL = () => [CONTRACTS.basket, CONTRACTS.aux, CONTRACTS.vogue]
+const PROTOCOL = () => [CONTRACTS.basket, CONTRACTS.aux, CONTRACTS.range]
   .filter(a => a && a !== ZERO_ADDR)
 
 const sumTransfers = (logs: any[]): bigint =>

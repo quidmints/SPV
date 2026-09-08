@@ -22,11 +22,11 @@ export interface Contracts {
   levManager:  string  // YB leverage overlay (per-LP isolated IL-protect position; ETH side)
   weth:        string
   // wbtc = BitGo WBTC, the SINGLE BTC ERC20 in the system (what Aux.WBTC()
-  // returns). It is the V4 BTC pool's volatile/pricing leg, the SOR fallback
+  // returns). It is the BTC range's volatile/pricing leg, the SOR fallback
   // inventory, and the TWAP source — purely Aux-internal. It is NEVER held by
   // or delivered to users: the design is wrapless. A user's BTC stake is QUID
   // (minted at channel open); BTC-leg fees accrue as native sats
-  // (Quid.btcFeesOwedSats); swap-out delivers NATIVE BTC via the hop to
+  // (the BTC position's token-side fee leg on `Vault`); swap-out delivers NATIVE BTC via the hop to
   // btcRecipientOf. There is no "lnBTC" token and no planned ERC20 split.
   wbtc:        string  // BitGo WBTC — internal pricing/pool/SOR leg only (8 dec)
   weeth:       string  // weETH — the collateral weETH-leverage venues pledge (18 dec)
@@ -95,7 +95,7 @@ export const CONTRACTS: Contracts = {
   levManager:  ok(process.env.NEXT_PUBLIC_LEV_MANAGER,  dep(addr(l1.levManager))),
   weth:        ok(process.env.NEXT_PUBLIC_WETH,         '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'),
   // The one BTC ERC20: BitGo WBTC, what Aux.WBTC() returns. Used only as the
-  // V4 pricing leg / SOR inventory — never user-facing (BTC delivery is native).
+  // BTC range's pricing leg / SOR inventory — never user-facing (BTC delivery is native).
   wbtc:        ok(process.env.NEXT_PUBLIC_WBTC,         '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599'),
   // weETH (ether.fi) — the collateral the weETH-leverage venues pledge. Mainnet
   // default; env-overridable for the anvil-fork e2e.
@@ -103,7 +103,7 @@ export const CONTRACTS: Contracts = {
 }
 
 // WBTC has 8 decimals. swap-out minOut is denominated in these raw WBTC units
-// (the V4 pricing leg), even though delivery is native BTC via the hop.
+// (the BTC range's pricing leg), even though delivery is native BTC via the hop.
 export const WBTC_DECIMALS = 8
 
 // 12 stables in DeployL1_s.sol order (verified 2026-07-22), **BOLD LAST** —
@@ -148,25 +148,22 @@ export const HOP_API: { url: string; token: string } = {
 // falls back to the live getLogs reconstruction (bounded window, still works).
 export const INDEXER_URL: string = process.env.NEXT_PUBLIC_INDEXER_URL ?? ''
 
-// ETH yield venue, chosen PER auto-LP deposit (rides the deposit call; no setter).
-// Matches Quid's VENUE_* constants. Only the ether.fi (Rover) slice is hard-walled per-LP
-// (exit served from your own weETH position); the other venues are fungible pooled 4626 WETH.
-export interface EthVenue { id: number; label: string; blurb: string }
-// NOTE: direct ether.fi (weETH) is NOT user-selectable — it is the protocol's INTERNAL
-// fallback, used only if the Rover NFT has self-liquidated. ether.fi exposure is chosen
-// via 'ether.fi Rover'. Split routes an equal fifth to Rover, so it too earns the slice.
-export const ETH_VENUES: EthVenue[] = [
-  { id: 0, label: 'Split (5-way)',         blurb: 'Default — equal split across AAVE, Euler, Rover, Galaxy, Gauntlet; diversifies curator risk.' },
-  { id: 2, label: 'AAVE v4',               blurb: 'Aave-v4 spoke supply.' },
-  { id: 3, label: 'Galaxy',                blurb: 'All-Galaxy (Morpho curator).' },
-  { id: 4, label: 'ether.fi Rover',        blurb: 'ether.fi via the protocol weETH/WETH LP.' },
-  { id: 5, label: 'Euler',                 blurb: 'Euler ETH (4626 curator, fungible w/ Galaxy).' },
-  { id: 6, label: 'Gauntlet',              blurb: 'Gauntlet (second Morpho WETH 4626 curator, fungible w/ Galaxy).' },
-]
+// ⛔ ETH YIELD VENUES ARE GONE — `EthVenue` / `ETH_VENUES` DELETED HERE, NOT MOVED.
+// This file exported a six-entry venue table (ids 0,2,3,4,5,6 — Split / AAVE v4 / Galaxy /
+// ether.fi Rover / Euler / Gauntlet) described as "chosen PER auto-LP deposit (rides the deposit
+// call)". **Every one of those codes was fiction.** Measured against `evm/src`: no `VENUE_*`
+// constant, no `Rover` symbol, no `setEthVenue`, no `setWithdrawInstant`, and
+// `Quid.deposit`/`Quid.mint` take TWO arguments (`Quid.sol:1789`, `:1803`). §ETHVENUE-FOLD folded
+// the ETH venue into `Quid` itself: every ETH deposit's WETH goes to ONE destination, ether.fi
+// weETH (`imports/QuidLib.sol:109-113`), and a placement of zero reverts `VenueUnavailable`.
+// See `spec.md §4.1`.
+// 🔑 It had ZERO importers, which is why it was survivable and why it is safe to delete — but a
+// dead table of plausible-looking ids is how a venue picker gets built and every deposit reverts.
+// Do not restore it; the venue axis does not exist to be re-exposed.
 
 // ── Leverage BORROW venues (task #65) — the external isolated-lending markets the
 // YB overlay borrows a stable against your ETH collateral on. This is DISTINCT
-// from ETH_VENUES above (which are the basket YIELD venues). Each entry is the
+// from the (now deleted) ETH yield-venue table above. Each entry is the
 // LevManager venue-ADAPTER address, env-driven; entries whose address is unset or
 // zero are filtered out (graceful pre-deploy, same handling as CONTRACTS). weETH
 // venues pledge weETH (which keeps earning staking yield while it's collateral);

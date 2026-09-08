@@ -17,7 +17,7 @@ Mirrors `flow.ts` exactly (the protocol emits no domain flow events by design;
 flow is **reconstructed** from ERC20 transfers + channel events):
 
 - **ERC20 `Transfer(from,to,value)`** on each stable + WETH, where `from` OR
-  `to` is in the protocol set `{basket, aux, vogue}`:
+  `to` is in the protocol set `{basket, aux, range}`:
   - into the set = **inflow** (mint / swap-in / LP-in)
   - out of the set = **outflow** (redeem / swap-out / LP-out)
 - **BTCChannels** `ChannelOpened` (BTC **in**, in sats) / `ChannelClosed`
@@ -70,7 +70,7 @@ fetch cross-origin.
 | `RPC_URL` | `http://127.0.0.1:8545` | Ethereum JSON-RPC endpoint |
 | `QUID_BASKET` | `0x0…0` | **Set post-deploy** — QU!D token / mint |
 | `QUID_AUX` | `0x0…0` | **Set post-deploy** — swap / redeem |
-| `QUID_VOGUE` | `0x0…0` | **Set post-deploy** — V4 LP manager |
+| `QUID_RANGE` | `0x0…0` | **Set post-deploy** — the ETH range manager (`evm/src/Quid.sol`). The deploy writes this key as `range`. ⛔ Not `QUID_VOGUE` and not a "V4 LP manager": `vogue` is a dead name and there is no Uniswap v4 in this protocol. `QUID_VOGUE` is still read as a legacy fallback. |
 | `QUID_BTC_CHANNELS` | `0x0…0` | **Set post-deploy** — channel registry |
 | `QUID_WETH` | canonical mainnet WETH | override only if needed |
 | `QUID_STABLE_<SYM>` | mainnet address | per-stable address override (rare) |
@@ -83,7 +83,7 @@ fetch cross-origin.
 
 > **Contract addresses must be filled in post-deploy.** They default to the same
 > zero-address placeholders as `spa/src/lib/chains.ts`. With all three of
-> `{basket,aux,vogue}` unset the indexer runs but records zero stable/ETH flow
+> `{basket,aux,range}` unset the indexer runs but records zero stable/ETH flow
 > (no protocol address to attribute transfers to); with `QUID_BTC_CHANNELS`
 > unset, BTC sats flow is zero. The indexer logs a warning for each.
 > Also set `START_BLOCK` to the deploy block — backfilling from genesis is
@@ -103,7 +103,7 @@ Example with real config:
 
 ```sh
 RPC_URL=https://your-rpc \
-QUID_BASKET=0x… QUID_AUX=0x… QUID_VOGUE=0x… QUID_BTC_CHANNELS=0x… \
+QUID_BASKET=0x… QUID_AUX=0x… QUID_RANGE=0x… QUID_BTC_CHANNELS=0x… \
 START_BLOCK=21000000 \
 npm start
 ```

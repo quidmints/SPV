@@ -14,7 +14,8 @@ export const ERC20_ABI = [
   'event Transfer(address indexed from, address indexed to, uint256 value)',
 ] as const
 
-// Core = the V4 pool engine (vogueCore). Only the oracle ring is consumed here —
+// Core = the range ENGINE (`rangeCore`; there is no Uniswap v4). Only the oracle ring is
+// consumed here —
 // observe() returns cumulative usd18 PRICE·seconds (it returned Uniswap-style
 // tickCumulatives before the tick removal). `regime.decodeTwapLogPrices` differences them into
 // TWAP prices and takes their natural log, which is the series the regime brain is
@@ -31,13 +32,21 @@ export const CORE_ABI = [
   // each price as a signed 56-bit value, wrapping large prices into wrong and possibly
   // NEGATIVE numbers in the UI. Silent, which is why the ABI gate is the only thing that
   // catches it here: `spa/` has no node_modules, so `tsc` cannot run in this tree.
-  'function observe(uint32[] secondsAgos, bool isBTC) view returns (uint192[] prices)',
+  // §E235 — THE `isBTC` ARGUMENT IS GONE, AND SO IS THE DISPATCH IT SELECTED. The isBTC split
+  // made the range an INSTANCE (`Core` is the same bytecode deployed twice, `DeployLib.sol:139-140`),
+  // so `Core.observe(uint32[])` (`Core.sol:1767`) reads its own ring and there is nothing left to
+  // select. Call it on the ETH engine's address for ETH and the BTC engine's for BTC.
+  'function observe(uint32[] secondsAgos) view returns (uint192[] prices)',
   // Internal pool state — the REAL committed-vs-backing + in-range fractions.
   'function committedUsd18() view returns (uint)',     // USD committed to the in-range pools
-  'function POOLED_ETH() view returns (uint)',          // in-range ETH (short-gamma slice)
-  'function POOLED_BTC() view returns (uint)',          // in-range BTC
-  'function POOLED_USD_ETH() view returns (uint)',      // USD committed, ETH pool
-  'function POOLED_USD_BTC() view returns (uint)',      // USD committed, BTC pool
+  // §E235 — ONE PAIR, NOT FOUR ACCESSORS. `POOLED_ETH`/`POOLED_BTC`/`POOLED_USD_ETH`/
+  // `POOLED_USD_BTC` were four selectors on one contract; there is now exactly ONE `POOLED()` and
+  // ONE `POOLED_USD()` per instance (`Core.sol:68,71`) and TWO instances. The range comes from
+  // WHICH ADDRESS you call, never from a name suffix.
+  // ⛔ The suffixed names are what took the SPA down before: they decode to nothing and the read
+  // throws, or worse, answer off the wrong engine.
+  'function POOLED() view returns (uint)',              // in-range volatile leg (this instance's asset)
+  'function POOLED_USD() view returns (uint)',          // USD committed, this instance's pool
   // BTC LP is delivery/fee-driven (no continuous LVR). Proceeds settle EXACTLY at
   // on-chain swap-out delivery, so there's no global delivered/proceeds counter;
   // pendingSwapOutUsd = 6-dec USD of UNDELIVERED swap-out obligations — a live
@@ -70,8 +79,8 @@ export const BASKET_ABI = [
 export const AUX_ABI = [
   // Swap (5-arg shape):
   //   token        = input stable or QUID (or zero when paying volatile)
-  //   asset        = WETH or WBTC — the volatile side. WBTC (BitGo) is the V4
-  //                  BTC pool's volatile/pricing leg and SOR inventory; it is
+  //   asset        = WETH or WBTC — the volatile side. WBTC (BitGo) is the BTC
+  //                  range's volatile/pricing leg and SOR inventory; it is
   //                  Aux-internal and never delivered to users (BTC payout is
   //                  native, via the hop). There is no separate "lnBTC" token.
   //   forVolatile  = true: stable→volatile  | false: volatile→stable
@@ -97,9 +106,10 @@ export const AUX_ABI = [
   'function riskFactor(address token) view returns (uint)',
   // Stable↔stable swap (e.g. USDC→DAI) routed through the basket vaults.
   'function auxSwap(address tokenIn, address tokenOut, uint amountIn, address recipient, uint minOut) returns (uint amountOut)',
-  // Protocol-total ETH currently in the Vogue ETH pool (for the info tab).
-  // Total BTC is BTCChannels.totalSatsLocked(); there is no Aux.vogueBTC().
-  'function vogueETH() view returns (uint)',
+  // Protocol-total ETH currently in the ETH range (for the info tab).
+  // ⛔ THE NAME IS `rangeETH`, NOT `vogueETH` — `Quid.sol:215`, forwarded by `Aux.sol:1035`.
+  // Total BTC is BTCChannels.totalSatsLocked(); there is no Aux.rangeBTC().
+  'function rangeETH() view returns (uint)',
   // The REAL over-collateralization read: committedSum vs totalLiquid (18-dec).
   // tryCheckBacking is the non-reverting variant (runs a repack; eth_call it).
   // Headroom = (totalLiquid − committedSum) / totalLiquid — the actual "buffer".
@@ -112,25 +122,34 @@ export const AUX_ABI = [
   // protocol-internal entry — exposed here for read/debug only)
   'function deposit(address from, address token, uint amount) returns (uint usd)',
 
-  // References. `WBTC()` returns the single BTC ERC20 (BitGo WBTC) — the V4
-  // BTC pool's volatile/pricing leg. No distinct "lnBTC" token exists.
+  // References. `WBTC()` returns the single BTC ERC20 (BitGo WBTC) — the BTC
+  // range's volatile/pricing leg. No distinct "lnBTC" token exists.
   'function WETH() view returns (address)',
   'function WBTC() view returns (address)',
 ] as const
 
-// Vogue = V4 LP manager. Two LP modes:
+// `Quid` = the ETH range manager (`evm/src/Quid.sol:38`). ONE LP mode reaches this file:
 //   • Auto-managed — ERC4626-shaped; one shared single-sided vault per pool,
 //     pro-rata fee accumulators. owner==msg.sender enforced (AllowanceFlow).
-//   • Self-managed — per-position, NFT-like. outOfRange opens a position at
-//     a user-chosen tick range; pull withdraws by id+percent+output-token.
-//     47-block timelock after open (JIT defense).
-// BTC-side via depositBTC/withdrawBTC kept exposed for completeness, but the
-// SPA's "BTC path" goes through BTCChannels.openChannel, not Vogue.depositBTC.
-export const VOGUE_ABI = [
-  // Auto-managed (ERC4626 shape on the ETH side). The ETH yield-VENUE rides each
-  // deposit call (setEthVenue was removed): 0=Split(Galaxy+AAVE,default) 1=ether.fi
-  // 2=AAVE-v4 3=Galaxy 4=ether.fi Rover 5=Euler. Hard-walled per-LP: your exit is
-  // served from YOUR venue only.
+// §OOR-BOOK-DELETED (2026-08-29) — there WAS a second, "self-managed": per-position and
+// NFT-like, `outOfRange` opening at a user-chosen range and `pull` withdrawing by
+// id+percent+token, behind a 47-block timelock. **It is gone from the contracts.** Its successor
+// is a signed EIP-712 intent, `Quid.fillIntent` (`Quid.sol:1246`), which costs nothing on chain
+// until it fills — a wallet SIGNING flow, not a transaction. ⚠️ DO NOT ADD A `fillIntent`
+// DECLARATION UNTIL THAT SIGNING FLOW EXISTS; an encoder with no caller is the
+// §E154-client-ghosts shape.
+// The "BTC path" goes through BTCChannels.openChannel, not a depositBTC on this contract.
+export const RANGE_ABI = [
+  // Auto-managed (ERC4626 shape on the ETH side).
+  // ⛔ THERE IS NO VENUE ARGUMENT AND NO VENUE ENUM. This comment used to read "the ETH
+  // yield-VENUE rides each deposit call: 0=Split(Galaxy+AAVE,default) 1=ether.fi 2=AAVE-v4
+  // 3=Galaxy 4=ether.fi Rover 5=Euler". **None of those codes exist** — `evm/src` has no
+  // `VENUE_*` constant, no `Rover`, and no `setEthVenue`/`setWithdrawInstant`. §ETHVENUE-FOLD
+  // collapsed the axis: every ETH deposit's WETH goes to ONE destination, ether.fi weETH
+  // (`imports/QuidLib.sol:109-113`), and a zero placement reverts `VenueUnavailable`. The two
+  // declarations below were already correct at 2 args; only the prose was stale — the dangerous
+  // direction, since a reader who trusted it would add a third argument and every deposit reverts.
+  // See `spec.md §4.1`.
   'function deposit(uint assets, address receiver) payable returns (uint shares)',
   'function mint(uint shares, address receiver) payable returns (uint assets)',
   'function withdraw(uint assets, address receiver, address owner) returns (uint shares)',
@@ -139,24 +158,17 @@ export const VOGUE_ABI = [
   // order is (pooled, usd_owed, fees_tok, fees_usd) — fees_tok is the token-side
   // fee leg (ETH for the ETH pool, BTC for the BTC pool). DO NOT reorder.
   'function autoManaged(address user) view returns (uint pooled, uint usd_owed, uint fees_tok, uint fees_usd)',
-  'function autoManagedBTC(address user) view returns (uint pooled, uint usd_owed, uint fees_tok, uint fees_usd)',
+  // §E235 — `autoManagedBTC` AND `lpSharesBTC` WERE DELETED, NOT RENAMED. Both range managers
+  // declare the SAME names on DIFFERENT addresses (`Quid.sol` for ETH, `Vault.sol` for BTC), so
+  // the BTC reads stop being separate selectors and become the ETH ones called on the vault's
+  // address. Declaring the suffixed forms made every BTC read answer off the ETH engine — a live
+  // call, a plausible number, the wrong range.
   'function totalShares() view returns (uint)',
   'function lpShares() view returns (uint)',
-  'function lpSharesBTC() view returns (uint)',
-  // Self-managed (per-position, ETH-pool only; non-fungible)
-  //   distance: -5000..5000 in increments of 100 (positive = above current tick)
-  //   range:    100..1000 in increments of 50 (width in ticks)
-  //   token:    0x0 for ETH side, stable address for USD side
-  // outOfRange gained a uint8 venue (5th arg) — same ETH yield-venue enum as deposit
-  // (0=Split 1=ether.fi 2=AAVE 3=Galaxy 4=Rover 5=Euler). 4-arg encoding now reverts.
-  'function outOfRange(uint amount, address token, int24 distance, int24 range) payable returns (uint next)',
-  // percent: 1..100 (signed int per Solidity decl, but contract validates 1..100)
-  // token: 0x0 = receive as ETH, stable addr = receive as that stable
-  'function pull(uint id, int percent, address token)',
-  // Storage getters
-  'function positions(address user, uint index) view returns (uint id)',
-  'function selfManaged(uint id) view returns (uint created, address owner, int24 lower, int24 upper, int liq)',
-  'function totalShares() view returns (uint)',
+  // §OOR-BOOK-DELETED (2026-08-29) — `outOfRange`, `pull`, `positions` and `selfManaged` were
+  // declared here and are GONE from the contracts. `outOfRange` was doubly wrong: the declaration
+  // said 4 args while `encode.ts` passed 5 (a `venue` that never existed), so the encoder threw
+  // before it could even reach a nonexistent selector.
   'function feesPerShare() view returns (uint)',
 
   // Events — LP flow (consumed by the net-flow reconstruction)

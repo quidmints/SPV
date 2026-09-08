@@ -13,13 +13,13 @@
 // so a broadcast cannot silently take the public path — see the note there.
 
 import { ethers } from 'ethers'
-import { ERC20_ABI, BASKET_ABI, AUX_ABI, VOGUE_ABI, BTCCHANNELS_ABI, CORE_ABI,
+import { ERC20_ABI, BASKET_ABI, AUX_ABI, RANGE_ABI, BTCCHANNELS_ABI, CORE_ABI,
   LEV_MANAGER_ABI, LEV_VENUE_ABI } from './abi.ts'
 
 export const ZERO_ADDR = '0x0000000000000000000000000000000000000000'
 
 export const iface = new ethers.Interface([
-  ...ERC20_ABI, ...BASKET_ABI, ...AUX_ABI, ...VOGUE_ABI, ...BTCCHANNELS_ABI, ...CORE_ABI,
+  ...ERC20_ABI, ...BASKET_ABI, ...AUX_ABI, ...RANGE_ABI, ...BTCCHANNELS_ABI, ...CORE_ABI,
   ...LEV_MANAGER_ABI, ...LEV_VENUE_ABI,
 ])
 

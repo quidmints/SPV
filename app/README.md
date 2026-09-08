@@ -1,50 +1,49 @@
-# Welcome to your Expo app 👋
+# `app/` — the QU!D mobile wallet
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+An [Expo](https://expo.dev) / React Native app (`expo-router`, file-based routes under `app/app/`).
+It is the phone-side client for QU!D. `spa/` is the browser surface; this is the wallet.
 
-## Get started
+**The protocol itself is specified in [`../spec.md`](../spec.md) — read that first.** Nothing in
+this file describes protocol behaviour; where this README and the contracts in `../evm/src`
+disagree, the contracts win.
 
-1. Install dependencies
+## What is in here
 
-   ```bash
-   npm install
-   ```
+| path | what it holds |
+|---|---|
+| `app/` | The route tree. `index` → `LoginScreen`, `home` → `HomeScreen`, `identity` → the identity wallet. |
+| `components/` | The screens those routes mount, plus `app-providers.tsx` (the provider stack). |
+| `context/`, `hooks/` | Wallet connection (`useWallet`, `useAuth`) and the Solana program hooks. |
+| `constants/` | Generated tables — the Anchor IDL (`quid.json`) and the ticker map. |
+| `features/account/`, `features/network/` | Solana account and cluster UI. |
+| `features/identity/` | The passport / identity stack — **deferred scope**, with its own TODO. |
+| `features/identity/chain/` | An EVM read/encode client (ABIs, encoders, P&L and flow reconstruction, the BIP-341 taproot deposit-address verifier). See the warning below. |
+| `scripts/` | `setup-testnet.sh` and `initialize.js` — operator helpers, not part of the app bundle. |
 
-2. Start the app
+⚠️ **`features/identity/chain/` is a fork of `../spa/src/lib/`, and it has no importer.** Every
+module there except `taproot.ts`/`keys.ts`/`schnorr.ts` is a copy of the SPA's equivalent that did
+not receive the SPA's later corrections, and nothing outside the directory imports any of it. Do not
+treat it as the app's live chain layer until it is either re-synced with `spa/src/lib` or deleted.
 
-   ```bash
-   npx expo start
-   ```
+## Running it
 
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```sh
+npm install        # once; the native modules are heavy
+npx expo start     # Metro; then open on a device, emulator or Expo Go
+npm run android    # or: npm run ios — a native run, needs the platform toolchain
+npm run build      # tsc --noEmit, then `expo prebuild -p android`
+npm run ci         # the above plus lint + prettier checks
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+There is **no `npm test`**. The `*.test.ts` files under `features/` are Node `node:test` suites
+written as ESM, while this package is `"type": "commonjs"` — they are run out-of-band, not by a
+script in here. Do not read a green build as evidence those tests passed.
 
-## Learn more
+## Where the real docs are
 
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+| question | go to |
+|---|---|
+| What is the protocol? | `../spec.md` |
+| How do I work in this tree? | `../CLAUDE.md` |
+| What is the status of X? | `../docs/actionable/SPRINT.md` |
+| What must a front end enforce? | `../spa/FRONTEND-TODO.md` |

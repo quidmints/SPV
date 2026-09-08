@@ -3,7 +3,7 @@
 //
 //   WHAT WE INDEX (mirrors spa/src/lib/flow.ts exactly):
 //     • ERC20 Transfer(from,to,value) on each stable + WETH, where `from` OR
-//       `to` is in the protocol set {basket, aux, vogue}. into-set = inflow,
+//       `to` is in the protocol set {basket, aux, range}. into-set = inflow,
 //       out-of-set = outflow (sign handled at aggregation time).
 //     • BTCChannels ChannelOpened (BTC in) / ChannelClosed (BTC out), in sats.
 //

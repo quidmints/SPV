@@ -124,14 +124,20 @@ export function classifyRegime(logPrices: number[], stepSec = 1, source: RegimeR
 
 // ── Internal pool source. NOTE: pool-only is a partial view (it is the thing we
 //    protect). The external-market blend (lib/market.ts) is the informative one. ──
+// §E235 — THE `isBTC` PARAMETER IS GONE FROM THIS SIGNATURE TOO. It existed only to be forwarded
+// into `Core.observe`, which no longer takes it; leaving it would have been a parameter callers
+// must supply that selects nothing. The engine is `coreAddr`.
 export async function fetchRegime(
-  coreAddr: string, isBTC: boolean, windowSec = 6 * 3600, samples = 24,
+  coreAddr: string, windowSec = 6 * 3600, samples = 24,
 ): Promise<RegimeRead | null> {
   if (!coreAddr || coreAddr === ZERO_ADDR) return null
   const stepSec = Math.max(Math.floor(windowSec / samples), 60)
   const agos: number[] = []
   for (let i = samples; i >= 0; i--) agos.push(i * stepSec)   // descending → [N·step … 0]
-  const res = await readOne(coreAddr, 'observe', [agos, isBTC])   // §E63: one entry, range as an arg
+  // §E235 — ONE ARGUMENT. `Core.observe(uint32[])` (`Core.sol:1767`) reads its OWN ring; the
+  // `isBTC` flag it used to dispatch on is gone, because the range is an INSTANCE now and the
+  // engine is chosen by `coreAddr`. Passing a second argument throws in the encoder.
+  const res = await readOne(coreAddr, 'observe', [agos])
   if (!res) return null
   const cumulatives: bigint[] = (res as any[]).map((x) => BigInt(x))
   return classifyRegime(decodeTwapLogPrices(cumulatives, stepSec), stepSec, 'pool')

@@ -45,7 +45,7 @@ function computeNetFlow(
   partial: boolean,
 ): NetFlow {
   const prot = new Set(
-    [cfg.contracts.basket, cfg.contracts.aux, cfg.contracts.vogue]
+    [cfg.contracts.basket, cfg.contracts.aux, cfg.contracts.range]
       .map(a => a.toLowerCase())
       .filter(a => a && a !== ZERO_ADDR),
   )

@@ -16,7 +16,7 @@
 // encode into a runtime throw. Merge them as its own change, with the name collision checked
 // first; do not fold it into the port.
 import { ethers } from 'ethers'
-import { ERC20_ABI, BASKET_ABI, AUX_ABI, VOGUE_ABI, BTCCHANNELS_ABI, LEV_MANAGER_ABI } from './abi.ts'
+import { ERC20_ABI, BASKET_ABI, AUX_ABI, RANGE_ABI, BTCCHANNELS_ABI, LEV_MANAGER_ABI } from './abi.ts'
 import { ethCall, waitTx } from './eth.ts'
 import { isUsdtLike } from './chains.ts'
 import { sendTx } from './protect.ts'
@@ -35,7 +35,7 @@ const ZERO_ADDR = '0x0000000000000000000000000000000000000000'
 //   ABI ENCODING — one ethers.Interface for all read/write encodes
 // ═════════════════════════════════════════════════════════════════════
 const iface = new ethers.Interface([
-  ...ERC20_ABI, ...BASKET_ABI, ...AUX_ABI, ...VOGUE_ABI, ...BTCCHANNELS_ABI, ...LEV_MANAGER_ABI,
+  ...ERC20_ABI, ...BASKET_ABI, ...AUX_ABI, ...RANGE_ABI, ...BTCCHANNELS_ABI, ...LEV_MANAGER_ABI,
 ])
 
 const enc = {
@@ -45,7 +45,7 @@ const enc = {
   approve:    (s: string, n: bigint) => iface.encodeFunctionData('approve', [s, n]),
   // Basket
   // NOTE: full signatures REQUIRED — the merged iface has overloads of mint/swap/
-  // redeem/auxSwap (Basket + Vogue + Aux), so the bare name is ambiguous in ethers v6.
+  // redeem/auxSwap (Basket + Quid + Aux), so the bare name is ambiguous in ethers v6.
   mint:       (p: string, amt: bigint, t: string, when: number) =>
                 iface.encodeFunctionData('mint(address,uint256,address,uint256)', [p, amt, t, when]),
   currentMonth: () => iface.encodeFunctionData('currentMonth', []),
@@ -62,21 +62,21 @@ const enc = {
   metrics:     (force: boolean) => iface.encodeFunctionData('get_metrics', [force]),
   deposits:    () => iface.encodeFunctionData('get_deposits', []),
   avgYield:    () => iface.encodeFunctionData('avgYield', []),
-  // Vogue (ETH side ERC4626-shaped)
-  vogueDeposit:  (a: bigint, r: string) => iface.encodeFunctionData('deposit(uint256,address)', [a, r]),
-  vogueWithdraw: (a: bigint, r: string, o: string) =>
+  // The ETH range manager, `Quid` (ERC4626-shaped). TWO arguments — there is no `venue`.
+  rangeDeposit:  (a: bigint, r: string) => iface.encodeFunctionData('deposit(uint256,address)', [a, r]),
+  rangeWithdraw: (a: bigint, r: string, o: string) =>
                 iface.encodeFunctionData('withdraw(uint256,address,address)', [a, r, o]),
   autoManaged:    (u: string) => iface.encodeFunctionData('autoManaged', [u]),
-  autoManagedBTC: (u: string) => iface.encodeFunctionData('autoManagedBTC', [u]),
-  vogueTotalShares: () => iface.encodeFunctionData('totalShares', []),
-  vogueLpShares:    () => iface.encodeFunctionData('lpShares', []),
-  // Self-managed
-  outOfRange: (amt: bigint, token: string, distance: number, range: number, venue: number) =>
-                iface.encodeFunctionData('outOfRange', [amt, token, distance, range, venue]),
-  pull:       (id: bigint, percent: number, token: string) =>
-                iface.encodeFunctionData('pull', [id, percent, token]),
-  positions:  (u: string, i: number) => iface.encodeFunctionData('positions', [u, i]),
-  selfManaged: (id: bigint) => iface.encodeFunctionData('selfManaged', [id]),
+  rangeTotalShares: () => iface.encodeFunctionData('totalShares', []),
+  rangeLpShares:    () => iface.encodeFunctionData('lpShares', []),
+  // §E235 — `autoManagedBTC` DELETED. The BTC read is `autoManaged` called on the BTC range
+  // manager's ADDRESS (`Vault.sol`), not a second selector on this one.
+  // §OOR-BOOK-DELETED — `outOfRange`, `pull`, `positions` and `selfManaged` encoders DELETED.
+  // None of those entrypoints exist in `evm/src`. `outOfRange` was the worst of them: it passed
+  // FIVE arguments (a trailing `venue`) against a FOUR-argument declaration in `abi.ts`, so
+  // `encodeFunctionData` threw on the argument count before it could reach a selector that is
+  // not on chain either. The successor is a signed EIP-712 intent, `Quid.fillIntent` — do not
+  // add an encoder for it until a signing flow calls one.
   // BTCChannels
   channels:    (id: string) => iface.encodeFunctionData('channels', [id]),
   requestSwapOutOnchain: (token: string, usd: bigint, minSats: bigint, swapId: string, script: string) =>

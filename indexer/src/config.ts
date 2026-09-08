@@ -48,7 +48,9 @@ export interface Config {
   contracts: {
     basket: string
     aux: string
-    vogue: string
+    // ⛔ WAS `vogue`. That is a DEAD NAME: the deploy script writes the key `range` for the ETH
+    // range manager (`evm/src/Quid.sol:38`) and there is no Uniswap v4 anywhere in the protocol.
+    range: string
     btcChannels: string
     weth: string
   }
@@ -73,7 +75,9 @@ export function loadConfig(): Config {
     contracts: {
       basket:      env('QUID_BASKET',       ZERO_ADDR),
       aux:         env('QUID_AUX',          ZERO_ADDR),
-      vogue:       env('QUID_VOGUE',        ZERO_ADDR),
+      // `QUID_RANGE` is the name; `QUID_VOGUE` is accepted as a LEGACY fallback so an existing
+      // deployment's env keeps working across this rename rather than silently indexing zero flow.
+      range:       env('QUID_RANGE', env('QUID_VOGUE', ZERO_ADDR)),
       btcChannels: env('QUID_BTC_CHANNELS', ZERO_ADDR),
       // WETH defaults to canonical mainnet WETH (chains.ts), env-overridable.
       weth:        env('QUID_WETH',         '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'),
@@ -93,7 +97,7 @@ export function loadConfig(): Config {
 // The protocol address set (lowercased, 0x0 filtered) — into-set = inflow,
 // out-of-set = outflow, exactly as flow.ts's PROTOCOL().
 export function protocolAddrs(c: Config): string[] {
-  return [c.contracts.basket, c.contracts.aux, c.contracts.vogue]
+  return [c.contracts.basket, c.contracts.aux, c.contracts.range]
     .map(a => a.toLowerCase())
     .filter(a => a && a !== ZERO_ADDR)
 }

@@ -1,13 +1,13 @@
 
 // ════════════════════════════════════════════════════════════════════════
-//   PER-LP REALIZED P&L (ETH side / Vogue) — reconstructed client-side.
+//   PER-LP REALIZED P&L (ETH side / `Quid`, the ETH range manager) — reconstructed client-side.
 //
 //   The protocol emits no per-LP P&L event (this thread adds no Solidity), so
-//   the connected wallet's ETH-LP position is rebuilt from the Vogue Deposit /
+//   the connected wallet's ETH-LP position is rebuilt from the range manager's Deposit /
 //   Withdraw logs (filtered by the `owner` indexed topic == the wallet):
 //     • sharesHeld     = Σ deposit.shares − Σ withdraw.shares          (exact)
 //     • ethInvestedNet = Σ deposit.assets − Σ withdraw.assets          (exact)
-//     • currentValueEth= sharesHeld / lpShares() × vogueETH()  (on-chain, now)
+//     • currentValueEth= sharesHeld / lpShares() × rangeETH()  (on-chain, now)
 //   The USD legs need a price PER deposit/withdraw block. The app's only price
 //   source (market.ts → /api/market → CoinGecko) exposes the CURRENT price, not
 //   a by-timestamp one, so the USD cost basis is APPROXIMATED at today's price
@@ -16,7 +16,7 @@
 //   above is already exact regardless.
 //
 //   Degrades gracefully (returns null / zeros, never throws), like flow.ts and
-//   readOne do: no wallet, undeployed Vogue, or RPC log gaps → null / hasPosition
+//   readOne do: no wallet, an undeployed range manager, or RPC log gaps → null / hasPosition
 //   = false.
 // ════════════════════════════════════════════════════════════════════════
 
@@ -30,7 +30,7 @@ export interface LpPnl {
   // ── exact, from events / on-chain ──
   sharesHeld: number          // Σ deposit.shares − Σ withdraw.shares
   ethInvestedNet: number      // Σ deposit.assets − Σ withdraw.assets (ETH)
-  currentValueEth: number     // sharesHeld / lpShares × vogueETH (ETH, now)
+  currentValueEth: number     // sharesHeld / lpShares × rangeETH (ETH, now)
   currentValueUsd: number     // currentValueEth × current ETH price
   feesEarnedEth: number       // position's share of pool fee growth (approx — see note)
   // ── USD legs (approx at current price unless an archive feed is wired) ──
@@ -41,7 +41,7 @@ export interface LpPnl {
   costBasisApprox: boolean    // true ⇒ USD legs priced at TODAY's price, not entry
 }
 
-// Vogue Deposit / Withdraw topic0 (signature hashes). Owner topic index differs:
+// Range-manager Deposit / Withdraw topic0 (signature hashes). Owner topic index differs:
 //   Deposit(sender indexed, owner indexed, assets, shares)            → owner = topics[2]
 //   Withdraw(sender indexed, receiver indexed, owner indexed, …)      → owner = topics[3]
 const DEPOSIT_TOPIC  = ethers.id('Deposit(address,address,uint256,uint256)')
@@ -63,7 +63,7 @@ const toEth = (v: bigint) => Number(v) / 1e18
 
 export async function fetchLpPnl(address: string | null): Promise<LpPnl | null> {
   if (!address || !hasRpc()) return null
-  if (!CONTRACTS.vogue || CONTRACTS.vogue === ZERO_ADDR) return null
+  if (!CONTRACTS.range || CONTRACTS.range === ZERO_ADDR) return null
 
   const ownerTopic = padAddr(address)
 
@@ -74,9 +74,9 @@ export async function fetchLpPnl(address: string | null): Promise<LpPnl | null> 
   if (head === 0) return null
 
   const [depLogs, wdLogs] = await Promise.all([
-    getLogs({ address: CONTRACTS.vogue, fromBlock: 0, toBlock: head,
+    getLogs({ address: CONTRACTS.range, fromBlock: 0, toBlock: head,
       topics: [DEPOSIT_TOPIC, null, ownerTopic] }),                 // owner = topics[2]
-    getLogs({ address: CONTRACTS.vogue, fromBlock: 0, toBlock: head,
+    getLogs({ address: CONTRACTS.range, fromBlock: 0, toBlock: head,
       topics: [WITHDRAW_TOPIC, null, null, ownerTopic] }),          // owner = topics[3]
   ])
 
@@ -101,16 +101,16 @@ export async function fetchLpPnl(address: string | null): Promise<LpPnl | null> 
     }
   }
 
-  // ── Current value (on-chain, exact NOW): sharesHeld / lpShares × vogueETH ──
+  // ── Current value (on-chain, exact NOW): sharesHeld / lpShares × rangeETH ──
   let currentValueEth = 0
-  const lpSharesRaw = await readOne(CONTRACTS.vogue, 'lpShares')
-  const vogueEthRaw = await readOne(CONTRACTS.vogue, 'vogueETH')
+  const lpSharesRaw = await readOne(CONTRACTS.range, 'lpShares')
+  const rangeEthRaw = await readOne(CONTRACTS.range, 'rangeETH')
   try {
-    if (lpSharesRaw != null && vogueEthRaw != null) {
-      const lpShares = BigInt(lpSharesRaw), vogueEth = BigInt(vogueEthRaw)
+    if (lpSharesRaw != null && rangeEthRaw != null) {
+      const lpShares = BigInt(lpSharesRaw), rangeEth = BigInt(rangeEthRaw)
       if (lpShares > 0n && sharesHeldBig > 0n) {
-        // value = sharesHeld/lpShares × vogueEth, computed in 1e18 fixed point.
-        const valWei = (sharesHeldBig * vogueEth) / lpShares
+        // value = sharesHeld/lpShares × rangeEth, computed in 1e18 fixed point.
+        const valWei = (sharesHeldBig * rangeEth) / lpShares
         currentValueEth = toEth(valWei)
       }
     }
@@ -123,7 +123,7 @@ export async function fetchLpPnl(address: string | null): Promise<LpPnl | null> 
   //   for the protocol total; it overstates if the LP entered after fees began
   //   accruing — kept honest via the UI label, not fabricated precision. ──
   let feesEarnedEth = 0
-  const fpsRaw = await readOne(CONTRACTS.vogue, 'feesPerShare')
+  const fpsRaw = await readOne(CONTRACTS.range, 'feesPerShare')
   try {
     if (fpsRaw != null && sharesHeldBig > 0n) {
       const fps = BigInt(fpsRaw)
