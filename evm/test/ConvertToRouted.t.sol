@@ -32,6 +32,55 @@ contract ConvertToRoutedTest is Test {
     ///    separately from the pinned suite total.
     function setUp() public { vm.createSelectFork(vm.envString("ETH_RPC_URL")); }
 
+    /// ⭐ §SESS-118 — **A STALE FORK IS AN ABSENT PRECONDITION, NOT A ROUTING DEFECT, AND IT COSTS
+    ///    NO RPC CALL TO TELL THEM APART.**
+    ///
+    /// 🔴 **MEASURED 2026-09-08, and it is the §SESS-99 shape a third time.** `createSelectFork(url)`
+    ///    does NOT mean "head" inside a long run: Foundry keys a fork by `(url, block)` and REUSES it,
+    ///    so the FIRST suite in the process to fork at "latest" pins that number for every later suite
+    ///    on the same URL. In the 180-suite run this suite executed at **25934235 while head was
+    ///    25934305 — 70 blocks stale** — and `test_OneStableAlone` failed *"a single route must
+    ///    execute: 0 <= 0"*. **The identical test standalone, same commit, same key, passed with
+    ///    100.107404784232550147 WETH.** The header above already measured the mechanism (*"pinned 20
+    ///    blocks behind head → got == 0"*); what nobody had noticed is that an UNPINNED run reaches
+    ///    that state on its own once the process has been alive a quarter of an hour.
+    ///
+    /// ⛔ **THE OBVIOUS FIX IS WORSE THAN THE BUG AND WAS TRIED AND REVERTED.** Reading head via `ffi`
+    ///    (`cast block-number`) and forking at it explicitly does make reuse impossible — and it puts a
+    ///    BLOCKING RPC CALL IN `setUp`, which HUNG for minutes under exactly the rate-limit contention
+    ///    that makes long runs stale in the first place. A hang is strictly worse than a wrong message:
+    ///    it takes the whole suite with it and says nothing.
+    ///
+    /// ⇒ **`vm.unixTime()` ANSWERS IT FOR FREE.** Wall clock minus the fork's own `block.timestamp` is
+    ///   the staleness, needs no network, and cannot hang. Beyond `MAX_FORK_LAG` the live-route
+    ///   precondition is genuinely ABSENT — the same category as an unset API key — so this announces
+    ///   and skips, which is the discriminator `_requireRouteOrExplain` already applies to the key.
+    /// ⚠️ **300s ≈ 25 BLOCKS, CHOSEN AGAINST THE MEASUREMENT AND NOT PICKED FOR COMFORT:** 20 blocks
+    ///   was measured to break a route and 70 was observed breaking one; a threshold inside that band
+    ///   skips exactly the runs that cannot test the property. ⛔ **DO NOT RAISE IT TO MAKE A RED GO
+    ///   AWAY** — that inverts it into the tolerance rule 4 forbids. With a FRESH fork a zero means the
+    ///   route genuinely did not execute, which is the defect this suite exists to catch.
+    /// 📌 `tools/forge-test.sh` avoids the staleness rather than skipping it, and is the better answer
+    ///   when you actually need this suite's verdict in a full run.
+    uint256 constant MAX_FORK_LAG = 300;
+
+    function _requireFreshForkOrExplain() internal returns (bool ok) {
+        // ⚠️ SATURATING, NOT BARE `-`. `block.timestamp` can EXCEED wall clock — a fork one block
+        //    ahead of the local clock, or any `vm.warp` a future edit puts in `setUp` — and an
+        //    underflow here would REVERT the test rather than skip it. A guard that can fail harder
+        //    than the thing it guards is worse than no guard; ahead-of-clock means "not stale", so it
+        //    reads as zero lag.
+        uint256 nowSec = vm.unixTime() / 1000;
+        uint256 lag = nowSec > block.timestamp ? nowSec - block.timestamp : 0;
+        if (lag <= MAX_FORK_LAG) return true;
+        emit log_named_uint("SKIP: fork is stale by (seconds)", lag);
+        emit log("  a live 1inch route cannot execute against a fork this far behind head - this is an");
+        emit log("  ABSENT PRECONDITION, not a routing defect. Foundry reuses a fork keyed (url, block),");
+        emit log("  so a long run pins an early 'latest'. Run this suite alone, or via tools/forge-test.sh.");
+        vm.skip(true);
+        return false;
+    }
+
     /// §SESS-111 — one discriminator for both tests: an UNSET key is an absence (skip); a key that IS
     /// set and yields an empty route is a REJECTED request (403 on a bad `from`, a dead key, a rate
     /// limit) and must read as a failure. `0x` looks identical either way, which is what let a 403
@@ -87,6 +136,7 @@ contract ConvertToRoutedTest is Test {
         //    API key), both times wrongly.
         _requireRouteOrExplain(r.length);
         if (r.length < 4) return;
+        if (!_requireFreshForkOrExplain()) return;   // §SESS-118 — stale fork ⇒ precondition absent
         vm.store(USDC, keccak256(abi.encode(address(this), uint256(9))), bytes32(a));
         assertEq(IERC20t(USDC).balanceOf(address(this)), a, "fixture");
         address[] memory t = new address[](1); uint256[] memory m = new uint256[](1);
@@ -116,6 +166,10 @@ contract ConvertToRoutedTest is Test {
             // `return` reports SKIPPED, which is what this comment always wanted.
             vm.skip(true); return;
         }
+        // §SESS-118 — same stale-fork precondition as the single-route test above. Two live routes
+        // make it MORE exposed, not less: either one failing against a drifted fork yields the same
+        // uninformative aggregate zero.
+        if (!_requireFreshForkOrExplain()) return;
 
         // ⚠️ `deal` IS THE WRONG TOOL HERE AND IT COST A FALSE FAILURE. On a fork it drives
         //    `stdstore`'s brute-force slot search, which issues a storm of `eth_getStorageAt` against
