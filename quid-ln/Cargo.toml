@@ -316,18 +316,24 @@ tokio = { version = "1", default-features = false }
 # * util: add helper ChannelHandshakeConfig -> ChannelHandshakeConfigUpdate (on master)
 # * Add missing `OffersMessageHandler::best_block` updating (on master)
 # THE QU!D LDK FORK, git-referenced from OUR org like every other fork above.
-# `quidmints/rust-lightning`, branch `quid-v0.2.3-2026_07_21`. It is a FORK, not a
-# patched dependency: +8,263/-581 against its base, which is tagged `base-027c6a1`
-# (upstream lexe-app @ 027c6a1) — so `git diff base-027c6a1..HEAD` is the whole
-# divergence. Simple-taproot channels and MuSig2 splice signing are ours; upstream
+# `quidmints/rust-lightning`, branch `main` — the ONLY branch there, same rule as
+# this repo. It is a FORK, not a patched dependency: +8,263/-581 against its base,
+# which is tagged `base-027c6a1` (upstream lexe-app @ 027c6a1) — so
+# `git diff base-027c6a1..main` is the whole divergence in one command.
+# ⚠️ `branch`, NOT `rev`, AND THAT IS NOT LOOSER: `Cargo.lock` pins the exact sha
+#    either way, so a build is reproducible from the lockfile regardless. What
+#    changes is that picking up a fork commit becomes an explicit
+#    `cargo update -p lightning` instead of hand-editing a hash — and there is no
+#    second branch it could drift onto. (The seven forks above still read `rev`;
+#    they are third-party upstreams where pinning a commit is the point.) Simple-taproot channels and MuSig2 splice signing are ours; upstream
 # has ZERO occurrences of `negotiate_simple_taproot` or `partially_sign_splice_
 # shared_input`. See QUID_PATCHES.md in that repo.
 # ▶️ TO EDIT LDK LOCALLY: clone the fork beside this repo and uncomment the
 #    `../../ldk/` overrides below; commit there, then bump `rev` here.
-lightning = { git = "https://github.com/quidmints/rust-lightning", rev = "7c50bb599" }
-lightning-invoice = { git = "https://github.com/quidmints/rust-lightning", rev = "7c50bb599" }
-lightning-transaction-sync = { git = "https://github.com/quidmints/rust-lightning", rev = "7c50bb599" }
-lightning-types = { git = "https://github.com/quidmints/rust-lightning", rev = "7c50bb599" }
+lightning = { git = "https://github.com/quidmints/rust-lightning", branch = "main" }
+lightning-invoice = { git = "https://github.com/quidmints/rust-lightning", branch = "main" }
+lightning-transaction-sync = { git = "https://github.com/quidmints/rust-lightning", branch = "main" }
+lightning-types = { git = "https://github.com/quidmints/rust-lightning", branch = "main" }
 # lightning.path = "../../ldk/lightning"
 # lightning-invoice.path = "../../ldk/lightning-invoice"
 # lightning-transaction-sync.path = "../../ldk/lightning-transaction-sync"

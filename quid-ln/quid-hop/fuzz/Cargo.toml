@@ -45,7 +45,7 @@ bench = false
 # Cargo.toml carries, or quid-hop won't compile here. Paths are relative to this
 # fuzz crate (quid-hop/fuzz/ → ../../lib/rust-lightning).
 [patch.crates-io]
-lightning = { git = "https://github.com/quidmints/rust-lightning", rev = "7c50bb599" }
-lightning-invoice = { git = "https://github.com/quidmints/rust-lightning", rev = "7c50bb599" }
-lightning-transaction-sync = { git = "https://github.com/quidmints/rust-lightning", rev = "7c50bb599" }
-lightning-types = { git = "https://github.com/quidmints/rust-lightning", rev = "7c50bb599" }
+lightning = { git = "https://github.com/quidmints/rust-lightning", branch = "main" }
+lightning-invoice = { git = "https://github.com/quidmints/rust-lightning", branch = "main" }
+lightning-transaction-sync = { git = "https://github.com/quidmints/rust-lightning", branch = "main" }
+lightning-types = { git = "https://github.com/quidmints/rust-lightning", branch = "main" }
