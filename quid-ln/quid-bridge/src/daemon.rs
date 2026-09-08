@@ -477,6 +477,15 @@ pub async fn run(
         .and_then(|v| v.parse::<u32>().ok())
         .filter(|&n| n > 0)
         .map(|max_age| Arc::new(quid_hop::liveness::RoutingGate::new(max_age)));
+    // (§T9-REGISTRY-HAS-NO-WRITER) Constructed UNCONDITIONALLY, unlike `lp_gate` above, and the
+    // asymmetry is deliberate: the gate is opt-in because collecting heartbeats changes routing
+    // behaviour, whereas this map only RECORDS a pairing the chain already fixed. Writing it costs
+    // one insert per channel per pass and makes the comparand available the moment a truth factory
+    // is attached — rather than requiring a redeploy to start populating.
+    // ⚠️ Populating it does NOT arm anything on its own. The signer is bound only when a factory is
+    //    passed to `boot`/`boot_vault`, and both daemons still pass `None` WITH THE REASON WRITTEN
+    //    AT EACH. This removes the blocker; it does not flip the switch.
+    let cid_registry = Arc::new(crate::channel_truth::CidRegistry::new());
     match &lp_gate {
         Some(_) => info!("LP liveness: collecting heartbeats (routing NOT yet gated on them)"),
         None => info!(
@@ -500,6 +509,17 @@ pub async fn run(
         // (§LP-LIVENESS) The gate now COLLECTS whenever a threshold is configured, while routing
         // stays ungated until the phone ships. Those are two switches on purpose — see `lp_gate`.
         lp_gate.clone(),
+        // (§T9-REGISTRY-HAS-NO-WRITER) The truth source's comparand map, now WRITTEN. This is the
+        // half that was missing: `CidRegistry` had no writer anywhere, so a truth factory attached
+        // to the signer resolved no cid and returned `NotRecorded` forever — permissive while
+        // LOOKING armed. The reconciler already walks every monitor and derives each channel's
+        // on-chain cid, and `channel_keys_id` sits on the same monitor, so the pairing costs one
+        // read in a loop that exists.
+        // ⛔ STILL NOT §T9 DONE. This is step 1 of three: the signer can now RESOLVE a channel.
+        //    Step 2 is attaching the factory (LP-side lives in the react-native wallet, not here —
+        //    the LP runs no daemon), step 3 is the delivery-output bound. Do not mark §T9 done on
+        //    this commit.
+        Some(cid_registry.clone()),
         cfg.channel_reconcile_secs,
         channel_active.clone(),
     ));

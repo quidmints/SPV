@@ -1595,7 +1595,30 @@ reasoning one level short, so this is booked as a finding and the fix is not lan
 fails before it and passes after. **The test that decides it:** settle with `tokR > 0`, add NO new
 fees, then assert `pendingFor == 0`. Today it returns `tokR·fps/WAD`.
 
-## 🔴 §T9-REGISTRY-HAS-NO-WRITER — **§E177 IS UNWIRED ONE LEVEL DEEPER THAN ITS ROW SAYS**
+## 🟡 §T9-REGISTRY-HAS-NO-WRITER — ✅ **STEP 1 DONE 2026-09-08: `CidRegistry` HAS A WRITER.**
+
+`run_channel_reconciler` now binds `channel_keys_id -> on-chain cid` for every monitor it walks
+(`channel_driver.rs`), and `daemon.rs` constructs the registry UNCONDITIONALLY and passes it in.
+⭐ **IT COST ONE READ IN A LOOP THAT ALREADY EXISTED, exactly as this row predicted:** the pass
+already derives each channel's on-chain `cid` from its ORIGINAL funding pubkeys + outpoint, and
+`m.channel_keys_id()` is on the same monitor — so both halves of the pairing were already in scope and
+a second walk would have had to re-derive the cid.
+✅ **THE NEAR-MISS THIS ROW WARNED ABOUT WAS AVOIDED AND IS NOW DOCUMENTED AT THE PARAMETER:** the
+`gate` beside it keys on LDK's `ChannelId`, this keys on `channel_keys_id` — different 32 bytes, and
+binding the comparand to the wrong channel is the one failure worse than having none.
+✅ **Bound BEFORE the on-chain reads**, so a pass that returns early for a channel still records the
+pairing; a conflicting re-bind is refused and warned rather than overwritten.
+⚠️ **THIS ARMS NOTHING BY ITSELF, AND THAT IS THE POINT.** Both daemons still pass `truth_factory:
+None` with the reason written at each. What changed is that attaching one is no longer guaranteed to
+be *permanently permissive* — the failure mode this row exists to prevent.
+⛔ **DO NOT MARK §T9 DONE.** Step 2 (attach the factory — LP-side belongs in the react-native wallet,
+since the LP runs no daemon) and step 3 (the delivery-output bound) are untouched.
+🔴 **AND THE ROW'S OWN HEADLINE CLAIM WAS ALREADY STALE BEFORE THIS:** it says *"`with_truth_factory`
+has ZERO production callers"*. **Measured: it has one** — `quid-hop/src/node.rs:866`, reached through
+`boot`/`boot_vault`'s injected trait object. The PLUMBING landed; only the registry was missing. The
+blocker had moved one level down and the headline had not.
+
+*(original heading:)* 🔴 §E177 IS UNWIRED ONE LEVEL DEEPER THAN ITS ROW SAYS
 
 Found 2026-09-01 while wiring §T9, and it changes what "wire the truth source" means.
 
