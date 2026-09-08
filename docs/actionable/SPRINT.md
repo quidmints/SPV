@@ -13900,6 +13900,70 @@ the practice exists in this tree and would bite here).
 change in two live contracts. Standing rule 8c also applies: a modifier INLINES at every use site, so
 moving it saves no bytecode either — the only gain is one declaration.
 
+## 🟡 §SCAN-2026-09-08 — **RE-RUN AT THREAD CLOSE. EVERY COUNT GREW, AND THAT IS THE FINDING.**
+
+⛔ **THIS IS A DELTA, NOT A THIRD BOOKING OF THE SAME FIVE CLASSES.** They are already booked twice —
+`§4c` (2026-08-02, `:34,568`) and `§LOOSE-ENDS-SCAN` (2026-08-22, immediately below). Re-listing the
+same sites a third time is exactly the duplication that makes this file unreadable, so what follows is
+**only what MOVED**, plus a verdict on the sites this thread's own lane added.
+
+### 📊 THE COUNTS ACROSS ALL THREE RUNS — monotone upward on four of five
+
+| probe | 2026-08-02 | 2026-08-22 | **2026-09-08** | reading |
+|---|---|---|---|---|
+| OUR markers | 24 | — | **56** | ⚠️ **+133%, the biggest mover, and MOSTLY BENIGN:** the growth is `TODO.md sec. N` PROSE CITATIONS in `evm/noir/*.sh`, which the scanner cannot tell from a task. **The exception is unchanged and still nobody's: `quid-hop/src/migration.rs:77,83,93,97`** — four `PLACEHOLDER (dev)` constants (operator Safe address + chain id) marked *"replace before mainnet"*. Already booked at `§4c` and `§SEQ-AUDIT GATE 5 · lane L2`; **re-verified present 2026-09-08, not re-booked.** |
+| MOCK on a real path | 97 | — | **106** | 🟠 `§4c`'s triage rule stands and is what keeps this legible: **a PROOF ⇒ kill it; a READING ⇒ justify it inline.** The +9 are `vm.mockCall` on price/depeg views — the readings arm, not the proofs arm. |
+| FABRICATED consensus params | 23 | — | **28** | 🔴 **`§4c` SAID "all in 2 files" AND THAT IS NOW FALSE.** `Alles.t.sol` (`:424 :425 :4702 :4799 :4871`) and `BTCChannelsAuth.t.sol` (`:36 :110`) carry them too, beyond the `VBtcLevFeeLane`/`BtcLpMintStress` pair it named. ⇒ **the fixture work `§4c` recorded as done did not reach these two files.** Owner: the BTC lane, not this thread. |
+| SILENT SKIP | 2 | 5 | **13** | ⚠️ per-site verdict below. **The growth is real, and most of it is correctly-discriminated skips this thread added deliberately.** |
+| SWALLOWED failure | 67 | 54 | **73** | ⚠️ **NON-MONOTONE (67 → 54 → 73), so the three runs are NOT measuring one population.** ⛔ Do not quote any of them as "the number of swallowed failures" until that is reconciled. `§LOOSE-ENDS-SCAN`'s split — SETUP helper ⇒ defensible · TEST BODY ⇒ read it — remains the right triage and is deliberately not re-done here. |
+| vendored markers | 229 | — | **229** | ✅ unchanged. Upstream LDK/lexe. Not ours. |
+
+### ✅ THE 13 SILENT SKIPS, EACH ASSIGNED
+
+**THE DISCRIMINATOR IS UNCHANGED AND IS THE WHOLE TEST:** *a skip that announces a genuine ABSENCE is
+right; a skip that can absorb a FAILURE is not.*
+
+- ✅ **MINE, BUILT TO THE DISCRIMINATOR — no action.** `OneInchRealFill.t.sol:54`,
+  `ConvertToRouted.t.sol:43` and `:117` (via `_requireRouteOrExplain`). Each asks whether
+  `ONEINCH_API_KEY` is SET: unset ⇒ announced skip; **set, but the bridge returned `0x` ⇒ `revert`
+  naming the reason** — because a 403 and an absent key produce byte-identical empty routes.
+  🔴 **Not theoretical: that is what let a rejected request wear a routing defect's clothes for a
+  day (§SESS-99).** All three re-read 2026-09-08, not assumed.
+- ✅ **MINE, FALSE POSITIVE.** `lev_keeper.rs:1939` is a `///` COMMENT *about* `vm.skip`, not a skip.
+  The keeper's real behaviour is the opposite: absent config FAILS LOUD and opting out must be asked
+  for (`LEV_KEEPER_OFFLINE=1`).
+- ✅ **ALREADY FIXED 2026-08-22 and still correct.** `OneInchGasProbe:49`,
+  `OneInchObserverIsIndependent:45`, `CurveObserverIsCheapAndSane:44`.
+- ✅ **ALREADY RULED CORRECT-AS-IS.** `btc/BtcSelfManaged.t.sol:169`.
+- 🔴 **THE ONLY GENUINELY OPEN ONES, AND NOT MINE:** `RestoreProfitability.t.sol:179`, `:317`, `:396`
+  — `if (inv1 >= tgt1) { emit log("INCONCLUSIVE: never reached inv < target"); vm.skip(true); }`.
+  ⚠️ Each announces its reason, which is the right half — **but the condition is a MEASURED OUTCOME
+  of the setup, not an absent dependency, so a setup that quietly stops working makes all three
+  vanish from the suite while reading as deliberate.** ⛔ And there is no `return` after the
+  `vm.skip(true)` at any of the three: §SESS-99 measured that **`vm.skip` does not halt execution**,
+  so the assertions below them still run. **Owner: the `RestoreProfitability` lane — the file was
+  ` M` in the shared tree at scan time and was not touched from here.**
+
+### 📌 THE TRANSCRIPT HALF — 2,667 blocks, ONE item survives triage
+
+The scanner flagged 8 SECURITY hits as "not obviously booked". ⛔ **All 8 are FALSE POSITIVES, recorded
+as such so nobody re-reads them:** conversational fragments about the 1inch API key (*"do we need an
+api key?"*, *"the key doesn't buy 'more venues' in the abstract"*) matched on the word "key". Key
+handling itself is settled and lives in `CLAUDE.md` (`evm/.env`, mode 600, never `foundry.toml`).
+
+- 🟡 **CARRIED — the one real item: `#2 the untested join, via `prefer_fetched`.`** The A/B seam in
+  `quid-bridge/src/oneinch.rs` is covered on each half separately
+  (`measure_oneinch_against_the_self_planned_route` and
+  `prefer_fetched_takes_the_better_quote_and_ties_go_to_us`), **but the JOIN — a fetched route wins
+  the comparison AND is what the keeper then actually sends — is not exercised end to end.** This is
+  the one thing this thread named and did not close, and it is stated here rather than in a reply
+  because that is the failure mode the scanner exists to catch.
+- ✅ The remaining INCOMPLETE/DECISION/RISK hits resolve either to closed history from earlier
+  compactions in the same JSONL — the file spans many sessions and the scanner's own header warns of
+  exactly this — or to peer lanes with named owners.
+
+---
+
 ## 🔴 §LOOSE-ENDS-SCAN — **`tools/scan-loose-ends.py` FINDS FOUR THINGS THIS THREAD DID NOT BOOK** (2026-08-22)
 
 Run at close-out, because "is everything booked?" is answered by the scanner, not by memory.
