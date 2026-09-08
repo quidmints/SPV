@@ -1,189 +1,332 @@
-# spec.md — the map
+# spec.md — the protocol
 
-**What lives where, across every repository this project spans, and how to read
-`docs/informational/` without being misled by it.**
+The deployed system as the code defines it. Every claim carries a `file:line` into `evm/`. Where this
+file and the contracts disagree, the contracts win.
 
-This file is a navigator. It holds no design of its own: anything it says about how the protocol
-works is a one-line orientation with a pointer, never the explanation. The explanations live in the
-documents and the code this file points at, and when the two disagree the code wins.
+The authority for what is deployed is `DeployLib.deployQuidStack` (`evm/script/DeployLib.sol:120`),
+called once from `evm/script/DeployL1_s.sol:300-326`.
 
-> ⚠️ **What this replaced.** Until 2026-08-28 `spec.md` was a 2,206-line *dashboard* specification —
-> a Kalman/HMM signal surface, a pool-flow microsignal, a regime replay benchmarked against DCA and
-> Saylor. It came from the `dashboard/` context bundle next door and it described a read surface for
-> a protocol that no longer exists in that shape: Uniswap v4 primary with Rover legacy, stored range
-> bounds, a surplus-funded IL make-whole, a ±2% range. All four are gone from the tree. It was not
-> stale in places; it was about something else.
+⚠️ **A naming trap in the deploy script, stated up front because it changes what its lines mean.**
+`DeployL1_s.sol:192-193` declares `Vault public ETH;` and `Vault public BTC;` and then sets
+`BTC = ETH` (`:324`), both pointing at the **`Vault`** (`:323`, `a.vault = address(BTC)` at
+`DeployLib.sol:242`). The handle named `ETH` is *not* the ETH range manager — `Quid` is — and its
+comment ("merged Vault — ETH-venue face") predates §ETHVENUE-FOLD, which moved the ETH venue into
+`Quid`. Consequently `Ownable(address(ETH)).renounceOwnership()` at `:571` renounces the **Vault**.
 
 ---
 
-## 1. The repositories
+## 1. The deployed contracts
 
-Everything sits under `~/projects`. Only four of these are ours and active.
+### 1.1 `Quid` — the ETH range manager, and the ETH yield venue
 
-### 1.1 Ours, active
+`evm/src/Quid.sol:38`. Constructed first (`DeployLib.sol:121`), wired by `Quid.setup(quid, aux, core)`
+(`Quid.sol:456`), which renounces its own ownership in the same call (`Quid.sol:461`).
 
-| directory | remote | what it is |
+Two things at one address. As **range manager** it holds the ETH LP book: per-LP state lives in the
+shared base `Shares` (`evm/src/Shares.sol:67`), where `balanceOf(user)` *is*
+`autoManaged[user].pooled` — the balance is the position, which is why the ERC-20 face is hand-rolled
+rather than inherited. Its token face is `vETH` (`Quid.sol:1627`) and `asset()` returns WETH
+(`Quid.sol:1630`). As **yield venue** it holds ether.fi `weETH` directly (`Quid.sol:109`, `:190`);
+there is no separate ETH-venue contract and `Aux` is pointed at `Quid` for that role
+(`DeployLib.sol:234`).
+
+### 1.2 `Core` ×2 — the range engine, one instance per asset
+
+`evm/src/Core.sol:42`. **The same bytecode deployed twice** (`DeployLib.sol:139-140`):
+
+```solidity
+core         = new Core(cfg.weth, SwapLib.ethRisk());
+Core btcCore = new Core(cfg.wbtc, SwapLib.btcRisk());
+```
+
+There is no `isBTC` flag. Each instance is told its asset and risk profile directly and exposes
+exactly one `POOLED` and one `POOLED_USD` (`Core.sol:68,71`). Neither can see the other's dollars.
+The only shared bound is the sum: each pushes its equity to `Aux`, and every in-range USD add
+requires `committedUsd18() <= haircutTvl`.
+
+Both are configured by `Core.setup` (`Core.sol:818`). The ETH instance's range manager is `Quid`; the
+BTC instance is set up with a zero range and receives its manager later through `setBtcVault`
+(`Core.sol:717`).
+
+**No observation source is pinned on either instance** (`DeployLib.sol:143`, `Core.sol:1515`). The
+consequence is stated rather than left to be found: the observation ring is never written,
+`ringVariance` returns 0, and unmeasured variance is priced at the ceiling. Prices come from the
+pinned Chainlink anchors (`Aux.getTWAPforAsset`, `Aux.sol:746`).
+
+### 1.3 `Aux` — settlement adapter and joint accountant
+
+`evm/src/Aux.sol:37`. Constructed with both range addresses, both `Core` addresses and the
+`stables[]` / `vaults[]` arrays (`DeployLib.sol:163-170`), so its denominator is complete from birth.
+It owns the fourteen basket stablecoins and their positionally-paired venues; the swap entrypoints
+`swap`/`swapTo` (`Aux.sol:873,886`); basket deposit (`:1288`) and redemption (`:1043,1054`);
+`committedTotal()` (`:1227`) and the backing checks that read it (`:1238,1260`); permissionless vault
+health `pokeVaultHealth` (`:487`); and the one-shot deploy wiring `configure` (`:669`) / `wire`
+(`:687`).
+
+### 1.4 `Basket` — the QU!D token
+
+`evm/src/Basket.sol:20`. Three faces on one contract: **ERC-20** `"QU!D"`/`"QUI"` (`:149`) for the
+matured, 1:1-backed pool; **ERC-6909** dated monthly tranches keyed by `currentMonth()` (`:260`) for
+immature months; and a **LayerZero V2 OApp** to Solana, `SOLANA_EID = 30168` (`:41`), sent by
+`bridgeToSolana` (`:177`) and received by `_lzReceive` (`:214`). The endpoint is taken at
+construction because an OApp's endpoint is immutable — there is no setter to get wrong later.
+
+Protocol-internal minting is restricted by `Basket.auth()` to three addresses: `AUX`, `RANGE`
+(`Quid`) and `BTC_VAULT` (`Vault`) — `Basket.sol:81-90`. The constructor requires the deployer to
+have approved `Aux` for the Foundation ANGEL NFT, tokenId 16508 (`Basket.sol:74`), so it cannot be
+born without the seed commitment in place.
+
+### 1.5 `Vault` — the BTC range manager
+
+`evm/src/Vault.sol:70`, constructed on the **BTC** `Core` (`DeployLib.sol:230`). It carries the BTC
+side of the same `Shares` state `Quid` carries for ETH, and deploys `VBtc` in its constructor
+(`Vault.sol:179`).
+
+It has **no user-facing deposit**. Its position entrypoints are `onlyBTCChannels`: `requestDeposit`
+(`:449`), `requestRedeem` (`:541`), `resize` (`:553`). Permissionless upkeep is `syncLev` (`:478`),
+`collectFees` (`:615`), `compound` (`:648`).
+
+### 1.6 `VBtc` — the 8-decimal BTC position token
+
+`evm/src/VBtc.sol:54`. `decimals = 8` because vBTC *is* sats. `VAULT` is immutable and is the only
+address that may mint or burn (`:64,88`); `mintTo` is declared at `:131` and has exactly one call
+site, `Vault.sol:280`, inside `exposeBtcToLev` — so the entire vBTC supply is the levered slice.
+`asset()` returns WBTC (`:95`) as a **pricing handle only**; the 4626 face is a pure identity
+(`convertToAssets(x) == x`, `:96-97`), because the shares *are* the underlying unit.
+
+### 1.7 `SPVGateway` — the Bitcoin header chain
+
+`evm/src/spv/SPVGateway.sol`. Initialised from a checkpoint header, height and cumulative work plus
+the headers that follow it — the followers both catch the gateway up and prove the checkpoint
+canonical, so an orphaned checkpoint reverts the deploy rather than bricking silently later
+(`DeployL1_s.sol:314-322`). Header submission is permissionless: `addBlockHeader` and
+`addBlockHeaderBatch` have no caller gate. `checkTxInclusion` is the merkle-inclusion check every
+Bitcoin-facing path in `BTCChannels` routes through, and it reads `blocksHeightToBlockHash` so an
+orphaned chain cannot vouch for a transaction.
+
+### 1.8 `BTCChannels` — the per-LP Lightning channel registry
+
+`evm/src/BTCChannels.sol:112`. Lifecycle: `openChannel` (`:926`), `splice` (`:1138`),
+`registerChannelClaim` (`:1076`), `recordClose` (`:1788`), `recordForceClosePermissionless` (`:1949`),
+`emitDeadManExit` (`:1431`) / `recordDeadManExit` (`:1891`). Swap rails: `settleSwapInProven` (`:2076`),
+`requestSwapOutOnchain` (`:2232`), `deliverSwapOutOnchain` (`:2302`), `reverseSwapOut` (`:2141`),
+`refundExpiredSwapOut` (`:2184`). An LP pins its BTC payout key with `setBtcRecipient` (`:2443`).
+
+The exit ladder is bounded at both ends: `if (exits.length < 2) revert LadderTooShallow();` and
+`if (exits.length > MAX_LADDER_RUNGS) revert LadderTooDeep();` (`:1489`, `:1492`,
+`MAX_LADDER_RUNGS = 16` at `:513`), both checked **before** the verify loop at `:1499`.
+
+Measured 21,241 deployed bytes against the EIP-170 limit of 24,576.
+
+### 1.9 The leverage overlay
+
+Deployed by the same script, opt-in behind `DEPLOY_LEV=1` (`DeployL1_s.sol:506`) and skipped entirely
+when unset.
+
+- `LevManager` over weETH collateral, three allowlisted venues pinned once and frozen: Morpho
+  weETH/RLUSD 86% (`DeployL1_s.sol:664`), Morpho weETH/PYUSD 86% (`:668`), and an Aave V3 venue with
+  weETH collateral and USDT debt (`:686`). Both weETH/USDC markets and the weETH/WETH venue are
+  **absent, not demoted** — the file records the measurement: weETH/USDC held $0.17M idle across 100
+  of 100 weeks, against $9.66M (RLUSD) and $4.32M (PYUSD).
+- `BtcLevManager` over vBTC collateral with **one** venue: an Aave V3 escrow, WBTC collateral, a
+  deploy-chosen stable debt asset defaulting to USDC (`DeployL1_s.sol:559-567`).
+- There is **no Morpho market whose collateral token is vBTC**, by standing owner ruling: collateral
+  and acquisition target would be the same asset, so a drawdown margin-calls the very thing the
+  borrow bought (`DeployL1_s.sol:525-533`).
+
+Leverage is bounded by **one protocol-wide constant**, `LevBase.TARGET_LTV_CAP_BPS = 7500`
+(`evm/src/imports/LevBase.sol:51`). There is no per-depositor target setter.
+
+⚠️ The cap is quoted **debt-over-equity** while a venue LLTV is **debt-over-collateral**, so the two
+are only comparable after `c/(1+c)`: 7500 in cap terms is 4285 in venue terms, and the headroom under
+Morpho's 86% LLTV is `8600 − 4285 = 4315` bps (`LevBase.sol:122-123`).
+
+---
+
+## 2. The trust model
+
+There are no roles, no governance, no timelock and no upgrade path. Authority is expressed as
+explicit address-set comparisons, enumerated here in full.
+
+| contract | gate | who |
 |---|---|---|
-| **`SPV`** | `quidmints/SPV` | The protocol. Solidity, the Rust Lightning stack, the SVM program, the landing page. This repo. §2 breaks it down. |
-| **`ibiza`** | `quidmints/ibiza` | Identity and privacy. A fork of **Privacy Pools** and **rarimo/rarime** merged onto one Foundry + Noir/Honk stack. Its own `README.md` explains the name and what was forked; `TODO.md` is its tracker and holds current state. Its stated purpose is to generate demand for SPV. |
-| **`seeker-main`** | — (mirrored to `quidmints/quid` `dev`) | The Solana Mobile app. Expo + Mobile Wallet Adapter against the SVM program. **Not a git repo locally.** Parity against the program is asserted by `SPV/svm/tests/seeker-parity.ts`. |
-| **`app`** | — | Working directory for the React Native wallet. `SCOPE.md` is a parity punchlist against the Lexe Flutter app; holds `rarime-rn-sdk-main`, `interledger`, `qr-protocol`, `companion`. |
+| `Aux` | `onlyOwner` — `configure` (`:669`), `wire` (`:687`), `evacuate` (`:517`), `finalize` (`:702`) | the deployer, until `finalize()` |
+| `Basket` | `Ownable`; `auth()` (`:81`) for protocol-internal mints | deployer until renounce; `auth` is the fixed set {`AUX`, `RANGE`, `BTC_VAULT`} |
+| `Quid` | `onlyOwner` on `setup` only (`:456`); `_onlyPinner` = `msg.sender == DEPLOYER` (`:126`) | deployer, then `immutable DEPLOYER` |
+| `Core` | `msg.sender == DEPLOYER` on `setup` (`:818`), `setBtcVault` (`:717`), `setObservationSource` (`:1634`) | `immutable DEPLOYER` (`:785`) |
+| `Vault` | `Ownable` (`:70,176`) — `setup` (`:195`), `setLevManager` (`:227`); plus `onlyUs` (`:139`) / `onlyBTCChannels` (`:161`) | the deploy script |
+| `BTCChannels` | `_onlyHop()`: `msg.sender == MAIN_HOP \|\| msg.sender == FALLBACK_HOP` (`:834`) | two immutables (`:805-806`), assigned once in the constructor |
+| `VBtc` | `onlyVault` (`:88`) | `immutable VAULT` (`:64`) |
+| `SPVGateway` | none on header submission | anyone |
 
-### 1.2 Ours, superseded — kept for history, do not build on
+`BTCChannels` has **no owner at all** — it is not `Ownable` and declares no owner slot; `owner`,
+`transferOwnership` and `renounceOwnership` are absent from its ABI. Its hop authority is the two
+immutable addresses and nothing else: no setter, no registry, no multisig. Either hop may act on any
+channel. `_onlyHop()` has exactly **eight** call sites: `openChannel` (`:942`), `splice` (`:1146`),
+`emitDeadManExit` (`:1431`), `commitFreshness` (`:1618`), `markMigrationNonceUsed` (`:1651`),
+`settleSwapInProven` (`:2076`), `reverseSwapOut` (`:2141`), `deliverSwapOutOnchain` (`:2302`).
 
-| directory | what it was |
-|---|---|
-| **`old`** | The pre-port monorepo: `evm/`, a keeper, a Next.js front end, and `docs/WP.md` + `docs/legal.md`. The origin of the `LP.pooled`-in-token design. |
-| **`port`** | The intermediate port into what is now `SPV/evm`. `SESSION-CHANGES.md`, `OPEN_ISSUES.md`, `LP-OPERATIONAL.md`. ⚠️ **`SPV` is the source of truth — do not judge it by diffing against `old/` or `port/`.** |
-| **`dashboard`, `dashboard (2)`** | The context bundle the old `spec.md` was generated from. |
-| **`quid-svm`** | Standalone checkout of the SVM program. The live copy is the `SPV/svm` subtree. |
-| **`latest`** | Empty. |
+There is **no attestation gate on any hop money path**; the MRENCLAVE whitelist gates nothing here
+(`BTCChannels.sol:105`). The LP signs nothing on the EVM: consent arrives with the open as a BIP-340
+*Bitcoin* signature over `btcRecipientPoPDigest(lpEth)`, and `lpEth` is **derived** from `p.lpPubkey`
+rather than supplied, because Bitcoin and the EVM share secp256k1 (`BTCChannels.sol:936-946`).
 
-### 1.3 Not ours — reference or vendored. Never edit these.
+### 2.1 What `finalize()` leaves behind
 
-| directory | what it is | our relationship to it |
-|---|---|---|
-| **`PP`** | 0xbow's Privacy Pool Protocol — circuits, contracts, relayer, SDK. | Upstream of ibiza's `contracts/pool`. ibiza ported it Circom→Noir/Honk and replaced the ASP association-set check with an identity predicate. |
-| **`lexe`** | Lexe's public monorepo: a Flutter app over Rust (`app-rs`) behind `flutter_rust_bridge`. | **Reference for *what* to build, never imported.** `SPV/quid-ln` is our fork of the Rust; the RN wallet re-implements the UI and bridges to ours. |
-| **`spv-gateway-master`** | ERC-8002, a singleton SPV gateway for verifying Bitcoin transactions on-chain. Draft ERC, Sepolia only. | The design `SPV/evm/src/spv/SPVGateway.sol` implements. |
-| **`midnight`** | Morpho Midnight — fixed-rate, fixed-maturity isolated lending. | Evaluated. ⚠️ **Take the pieces, not the repo:** vendoring it wholesale forced a hand-rewrite of `UtilsLib.msb` because its `clz` is an Osaka opcode and we pin cancun. Its `TickLib` is irrelevant to us; we have no ticks. |
-| **`yb-core`, `ybamm`** | YieldBasis. Constant 2× leverage makes LP value linear in price, so the curvature that produces impermanent loss is gone rather than averaged away. | The comparison case. We take the opposite side: bear the loss unleveraged rather than pay to hedge the curvature. |
-| **`eulerswap-hook`** | A dynamic-fee auction hook for EulerSwap. | Evaluated. We are not building a fee hook. |
-| **`quid-forks`** | Our patched forks of `tokio`, `ring`, `mio`, `hyper-util`, `axum-server`, `nostr`, `rust-sgx`, `rust-esplora-client`. | Required to build `quid-ln` under SGX. |
+`Aux.finalize()` (`Aux.sol:702`, called at `DeployL1_s.sol:367`) asserts every cross-contract linkage
+equals `Aux`'s owner-set view — catching a front-runner's malicious-but-non-zero pin in an ungated
+setter — **before** anything is burned, so a mis-wired deploy reverts all-or-nothing. It then burns
+the committed ANGEL NFT and calls `renounceOwnership()`. It is one-shot. `Basket`'s owner is
+renounced on the next line (`:368`); `Quid` renounced itself inside `setup`.
 
----
+**Three levers survive that ceremony. They are stated here rather than left to be found.**
 
-## 2. Inside SPV
+1. **`Core.setObservationSource`** (`Core.sol:1634`), gated on `immutable DEPLOYER`. It has zero
+   non-test callers and no deploy script calls it, so it is deliberately left **UNSET** on both
+   instances — the slot is still open post-finalize.
+2. **`Quid.setLevManager`**, gated on `immutable DEPLOYER` through `_onlyPinner` (`Quid.sol:126`).
+   A one-shot pin, exercised only when `DEPLOY_LEV=1`.
+3. **`Vault`'s ownership.** `Vault` is `Ownable` and the renounce (`DeployL1_s.sol:571`) sits
+   **inside** `_deployLeverageOverlay`, after its `DEPLOY_LEV` early return at `:506`. ⇒ **`Vault` is
+   renounced if and only if `DEPLOY_LEV=1`. On a deploy without the leverage overlay the deploy
+   script remains `Vault`'s owner**, and `Vault.setLevManager` is its remaining owner-gated function.
 
-| path | what it is | its own docs |
-|---|---|---|
-| `evm/` | The Solidity. `src/` is the protocol, `script/DeployL1_s.sol` + `DeployLib.sol` the one canonical deploy. | — |
-| `quid-ln/` | The Rust: bridge, hop, LP daemon, watchtower, enclave. Our fork of Lexe's stack. ⚠️ Does not build on macOS; use `quid-ln/Dockerfile`. | `ops/README.md` |
-| `svm/` | The Solana program and its tests. | `SOL-STAR-REFERENCE.md` |
-| `spa/` | The landing page, plus `/app` as a transitional browser build of the depositor surface. | `spa/README.md`, `FRONTEND-TODO.md` |
-| `indexer/` | A small self-hosted indexer for protocol events. | `indexer/README.md` |
-| `regtest/` | A reproducible Bitcoin regtest node and the scripts that drive it. | `regtest/README.md` |
-| `deploy/` | Provisioning: deploy the L1 contracts, run the hop and LP daemons. | `deploy/README.md`, **`PRODUCTION-LAUNCH.md`** (start there) |
-| `sims/`, `analysis/` | The economic simulations the IL and LVR numbers come from. | — |
-| `tools/` | The gates. See §3. | — |
+### 2.2 What is deliberately permissionless
 
----
+Recording a channel close: the splice-versus-close discriminator is cryptographic, so the gate does
+not need to trust *who* calls, and a channel can be retired once Bitcoin confirms without depending
+on hop or LP liveness — `recordClose` (`:1799`), `recordForceClosePermissionless` (`:1949`),
+`recordDeadManExit` (`:1891`). Also `registerChannelClaim` (`:1076`), `refundExpiredSwapOut`
+(`:2184`), `Aux.pokeVaultHealth` (`:487`), `Vault.syncLev` (`:478`), and header submission.
 
-## 3. Which document answers which question
-
-**Precedence, highest first.** The contracts in `evm/src` are canonical for behaviour. `CLAUDE.md` is
-canonical for how to work here and for environment facts. `docs/actionable/SPRINT.md` is canonical for
-status — it is now the ONLY file in `docs/actionable/`. This file is canonical only for where
-things are.
-
-| question | go to |
-|---|---|
-| How do I work in this tree? What is the build environment? | **`CLAUDE.md`** — standing rules, verification discipline, the trap notes, size and RPC facts |
-| What is the current status of X? | **`docs/actionable/SPRINT.md`** — the single actionable doc. Rows carried from the folded `QUEUE.md` are under `§FROM-QUEUE`, and their status markers are history, not state |
-| What is the ordered remainder for the next thread? | **`docs/actionable/SPRINT.md`** |
-| Why was X built this way? What is the evidence? | **`docs/actionable/SPRINT.md` `§BUILD-QUEUE-FOLD`** — the folded append-only archive. Its **evidence is authoritative, its status markers are not** |
-| What is QU!D, for a reader who is not in the code? | **`docs/FAQ.md`** — 2,323 lines, the outward-facing document. Parts 1 and 5 are the product; Part 6 is legal |
-| How does the economics work? | `docs/informational/` — **but read §4 below first** |
-| How do I deploy or run the daemons? | `deploy/PRODUCTION-LAUNCH.md` |
-| What must the front end enforce? | `spa/FRONTEND-TODO.md` |
-| What is ibiza doing, and what does it owe us? | `../ibiza/README.md`, `../ibiza/TODO.md` (§3b is the mobile LP-signer spec) |
-
-**Navigating the code itself.** For **Solidity**, use `evm/slither-out/` — Slither understands
-inheritance, modifiers and cross-contract flow. ⛔ **Do not use `graphify-out/graph.json` for
-Solidity: it contains none.** It indexes the Rust, and 63% of what it indexes is vendored LDK.
-
-**The gates, and both are needed.** `tools/check-contract-sizes.py` for EIP-170 (`forge build --sizes`
-does not report every contract that matters). `tools/check-client-abis.py` for client drift, and
-`npx tsc --noEmit` in `spa/` for everything that checker cannot see — it reads one file, does not
-parse TSX, and does not read the deploy record. `tools/check-doc-symbols.py` after any rename.
+There are no solvers. There is no refill keeper. A keeper exists for the leverage overlay only.
 
 ---
 
-## 4. `docs/informational/` — how to read it
+## 3. The asset model
 
-### 4.1 Read this before opening any file in that folder
+**QU!D** (`Basket`) is the dollar claim. Its matured supply is a fungible ERC-20 backed 1:1 by the
+basket; its immature supply is a set of ERC-6909 tranches dated to future months. `trancheTotal()` is
+the outstanding senior seed tranche, excluded from redeemable TVL.
 
-**It contradicts the contracts in about ten verified places, and it is prose that was written to be
-persuasive.** Several files carry an `OVERRULED` banner written by a later thread. The banners are
-accurate but they are not sufficient: a banner tells you the *conclusion* was overruled while the
-body still reads as current, and the numbers inside are keyed to a range the protocol no longer has.
+**The basket** is fourteen stablecoins, each paired positionally with a yield venue
+(`DeployL1_s.sol:217-227`, `:236-253`). Fourteen is the layout maximum, not a round number: the
+accounting array is a `uint[15]` where slot 0 is the yield-weighted sum, slots 1..13 are per-token
+deposits and slot 14 is the raw TVL total that `FeeLib.calcFeeL1` divides by. A fifteenth stable
+would silently overwrite that total, which is why the deploy asserts
+`require(STABLECOINS.length == 14, ...)` at `DeployL1_s.sol:262`. The two arrays are positionally
+paired and **nothing else enforces it** (`:253`). BOLD must stay last — `Aux` pins
+`stables[length-1]` as the Liquity-Stability-Pool-routed stable. GHO and USDG carry `address(0)`
+venues on purpose; they route through Aave.
 
-Three rules that make the folder usable:
+**vETH** (`Quid`) is the ETH LP's position: `asset()` is WETH, but the backing held is weETH, and
+`rangeETH()` values weETH in ETH plus idle WETH plus the levered leg (`Quid.sol:213`).
 
-1. **Never quote it without checking the code.** §4.3 is the standing ledger of what it gets wrong.
-2. **Read the banner as a scope limit, not a delete.** An overruled design conclusion usually sits on
-   top of empirical work that is still good. The banner tells you which half is which.
-3. **Every θ, K and LVR figure in the folder assumes a ±2% range.** The deployed range is **±0.2%**
-   (`SwapLib.RANGE_DELTA = 20`). Treat those numbers as historical measurements, not as a live
-   safety argument.
+**vBTC** (`VBtc`) is the BTC LP's position — 8-decimal, minted and burned only by `Vault`. It *is*
+sats.
 
-### 4.2 The files
+**The two `Core` instances** hold the range state: one per asset, independent USD accounting, bound
+only in the sum through `Aux.committedTotal()`.
 
-| file | what it covers | state |
-|---|---|---|
-| **`POSITIONING.md`** | The instrument as a discountable dated claim, why leverage is a view rather than a default, and the field: Cork, Bunni, Pendle, mStable. | ✅ **The most reliable file in the folder.** Self-audited against the code with `file:line`, and it carries its own corrections ledger. Start here. |
-| **`VAULT-WATCHER.md`** | Vault health: `Aux.pokeVaultHealth`, permissionless and binary, and the argument for why *illiquidity is not insolvency* and a graded haircut would double-count. | ✅ Matches the code. |
-| **`ETH-VENUES.md`** | Where a deposited ETH goes and how it exits. | ✅ 22 lines and correct. ⚠️ **It contradicts `docs/FAQ.md`, and it is the one that is right** — the FAQ lists six deposit venue codes; `QuidLib.sol:140` says *"ONE DESTINATION: every ETH deposit becomes weETH. No venue choice, no default, no dispatch."* |
-| **`FEES-OUTFLOWS-TWAP.md`** | The stable outflow fee, and the reuse of a time-weighted *yield* where the volatile side uses a price TWAP. | 🟠 **Read below the retraction banner.** `BASE = 3` bps, `MAX_FEE = 30` bps, `calcFeeL1`/`scaledFeeL1` and the depeg haircut all survive. The `baseRate` third term and the off-chain CRE feed are gone. So the composite is **two** terms, not three. |
-| **`IL-VIA-BONDS.md`** | 933 lines. The widest-ranging file: the cold start (§5), the numismatic principle (§7), what this does for Lightning's dead-capital problem (§8), the YieldBasis comparison (§9), the ether.fi offramp ladder (§10), multi-vault as the response to detection (§11). | 🔴 **OVERRULED on its central claim** — the basket's surplus does not absorb the LP's IL; `arbETH` is removed and the LP bears its own through the share price. §§5, 7, 8, 9 do not depend on that claim and are still the best statement of each. |
-| **`IL-CERTIFICATION.md`** | The empirical backtest: measured K over the COVID crash, the 2020-03-12 crash day, the solvency table, and the sustainability inequality θ ≤ yield/(K·σ² − f). | 🔴 **OVERRULED as a safety argument, valuable as data.** Every figure is on the ±2% basis. |
-| **`IL-FINDINGS-2026-06.md`** | Corrections to the above, from running the sims: no external arbitrage in our pool, IL is impermanent and realized at withdrawal, the LP break-even, and the verdict that removed `arbETH`. | 🟠 **Empirical findings valid, design conclusions overruled.** §2's retraction of the over-realization finding is the useful part. |
-| **`DISCRETION-AND-THE-CLOCK.md`** | Where treasury policy ends and an unpriced option written by depositors begins. The line: discretion over hedging our own book is permitted, discretion over *when a customer is paid* is not. | ✅ Sound, and the reasoning is general. ⚠️ **It is about the SVM side** — the symbols it cites (`rate_bps`, `crowding_bps`, `sol_star_haircut_bps`) live in `svm/programs/quid/src`. |
+**The range** is a band on an absolute price, not a tick range:
 
-### 4.3 The contradictions ledger
+```solidity
+lower = price * (10000 - delta) / 10000;
+upper = price * (10000 + delta) / 10000;
+```
 
-What the folder, and in three cases `docs/FAQ.md`, still asserts that the tree does not.
-
-| claim | where | the code |
-|---|---|---|
-| the range is ~2%, via `_updateTicks(sqrtPriceX96, 200)` | throughout `informational/` | `RANGE_DELTA = 20` ⇒ **±0.2%** (`imports/SwapLib.sol:824`). No such call has ever existed, and there are no ticks — the ~185 `tick` matches in `evm/src` are all comments recording their removal |
-| the depositor chooses an ETH venue (codes 0/2/3/4/5/6) | `docs/FAQ.md` | one destination, weETH, no dispatch (`imports/QuidLib.sol:140-145`) |
-| `setTargetLtv(capBps)` lets the depositor set direction | `docs/FAQ.md` | deleted (§E358, `imports/LevBase.sol:404`). IL-protect is protocol-wide with one cap, `TARGET_LTV_CAP_BPS = 7500` |
-| eleven stablecoins | `docs/FAQ.md` | **fourteen**, which is the `uint[15]` layout maximum — slot 0 is the yield-weighted sum, 1..13 the deposits, 14 the total. A fifteenth silently overwrites the total `FeeLib.calcFeeL1` divides by (`script/DeployL1_s.sol:239-254`) |
-| the outflow fee has three terms including `baseRate` | `FEES-OUTFLOWS-TWAP.md` | removed; reason recorded at `Core.sol:200` |
-| depeg severity is the worse of a CRE report and a live feed | `FEES-OUTFLOWS-TWAP.md` | the CRE is gone; the pinned per-stable Chainlink feeds are the signal |
-| the swap-in bonus compensates a JIT actor | `POSITIONING.md` §3 (self-corrected) | `payRefillBonus` deleted 2026-07-22 |
-| the basket's surplus absorbs the LP's IL | `IL-VIA-BONDS.md`, `IL-CERTIFICATION.md` | R1 — the LP bears its own via the share price |
-| range bounds are stored | several | `deltaBps`/`pLower`/`pUpper` deleted; composition is width-independent |
-| `SPV`'s repo must contain zero references to PP | `../ibiza/PP-SPV-BUFFER-DESIGN.md` §1 | superseded by the decision to bring the pool contracts in |
-| `BatchVerifierLib.PUB_LEN` is 7, so the batch path bypasses the predicate | `docs/actionable/SPRINT.md` | `PUB_LEN = 8` in both batch libraries; `s[7]` is the blacklist root and is re-anchored per withdrawal |
-| `tsc` cannot run in this tree because `spa/` has no `node_modules` | `CLAUDE.md` | it has them, and running it found four client defects the ABI checker was green through |
-
-⚠️ **Six libraries were *folded into* another file rather than renamed or deleted, and this is the
-most dangerous class of stale reference here** — the code is live and a grep for the old name returns
-a comment, so the reader concludes the feature was removed. `ExitLib` and `MuSig2Agg` are in
-`BitcoinTx`; `ExternalTwap` is in `OracleLib`; `FixedRateFill` and `ShareMath` are in `SwapLib`.
-`SOR.sol` is the opposite case and a genuine tombstone. The full table is in `CLAUDE.md`.
+`SwapLib.updateBounds` (`evm/src/imports/SwapLib.sol:2815-2819`), called with `RANGE_DELTA = 200`
+(`:870`) at `:2921` and `:2965` — a ±2% band. No bounds are stored as configuration; they are
+recomputed at each repack. Because the band is always built this way, the ratio `lo/up` is pinned at
+`(1−δ)/(1+δ)` however far spot drifts, and `QuidLib.kLvrAt` clamps spot into the band — so the LVR
+coefficient K is confined to `[12.56e18, 12.62e18]` for the live geometry.
 
 ---
 
-## 5. What crosses a repository boundary
+## 4. The five flows
 
-Four couplings, and each is a thing that breaks silently.
+### 4.1 ETH deposit
 
-1. **`ibiza` consumes `SPV`.** It pinned this repo as a git submodule and hand-declared `ISpvVogue` /
-   `ISpvBasket` as subsets of our contracts. **Both are now deleted** (`ibiza@8fa5e9e`), addresses are
-   injected at runtime instead, and the integration returns when SPV is ready. The design rationale
-   is `ibiza/PP-SPV-BUFFER-DESIGN.md`; read it knowing §1's optics premise is superseded.
-2. **`ibiza` owns the mobile client; `SPV` owns the protocol.** The LP signer app spec is
-   `ibiza/TODO.md` §3b and is deliberately **not** restated in `QUEUE.md` — two copies drift, and the
-   one that drifts is always the copy in the repo that cannot build the thing.
-3. **`seeker-main` tracks the SVM program.** `svm/tests/seeker-parity.ts` asserts it. ⚠️ **That guard
-   only runs if you point it at the app:** `findSeeker()` searches `svm/seeker` and `<repo>/seeker`,
-   and the app is outside this repo. Run it as
-   `QUID_SEEKER_DIR=/home/rico/projects/seeker-main`, after an `anchor build` — otherwise both sides
-   of the comparison are missing and every assertion skips silently while reporting green.
-4. **Pushing to any `quidmints/*` remote needs the SSH alias.** `git@github-quidmints:quidmints/<repo>.git`;
-   a plain `github.com` remote is refused.
+`Quid.deposit(uint assets, address receiver)` — two arguments, `payable` (`Quid.sol:1784`). It routes
+through `_deposit4626` → `_depositImpl`, so the full machinery runs (backing check, rebalance,
+`addLiq`). Native ETH sent as `msg.value` is wrapped; any remaining `assets` is pulled as WETH up to
+the caller's allowance and balance (`imports/QuidLib.sol:97-107`). Then the entire WETH balance goes
+to **one destination**: ether.fi weETH via `_supplyEtherFi` (`QuidLib.sol:109-113`). There is no venue
+choice, no deposit code, no dispatch and no fallback — a placement of zero reverts `VenueUnavailable`
+(`QuidLib.sol:113`). The weETH is held by `Quid` itself; the depositor's shares are the delta in
+`autoManaged[receiver].pooled`, and the ETH `Core` pairs the deposit as range depth.
+
+### 4.2 BTC deposit
+
+A BTC LP does not call the protocol. The hop — one of the two immutable addresses — submits
+`openChannel(p, rawFundingTx, fundingMerkleProof, auth, exits)` (`BTCChannels.sol:926-946`). The call
+SPV-proves the funding transaction through `SPVGateway` and byte-matches the taproot output against
+`0x5120 ‖ Q`, where `Q` is proven equal to `TapTweak(KeyAgg(lpPubkey, hopPubkey))` on-chain; `lpEth`
+is derived from `p.lpPubkey`, and `btcRecipient` is pinned at open as the sole payout, so no hop can
+redirect funds. `BTCChannels` then calls `Vault.requestDeposit(lpEth, sats)` (`:1042`), which pairs
+the sats as range depth on the BTC `Core` and credits the LP's shares. If that leg reverts — an
+unhealthy basket — the custody record still stands, the amount is written to `pendingClaimSats` with
+a `ChannelClaimDeferred` event, and anyone may credit it later via `registerChannelClaim` (`:1076`).
+A splice that grows the channel takes the same path for the growth.
+
+### 4.3 Swap
+
+`Aux.swap(token, asset, forVolatile, amount, minOut, loadBalance)` (`Aux.sol:873`) forwards to
+`swapTo(..., recipient, ...)` (`:886`), which holds the reentrancy lock and delegatecalls
+`SwapLib.swapToBody` in `Aux`'s own context. `token` is the input stable, QU!D, or zero when paying
+volatile; `asset` is WETH or WBTC; `forVolatile` picks the direction. `Aux` dispatches to the `Core`
+instance that owns that asset. Price comes from the pinned Chainlink anchor cross-checked in
+`getTWAPforAsset` (`:746`), and the band is recomputed by `updateBounds`. Fills settle **at oracle
+against inventory** — one price, no traversal, no discovery (`Core.sol:1423-1428`) — which is why a
+swap does not move `poolStats()`. The dynamic axis is `riskFactor`, per-stable depeg severity read
+live from that stable's pinned feed (`Aux.sol:231,240`); the degradation fee `calcFeeL1` is charged on
+redeem, not here. Every in-range USD add is gated by `committedUsd18() <= haircutTvl`, which is what
+keeps the two ranges jointly bounded. The recipient can be set explicitly so a holder blacklisted by
+a stable issuer can take proceeds at a fresh address (`Aux.sol:880-885`).
+
+### 4.4 QU!D mint and redemption
+
+Minting is `Basket.mint(pledge, amount, token, when)` (`Basket.sol:283`). The user's stable is taken
+through `Aux.deposit` (`Aux.sol:1288`) and supplied to that token's paired venue; QU!D is issued dated
+to `currentMonth() + 1` or later, so new issuance lands in an ERC-6909 tranche and matures into the
+fungible pool. Protocol-internal mints — LP fee credit and swap-in/swap-out reissuance — go through
+the same function under `auth()`, bounded by a supply cap that is the structural defence against a
+compromised hop signer: even with valid signatures a protocol mint can only use headroom that prior
+burns or backing growth opened (`Basket.sol:287-300`).
+
+Redemption is `Aux.redeem(amount)` / `redeemTo(amount, recipient)` (`:1043,1054`). You can only ever
+burn your own QU!D — the turn burns `msg.sender`'s mature batches (`Basket.turn`, `:264`) — and the
+recipient overload only retargets the payout. Redemption is always pro-rata across the basket. The
+outflow fee has `BASE = 3` bps and `MAX_FEE = 30` bps (`imports/FeeLib.sol:63-64`), degraded by live
+depeg severity.
+
+### 4.5 Channel close
+
+Permissionless, once Bitcoin confirms. `recordClose(channelId, p, rawCloseTx, closeBlockHash,
+merkleProof, txIndex)` (`BTCChannels.sol:1788`) requires the channel open, then runs two
+discriminators. `_requireNotSplice` (`:1726`) separates a close from a splice cryptographically — a
+splice leaves a continuing 2-of-2 output that `BitcoinTx` can reconstruct, a close does not — which is
+what stops a third party replaying a confirmed splice to force-retire a live channel.
+`_verifyTxSpendsChannel` (`:627`) proves inclusion through `SPVGateway.checkTxInclusion` and that the
+transaction spends the channel's outpoint.
+
+A cooperative close (locktime 0) pays the LP `_lpFinalBalance` — the sum of outputs paying the LP's
+committed key-path P2TR, pinned at open (`:734`, `:768`) — under a stale-close guard scoped so the LP
+itself can always close (`:1841`). A non-cooperative close must additionally pass
+`BitcoinTx.isCommitmentTx` and settles at the channel's funded amount, realising no swap proceeds.
+`_finalizeClose` (`:686`) marks the channel closed, frees the LP to open a fresh one, decrements
+`totalSatsLocked`, clamps a payout that exceeds what the channel held (emitting `PayoutExceededChannel`
+rather than silently truncating), and — if the claim had actually been credited — calls
+`Vault.requestRedeem(lpEth, lpPayoutSats)` (`:717`) to retire the LP's range position and settle its
+USD leg. The LP's bitcoin is recovered by the close transaction itself, off this path.
+`recordDeadManExit` (`:1891`) is the same shape keyed on a recorded `deadManDeadline`, and is
+permissionless so an absent LP or a dead hop cannot strand the position.
 
 ---
 
-## 6. Code that cites this file
+## Not covered here
 
-Three Solidity comments used to cite `spec.md §3.8` for the fees-versus-LVR test. That number
-described the old dashboard document's LP-economics section and does not exist here, so the citations
-were repointed rather than orphaned: the question *"did realized fees cover the IL we bore?"* is
-answered by `QuidLib.derivedThetaWad` itself — realized retained premium over `K·σ²`, where a result
-below `1e18` means they did not. ⚠️ **Do not re-add a numbered cross-reference into this file.** It is
-a map; its section numbers move when a repository does, and a comment pinned to one goes stale the
-next time anything is reorganised.
+The live mainnet addresses (`evm/deployments/l1.json` is stale — it carries dead keys and lacks
+`range` and `btcCore`); the Solana program surface (`svm/`); the identity/passport stack
+(`evm/src/identity/`, `evm/noir/`, `evm/don/`), which is deferred scope with its own TODO and is not
+part of the deployed protocol.
