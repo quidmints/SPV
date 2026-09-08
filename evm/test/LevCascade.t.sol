@@ -775,6 +775,26 @@ contract LevCascadeProbe is AllesFixture {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         uint failed; bytes32 sig = keccak256("DeleverFailed(address,uint256)");
         for (uint j; j < logs.length; j++) if (logs[j].topics[0] == sig) failed++;
+        // §SILENT-SKIP part (2) — RESOLVED 2026-09-08: this is MARKET STATE, not a fixture defect.
+        // SPRINT 0g recorded this failing `0 != 1` and inferred *"the LP was never actually stuck (a
+        // fixture premise)"*. **Both halves are now false.** Measured: it fails `2 != 1`, and the
+        // diagnostics above show lp0 IS genuinely levered and stuck (debt 561,184,234, ilTarget 279
+        // bps). The extra skip is lp1's — its own sell leg cannot clear the ORACLE floor at recent
+        // blocks. `LevMath` floors every swap at `MAX_SLIPPAGE_BPS` regardless of the caller's
+        // `minOut`, so `mins[1] == 0` does NOT make lp1's leg unconditional.
+        // ⇒ MEASURED ACROSS PINS, same commit: head-20 `2 != 1` · head-2000 `2 != 1` ·
+        //   head-20000 **PASS**. The count tracks the block, which is what market state looks like.
+        // ⚠️ SO THE ISOLATION PROPERTY IS SIMPLY NOT TESTABLE AT SUCH A BLOCK — lp1 never de-levers,
+        //   so "lp0 did not touch lp1" has nothing to observe. Weakening this to `>= 1` would be the
+        //   clamp standing rule 4 warns about: it would go green while measuring nothing.
+        // ▶️ Same remedy this file already uses for G7 (`:470-476`): NAME the market-state case so it
+        //   cannot be mistaken for an accounting or routing defect. Still fails — loudly, and truly.
+        if (failed > 1 && venue.debtOf(lps[1]) >= dbt1)
+            revert("SILENT-SKIP(2): lp1's OWN sell leg could not clear the oracle floor AT THIS BLOCK, "
+                   "so BOTH LPs skipped and the isolation property has nothing to observe. This is "
+                   "market state, not a fixture or accounting defect - measured PASS at head-20000 and "
+                   "2!=1 at head-20/head-2000 on one commit. Re-run, or pin FORK_BLOCK to a block where "
+                   "lp1's leg clears MAX_SLIPPAGE_BPS. See SPRINT 0g / SILENT-SKIP part (2).");
         assertEq(failed, 1, "the stuck LP must emit exactly one DeleverFailed");
         // The stuck LP's de-lever reverted atomically (no repay/withdraw for it). Its COLLATERAL is exactly
         // unchanged (Morpho collateral doesn't accrue); its DEBT only drifts up by market-wide interest that

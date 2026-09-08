@@ -99778,3 +99778,50 @@ stopped masking it:
    because nothing in this system prices it. It is the single place a number was chosen. Changing it needs
    a derivation of its own, not a fit to a failing test; fitting γ to make an assertion pass is exactly
    the §E275 circularity wearing a different letter.
+
+## ✅ §SILENT-SKIP-PART-2 — RESOLVED 2026-09-08: MARKET STATE, and the row's diagnosis was wrong twice
+SPRINT `0g` recorded `test_Isolation_StuckLpDoesNotTouchAnother` failing **`0 != 1`** and inferred
+*"the LP was never actually stuck (a fixture premise), not that the emit is missing."* **Both halves
+are false.**
+· It fails **`2 != 1`**, not `0 != 1` — the failure mode INVERTED, from "nobody skipped" to "everybody
+  did", and nobody re-read it.
+· The fixture is fine. Its own diagnostics say so: `lp0 debt 561,184,234`, `lp0 ilTarget 279 bps`.
+  **lp0 IS genuinely levered and genuinely stuck.** The extra skip is **lp1's** — `LevMath` floors
+  every swap at `MAX_SLIPPAGE_BPS` regardless of the caller's `minOut`, so `mins[1] == 0` does NOT
+  make lp1's leg unconditional, and at recent blocks it cannot clear the ORACLE floor either.
+▶️ **MEASURED, ONE TREE, THREE PINS:** head−20 `2 != 1` · head−2000 `2 != 1` · head−20000 **PASS**.
+  The verdict tracks the block. ⇒ **market state, not a fixture or accounting defect.**
+✅ **CORROBORATED ON DIFFERENT FIXTURES (project-bc, full clean-main suite, 1146/6/1 at `35a36777`):**
+  `test_G7_WithdrawPastFreeDepthAutoDeLevers` and both `PLP6` tests fail with their OWN self-describing
+  message — *"the auto-de-lever could not clear the oracle floor AT THIS BLOCK — this is market state,
+  not a routing or accounting defect."* **Same leg, same cause, three more fixtures. Not separate bugs.**
+▶️ **LANDED:** the same remedy `LevCascade.t.sol:470-476` already uses for G7 — NAME the market-state
+  case so it cannot be read as an accounting defect. The `assertEq(failed, 1)` is **unweakened**
+  (verified still PASS at a good block); the guard only fires when lp1 ALSO skipped AND its debt did
+  not fall, i.e. when the isolation property has nothing to observe.
+⚠️ **THE GUARD IS UNEXERCISED IN THE CURRENT TREE AND I AM SAYING SO RATHER THAN CERTIFYING IT.**
+  Eighteen commits landed while I was measuring (including `QuidLib.sol` and `ForkPin.sol`), and the
+  absolute blocks that produced `2 != 1` before now PASS. **So I have no failing case left to fire it
+  against.** Per CLAUDE.md the acceptance test for a detector is the KNOWN POSITIVE, and this one has
+  not had one since the tree moved. ⇒ **Treat the guard as unproven until it fires. The DIAGNOSIS is
+  what is established** (three pins, one tree, plus bc's three fixtures).
+
+## 🧠 §THE-HABIT — the one practice that earned its keep, booked because it is transferable
+**ASK "WHAT WOULD THIS LOOK LIKE IF I WERE WRONG?" BEFORE BELIEVING A NULL — NOT AFTER.**
+A null result and a broken instrument are indistinguishable at the point of reading. Four times today:
+· §M.1 — `assertEq(delivered, 0)` passed for TWO reasons (the 0-debt branch AND an `onlyUs` revert
+  swallowed by a catch) and distinguished neither. The naive control ALSO returned 0.
+· §CROSS-SUBSIDY — Morpho's `position is healthy` looked like a null and **was the finding**: the late
+  LP's zero-debt collateral had made the aggregate healthier. The subsidy runs both ways.
+· §HARNESS-RETRACTIONS — four coefficients published without ever asking what would make them wrong.
+  `K_eff` moved **27× with bar size**; a closed form agreed with a simulation because both inherited
+  one assumption. **Two methods that share a premise are one method.**
+· §LEVYBREAL-RED — two of my own eliminations were wrong because I tested a live shared tree's WORKING
+  COPY and called it a revision. **A copy from a shared checkout is not a revision; test a COMMIT.**
+▶️ **THE MECHANICAL FORMS, since a disposition has failed repeatedly here and a command has not:**
+  · echo `git log --oneline -1` INSIDE a run — prove which ref executed, not which you asked for;
+  · echo the block that ACTUALLY forked — Foundry keys forks by `(url, block)` and the first suite to
+    fork at "latest" pins it for the whole run (project-bc measured 70 blocks of drift);
+  · `grep -E "Compiling [0-9]+ files"` — identical gas across a source change means a CACHED artifact;
+  · for any null, name the OTHER state that produces the same reading, and rule it out by measurement.
+
