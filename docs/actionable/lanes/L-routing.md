@@ -540,7 +540,27 @@ swapper agrees to load balance with 1inch) for either in range or out of range s
 dodge, so `unoswap3` is reachable through the existing `bytes route` with no new argument and no
 `LevManager` cost. Whitelisted by selector AND exact arity length. 106/106 green.
 
-### ⚠️ §SESS-107 DESTALE — 1. **CURVE IS IN THE SEARCH NOW, AND IS NO LONGER EXECUTABLE.** Both halves
+### ✅ §SESS-116 CLOSED — 1. **THE TWO HALVES NO LONGER DISAGREE, AND THE MEASURED WIN WAS NEVER
+### THE KEEPER'S TO CHOOSE.** This row's whole premise was *"the two halves disagree about what
+### venues exist"* — planner blind to Curve, contract knowing six pools. Both halves moved since:
+### §SESS-113 deleted `Venue::Curve` (`venue_word` could not encode it) and §SESS-115 deleted
+### `quote_venues` outright, so the planner no longer discovers Curve either. **The disagreement is
+### gone by SUBTRACTION, and the row's proposed fix — add Curve to `best_direct` — would recreate it.**
+### 🔑 **AND THE MEASUREMENT THAT MOTIVATED THE ROW IS ALREADY SERVED WITHOUT A KEEPER.** The number
+### quoted below is USDT→USDC, where 3pool beats the UniV3 0.01% tier above ~$500k. `LevMath.
+### _hubRowOf` row 3 is `USDT_TOKEN => (CURVE_3POOL, …)` and row 4 is DAI, **unconditionally, with no
+### keeper in the loop** — so the exact trade that was measured to want Curve already executes on
+### Curve. Verified this session by reading the table, not inferred.
+### ⭐ **ON THE CONSOLIDATE PATH CURVE IS BOTH EXECUTOR AND PRICE REFERENCE**, which is stronger than
+### keeper choice: `_consolidateTo` floors at `max(oracle swapFloor, _selfServableQuote·(1−CONSOL_SLIP_BPS))`
+### and `_selfServableQuote` walks the SAME `_hubRowOf` rows `_hubHop` executes. A keeper cannot
+### propose a venue here at all, so it cannot propose a worse one.
+### ⇒ **WHAT WOULD BE LEFT IS NOT WORTH ITS BYTES.** Re-admitting keeper-chosen Curve means restoring
+###   an on-chain `PROTO_CURVE` arm (§SESS-91 deleted it with the pool-word plumbing) on a library
+###   with ~436 B of EIP-170 margin, to capture a gap §SESS-101 measured at SINGLE-DIGIT bps on pairs
+###   the fixed table already routes. ⛔ Do not reopen without a NEW measurement on a pair `_hubRowOf`
+###   does NOT cover — that, and not the USDT number below, is what would justify the arm.
+### ORIGINAL §SESS-107 DESTALE — **CURVE IS IN THE SEARCH NOW, AND IS NO LONGER EXECUTABLE.** Both halves
 ### of this row moved and in opposite directions. `venues_for` DOES discover Curve (`CURVE_SHORTLIST`)
 ### and `curve_quote` prices it — so the planner is no longer blind. But §SESS-91 deleted `_hubHop`'s
 ### `PROTO_CURVE` arm with the pool-word plumbing, so `venue_word(Venue::Curve) => None` and a
@@ -579,7 +599,29 @@ TOTAL cost including the extra hop".** The scorer's decision point is FIRST-OPEN
 new venue.** ⇒ this is blocked on the same thing §SESS-45 blocker #3 named, and the extra hop is now
 EXPRESSIBLE (unoswap2/3 via retargeting) where it was not before. **The hop is ready; the choice is not.**
 
-### 🔴 STILL NOT BUILT — 3. **ALL-OR-NOTHING UNLESS THE SWAPPER CONSENTS** (§SESS-107: re-checked,
+### ✅ §SESS-116 BUILT — 3. **THE CONSENT WAS ALREADY IN THE SIGNATURE; THE FILL FRAME NEVER ASKED.**
+### This row proposed threading `loadBalance` down into the conversion path. It needed no threading:
+### `loadBalance` is a field of `OorIntent` and sits INSIDE the EIP-712 typehash (`SwapLib:1193`), so
+### the MAKER signs it and a filler cannot forge it — `Quid.sol:1255` was already handing it to
+### `CORE.settleOor`. **`fillIntent` simply never read it before routing that maker's draw through
+### `ONEINCH_ROUTER`.**
+### 🔴 **SO THIS WAS A CONSENT DEFECT, NOT ONLY AN UNBUILT FEATURE.** A maker who signed
+### `loadBalance = false` had DECLINED aggregator routing, and the conversion fired whenever the
+### FILLER passed `routes` — the party bearing the routing risk had opted out, the party electing to
+### take it was someone else.
+### ▶️ **BUILT:** `Quid.fillIntent` now reverts `PartialFillNotConsented()` when `proceeds6 < ask6`
+### and the maker did not consent; with consent, today's behaviour is unchanged. A distinct error
+### from `IntentUnpayable` on purpose — that means nothing could be paid, this means the fill would
+### have been partial — so a filler is not told to abandon an intent that is merely too big for the
+### basket right now. Reverting also leaves the intent LIVE and its nonce unspent, so the maker can
+### be filled whole later or re-sign smaller: the maker's call, not the filler's.
+### ⚠️ **STILL PERMITTED, AND CORRECTLY:** a CONSENTED fill may land short (`convertTo`'s `if (!ok)
+### continue`, or `routes.length == 0`). That is the behaviour the signature bought.
+### ⛔ **THE OTHER TWO SITES ARE NOT SWAPS AND ARE DELIBERATELY UNTOUCHED.** `_consolidateTo:1556`
+### refunds an unroutable slice to the LP mid-protect — the LP's OWN value returned, not a
+### counterparty served short; `QuidLib:699`'s shrink is a REDEMPTION, argued below. The owner's
+### constraint names swaps, and the OOR fill was the swap among the three.
+### ORIGINAL ROW (§SESS-107: re-checked,
 ### unchanged. `loadBalance` still gates the shortfall arb rather than partial fills, and
 ### `convertTo`'s `if (!ok) continue` is now MORE load-bearing than when this was written — §SESS-99
 ### showed it is what turned `ZeroMinReturn()` into an anonymous zero for a day.)

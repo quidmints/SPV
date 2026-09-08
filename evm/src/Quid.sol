@@ -1323,8 +1323,32 @@ contract Quid is Shares,
         //    returns the payout token's **NATIVE** units (a measured balance delta); and `proceeds6`
         //    is 6-dec USD. Getting any of these wrong is the 1e12 class that already cost a full
         //    position debit on this very function.
-        if (routes.length > 0 && proceeds6 < ask6)
-            proceeds6 += _convertShortfall(i, (ask6 - proceeds6) * 1e12, routes);
+        // ⭐ §SESS-116 — **ALL-OR-NOTHING UNLESS THE SWAPPER CONSENTED, AND THE CONSENT WAS ALREADY
+        //    IN THE SIGNATURE.** The owner's constraint is *"there is no notion of a partial fill and
+        //    partial refund (or shouldnt be, if and only if the swapper agrees to load balance with
+        //    1inch) for either in range or out of range swaps."* §SESS-65 row 3 proposed threading a
+        //    NEW consent bool down here. It needed none: `loadBalance` is a field of `OorIntent` and
+        //    it is INSIDE the EIP-712 typehash (`SwapLib:1193`), so the maker signs it and a filler
+        //    cannot forge it. It was already being carried to `CORE.settleOor` (`:1255`) — this frame
+        //    simply never asked.
+        // 🔴 **AND THE OMISSION WAS A CONSENT DEFECT, NOT ONLY A MISSING FEATURE:** a maker who signed
+        //    `loadBalance = false` DECLINED aggregator routing, and `fillIntent` routed their pro-rata
+        //    draw through `ONEINCH_ROUTER` anyway whenever the FILLER chose to pass `routes`. The
+        //    party bearing the routing risk had opted out; the party choosing to take it was someone
+        //    else. Reading the signed bool makes the filler unable to spend a consent that was refused.
+        // ⇒ THE THREE CASES, AND WHY THE SHORT ONE REVERTS RATHER THAN PAYING LESS. Paying an
+        //   opted-out maker `proceeds6 < ask6` IS the partial fill the constraint forbids — the debit
+        //   scales down with it (`etherSold` below), so it is not a THEFT, but it is still a fill they
+        //   did not agree to and it consumes their nonce. Reverting leaves the intent live to be
+        //   filled whole later, or re-signed smaller, which is the maker's call and not the filler's.
+        if (proceeds6 < ask6) {
+            if (!i.loadBalance) revert PartialFillNotConsented();
+            if (routes.length > 0)
+                proceeds6 += _convertShortfall(i, (ask6 - proceeds6) * 1e12, routes);
+        }
+        // ⚠️ A CONSENTED FILL MAY STILL LAND SHORT AND THAT IS CORRECT: `convertTo`'s `if (!ok)
+        //    continue` skips a failed leg, and `routes.length == 0` converts nothing at all. Both
+        //    leave `proceeds6 < ask6` — permitted here precisely BECAUSE the maker signed for it.
 
         uint etherSold = (proceeds6 * 1e12) * 1e18 / i.limitPx;  // usd6 → usd18 → wei at the LIMIT
         if (etherSold > cap) etherSold = cap;                    // rounding only; the cap already bound it
@@ -1339,6 +1363,11 @@ contract Quid is Shares,
     ///         it is the intended behaviour (pay less of the right token), and only a ZERO fill
     ///         reverts, because a zero fill would burn the nonce for nothing.
     error IntentUnpayable();
+    /// §SESS-116 — the basket could not cover a maker who did NOT sign `loadBalance`. Distinct from
+    /// `IntentUnpayable` on purpose: that one means *nothing* could be paid, this one means the fill
+    /// would have been PARTIAL and the maker refused partials. Conflating them would have told a
+    /// filler to give up on an intent that is merely too big for the basket right now.
+    error PartialFillNotConsented();
 
     event IntentFilled(address indexed owner, uint64 indexed nonce, uint size, uint limitPx, bool buyVolatile);
 
