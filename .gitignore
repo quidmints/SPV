@@ -125,3 +125,4 @@ graphify-out/
 
 # Compiled wallet pp modules for tools/identity/regenerate-fixtures.sh (QUID_WALLET_BUILD).
 app/.fixtures-build/
+evm/.fork-block

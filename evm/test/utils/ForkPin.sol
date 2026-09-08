@@ -42,8 +42,42 @@ abstract contract ForkPin is Test {
         vm.deal(address(5), 0);
         vm.makePersistent(address(5));
         uint pinned = vm.envOr("FORK_BLOCK", uint(0));
+        string memory url = _endpoint();
         return pinned == 0
-            ? vm.createFork(vm.rpcUrl("mainnet"))
-            : vm.createFork(vm.rpcUrl("mainnet"), pinned);
+            ? vm.createFork(url)
+            : vm.createFork(url, pinned);
+    }
+
+    /// ⭐ §SESS-118 — **BOTH ANKR KEYS, ACTUALLY USED — FORGE HAD NO FALLBACK CHAIN AND NO SPREAD.**
+    ///
+    /// 🔴 **THE MEASURED PROBLEM.** Every fork suite resolved `vm.rpcUrl("mainnet")`, which
+    ///    `foundry.toml` maps to `${ETH_RPC_URL}` — **ONE key for ~180 fork suites.** A full run hit
+    ///    **64 × HTTP 429** (`call rate limit exhausted, retry in 10m0s`), and **27 of that run's 41
+    ///    failures were `could not instantiate forked environment` / `database error`, not defects.**
+    ///    Meanwhile `ANKR_RPC_URL` — a genuinely different key — was read **zero** times by anything
+    ///    Solidity: `grep ANKR_RPC_URL evm/` returns nothing. Only the Rust keeper used it
+    ///    (`lev_keeper.rs:1943`, `oneinch.rs:169/242`). `.env` said so and nobody acted on it:
+    ///    *"FORGE HAS NO SUCH CHAIN: 9 sites read ETH_RPC_URL only."*
+    ///
+    /// ⇒ **SPREAD, NOT FAILOVER, AND THE DIFFERENCE IS THE POINT.** A fallback chain only helps when
+    ///   the primary is DEAD; rate limiting is the primary being ALIVE and over-used. Splitting the
+    ///   suites across both keys halves the per-key rate, which is the failure actually observed.
+    ///
+    /// ⚠️ **DETERMINISTIC, BECAUSE A RANDOM ENDPOINT WOULD COST REPRODUCIBILITY** — the very thing
+    ///    this contract exists to protect (§A.18: three correct fixes were each blamed for 31
+    ///    failures that a clean tree reproduced). Keying on `address(this)` puts a given SUITE on a
+    ///    given endpoint for every run, so two runs of the same suite are still comparable.
+    /// ⛔ **PUBLICNODE IS DELIBERATELY NOT IN THE ROTATION.** It answers archive requests with 403
+    ///    (*"Archive requests require a personal token"* — see the `modexp` note above) and produced a
+    ///    MEASURED `connection reset` (`test_TheReadFitsInABlock`). An endpoint that fails only on
+    ///    SOME reads is worse than one that fails on all of them: it turns a config problem into a
+    ///    flaky suite. It stays in `.env` as a documented keyless fallback, not as a peer.
+    function _endpoint() private view returns (string memory) {
+        string memory primary = vm.rpcUrl("mainnet");
+        string memory second  = vm.envOr("ANKR_RPC_URL", string(""));
+        // A second key that is absent, or that is literally the primary, is not a second endpoint.
+        if (bytes(second).length == 0 ||
+            keccak256(bytes(second)) == keccak256(bytes(primary))) return primary;
+        return uint256(keccak256(abi.encodePacked(address(this)))) % 2 == 0 ? primary : second;
     }
 }
