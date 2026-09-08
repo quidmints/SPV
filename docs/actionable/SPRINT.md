@@ -98335,33 +98335,54 @@ pool words were deleted, and `test_MEV_OracleFloorRejectsSandwich` reverted on r
 sandwich). ⚠️ **Do not simply re-add the revert** — read §SESS-91 first; the fix may belong at the
 CALLER, which knows whether an empty route is legitimate.
 
-## §K-IS-LOAD-BEARING-FOR-θ — project-2d's backtest, folded into §K-AND-HEADROOM
+## §K-IS-A-SAMPLING-ARTEFACT-WHEN-MEASURED — ⛔ BOTH published K_eff numbers RETRACTED by their author
 
-project-2d (cross-session, 2026-09-07) measured the coefficient the repacking range ACTUALLY realises,
-against the one the geometry predicts. **Re-derived here, not taken on trust** — the arithmetic below
-is mine against `QuidLib.derivedThetaWad:224-236`.
-| window | bars | ann. vol | repacks | `K_eff` |
-|---|---|---|---|---|
-| COVID 5m (Feb–Apr 2020) | 13,000 | 168% | 6,283 = 139/day | **0.40** |
-| Mar-12-2020 crash 1m | 3,000 | 431% | 1,250 = 600/day | **5.06** |
-mean `K_eff ≈ 2.7`, against IL-CERT's measured **0.71** and the geometric **125**.
-⭐ **THE MECHANISM IS WHY THE GEOMETRY IS WRONG, AND IT IS SIMPLE: a repacking range is pushed out of
-a 20 bps band and RECENTRES, so its loss per excursion is bounded by the band WIDTH, not by the
-curvature at the centre.** `kLvrWad` assumes it stays in-range and fully exposed, which it never is.
-🔴 **AND THE CONSEQUENCE IS BIGGER THAN BAND SIZING — `kLvrWad` IS θ'S DENOMINATOR.** ✅ **VERIFIED
-AGAINST THE CODE:** `derivedThetaWad` returns `rangeFeeYield · 1e18 / (kWad · σ²)` (`:236`). So at
-`K = 125`, `σ = 80%` (σ² = 0.64) and a 5%/yr realised fee yield: **θ = 0.05 / 80 = 0.000625.**
-`SwapLib.applyTheta` caps pooled at `θ · backing` ⇒ **the range holds ~0.06% of backing — the throttle
-switches the AMM off.** At `K = 0.71` the same inputs give **θ = 0.11**. project-2d's backtest: mean θ
-`0.001 → 0.022`, LP mean annual edge **+4.86% → +5.54%** over 204 rolling 365-day windows.
-⇒ **The K correction is not a band-sizing detail; it decides whether the range has depth at all.**
-⚠️ **CAVEAT, STATED BY ITS AUTHOR AND KEPT:** the daily-resolution sections of that harness use a √p
-benchmark, not the ±0.2% geometry, because daily bars cannot resolve a 20 bps band (the model has the
-range eating a 40% gap in one bite, which a 139-repacks/day range never does). **Only the 5m/1m
-figures above are physical.**
-📌 ⇒ **§K-AND-HEADROOM's two halves plus this make ONE item with an order:** fix `K`, and the
-LevBase:102 basis error stops being fail-safe the moment you do — so the basis must move in the same
-change. **Neither is started.**
+⛔ **STRICKEN 2026-09-08, AT project-2d'S OWN REQUEST, AND I PUBLISHED THEM SO THE RETRACTION IS
+MINE TO CARRY.** This section previously reported `K_eff` 0.40 / 5.06 / **mean 2.7** and *"the geometry
+over-states LVR 46×"*. **Neither 2.7 nor its corrected successor 28.9 should appear anywhere.** The
+first metric was not LVR at all — it divided an ETH-count divergence by `σ²·T`; re-measuring with the
+actual definition (Milionis et al., `LVR_t = δ_{t-1}(P_t − P_{t-1}) − (V_t − V_{t-1})`) gave 28.9, and
+then the control that should have run first killed that too.
+
+⭐ **THE CONTROL IS THE DURABLE RESULT, AND IT IS WORTH MORE THAN EITHER ESTIMATE: hold the window and
+the geometry FIXED, vary only the BAR SIZE.**
+| bars | 1-step `σ√dt` | frac in-range | K "measured" |
+|---|---|---|---|
+| 5m | 0.52% | 51.7% | 34.62 |
+| 15m | 0.89% | 35.0% | 23.85 |
+| 1h | 1.67% | 18.6% | 15.01 |
+| 4h | 3.83% | 11.1% | 6.51 |
+| 1d | 12.72% | 4.4% | 1.84 |
+⇒ **K moves 27× across bar sizes. It is a property of the SAMPLING, not of the range.** A 5-minute step
+at COVID vol is ~0.52%, **2.6× wider than the 20 bps band**, so the position is never observed inside
+it. ✅ **And the accuracy control confirms the estimator degrades exactly that way:** full-range `√p`
+measures **0.115 against the textbook 0.125** (8% low), while ±2% measures **8.72 against the geometric
+12.56** (31% low) *even at 96.8% in-range*.
+📌 **THE GENERAL LESSON, which is why this is kept rather than deleted: an estimator whose answer moves
+27× with a free parameter is measuring the parameter.** The bar-size sweep costs one loop and would
+have caught it before any number was published — including by me, when I re-derived the algebra and
+then repeated the estimate without questioning what produced it.
+
+### 🔴 WHAT SURVIVES — a CODE READING, not a measurement, so the retraction does not touch it
+`QuidLib.kLvrWad` **CLAMPS** price into the range before computing:
+`uint p = priceWad < loPrice ? loPrice : (priceWad > upPrice ? upPrice : priceWad);`
+✅ **MEASURED HERE at δ=20 bps: clamped-to-boundary gives K = 125.12 against 125.06 at the centre — the
+same number.** But **out of range the true instantaneous LVR is ZERO**: the position is single-asset
+and there is nothing to arbitrage against. ⇒ **whenever price is outside the band, `kLvrWad` reports
+~125 where the truth is 0.** Direction of the bias is CERTAIN; magnitude is exactly what the table
+above shows cannot be measured with the bars available.
+⚠️ **This compounds the θ regime question already booked in §BASIS-FIXED-K-NOT** — θ divides an ANNUAL
+yield by an instantaneous IN-RANGE rate, and the clamp makes that rate apply even when the position is
+out of range. **Same defect from two directions; fix them as one thing or not at all.**
+
+### ▶️ AND THE LEVER IS NOT `K` — IT IS `RANGE_DELTA`, WHICH IS AN OWNER DECISION
+`K_geom = 1/(4δ)` exactly (verified: 125.06 at δ=20 bps, 12.56 at δ=200 bps). So **the only honest way
+to lower K is to WIDEN THE RANGE.** At σ=80% the shipped ±0.2% gives an LVR rate of ~8,004%/yr against
+a fee yield of a few %/yr ⇒ θ ≈ 0.0006 and `applyTheta` caps pooled at ~0.06% of backing. ⛔ **No
+correction to `K` that anyone can justify changes that conclusion** — project-2d's own arithmetic:
+θ pins below 0.10 for EVERY K ≥ ~0.5, and correcting K by any defensible factor moves θ only to
+~0.003. ⇒ **Either the ±0.2% band is too tight for the volatility regime, or θ's ratio is comparing two
+different time bases. Both are DESIGN questions for the owner, and neither is a patch.**
 
 ## §BASIS-FIXED-K-NOT-2026-09-08 — the basis error is fixed; `K` is NOT, and the formula is right
 
@@ -98388,13 +98409,14 @@ small for a concentrated position, not because the loss is large. A ±0.2% LP re
 multiple of its (tiny) position value per year to arbitrage; that is the known cost of concentration,
 not a bug.
 
-🔴 **WHY THE `K_eff ≈ 0.4–5.1` MEASUREMENT DOES NOT OVERTURN IT — the premise fails at one grep.**
-Backing `K` out of an observed rebalance frequency requires the observed band to BE the derived band
-`h = ∛(g/(C·K))`. **It is not: `SwapLib.RANGE_DELTA = 20` is a hardcoded `internal constant` and the
-repack fires on drift past it (`RangeLib.sol:243`). `K` does not enter the repack trigger at all.**
-⇒ repacks/day measures **σ against a fixed 20 bps band**, which is why the two windows differ by 12.6×
-in `K_eff` (0.40 vs 5.06) while differing by 2.6× in volatility — a coefficient should not move with
-the sample if it is a coefficient. **The number is real; it is not this K.**
+🔴 **WHY NO MEASURED `K_eff` OVERTURNS IT — and the author has since RETRACTED every number involved
+(§K-IS-A-SAMPLING-ARTEFACT-WHEN-MEASURED).** My own rebuttal at the time was that backing `K` out of a
+rebalance frequency requires the observed band to BE the derived band `h = ∛(g/(C·K))`, and it is not:
+**`SwapLib.RANGE_DELTA = 20` is a hardcoded `internal constant` and the repack fires on drift past it
+(`RangeLib.sol:243`), so `K` never enters the repack trigger.** That still holds.
+⭐ **BUT THE DECISIVE EVIDENCE IS THE AUTHOR'S OWN CONTROL, WHICH IS BETTER THAN MY ARGUMENT:** holding
+window and geometry fixed and varying ONLY the bar size moves the measured K **27×** (34.62 at 5m to
+1.84 at 1d). **An estimator whose answer moves 27× with a free parameter is measuring the parameter.**
 ⚠️ **AND THE DIRECTION OF THE ERROR IS WHY THIS IS NOT A JUDGEMENT CALL.** θ = `yield/(K·σ²)` is a
 Merton RISK BUDGET and `applyTheta` caps deployed depth at `θ·backing`. **A K that is too SMALL makes θ
 too LARGE and the range over-deploys into the IL bet** — capital at risk against a hazard the budget
