@@ -595,6 +595,40 @@ git merge --no-ff lane/L3
 git worktree remove ../spv-L3 && git branch -d lane/L3
 ```
 
+## 🔴 `main` IS THE ONLY LONG-LIVED BRANCH. A "SHARED WORKING BRANCH" IS THE DIVERGENCE BUG (2026-09-08)
+
+The recipe above says integrate **from the MAIN tree** and rule 15 says `git push origin HEAD:main`.
+Both were followed *locally* and still produced a **328-commit divergence**, because every lane
+integrated into a long-lived shared branch — `sprint-fold-and-destale` — instead of into `main`.
+`main` sat untouched for seventeen days while all real work accumulated one ref away.
+
+⛔ **THE COST IS NOT THE MERGE, WHICH WAS TRIVIAL** (`main` was a strict ancestor, so it fast-forwarded
+with zero conflicts). **The cost is everything that rots in the gap.** Measured on the day it was
+finally consolidated: nine `rescue/*` tags holding 17 commits, none mergeable — every dry-run merge
+conflicted, and `rescue/c17-lend-own-dollars` would have RESURRECTED `docs/actionable/QUEUE.md` and
+`BUILD-QUEUE-AND-107.md`, files deliberately deleted in the interval. Their content had all been
+redone properly since. **A branch that is not `main` accumulates work whose only fate is to be
+re-derived or abandoned.**
+
+⇒ **THE RULE: lanes are SHORT-LIVED and merge to `main`. Nothing else is long-lived.**
+```bash
+git merge --no-ff lane/L3        # in the main tree, ON main
+git push origin HEAD:main        # rule 15 — main sees it NOW, not in a fortnight
+```
+⚠️ **THE TELL, AND IT IS ONE COMMAND:** `git rev-list --count main..HEAD` should be a handful, never
+hundreds. **If `git branch -vv` shows a branch other than `main` and `lane/*`, that is the bug** — not
+a workflow, however long it has been in use.
+
+⛔ **AND A COMMIT COUNT IS A NAME FOR WORK, NOT THE WORK — the `rescue/*` tags read as "20 commits of
+unmerged work" from `git rev-list --count` alone.** Opening them showed `WIP … (unverified)`,
+`(hypothesis)`, `diag`, `instrumentation (diagnostic)`. The structural checks are `git show --stat
+<sha>` and `git merge-tree --write-tree <base> <ref>` (a dry run that touches no working tree), never
+a count. Same failure as auditing by name, reached with an integer — see §A-NAME-IS-NOT-THE-THING.
+⭐ **`git stash create` MINTS A COMMIT OBJECT WITHOUT TOUCHING THE INDEX OR WORKING TREE.** Recording
+its SHA before any branch operation converts an unrecoverable loss into a recoverable one **without
+anyone having to establish ownership first** — which is the point, because on 2026-09-08 three
+sessions made three wrong ownership guesses about one dirty file, in both directions.
+
 ⭐ **WHY A BRANCH PER LANE AND NOT `--detach`: GIT ENFORCES THE RULE INSTEAD OF YOU REMEMBERING IT.**
 Checking the same branch out in two worktrees is refused outright —
 `fatal: 'sprint-fold-and-destale' is already used by worktree at '/root/project/spv'` (measured
