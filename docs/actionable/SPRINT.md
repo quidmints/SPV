@@ -1113,6 +1113,11 @@ the one Wave 3 item that is real, unstarted, and cross-thread relevant.**
 | **NEW-3** #54 delever withhold-vs-repay divergence | 🔴 **STILL OPEN — RE-CONFIRMED, AND NOW WITH A FALSE COMMENT OVER IT**  📌 **§SEQ-AUDIT: GATE 4 · lane L4. Live delever withhold-vs-repay divergence on a money path with a comment asserting the opposite** |
 
 🔴 **`§NEW-3-STILL-OPEN` — the debt clamp the call site claims does not exist.**
+🟡 **HALF DISCHARGED 2026-09-08 — THE FALSE COMMENT IS GONE, THE CLAMP IS NOT.** `SwapLib.sol:2245-2266`
+no longer asserts *"amtNative clamped to LIVE debt"*; it carries `🔴 §UNCLAMPED-AMTNATIVE` and a measured
+refutation of the over-draw. ⛔ **The clamp itself is still absent, so this stays open for it:**
+`LevBase.sol:435-442` reads `pos[lp]`, then computes `amtNative = LevMath._fromUsd(address(AUX), stable,
+maxUsd18)` with **zero debt reads**. The call site that must capture `usedUsd` is now `SwapLib.sol:2267`.
 1. **`_sourceRepayFree` (`SwapLib.sol:2143`) says** `swapOutDeleverAmt(lp, wantUsd6 * 1e12); // amtNative
    clamped to LIVE debt`.
 2. **It is not.** `LevBase.swapOutDeleverAmt` (`:419-426`) reads `pos[lp]`, takes the venue and stable, and
@@ -1561,6 +1566,11 @@ basis — the blocker the file put in front of them is gone.**
    is EMERGENT, and the check makes it ENFORCED.
 
 ## 🔴 §BOOKMARK-OMITS-THE-COMPOUNDED-FEE — **THE DEPOSIT PATH OVER-CREDITS AN LP, OUT OF OTHER LPs' FEES**
+
+✅ **CLOSED 2026-09-08 — BOTH SITES REFRESH AT `LP.pooled + buf`.** `BtcLib.sol:283` (`_pairRegLeg`) and
+`:302` (the unpaired branch) both call `SwapLib.refreshBookmarks(LP, LP.pooled + p.buf, …)`; the
+row's own "⚠️ BOTH SITES NEED THIS" warning is carried at `:279-282` and `:293-299`. The fix this
+row derived and never executed HAS been executed.
 
 Found 2026-09-01 answering the owner's requirement: *"they get paid accurately (having had all their
 fees compounded for them along the way) even if they only come online once a year."* **The accrual
@@ -2192,6 +2202,11 @@ that the `require` inside `_ragequitProof()` (`:704`, the SCOPE guard) fired INS
 `expectRevert` window. Same root, different messenger. **Do not triage it separately.**
 
 ## 🔴🔴 **§RSAPSS-MSB — HALF OF ALL VALID CSCA SIGNATURES WERE REJECTED, AND THE MERGE IS WHY THE FIX WAS NOT HERE** (2026-08-29, FIXED)
+
+✅ **CLOSED 2026-09-08 — THE 🔴🔴 CONTRADICTED THE ROW'S OWN `(2026-08-29, FIXED)`.** The vendored patch is
+live: `evm/lib/solidity-lib/contracts/libs/crypto/RSASSAPSS.sol:126` reads
+`LibBit.clz(uint256(uint8(n_[0])) << 248)` — leading zero bits off the MOST significant limb — with
+the patch note at `:116-125`.
 
 `RSASSAPSS._pss` (`evm/lib/solidity-lib/contracts/libs/crypto/RSASSAPSS.sol:116`) counted the
 modulus's leading zero bits off `n_[n_.length - 1]` — the **LAST** byte of a **big-endian** modulus.
@@ -3302,6 +3317,14 @@ naming: I keep landing verified capabilities with no caller, then describing the
 were banked.** Three in one day.
 
 ## ⏸️ **§TWO-HOP-IS-BUILT-BUT-NOT-WIRED — THE CAPABILITY LANDED AND VERIFIED; THE 0.82% IS NOT BEING COLLECTED YET** (`3c81ad31`, 2026-08-30)
+
+✅ **CLOSED 2026-09-08 ON THE ON-CHAIN HALF — the two ▶️ items that are code are both done.** `WbtcCfg`
+carries `dex2` (`LevMath.sol:322`), and `_stableToWbtc` threads it caller→config on the production
+BTC path (`BtcLevManager.sol:255,264,271,280-281,292,298,310,313`; `LevBase.sol:357-377`). The batch
+keeper path takes `uint256[] calldata dex2s` (`LevManager.sol:333,337,344`) and `:318` records that
+`routedSwap` emits `UNOSWAP2_SELECTOR` whenever `dex2 != 0`. ⛔ **The row's claim that ALL THREE call
+sites pass `dex2 = 0` is now false.** ▶️ **Genuinely outstanding and all that is left: the off-chain
+keeper must SUPPLY the second pool word.** That is the whole remaining row.
 
 ✅ **LANDED AND VERIFIED BY EXECUTION.** `_aggSwap` takes a second pool word and switches to
 `UNOSWAP2_SELECTOR` when it is non-zero. **Measured against LIVE pools: USDC→WETH→WBTC returns
@@ -5174,6 +5197,10 @@ with a standalone `tsc --noEmit` from a scratch toolchain, filtering module-reso
 
 ## 🔴🔴🔴 **§OOR-TWO-DESIGNS-LIVE — THE INTENT REDESIGN IS BUILT, IN `HEAD`, AND RUNNING BESIDE THE BOOK IT WAS MEANT TO REPLACE. WE ARE PAYING FOR BOTH.** (2026-08-29, owner: *"is this really the best design … with the least on-chain machinery?"*)
 
+✅ **CLOSED 2026-09-08 — THE SECOND DESIGN IS GONE, SO THERE IS ONE.** `outOfRange`, `sweepOor`, `pokeOor`,
+`pull`, `oorBook` and `MAX_FILLS_PER_SWAP` have **zero declarations** in `evm/src`; only prose
+survives at `Core.sol:1089` and `SwapLib.sol:1163`/`:1174`. §OOR-BOOK-DELETED is already ✅.
+
 **No. The better design already exists in this tree and nothing was deleted when it landed.**
 
 `abb685c4` (2026-08-28) — *"§OOR-AS-INTENT: a resting order that exists only as a signature"* — is an
@@ -5550,6 +5577,11 @@ they are asymmetric by design rather than unbuilt. **Only the two `return 0` stu
 subject of this row.**
 
 ## 🔴🔴 **§FIXTURE-INHERITS-ITS-ENVIRONMENT — THE IDENTITY PROOFS WERE BOUND TO THE CHAIN ID AND THE WALL CLOCK OF WHOEVER RAN THEM. BOTH ARE NOW PINNED, AND THE SUITE IS GREEN IN BOTH MODES** (2026-08-29)
+
+✅ **CLOSED 2026-09-08 — BOTH PINS ARE IN THE FIXTURE.** `evm/test/identity/pool/WithdrawEndToEnd.t.sol:273`
+`vm.chainId(1);` and `:296` `vm.warp(FIXTURE_TIMESTAMP - 2 days);`, rationale at `:288-295`.
+▶️ **The one residual is NOT this row's:** "the sweep this suggests has not been run" is a separate
+task and belongs in its own row rather than holding a 🔴🔴 over two landed fixes.
 
 Regenerating the fixtures (§FIXTURE-PIPELINE-REPATHED) made the identity suites **472/472 with no
 fork and 463/9 WITH one** — the same commit, the same files, nine tests whose verdict depended on how
@@ -6283,6 +6315,10 @@ and a panic is a worse failure than a revert** (no reason, and it reads as a com
 
 ## 🔴 **§BTC-OOR-ENTERABLE-NEVER-FILLABLE — a user can PLACE a BTC boundary order that CANNOT fill, and the only exit is a recorded loss** (2026-08-28)
 
+✅ **CLOSED 2026-09-08 — MOOT BY THE BOOK DELETION.** There is no placement path left to trap in: neither
+`outOfRange` nor `sweepOor` is declared anywhere in `evm/src`. ▶️ **The live successor concern —
+BTC having no out-of-range path at all — is §BTC-DELIVERY-IS-BUILT's, not this row's.**
+
 `Vault.outOfRange(amount, token, distance, range)` is live and tested
 (`test/btc/BtcSelfManaged.t.sol`, 488 lines). `Core.sol:1066` sweeps crossed orders on EVERY swap via
 `RANGE.sweepOor(px, MAX_FILLS_PER_SWAP)` — and on the BTC range that lands on
@@ -6310,6 +6346,15 @@ for when native delivery lands, and is the smallest change that does either. ⚠
 position that cannot fill.
 
 ## ⛔ **§OOR-AS-INTENT — ⚠️ "NOT STARTED" IS WRONG AND WAS WRONG THE DAY IT WAS WRITTEN. IT IS BUILT AND IN `HEAD` (`abb685c4`, ETH side): `SwapLib.fillIntentBody:1159` + `Quid.fillIntent:1341`. The book was NOT deleted, so both designs are live — see §OOR-TWO-DESIGNS-LIVE. BTC has neither.** *(original row, kept — its security design and blast radius are still the record)* (2026-08-28)
+
+✅ **CLOSED 2026-09-08 — THIS ROW WAS RIGHT AND THE RACE IT DESCRIBES IS OVER.** The intent design
+WON: `Quid.fillIntent` is live and permissionless (`Quid.sol:1243`), while the book it was meant to
+replace is **deleted** — `outOfRange`, `sweepOor`, `pokeOor`, `pull`, `oorBook`, `MAX_FILLS_PER_SWAP`
+all have zero declarations in `evm/src`. ▶️ **What the deletion leaves open belongs to other rows:**
+BTC has no out-of-range path at all (§BTC-DELIVERY-IS-BUILT), smart-wallet owners cannot place an
+intent (`ecrecover` only — §B7, still open), and no relay exists in this repo to store one.
+`pull`, `oorBook` and `MAX_FILLS_PER_SWAP` have **zero declarations** in `evm/src`; only prose
+survives at `Core.sol:1089` and `SwapLib.sol:1163`/`:1174`. §OOR-BOOK-DELETED is already ✅.
 
 Owner: *"remove out of range code from solidity … doable off chain since the keeper is trusted to run
 the bridge anyway"*, with the security question *"how is it that only this intent can be done by the
@@ -7128,6 +7173,11 @@ the message says**, not whether the bound is one-sided.
 
 ---
 ## 0c. 🔴 **§E352 IS NOT NEW — IT IS §E278's SECOND HALF, AND ITS GUARD TEST PASSES *BECAUSE OF* THE
+*"`UNKNOWN_VARIANCE_SKEW` has exactly one consumption site in the tree"* is false: there are **two**,
+and the second is the leg this row says has no guard. `SwapLib.sol:1443` is the drain leg;
+**`SwapLib.sol:2047-2049`** is `sellSkew`, reading `sigmaSqWad == 0 ? UNKNOWN_VARIANCE_SKEW : …`.
+The σ²=0 disagreement between the two legs is RESOLVED. What the code itself still calls open is the
+FLUSH half (`SwapLib.sol:2037-2039`, §E352) — rewrite the heading to that and nothing else.
 DEFECT** (verified 2026-08-23; corrects my own booking from earlier today)
 
 I booked §E352 this morning as a fresh finding: *"`skewWad`'s sentinel says unmeasured ⇒ charge the
@@ -8461,6 +8511,12 @@ pass so the two do not disagree.
 
 ## 🔴🔴 **§POOL-SATS-SEGREGATION — the shape of the fix, and a CORRECTION to how the gap was described** (2026-08-26)
 
+✅ **CLOSED 2026-09-08 — DISSOLVED, NOT FIXED.** The entire delete-set this row predicted is already gone:
+`poolOwnedSats`, `poolSatsParker`, `parkProvenSats`, `_releasePoolSats`, `PoolSatsLeftWithLp` and the
+`lpEntitled` subtraction all return **zero hits** in `evm/src`, as do `settleSwapInBuffered` and
+`provenSatsAvailable`. §POOL-INVENTORY-PURGED + §FLEET-FRONTS-THE-WINDOW removed the pool-owned
+slice outright, which is what §BTC-CLUSTER-RE-VERIFIED's NEW-2 row already recorded at `:1114`.
+
 ⛔ **CORRECTION FIRST: I described this as pool sats being STRANDED. THEY ARE NOT STRANDED — THEY LEAVE
 WITH THE LP, AND THE CONTRACT ALREADY SAYS SO.** Traced:
   1. `parkProvenSats` books pool inventory by applying a **SPLICE THAT GROWS THE CHANNEL**
@@ -8527,6 +8583,10 @@ fails today. (§POOL-SATS-STRANDING-IS-UNTESTED has the fixture gap: 0 of 6 dead
 
 ## 🔴🔴 **§POOL-SATS-STRANDING-IS-UNTESTED — the exposure has ZERO coverage, and the fixtures cannot reach it** (2026-08-25)
 
+✅ **CLOSED 2026-09-08 — MOOT. DO NOT WRITE THE TEST.** It would cover `lpEntitled = amountSats −
+poolOwnedSats`, and neither symbol exists in `evm/src` any more (see §POOL-SATS-SEGREGATION). A test
+for a branch that was deleted is a test that can only ever pass.
+
 §BTC-POOL-SATS-HAVE-NO-UNILATERAL-EXIT establishes that a pre-signed LP-only exit leaves
 `poolOwnedSats` in the 2-of-2 funding UTXO with no unilateral spender. **Measured today, nothing
 tests it — and the reason is structural, not an oversight:**
@@ -8552,6 +8612,10 @@ hop cooperation. **(b) is the assertion that does not pass today**, and it is th
 to forge the ladder would already hold the LP half. **The pool half rests on reading the code.**
 
 ## 🔴🔴 **§BTC-POOL-SATS-HAVE-NO-UNILATERAL-EXIT — LP funds ARE immune to a full custody compromise; POOL sats are NOT** (2026-08-25, owner question)
+
+✅ **CLOSED 2026-09-08 ON THE POOL HALF.** There is no pool-owned slice left inside the funding UTXO to
+strand: `poolOwnedSats` has zero hits in `evm/src`. The LP half this row itself marks ⭐⭐ defensible
+is unchanged and was never the gap.
 
 Owner asked whether BTC state is "fully immune" if the daemon **and** the fallback **and** the msig
 are all untrusted, and whether a **jury drawn from the basket** would be needed to drain stuck assets.
@@ -11511,7 +11575,7 @@ a row overturned the plan built from its marker.
 - **E91** — DELIVERY GAP LOCATED IN THE UNLOCK CALLBACK: THE USD LEG TAKES TO `address(this)`, NOT TO THE RECIPIENT (2026-08-05).
 - **E92** — `Core` IS 38 BYTES FROM EIP-170 AND ITS SIZE IS COMPLETELY UNENFORCED — `forge build --sizes` DOES NOT REPORT IT (2026-08-05).
 - **E225-do-not-push-that-merge** — THE MERGE I BUILT MUST NOT BE PUSHED, AND MY 950-FAILURE NUMBER IS NOT EVIDENCE OF ANYTHING (2026-08-16). THREE INDEPENDENT REASONS, EACH SUFFICIENT.  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT wave 2): CLOSED: never pushed, missing commits landed**
-- **E222-externaltwap-is-unwired** — THE CIRCULAR ORACLE IS STILL LIVE — THE FIX WAS WRITTEN AND NEVER CONNECTED. `grep -rn ExternalTwap evm/src evm/test evm/script` RETURNS NOTHING OUTSIDE ITS OWN FILE (2026-08-16).
+- **E222-externaltwap-is-unwired** — THE CIRCULAR ORACLE IS STILL LIVE — THE FIX WAS WRITTEN AND NEVER CONNECTED. `grep -rn ExternalTwap evm/src evm/test evm/script` RETURNS NOTHING OUTSIDE ITS OWN FILE (2026-08-16). 📌 **RE-POINT 2026-09-08: THE GREP THIS RESTS ON CANNOT FAIL ANY MORE — `ExternalTwap`'s FILE AND SYMBOL ARE DELETED (§E318 folded it in; `OracleLib.sol:401`, `curvePriceWad` at `:422`/`:428`), so "returns nothing outside its own file" is trivially true and certifies nothing. The circular-oracle concern IS still live, by a different mechanism: `Core.setObservationSource` has zero non-test callers and no deploy wiring (`Core.sol:1682`), leaving `observationSource` unset (`Core.sol:1515`, `:1547`, `:1634`). Do not close this on the old grep.**
 - **E91-r5** — MECHANISM FOUND: `withdrawSelf` DELIVERY CALLS ARE WRAPPED IN `try/catch` — A FAILED DELIVERY IS SILENTLY SWALLOWED. And E91-r3's "pure pro-rata" reading is CORRECTED (2026-08-05).
 - **E91-ROOT** — 🔴 **ROOT CAUSE, SIXTH AND FINAL LAYER: `ChannelLib.withdrawFromSP` HAS NO `to` PARAMETER. THE BOLD STABILITY-POOL BRANCH IS THE ONLY WITHDRAWAL PATH THAT NEVER TRANSFERS 
 - **E129** — A GROW-SPLICE CAN MIGRATE CUSTODY: the NEW funding `Q` is byte-matched but NEVER PROVEN to contain the LP's key, and `btcRecipientOf` does not bound it (2026-08-07).  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT wave 2): STALE: closed - _verifySplice KeyAgg gate at :1601-1614, SpliceKeyNotTwoOfTwo at :495**
@@ -12555,6 +12619,12 @@ symbol that now lives elsewhere, the check reads as resolved when it is not.
   unmeasured, never revert — the source sits on the swap path.
 
 ## C2. 🟠 `calcFeeL1` — TWO changes or neither (§E209, §E227)
+
+🟡 **ONE SENTENCE STRUCK 2026-09-08, THE ROW SURVIVES.** *"`swapFeePpm() = 420` is now OUR
+policy"* has no subject left: `swapFeePpm` has **zero declarations and zero callers**, surviving only
+as a historical note at `SwapLib.sol:801`. ⚠️ **The main claim is unaffected** — `FeeLib.calcFeeL1`
+is still declared (`FeeLib.sol:130`) and still reached only from tests (`Alles.t.sol:2624`, `:2625`,
+`:2639`). The "two changes or neither" decision is unmade.
 Weight-blind numerator vs weight-aware baseline (a \$1k and a \$1M leg at the same rate score
 identically) — **but it saturates at a 0.30pp spread**, so the dimensional fix alone returns the same
 number on nearly every real input. Fix the dimension **and** recalibrate `MAX_FEE`/scaling together.
@@ -13881,6 +13951,13 @@ into `LevBase`. ⭐ Standing rule 8c is why it was worth doing at all: a modifie
 every use site, so one declaration replaced 15 copies.
 
 ## ~~(original) 🔁 §GUARD-DUP — 🔴 OPEN. `nonReentrant` IS DECLARED TWICE, AND FOLDING IT IS A STORAGE MIGRATION**
+
+✅ **CLOSED 2026-09-08 — THE STORAGE MIGRATION THIS ROW SAID WAS REQUIRED HAS BEEN EXECUTED.** `_lock` and
+`nonReentrant` now live once, in the base: `LevBase.sol:222` / `:230` / `:231`. Neither `LevManager`
+nor `BtcLevManager` declares either — `BtcLevManager.sol:126` says so in as many words, and `:128`,
+`:142`, `:193`, `:204` use the inherited modifier. (`modifier nonReentrant` still appears in
+`Quid.sol:71`, `BTCChannels.sol:146` and `LevVenueBase.sol:143`; those are separate contracts with
+their own slots, which is not the duplication this row was about.)
 
 Found while folding `protectFromQuid` (§PROTECT-FOLD, `664c6236`). `LevManager:89` and
 `BtcLevManager:90` each declare their OWN `nonReentrant` over their OWN `_lock` slot; `LevBase` has
@@ -17153,6 +17230,12 @@ abstract base copies into every inheritor), so that is NOT the lever — but a d
 would be, at the cost of one call per use. Measure before adopting.
 
 ## §E275-HYGIENE — 🟡 **TWO OF FOUR DONE; ONE WITHDRAWN AS A BAD CALL; ONE STILL OPEN**
+
+✅ **CLOSED 2026-09-08 — ALL FOUR ITEMS DISCHARGED.** (1) `Shares.sol:67` declares `abstract contract
+Shares`, not `State`, and `Quid.sol:38` inherits it. (2) The allowance sentence at `Shares.sol:57`
+is corrected and now reads at `:60`. (3) `getSlot0` has **zero hits** in `evm/src`, as does
+`PoolManager`/`poolManager` outside comments — the one line this row asked to fix is gone with the
+rest. (4) The row itself resolves ⛔ DO NOT REMOVE.
 **STATUS 2026-08-21.**
 1. ✅ **DONE** — `Shares.sol` declares `abstract contract Shares`; both ranges say `is Shares`.
 2. ✅ **DONE** — the false `allowance` comment is gone (0 hits).
@@ -17337,6 +17420,13 @@ so anyone who "fixes" it by weakening the assertion destroys the measurement** �
 ---
 
 ## 🔴🔴 §E278 — **THE TWO SKEW LEGS DISAGREE ABOUT THE σ²=0 SENTINEL. ON BTC THAT IS LIVE; ON ETH IT IS NOW LATENT.**
+
+⛔ **HEADLINE HALF CLOSED 2026-09-08 — RE-SCOPE THIS ROW TO THE FLUSH LEG.** The claim
+*"`UNKNOWN_VARIANCE_SKEW` has exactly one consumption site in the tree"* is false: there are **two**,
+and the second is the leg this row says has no guard. `SwapLib.sol:1443` is the drain leg;
+**`SwapLib.sol:2047-2049`** is `sellSkew`, reading `sigmaSqWad == 0 ? UNKNOWN_VARIANCE_SKEW : …`.
+The σ²=0 disagreement between the two legs is RESOLVED. What the code itself still calls open is the
+FLUSH half (`SwapLib.sol:2037-2039`, §E352) — rewrite the heading to that and nothing else.
 
 ⛔ **MY OWN PREMISE WENT STALE WITHIN THE HOUR, AND I AM CORRECTING IT RATHER THAN LETTING IT READ AS
 CURRENT.** This row was written against *"nothing is pinned, so σ² ≡ 0 on BOTH instances"* (§C1,
@@ -17700,6 +17790,11 @@ does NOT fix the sentinel (§E278 stands — a stale or failed read still yields
 does NOT touch §E283's magnitude question. Three rows, one symptom, and none of them subsumes another.
 
 ## ✅ §E278-partialfill — **SHIPPED. CLOSED BY MEASUREMENT 2026-08-23: its whole premise is `revert QuoteUnfillable`, which has **ZERO references in `evm/src`** — deleted by `94d94899` (*"§E300: the skew path never reverts — bound the quantity, not the price, so an RFQ…"*). `SwapLib._fillableDrain` IS the price-bounded solve this row asks for. ⚠️ The row below is kept as the DERIVATION, not as work.**  **THE CAP DELETION REGRESSED THE PARTIAL FILL. MY FIX WAS A NO-OP; THE REAL FIX IS A DESIGN CALL.**
+*"`UNKNOWN_VARIANCE_SKEW` has exactly one consumption site in the tree"* is false: there are **two**,
+and the second is the leg this row says has no guard. `SwapLib.sol:1443` is the drain leg;
+**`SwapLib.sol:2047-2049`** is `sellSkew`, reading `sigmaSqWad == 0 ? UNKNOWN_VARIANCE_SKEW : …`.
+The σ²=0 disagreement between the two legs is RESOLVED. What the code itself still calls open is the
+FLUSH half (`SwapLib.sol:2037-2039`, §E352) — rewrite the heading to that and nothing else.
 ⚠️ **SUFFIXED 2026-08-21 — `§E278` NAMED TWO ROWS.** Two threads booked against the same id within the
 hour: the other is the σ²-sentinel row above (`:5328`). Per `CLAUDE.md`/§E124 the fix is a **suffix on
 the NEWER row, never a renumber** — this one is newer, and no code cites either (the `§E278` comment in
@@ -17745,6 +17840,11 @@ manage a boundary that the correct object does not have.**
 ---
 
 ## ✅ §E285 — **SHIPPED, SAME COMMIT (`94d94899`). CLOSED 2026-08-23: the inventory-residual bound it specifies is built as `_fillableDrain`. Kept below as the derivation.**  **§E278-partialfill IS NOT BLOCKED ON §E276. THE BOUND THE PDFs SPECIFY IS AN INVENTORY RESIDUAL, AND IT IS INVARIANT TO SPREAD-vs-SHIFT.**
+*"`UNKNOWN_VARIANCE_SKEW` has exactly one consumption site in the tree"* is false: there are **two**,
+and the second is the leg this row says has no guard. `SwapLib.sol:1443` is the drain leg;
+**`SwapLib.sol:2047-2049`** is `sellSkew`, reading `sigmaSqWad == 0 ? UNKNOWN_VARIANCE_SKEW : …`.
+The σ²=0 disagreement between the two legs is RESOLVED. What the code itself still calls open is the
+FLUSH half (`SwapLib.sol:2037-2039`, §E352) — rewrite the heading to that and nothing else.
 
 **Owner asked whether the refill trigger the other thread wired matches the design in `plan.pdf` /
 `plan2.pdf` (2026-08-21). Three of its four steps do; the prescription and the blocker do not.**
@@ -18164,6 +18264,11 @@ measured quantity, not an asserted constraint — and it is **finite everywhere 
 | **`sellSkew` as a separate function** | see below |
 
 ### ⭐ ONE KERNEL, SIGNED `q` — WHICH FIXES §E278 BY CONSTRUCTION RATHER THAN BY A SECOND GUARD
+*"`UNKNOWN_VARIANCE_SKEW` has exactly one consumption site in the tree"* is false: there are **two**,
+and the second is the leg this row says has no guard. `SwapLib.sol:1443` is the drain leg;
+**`SwapLib.sol:2047-2049`** is `sellSkew`, reading `sigmaSqWad == 0 ? UNKNOWN_VARIANCE_SKEW : …`.
+The σ²=0 disagreement between the two legs is RESOLVED. What the code itself still calls open is the
+FLUSH half (`SwapLib.sol:2037-2039`, §E352) — rewrite the heading to that and nothing else.
 `q` is the same quantity on both legs: **the normalised deviation from `target`**, scarce on one side,
 overshoot on the other. §E54 kept them apart only because the POLE had no meaning on the abundant side
 (*"you cannot run out of surplus"*). **With no pole that objection dissolves**, and `Γσ²q²` is even in
@@ -18617,6 +18722,11 @@ inflation at ±0.5%/block since the ring takes one write per timestamp.
 ---
 
 ## ⛔ §E290-CORRECTED — **THE SOURCE FLIPPED A THIRD TIME. MY TABLE WAS STALE WITHIN THE HOUR, AND SO WAS §E278's SCOPE NOTE.**
+*"`UNKNOWN_VARIANCE_SKEW` has exactly one consumption site in the tree"* is false: there are **two**,
+and the second is the leg this row says has no guard. `SwapLib.sol:1443` is the drain leg;
+**`SwapLib.sol:2047-2049`** is `sellSkew`, reading `sigmaSqWad == 0 ? UNKNOWN_VARIANCE_SKEW : …`.
+The σ²=0 disagreement between the two legs is RESOLVED. What the code itself still calls open is the
+FLUSH half (`SwapLib.sol:2037-2039`, §E352) — rewrite the heading to that and nothing else.
 
 **Measured 2026-08-21, minutes after §E290 landed.** `grep -n setObservationSource evm/script/DeployLib.sol`
 returns **NOTHING**. The pin's history today:
@@ -18837,6 +18947,12 @@ reachable inventory. **You cannot route the part we decline unless we say how bi
 ---
 
 ## 🔴 §E294 — **RE-OPENED 2026-08-23. I CLOSED THIS ON A TECHNICALITY AND THE CONCERN IS LIVE.** I closed it because the row's wording (*"caller: ZERO in src/script/test"*) is literally false — a forge script and SEVEN test files call it. **But the row's CONCERN is production wiring, and `pushObservation` has ZERO callers in `evm/src`** (measured, comments excluded). A manual script and a test harness are not production wiring; SPRINT says so itself elsewhere. ⇒ **The imprecise wording was not the finding. The unwired push is.** ▶️ **RE-AUDIT TARGET: `Core.pushObservation` + `_observeIfSourced` — is the ring meant to have a live writer at all now that §E345 made σ² ring-independent, or should the ring be fed only for `twapResolve`'s smoothing?** That is a real open question and §C1 (which source) gates it. *(superseded closure text:)*  The row says *"caller: ZERO in src/script/test"*; measured, `script/PushObservation.s.sol:71` plus FIVE test files call it, and `PushObservationFillsTheRing.t.sol` tests it. ⚠️ §E345 also made σ² ring-INDEPENDENT (`realizedVarianceWad` = `max(ring, anchor)`), so the row's consequence is retired even where its premise held. What remains is §C1 — which pool — and that is an OWNER DECISION, not this row. Original:  **§C1's ANSWER IS ALREADY BUILT AND HAS ZERO CALLERS. `Core.pushObservation` IS THE UNWIRED ORACLE.**
+
+✅ **CLOSED 2026-09-08 — DISCHARGED BY DELETION, THE ARM THE OWED TABLE OFFERED.** `pushObservation` has
+zero declarations anywhere in `evm/`, and `evm/script/` contains no `PushObservation.s.sol`. The
+ring's writer is real production code, not a stub: `Core.sol:1055` calls `_observeIfSourced()` on
+the swap path. ⚠️ **§E294-sources (the "median of three are not independent" row) is a DIFFERENT
+row and stays open.**
 
 **Owner proposed 2026-08-21: cache `getRate` off-chain and submit it as an update alongside a trusted
 callback (a delever), using the EIP-712 permissions IL-protect and opt-in already carry. CHECKED THE
@@ -40618,7 +40734,7 @@ pre-change tree was 3847/0 green.
 
 | **E223-1inch-is-independent-but-has-no-native-btc** | ⭐ **BOTH OF THE OWNER'S CHALLENGES CHECKED (2026-08-16). ① 1inch is NOT Chainlink-sourced, so it is a real independent observer. ② It CANNOT supply the ETH/BTC cross — only ETH/WBTC — which would reimport the exact basis §E221 removes.** ✅ **① INDEPENDENCE, MEASURED NOT ASSUMED.** `OffchainOracle.oracles()` returns **14 registered oracles** with connector types `{0,1,2}` = WETH / ETH / WETH+ETH — the DEX-wrapper pattern, not a feed reader. **The decisive evidence is that they DISAGREE**: were 1inch reading Chainlink they would be identical; instead ETH/WBTC = `0.02982704` against Chainlink ETH/BTC `0.02983983`. ⇒ **using 1inch as the ring's observation and Chainlink as the anchor gives `twapResolve` two genuinely different sources again, which is exactly what §E222's circularity destroyed.** 🔴 **② BUT `getRate(WETH, WBTC)` PRICES WRAPPED BTC, AND THERE IS NO WRAPPER-FREE BTC SPOT ON-CHAIN AT ALL.** Native BTC has no EVM presence — every on-chain "BTC" price is some wrapper (WBTC, cbBTC, tBTC), each with its own custodial basis. **So wiring the cross from 1inch would undo §E221**, whose whole point is that a WBTC depeg must not arrive dressed as bitcoin moving. ⭐ **AND THE ARITHMETIC CONFIRMS IT PRECISELY: the 1inch-vs-Chainlink gap IS the wrapper basis. Measured 4.29 bps; WBTC/BTC = 1.00039110 = 3.91 bps.** Same sign, same magnitude, ~0.4 bps of DEX spread/staleness left over. **That is not noise between two BTC prices — it is one BTC price and one WBTC price, and the difference is the wrapper.** ▶️ **THEREFORE THE TOPOLOGY SPLITS BY LEG, and only the ETH leg gets the aggregator:** • **ETH — SOLVED.** Observation = 1inch `WETH→USDC` (a real, deeply traded pair); anchor = Chainlink ETH/USD. Two sources, circularity broken. • **BTC — STRUCTURALLY UNSOLVED.** No independent wrapper-free observation exists to have. Pricing must come from the Chainlink ETH/BTC cross (§E221), which is single-sourced. ⭐ **THE ONE GENUINELY GOOD USE OF THE WRAPPED READING: keep 1inch `ETH→WBTC` as a CROSS-CHECK ONLY, never as a price. Its disagreement with Chainlink ETH/BTC is a DIRECT MEASUREMENT OF THE WBTC BASIS — so the guard becomes a WBTC-DEPEG DETECTOR, making visible the exact failure §E221 says must never be silent.** ⚠️ Decide deliberately whether a depeg should HALT (guard trips) or merely be observable — a detector wired to a revert is a liveness decision, not a monitoring one.  ✅ **VERIFIED GREEN (2026-08-16): `test/OneInchObserverIsIndependent.t.sol` — 3/3 on publicnode, 403s:0, 429s:0, 144s. Pins all three claims: the WAD scaling (`rate · 10^srcDec / 10^dstDec`) against Chainlink ETH/USD; that 1inch is NOT Chainlink republished (they differ, which is what makes it usable as the ring's second source); and that the 1inch-vs-Chainlink BTC gap stays within the WBTC basis + 50bps, i.e. the two readings are ONE BTC price and ONE WBTC price. Asserted as relationships between values read in the SAME call, so no `FORK_BLOCK` pin is needed and §E214's cross-run confound cannot apply.**  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT wave 2): STALE: topology implemented; Core.sol:1578/1583/1716** |
 
-| **E222-externaltwap-is-unwired** | 🔴🔴 **THE CIRCULAR ORACLE IS STILL LIVE — THE FIX WAS WRITTEN AND NEVER CONNECTED. `grep -rn ExternalTwap evm/src evm/test evm/script` RETURNS NOTHING OUTSIDE ITS OWN FILE (2026-08-16).** `imports/ExternalTwap.sol` documents the defect precisely and proposes the remedy, but **zero call sites**. `Core.sol:838/:943` still call `_writeObservationPrice(px)` with a value sourced from `AUX.getTWAPforAsset`, which reads that same ring — so the ring records itself plus Chainlink, and `twapResolve`'s deviation test and `BasketLib.isManipulated` compare one source against a smoothed copy of itself. **Nothing reverts; the guards lost the ability to DISAGREE.** 🔴 **THIS MAKES THE MERGE A PRICING REGRESSION ON `main`, WHICH TODAY DOES NOT HAVE THE PROBLEM** — main still has the pool, so its ring records real executed spot. **A green suite cannot catch this: every guard still computes.** ⇒ **do not read "57 commits, zero conflicts, build green" as safe on this axis.** ⭐ **1inch's OffchainOracle IS THE RIGHT SOURCE AND IS VERIFIED LIVE (owner, 2026-08-16: *"this must be wired into 1inch"*).** `0x0AdDd25a91563696D8567Df78D5A01C9a991F9B8`, codesize 11,953. Measured against the Chainlink anchors the same block: `getRate(WETH,USDC)` = **1,877,080,514 ⇒ \$1,877.08** vs Chainlink ETH/USD **\$1,878.54** (**0.08%**); `getRate(WETH,WBTC)` = **2,982,839 ⇒ 0.02982839** vs the ETH/BTC feed **0.02985001** (**0.07%**). ✅ **It beats the branch's Curve choice on the branch's OWN stated objection.** `ExternalTwap.sol:36-40` warns *"CORRELATED SOURCES ARE ONE SOURCE… Count correlated readings as one observer"* — **a single Curve pool IS one venue with one depeg mode; the OffchainOracle aggregates across many**, so it is a genuinely independent observer rather than a second correlated one. ✅ It also keeps the property that motivated rejecting a v3 TWAP: **`getRate` is a PLAIN RATE — no ticks, no `1.0001^tick`, no `TickMath`** — so it does not reintroduce the dependency the cut removed. ✅ And it yields the **ETH↔BTC cross directly** (`getRate(WETH,WBTC)`), which is exactly §E221's "one external cross relating the two volatile legs" — avoiding compounding two USD oracle errors. ▶️ **BLOCKS THE PUSH on this axis: wire `_writeObservationPrice` to the OffchainOracle before landing, or land knowing main regresses from a real observation to a self-referential one.** 🔴 **UPDATE 2026-08-17 — TWO THINGS, AND THE SECOND IS A CORRECTION OF MY OWN NOTE ELSEWHERE IN THIS FILE.** ① **`ExternalTwap` DELIBERATELY SURVIVED A DEAD-CODE SWEEP.** The owner's standing rule is now *"anything that is unwired and dead code either needs to be wired all the way or deleted"*, and this library is the single most likely casualty of a literal reading: zero production callers, its only references are `test/OneInchObserverIsIndependent.t.sol` and a COMMENT at `Core.sol:1280`. **It was kept on purpose — deleting it deletes a written security fix for a live 🔴🔴 defect.** The discriminator applied was *"no caller AND no job"*, not *"no caller"*; this has a job. ② **THE FIX NEEDS NOTHING FROM THE WITHDRAWN 1inch WORK, contrary to what §E241-lib's open-items list said until today.** The reversed integration (§E248/§V-R1) was **AggregationRouterV6 `0x1111…2A65`, a SWAP venue**; this reads **OffchainOracle `0x0AdDd25a…F9B8`, a read-only `getRate`** — and the router address does not appear in `ExternalTwap.sol` at all. ⇒ **one staticcall to a contract live today; no API key, no off-chain client, no `bytes route`.** ⚠️ The mistake to avoid repeating: reasoning from the vendor's NAME rather than the ADDRESS. *"1inch was removed"* is true of one contract here and false of the other.  📌 **§SEQ-AUDIT: GATE 2 · lane L5. Core:1703 records setObservationSource has ZERO non-test callers - source must be CHOSEN** |
+| **E222-externaltwap-is-unwired** | 🔴🔴 **THE CIRCULAR ORACLE IS STILL LIVE — THE FIX WAS WRITTEN AND NEVER CONNECTED. `grep -rn ExternalTwap evm/src evm/test evm/script` RETURNS NOTHING OUTSIDE ITS OWN FILE (2026-08-16).** `imports/ExternalTwap.sol` documents the defect precisely and proposes the remedy, but **zero call sites**. `Core.sol:838/:943` still call `_writeObservationPrice(px)` with a value sourced from `AUX.getTWAPforAsset`, which reads that same ring — so the ring records itself plus Chainlink, and `twapResolve`'s deviation test and `BasketLib.isManipulated` compare one source against a smoothed copy of itself. **Nothing reverts; the guards lost the ability to DISAGREE.** 🔴 **THIS MAKES THE MERGE A PRICING REGRESSION ON `main`, WHICH TODAY DOES NOT HAVE THE PROBLEM** — main still has the pool, so its ring records real executed spot. **A green suite cannot catch this: every guard still computes.** ⇒ **do not read "57 commits, zero conflicts, build green" as safe on this axis.** ⭐ **1inch's OffchainOracle IS THE RIGHT SOURCE AND IS VERIFIED LIVE (owner, 2026-08-16: *"this must be wired into 1inch"*).** `0x0AdDd25a91563696D8567Df78D5A01C9a991F9B8`, codesize 11,953. Measured against the Chainlink anchors the same block: `getRate(WETH,USDC)` = **1,877,080,514 ⇒ \$1,877.08** vs Chainlink ETH/USD **\$1,878.54** (**0.08%**); `getRate(WETH,WBTC)` = **2,982,839 ⇒ 0.02982839** vs the ETH/BTC feed **0.02985001** (**0.07%**). ✅ **It beats the branch's Curve choice on the branch's OWN stated objection.** `ExternalTwap.sol:36-40` warns *"CORRELATED SOURCES ARE ONE SOURCE… Count correlated readings as one observer"* — **a single Curve pool IS one venue with one depeg mode; the OffchainOracle aggregates across many**, so it is a genuinely independent observer rather than a second correlated one. ✅ It also keeps the property that motivated rejecting a v3 TWAP: **`getRate` is a PLAIN RATE — no ticks, no `1.0001^tick`, no `TickMath`** — so it does not reintroduce the dependency the cut removed. ✅ And it yields the **ETH↔BTC cross directly** (`getRate(WETH,WBTC)`), which is exactly §E221's "one external cross relating the two volatile legs" — avoiding compounding two USD oracle errors. ▶️ **BLOCKS THE PUSH on this axis: wire `_writeObservationPrice` to the OffchainOracle before landing, or land knowing main regresses from a real observation to a self-referential one.** 🔴 **UPDATE 2026-08-17 — TWO THINGS, AND THE SECOND IS A CORRECTION OF MY OWN NOTE ELSEWHERE IN THIS FILE.** ① **`ExternalTwap` DELIBERATELY SURVIVED A DEAD-CODE SWEEP.** The owner's standing rule is now *"anything that is unwired and dead code either needs to be wired all the way or deleted"*, and this library is the single most likely casualty of a literal reading: zero production callers, its only references are `test/OneInchObserverIsIndependent.t.sol` and a COMMENT at `Core.sol:1280`. **It was kept on purpose — deleting it deletes a written security fix for a live 🔴🔴 defect.** The discriminator applied was *"no caller AND no job"*, not *"no caller"*; this has a job. ② **THE FIX NEEDS NOTHING FROM THE WITHDRAWN 1inch WORK, contrary to what §E241-lib's open-items list said until today.** The reversed integration (§E248/§V-R1) was **AggregationRouterV6 `0x1111…2A65`, a SWAP venue**; this reads **OffchainOracle `0x0AdDd25a…F9B8`, a read-only `getRate`** — and the router address does not appear in `ExternalTwap.sol` at all. ⇒ **one staticcall to a contract live today; no API key, no off-chain client, no `bytes route`.** ⚠️ The mistake to avoid repeating: reasoning from the vendor's NAME rather than the ADDRESS. *"1inch was removed"* is true of one contract here and false of the other.  📌 **§SEQ-AUDIT: GATE 2 · lane L5. Core:1703 records setObservationSource has ZERO non-test callers - source must be CHOSEN** 📌 **RE-POINT 2026-09-08: THE GREP THIS RESTS ON CANNOT FAIL ANY MORE — `ExternalTwap`'s FILE AND SYMBOL ARE DELETED (§E318 folded it in; `OracleLib.sol:401`, `curvePriceWad` at `:422`/`:428`), so "returns nothing outside its own file" is trivially true and certifies nothing. The circular-oracle concern IS still live, by a different mechanism: `Core.setObservationSource` has zero non-test callers and no deploy wiring (`Core.sol:1682`), leaving `observationSource` unset (`Core.sol:1515`, `:1547`, `:1634`). Do not close this on the old grep.** |
 
 | **E220-ring-sourced-from-chainlink** | ⭐ **DECIDED (owner, 2026-08-16): *"no more slot0 no more poolmanger or ticks"* — THE RING IS SOURCED FROM THE CHAINLINK ANCHOR. This is §E219's corrected step ②, and the evidence supports it rather than merely permitting it.** ✅ **THE MACHINERY EXISTS AND IS ALREADY TRUSTED AS THE AUTHORITY — this promotes a tested path, it does not add one.** `SwapLib.twapResolve` already returns `(ext18, true)` with the comment *"stale TWAP → trust Chainlink"*, already normalises decimals (`ext18 = uint(ans) * 10**(18-d)`), already applies the **WBTC ×1e10 lift**, and already gates on `maxAge` (staleness) and `maxDevBps` (deviation). §A.13 hardened it so `price == 0` FALLS THROUGH to the anchor rather than short-circuiting — i.e. the anchor is already the designated answer when the internal number is unusable. ✅ **MEASURED SHAPE — SMALLER THAN IT SOUNDS, AND IT DELETES MORE THAN IT ADDS.** The ring's ONLY source is the pool: three sites, all identical, `(uint160 sqrtP,,,) = poolManager.getSlot0(_poolId(isBTC)); _writeObservation(sqrtP, isBTC);` at `Core:933-935`, `:965-967`, `:1045-1047`. And `_writeObservation` (`:1341-1344`) then does `BasketLib.getPrice(sqrtPriceX96, isBTC ? token1isBTC : token1isETH)` to reach a plain price. ⇒ **swapping the source deletes: 3× `getSlot0`, the sqrt→price conversion, AND the `token1is*` orientation reads (which are EXTERNAL calls). `_writeObservation` then takes a price directly and its `sqrtPriceX96` parameter name — already a lie since §TICK-REMOVAL made the ring store plain price — goes with it.** ⭐ **AND IT DISSOLVES THE σ²=0 PATHOLOGY AT THE ROOT RATHER THAN GUARDING IT.** §E208 established the ring advances ONLY on a swap, so its window is "the last 9 blocks that had traffic"; §E213/`d892f3f1` then had to add a sentinel because unmeasured variance priced a partial drain at zero. **A feed-sourced ring samples on Chainlink's own heartbeat/deviation cadence, independent of our traffic — so "no data" stops being a NORMAL condition and becomes a genuine outage.** That is standing rule 17 exactly: prefer making the bad state unconstructible over making it detectable. ⚠️ **THE SENTINEL STAYS ANYWAY** — a feed can still be stale or absent, and `twapResolve`'s `maxAge` is the existing discriminator. 🔴 **OPEN, AND IT IS THE REASON THIS IS NOT YET LANDED: WHERE DOES `Core` GET THE FEED ADDRESS?** `assetPriceFeed[asset]` lives in **`Aux`**, not `Core`, and routing the ring write through `Aux.getTWAPforAsset` would be **CIRCULAR AGAIN** — that function takes the internal TWAP as its input. The source must be a DIRECT `IAggregatorV3(feed).latestRoundData()` read, so `Core` needs its own feed pointer (and `Core` has 551 bytes spare, while a two-address getter was measured at 91). ▶️ **PREDICTION WHEN IT RUNS (money-path, rule 10, ALONE): σ² changes for every range, so skew and fees move — this is NOT a bit-identical refactor and any test pinning a skew or fee magnitude WILL move. Those movements must be attributed one by one, and `FORK_BLOCK` must be PINNED in both arms (§E214) or the comparison is null.** | 🔴 **SUPERSEDED BY §E232 — DO NOT BUILD WHAT THIS ROW DESCRIBES.** Sourcing the ring from Chainlink is itself CIRCULAR: Chainlink is already the ANCHOR `twapResolve` checks against, so feeding it into the ring makes the anchor test a smoothed copy of itself — the very defect §E222 names. The live answer is **Curve `price_oracle`** (`SPRINT.md` C1), with the bound derived from `ma_time = 600s` (37–74 bps), NOT `TWAP_MAX_DEVIATION_BPS = 500` (~27σ, would never fire). 1inch was tried, committed and reverted: `getRate` costs 31.7M gas, above the block limit.  📌 **§SEQ-AUDIT: GATE 6 · lane L5. Open parameter is the deviation bound; TWAP_MAX_DEVIATION_BPS=500 would never fire** |
 
@@ -42640,6 +42756,11 @@ the one Wave 3 item that is real, unstarted, and cross-thread relevant.**
 | **NEW-3** #54 delever withhold-vs-repay divergence | 🔴 **STILL OPEN — RE-CONFIRMED, AND NOW WITH A FALSE COMMENT OVER IT**  📌 **§SEQ-AUDIT: GATE 4 · lane L4. Live delever withhold-vs-repay divergence on a money path with a comment asserting the opposite** |
 
 🔴 **`§NEW-3-STILL-OPEN` — the debt clamp the call site claims does not exist.**
+🟡 **HALF DISCHARGED 2026-09-08 — THE FALSE COMMENT IS GONE, THE CLAMP IS NOT.** `SwapLib.sol:2245-2266`
+no longer asserts *"amtNative clamped to LIVE debt"*; it carries `🔴 §UNCLAMPED-AMTNATIVE` and a measured
+refutation of the over-draw. ⛔ **The clamp itself is still absent, so this stays open for it:**
+`LevBase.sol:435-442` reads `pos[lp]`, then computes `amtNative = LevMath._fromUsd(address(AUX), stable,
+maxUsd18)` with **zero debt reads**. The call site that must capture `usedUsd` is now `SwapLib.sol:2267`.
 1. **`_sourceRepayFree` (`SwapLib.sol:2143`) says** `swapOutDeleverAmt(lp, wantUsd6 * 1e12); // amtNative
    clamped to LIVE debt`.
 2. **It is not.** `LevBase.swapOutDeleverAmt` (`:419-426`) reads `pos[lp]`, takes the venue and stable, and
@@ -43088,6 +43209,11 @@ basis — the blocker the file put in front of them is gone.**
    is EMERGENT, and the check makes it ENFORCED.
 
 ## 🔴 §BOOKMARK-OMITS-THE-COMPOUNDED-FEE — **THE DEPOSIT PATH OVER-CREDITS AN LP, OUT OF OTHER LPs' FEES**
+
+✅ **CLOSED 2026-09-08 — BOTH SITES REFRESH AT `LP.pooled + buf`.** `BtcLib.sol:283` (`_pairRegLeg`) and
+`:302` (the unpaired branch) both call `SwapLib.refreshBookmarks(LP, LP.pooled + p.buf, …)`; the
+row's own "⚠️ BOTH SITES NEED THIS" warning is carried at `:279-282` and `:293-299`. The fix this
+row derived and never executed HAS been executed.
 
 Found 2026-09-01 answering the owner's requirement: *"they get paid accurately (having had all their
 fees compounded for them along the way) even if they only come online once a year."* **The accrual
@@ -43677,6 +43803,11 @@ that the `require` inside `_ragequitProof()` (`:704`, the SCOPE guard) fired INS
 `expectRevert` window. Same root, different messenger. **Do not triage it separately.**
 
 ## 🔴🔴 **§RSAPSS-MSB — HALF OF ALL VALID CSCA SIGNATURES WERE REJECTED, AND THE MERGE IS WHY THE FIX WAS NOT HERE** (2026-08-29, FIXED)
+
+✅ **CLOSED 2026-09-08 — THE 🔴🔴 CONTRADICTED THE ROW'S OWN `(2026-08-29, FIXED)`.** The vendored patch is
+live: `evm/lib/solidity-lib/contracts/libs/crypto/RSASSAPSS.sol:126` reads
+`LibBit.clz(uint256(uint8(n_[0])) << 248)` — leading zero bits off the MOST significant limb — with
+the patch note at `:116-125`.
 
 `RSASSAPSS._pss` (`evm/lib/solidity-lib/contracts/libs/crypto/RSASSAPSS.sol:116`) counted the
 modulus's leading zero bits off `n_[n_.length - 1]` — the **LAST** byte of a **big-endian** modulus.
@@ -44787,6 +44918,14 @@ naming: I keep landing verified capabilities with no caller, then describing the
 were banked.** Three in one day.
 
 ## ⏸️ **§TWO-HOP-IS-BUILT-BUT-NOT-WIRED — THE CAPABILITY LANDED AND VERIFIED; THE 0.82% IS NOT BEING COLLECTED YET** (`3c81ad31`, 2026-08-30)
+
+✅ **CLOSED 2026-09-08 ON THE ON-CHAIN HALF — the two ▶️ items that are code are both done.** `WbtcCfg`
+carries `dex2` (`LevMath.sol:322`), and `_stableToWbtc` threads it caller→config on the production
+BTC path (`BtcLevManager.sol:255,264,271,280-281,292,298,310,313`; `LevBase.sol:357-377`). The batch
+keeper path takes `uint256[] calldata dex2s` (`LevManager.sol:333,337,344`) and `:318` records that
+`routedSwap` emits `UNOSWAP2_SELECTOR` whenever `dex2 != 0`. ⛔ **The row's claim that ALL THREE call
+sites pass `dex2 = 0` is now false.** ▶️ **Genuinely outstanding and all that is left: the off-chain
+keeper must SUPPLY the second pool word.** That is the whole remaining row.
 
 ✅ **LANDED AND VERIFIED BY EXECUTION.** `_aggSwap` takes a second pool word and switches to
 `UNOSWAP2_SELECTOR` when it is non-zero. **Measured against LIVE pools: USDC→WETH→WBTC returns
@@ -46648,6 +46787,10 @@ with a standalone `tsc --noEmit` from a scratch toolchain, filtering module-reso
 
 ## 🔴🔴🔴 **§OOR-TWO-DESIGNS-LIVE — THE INTENT REDESIGN IS BUILT, IN `HEAD`, AND RUNNING BESIDE THE BOOK IT WAS MEANT TO REPLACE. WE ARE PAYING FOR BOTH.** (2026-08-29, owner: *"is this really the best design … with the least on-chain machinery?"*)
 
+✅ **CLOSED 2026-09-08 — THE SECOND DESIGN IS GONE, SO THERE IS ONE.** `outOfRange`, `sweepOor`, `pokeOor`,
+`pull`, `oorBook` and `MAX_FILLS_PER_SWAP` have **zero declarations** in `evm/src`; only prose
+survives at `Core.sol:1089` and `SwapLib.sol:1163`/`:1174`. §OOR-BOOK-DELETED is already ✅.
+
 **No. The better design already exists in this tree and nothing was deleted when it landed.**
 
 `abb685c4` (2026-08-28) — *"§OOR-AS-INTENT: a resting order that exists only as a signature"* — is an
@@ -47024,6 +47167,11 @@ they are asymmetric by design rather than unbuilt. **Only the two `return 0` stu
 subject of this row.**
 
 ## 🔴🔴 **§FIXTURE-INHERITS-ITS-ENVIRONMENT — THE IDENTITY PROOFS WERE BOUND TO THE CHAIN ID AND THE WALL CLOCK OF WHOEVER RAN THEM. BOTH ARE NOW PINNED, AND THE SUITE IS GREEN IN BOTH MODES** (2026-08-29)
+
+✅ **CLOSED 2026-09-08 — BOTH PINS ARE IN THE FIXTURE.** `evm/test/identity/pool/WithdrawEndToEnd.t.sol:273`
+`vm.chainId(1);` and `:296` `vm.warp(FIXTURE_TIMESTAMP - 2 days);`, rationale at `:288-295`.
+▶️ **The one residual is NOT this row's:** "the sweep this suggests has not been run" is a separate
+task and belongs in its own row rather than holding a 🔴🔴 over two landed fixes.
 
 Regenerating the fixtures (§FIXTURE-PIPELINE-REPATHED) made the identity suites **472/472 with no
 fork and 463/9 WITH one** — the same commit, the same files, nine tests whose verdict depended on how
@@ -47757,6 +47905,10 @@ and a panic is a worse failure than a revert** (no reason, and it reads as a com
 
 ## 🔴 **§BTC-OOR-ENTERABLE-NEVER-FILLABLE — a user can PLACE a BTC boundary order that CANNOT fill, and the only exit is a recorded loss** (2026-08-28)
 
+✅ **CLOSED 2026-09-08 — MOOT BY THE BOOK DELETION.** There is no placement path left to trap in: neither
+`outOfRange` nor `sweepOor` is declared anywhere in `evm/src`. ▶️ **The live successor concern —
+BTC having no out-of-range path at all — is §BTC-DELIVERY-IS-BUILT's, not this row's.**
+
 `Vault.outOfRange(amount, token, distance, range)` is live and tested
 (`test/btc/BtcSelfManaged.t.sol`, 488 lines). `Core.sol:1066` sweeps crossed orders on EVERY swap via
 `RANGE.sweepOor(px, MAX_FILLS_PER_SWAP)` — and on the BTC range that lands on
@@ -47784,6 +47936,15 @@ for when native delivery lands, and is the smallest change that does either. ⚠
 position that cannot fill.
 
 ## ⛔ **§OOR-AS-INTENT — ⚠️ "NOT STARTED" IS WRONG AND WAS WRONG THE DAY IT WAS WRITTEN. IT IS BUILT AND IN `HEAD` (`abb685c4`, ETH side): `SwapLib.fillIntentBody:1159` + `Quid.fillIntent:1341`. The book was NOT deleted, so both designs are live — see §OOR-TWO-DESIGNS-LIVE. BTC has neither.** *(original row, kept — its security design and blast radius are still the record)* (2026-08-28)
+
+✅ **CLOSED 2026-09-08 — THIS ROW WAS RIGHT AND THE RACE IT DESCRIBES IS OVER.** The intent design
+WON: `Quid.fillIntent` is live and permissionless (`Quid.sol:1243`), while the book it was meant to
+replace is **deleted** — `outOfRange`, `sweepOor`, `pokeOor`, `pull`, `oorBook`, `MAX_FILLS_PER_SWAP`
+all have zero declarations in `evm/src`. ▶️ **What the deletion leaves open belongs to other rows:**
+BTC has no out-of-range path at all (§BTC-DELIVERY-IS-BUILT), smart-wallet owners cannot place an
+intent (`ecrecover` only — §B7, still open), and no relay exists in this repo to store one.
+`pull`, `oorBook` and `MAX_FILLS_PER_SWAP` have **zero declarations** in `evm/src`; only prose
+survives at `Core.sol:1089` and `SwapLib.sol:1163`/`:1174`. §OOR-BOOK-DELETED is already ✅.
 
 Owner: *"remove out of range code from solidity … doable off chain since the keeper is trusted to run
 the bridge anyway"*, with the security question *"how is it that only this intent can be done by the
@@ -48602,6 +48763,11 @@ the message says**, not whether the bound is one-sided.
 
 ---
 ## 0c. 🔴 **§E352 IS NOT NEW — IT IS §E278's SECOND HALF, AND ITS GUARD TEST PASSES *BECAUSE OF* THE
+*"`UNKNOWN_VARIANCE_SKEW` has exactly one consumption site in the tree"* is false: there are **two**,
+and the second is the leg this row says has no guard. `SwapLib.sol:1443` is the drain leg;
+**`SwapLib.sol:2047-2049`** is `sellSkew`, reading `sigmaSqWad == 0 ? UNKNOWN_VARIANCE_SKEW : …`.
+The σ²=0 disagreement between the two legs is RESOLVED. What the code itself still calls open is the
+FLUSH half (`SwapLib.sol:2037-2039`, §E352) — rewrite the heading to that and nothing else.
 DEFECT** (verified 2026-08-23; corrects my own booking from earlier today)
 
 I booked §E352 this morning as a fresh finding: *"`skewWad`'s sentinel says unmeasured ⇒ charge the
@@ -49935,6 +50101,12 @@ pass so the two do not disagree.
 
 ## 🔴🔴 **§POOL-SATS-SEGREGATION — the shape of the fix, and a CORRECTION to how the gap was described** (2026-08-26)
 
+✅ **CLOSED 2026-09-08 — DISSOLVED, NOT FIXED.** The entire delete-set this row predicted is already gone:
+`poolOwnedSats`, `poolSatsParker`, `parkProvenSats`, `_releasePoolSats`, `PoolSatsLeftWithLp` and the
+`lpEntitled` subtraction all return **zero hits** in `evm/src`, as do `settleSwapInBuffered` and
+`provenSatsAvailable`. §POOL-INVENTORY-PURGED + §FLEET-FRONTS-THE-WINDOW removed the pool-owned
+slice outright, which is what §BTC-CLUSTER-RE-VERIFIED's NEW-2 row already recorded at `:1114`.
+
 ⛔ **CORRECTION FIRST: I described this as pool sats being STRANDED. THEY ARE NOT STRANDED — THEY LEAVE
 WITH THE LP, AND THE CONTRACT ALREADY SAYS SO.** Traced:
   1. `parkProvenSats` books pool inventory by applying a **SPLICE THAT GROWS THE CHANNEL**
@@ -50001,6 +50173,10 @@ fails today. (§POOL-SATS-STRANDING-IS-UNTESTED has the fixture gap: 0 of 6 dead
 
 ## 🔴🔴 **§POOL-SATS-STRANDING-IS-UNTESTED — the exposure has ZERO coverage, and the fixtures cannot reach it** (2026-08-25)
 
+✅ **CLOSED 2026-09-08 — MOOT. DO NOT WRITE THE TEST.** It would cover `lpEntitled = amountSats −
+poolOwnedSats`, and neither symbol exists in `evm/src` any more (see §POOL-SATS-SEGREGATION). A test
+for a branch that was deleted is a test that can only ever pass.
+
 §BTC-POOL-SATS-HAVE-NO-UNILATERAL-EXIT establishes that a pre-signed LP-only exit leaves
 `poolOwnedSats` in the 2-of-2 funding UTXO with no unilateral spender. **Measured today, nothing
 tests it — and the reason is structural, not an oversight:**
@@ -50026,6 +50202,10 @@ hop cooperation. **(b) is the assertion that does not pass today**, and it is th
 to forge the ladder would already hold the LP half. **The pool half rests on reading the code.**
 
 ## 🔴🔴 **§BTC-POOL-SATS-HAVE-NO-UNILATERAL-EXIT — LP funds ARE immune to a full custody compromise; POOL sats are NOT** (2026-08-25, owner question)
+
+✅ **CLOSED 2026-09-08 ON THE POOL HALF.** There is no pool-owned slice left inside the funding UTXO to
+strand: `poolOwnedSats` has zero hits in `evm/src`. The LP half this row itself marks ⭐⭐ defensible
+is unchanged and was never the gap.
 
 Owner asked whether BTC state is "fully immune" if the daemon **and** the fallback **and** the msig
 are all untrusted, and whether a **jury drawn from the basket** would be needed to drain stuck assets.
@@ -52981,7 +53161,7 @@ a row overturned the plan built from its marker.
 - **E91** — DELIVERY GAP LOCATED IN THE UNLOCK CALLBACK: THE USD LEG TAKES TO `address(this)`, NOT TO THE RECIPIENT (2026-08-05).
 - **E92** — `Core` IS 38 BYTES FROM EIP-170 AND ITS SIZE IS COMPLETELY UNENFORCED — `forge build --sizes` DOES NOT REPORT IT (2026-08-05).
 - **E225-do-not-push-that-merge** — THE MERGE I BUILT MUST NOT BE PUSHED, AND MY 950-FAILURE NUMBER IS NOT EVIDENCE OF ANYTHING (2026-08-16). THREE INDEPENDENT REASONS, EACH SUFFICIENT.  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT wave 2): CLOSED: never pushed, missing commits landed**
-- **E222-externaltwap-is-unwired** — THE CIRCULAR ORACLE IS STILL LIVE — THE FIX WAS WRITTEN AND NEVER CONNECTED. `grep -rn ExternalTwap evm/src evm/test evm/script` RETURNS NOTHING OUTSIDE ITS OWN FILE (2026-08-16).
+- **E222-externaltwap-is-unwired** — THE CIRCULAR ORACLE IS STILL LIVE — THE FIX WAS WRITTEN AND NEVER CONNECTED. `grep -rn ExternalTwap evm/src evm/test evm/script` RETURNS NOTHING OUTSIDE ITS OWN FILE (2026-08-16). 📌 **RE-POINT 2026-09-08: THE GREP THIS RESTS ON CANNOT FAIL ANY MORE — `ExternalTwap`'s FILE AND SYMBOL ARE DELETED (§E318 folded it in; `OracleLib.sol:401`, `curvePriceWad` at `:422`/`:428`), so "returns nothing outside its own file" is trivially true and certifies nothing. The circular-oracle concern IS still live, by a different mechanism: `Core.setObservationSource` has zero non-test callers and no deploy wiring (`Core.sol:1682`), leaving `observationSource` unset (`Core.sol:1515`, `:1547`, `:1634`). Do not close this on the old grep.**
 - **E91-r5** — MECHANISM FOUND: `withdrawSelf` DELIVERY CALLS ARE WRAPPED IN `try/catch` — A FAILED DELIVERY IS SILENTLY SWALLOWED. And E91-r3's "pure pro-rata" reading is CORRECTED (2026-08-05).
 - **E91-ROOT** — 🔴 **ROOT CAUSE, SIXTH AND FINAL LAYER: `ChannelLib.withdrawFromSP` HAS NO `to` PARAMETER. THE BOLD STABILITY-POOL BRANCH IS THE ONLY WITHDRAWAL PATH THAT NEVER TRANSFERS 
 - **E129** — A GROW-SPLICE CAN MIGRATE CUSTODY: the NEW funding `Q` is byte-matched but NEVER PROVEN to contain the LP's key, and `btcRecipientOf` does not bound it (2026-08-07).  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT wave 2): STALE: closed - _verifySplice KeyAgg gate at :1601-1614, SpliceKeyNotTwoOfTwo at :495**
@@ -54025,6 +54205,12 @@ symbol that now lives elsewhere, the check reads as resolved when it is not.
   unmeasured, never revert — the source sits on the swap path.
 
 ## C2. 🟠 `calcFeeL1` — TWO changes or neither (§E209, §E227)
+
+🟡 **ONE SENTENCE STRUCK 2026-09-08, THE ROW SURVIVES.** *"`swapFeePpm() = 420` is now OUR
+policy"* has no subject left: `swapFeePpm` has **zero declarations and zero callers**, surviving only
+as a historical note at `SwapLib.sol:801`. ⚠️ **The main claim is unaffected** — `FeeLib.calcFeeL1`
+is still declared (`FeeLib.sol:130`) and still reached only from tests (`Alles.t.sol:2624`, `:2625`,
+`:2639`). The "two changes or neither" decision is unmade.
 Weight-blind numerator vs weight-aware baseline (a \$1k and a \$1M leg at the same rate score
 identically) — **but it saturates at a 0.30pp spread**, so the dimensional fix alone returns the same
 number on nearly every real input. Fix the dimension **and** recalibrate `MAX_FEE`/scaling together.
@@ -55340,6 +55526,13 @@ into `LevBase`. ⭐ Standing rule 8c is why it was worth doing at all: a modifie
 every use site, so one declaration replaced 15 copies.
 
 ## ~~(original) 🔁 §GUARD-DUP — 🔴 OPEN. `nonReentrant` IS DECLARED TWICE, AND FOLDING IT IS A STORAGE MIGRATION**
+
+✅ **CLOSED 2026-09-08 — THE STORAGE MIGRATION THIS ROW SAID WAS REQUIRED HAS BEEN EXECUTED.** `_lock` and
+`nonReentrant` now live once, in the base: `LevBase.sol:222` / `:230` / `:231`. Neither `LevManager`
+nor `BtcLevManager` declares either — `BtcLevManager.sol:126` says so in as many words, and `:128`,
+`:142`, `:193`, `:204` use the inherited modifier. (`modifier nonReentrant` still appears in
+`Quid.sol:71`, `BTCChannels.sol:146` and `LevVenueBase.sol:143`; those are separate contracts with
+their own slots, which is not the duplication this row was about.)
 
 Found while folding `protectFromQuid` (§PROTECT-FOLD, `664c6236`). `LevManager:89` and
 `BtcLevManager:90` each declare their OWN `nonReentrant` over their OWN `_lock` slot; `LevBase` has
@@ -58515,6 +58708,12 @@ abstract base copies into every inheritor), so that is NOT the lever — but a d
 would be, at the cost of one call per use. Measure before adopting.
 
 ## §E275-HYGIENE — 🟡 **TWO OF FOUR DONE; ONE WITHDRAWN AS A BAD CALL; ONE STILL OPEN**
+
+✅ **CLOSED 2026-09-08 — ALL FOUR ITEMS DISCHARGED.** (1) `Shares.sol:67` declares `abstract contract
+Shares`, not `State`, and `Quid.sol:38` inherits it. (2) The allowance sentence at `Shares.sol:57`
+is corrected and now reads at `:60`. (3) `getSlot0` has **zero hits** in `evm/src`, as does
+`PoolManager`/`poolManager` outside comments — the one line this row asked to fix is gone with the
+rest. (4) The row itself resolves ⛔ DO NOT REMOVE.
 **STATUS 2026-08-21.**
 1. ✅ **DONE** — `Shares.sol` declares `abstract contract Shares`; both ranges say `is Shares`.
 2. ✅ **DONE** — the false `allowance` comment is gone (0 hits).
@@ -58699,6 +58898,13 @@ so anyone who "fixes" it by weakening the assertion destroys the measurement** �
 ---
 
 ## 🔴🔴 §E278 — **THE TWO SKEW LEGS DISAGREE ABOUT THE σ²=0 SENTINEL. ON BTC THAT IS LIVE; ON ETH IT IS NOW LATENT.**
+
+⛔ **HEADLINE HALF CLOSED 2026-09-08 — RE-SCOPE THIS ROW TO THE FLUSH LEG.** The claim
+*"`UNKNOWN_VARIANCE_SKEW` has exactly one consumption site in the tree"* is false: there are **two**,
+and the second is the leg this row says has no guard. `SwapLib.sol:1443` is the drain leg;
+**`SwapLib.sol:2047-2049`** is `sellSkew`, reading `sigmaSqWad == 0 ? UNKNOWN_VARIANCE_SKEW : …`.
+The σ²=0 disagreement between the two legs is RESOLVED. What the code itself still calls open is the
+FLUSH half (`SwapLib.sol:2037-2039`, §E352) — rewrite the heading to that and nothing else.
 
 ⛔ **MY OWN PREMISE WENT STALE WITHIN THE HOUR, AND I AM CORRECTING IT RATHER THAN LETTING IT READ AS
 CURRENT.** This row was written against *"nothing is pinned, so σ² ≡ 0 on BOTH instances"* (§C1,
@@ -59062,6 +59268,11 @@ does NOT fix the sentinel (§E278 stands — a stale or failed read still yields
 does NOT touch §E283's magnitude question. Three rows, one symptom, and none of them subsumes another.
 
 ## ✅ §E278-partialfill — **SHIPPED. CLOSED BY MEASUREMENT 2026-08-23: its whole premise is `revert QuoteUnfillable`, which has **ZERO references in `evm/src`** — deleted by `94d94899` (*"§E300: the skew path never reverts — bound the quantity, not the price, so an RFQ…"*). `SwapLib._fillableDrain` IS the price-bounded solve this row asks for. ⚠️ The row below is kept as the DERIVATION, not as work.**  **THE CAP DELETION REGRESSED THE PARTIAL FILL. MY FIX WAS A NO-OP; THE REAL FIX IS A DESIGN CALL.**
+*"`UNKNOWN_VARIANCE_SKEW` has exactly one consumption site in the tree"* is false: there are **two**,
+and the second is the leg this row says has no guard. `SwapLib.sol:1443` is the drain leg;
+**`SwapLib.sol:2047-2049`** is `sellSkew`, reading `sigmaSqWad == 0 ? UNKNOWN_VARIANCE_SKEW : …`.
+The σ²=0 disagreement between the two legs is RESOLVED. What the code itself still calls open is the
+FLUSH half (`SwapLib.sol:2037-2039`, §E352) — rewrite the heading to that and nothing else.
 ⚠️ **SUFFIXED 2026-08-21 — `§E278` NAMED TWO ROWS.** Two threads booked against the same id within the
 hour: the other is the σ²-sentinel row above (`:5328`). Per `CLAUDE.md`/§E124 the fix is a **suffix on
 the NEWER row, never a renumber** — this one is newer, and no code cites either (the `§E278` comment in
@@ -59107,6 +59318,11 @@ manage a boundary that the correct object does not have.**
 ---
 
 ## ✅ §E285 — **SHIPPED, SAME COMMIT (`94d94899`). CLOSED 2026-08-23: the inventory-residual bound it specifies is built as `_fillableDrain`. Kept below as the derivation.**  **§E278-partialfill IS NOT BLOCKED ON §E276. THE BOUND THE PDFs SPECIFY IS AN INVENTORY RESIDUAL, AND IT IS INVARIANT TO SPREAD-vs-SHIFT.**
+*"`UNKNOWN_VARIANCE_SKEW` has exactly one consumption site in the tree"* is false: there are **two**,
+and the second is the leg this row says has no guard. `SwapLib.sol:1443` is the drain leg;
+**`SwapLib.sol:2047-2049`** is `sellSkew`, reading `sigmaSqWad == 0 ? UNKNOWN_VARIANCE_SKEW : …`.
+The σ²=0 disagreement between the two legs is RESOLVED. What the code itself still calls open is the
+FLUSH half (`SwapLib.sol:2037-2039`, §E352) — rewrite the heading to that and nothing else.
 
 **Owner asked whether the refill trigger the other thread wired matches the design in `plan.pdf` /
 `plan2.pdf` (2026-08-21). Three of its four steps do; the prescription and the blocker do not.**
@@ -59526,6 +59742,11 @@ measured quantity, not an asserted constraint — and it is **finite everywhere 
 | **`sellSkew` as a separate function** | see below |
 
 ### ⭐ ONE KERNEL, SIGNED `q` — WHICH FIXES §E278 BY CONSTRUCTION RATHER THAN BY A SECOND GUARD
+*"`UNKNOWN_VARIANCE_SKEW` has exactly one consumption site in the tree"* is false: there are **two**,
+and the second is the leg this row says has no guard. `SwapLib.sol:1443` is the drain leg;
+**`SwapLib.sol:2047-2049`** is `sellSkew`, reading `sigmaSqWad == 0 ? UNKNOWN_VARIANCE_SKEW : …`.
+The σ²=0 disagreement between the two legs is RESOLVED. What the code itself still calls open is the
+FLUSH half (`SwapLib.sol:2037-2039`, §E352) — rewrite the heading to that and nothing else.
 `q` is the same quantity on both legs: **the normalised deviation from `target`**, scarce on one side,
 overshoot on the other. §E54 kept them apart only because the POLE had no meaning on the abundant side
 (*"you cannot run out of surplus"*). **With no pole that objection dissolves**, and `Γσ²q²` is even in
@@ -59979,6 +60200,11 @@ inflation at ±0.5%/block since the ring takes one write per timestamp.
 ---
 
 ## ⛔ §E290-CORRECTED — **THE SOURCE FLIPPED A THIRD TIME. MY TABLE WAS STALE WITHIN THE HOUR, AND SO WAS §E278's SCOPE NOTE.**
+*"`UNKNOWN_VARIANCE_SKEW` has exactly one consumption site in the tree"* is false: there are **two**,
+and the second is the leg this row says has no guard. `SwapLib.sol:1443` is the drain leg;
+**`SwapLib.sol:2047-2049`** is `sellSkew`, reading `sigmaSqWad == 0 ? UNKNOWN_VARIANCE_SKEW : …`.
+The σ²=0 disagreement between the two legs is RESOLVED. What the code itself still calls open is the
+FLUSH half (`SwapLib.sol:2037-2039`, §E352) — rewrite the heading to that and nothing else.
 
 **Measured 2026-08-21, minutes after §E290 landed.** `grep -n setObservationSource evm/script/DeployLib.sol`
 returns **NOTHING**. The pin's history today:
@@ -60199,6 +60425,12 @@ reachable inventory. **You cannot route the part we decline unless we say how bi
 ---
 
 ## 🔴 §E294 — **RE-OPENED 2026-08-23. I CLOSED THIS ON A TECHNICALITY AND THE CONCERN IS LIVE.** I closed it because the row's wording (*"caller: ZERO in src/script/test"*) is literally false — a forge script and SEVEN test files call it. **But the row's CONCERN is production wiring, and `pushObservation` has ZERO callers in `evm/src`** (measured, comments excluded). A manual script and a test harness are not production wiring; SPRINT says so itself elsewhere. ⇒ **The imprecise wording was not the finding. The unwired push is.** ▶️ **RE-AUDIT TARGET: `Core.pushObservation` + `_observeIfSourced` — is the ring meant to have a live writer at all now that §E345 made σ² ring-independent, or should the ring be fed only for `twapResolve`'s smoothing?** That is a real open question and §C1 (which source) gates it. *(superseded closure text:)*  The row says *"caller: ZERO in src/script/test"*; measured, `script/PushObservation.s.sol:71` plus FIVE test files call it, and `PushObservationFillsTheRing.t.sol` tests it. ⚠️ §E345 also made σ² ring-INDEPENDENT (`realizedVarianceWad` = `max(ring, anchor)`), so the row's consequence is retired even where its premise held. What remains is §C1 — which pool — and that is an OWNER DECISION, not this row. Original:  **§C1's ANSWER IS ALREADY BUILT AND HAS ZERO CALLERS. `Core.pushObservation` IS THE UNWIRED ORACLE.**
+
+✅ **CLOSED 2026-09-08 — DISCHARGED BY DELETION, THE ARM THE OWED TABLE OFFERED.** `pushObservation` has
+zero declarations anywhere in `evm/`, and `evm/script/` contains no `PushObservation.s.sol`. The
+ring's writer is real production code, not a stub: `Core.sol:1055` calls `_observeIfSourced()` on
+the swap path. ⚠️ **§E294-sources (the "median of three are not independent" row) is a DIFFERENT
+row and stays open.**
 
 **Owner proposed 2026-08-21: cache `getRate` off-chain and submit it as an update alongside a trusted
 callback (a delever), using the EIP-712 permissions IL-protect and opt-in already carry. CHECKED THE
@@ -81972,7 +82204,7 @@ pre-change tree was 3847/0 green.
 
 | **E223-1inch-is-independent-but-has-no-native-btc** | ⭐ **BOTH OF THE OWNER'S CHALLENGES CHECKED (2026-08-16). ① 1inch is NOT Chainlink-sourced, so it is a real independent observer. ② It CANNOT supply the ETH/BTC cross — only ETH/WBTC — which would reimport the exact basis §E221 removes.** ✅ **① INDEPENDENCE, MEASURED NOT ASSUMED.** `OffchainOracle.oracles()` returns **14 registered oracles** with connector types `{0,1,2}` = WETH / ETH / WETH+ETH — the DEX-wrapper pattern, not a feed reader. **The decisive evidence is that they DISAGREE**: were 1inch reading Chainlink they would be identical; instead ETH/WBTC = `0.02982704` against Chainlink ETH/BTC `0.02983983`. ⇒ **using 1inch as the ring's observation and Chainlink as the anchor gives `twapResolve` two genuinely different sources again, which is exactly what §E222's circularity destroyed.** 🔴 **② BUT `getRate(WETH, WBTC)` PRICES WRAPPED BTC, AND THERE IS NO WRAPPER-FREE BTC SPOT ON-CHAIN AT ALL.** Native BTC has no EVM presence — every on-chain "BTC" price is some wrapper (WBTC, cbBTC, tBTC), each with its own custodial basis. **So wiring the cross from 1inch would undo §E221**, whose whole point is that a WBTC depeg must not arrive dressed as bitcoin moving. ⭐ **AND THE ARITHMETIC CONFIRMS IT PRECISELY: the 1inch-vs-Chainlink gap IS the wrapper basis. Measured 4.29 bps; WBTC/BTC = 1.00039110 = 3.91 bps.** Same sign, same magnitude, ~0.4 bps of DEX spread/staleness left over. **That is not noise between two BTC prices — it is one BTC price and one WBTC price, and the difference is the wrapper.** ▶️ **THEREFORE THE TOPOLOGY SPLITS BY LEG, and only the ETH leg gets the aggregator:** • **ETH — SOLVED.** Observation = 1inch `WETH→USDC` (a real, deeply traded pair); anchor = Chainlink ETH/USD. Two sources, circularity broken. • **BTC — STRUCTURALLY UNSOLVED.** No independent wrapper-free observation exists to have. Pricing must come from the Chainlink ETH/BTC cross (§E221), which is single-sourced. ⭐ **THE ONE GENUINELY GOOD USE OF THE WRAPPED READING: keep 1inch `ETH→WBTC` as a CROSS-CHECK ONLY, never as a price. Its disagreement with Chainlink ETH/BTC is a DIRECT MEASUREMENT OF THE WBTC BASIS — so the guard becomes a WBTC-DEPEG DETECTOR, making visible the exact failure §E221 says must never be silent.** ⚠️ Decide deliberately whether a depeg should HALT (guard trips) or merely be observable — a detector wired to a revert is a liveness decision, not a monitoring one.  ✅ **VERIFIED GREEN (2026-08-16): `test/OneInchObserverIsIndependent.t.sol` — 3/3 on publicnode, 403s:0, 429s:0, 144s. Pins all three claims: the WAD scaling (`rate · 10^srcDec / 10^dstDec`) against Chainlink ETH/USD; that 1inch is NOT Chainlink republished (they differ, which is what makes it usable as the ring's second source); and that the 1inch-vs-Chainlink BTC gap stays within the WBTC basis + 50bps, i.e. the two readings are ONE BTC price and ONE WBTC price. Asserted as relationships between values read in the SAME call, so no `FORK_BLOCK` pin is needed and §E214's cross-run confound cannot apply.**  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT wave 2): STALE: topology implemented; Core.sol:1578/1583/1716** |
 
-| **E222-externaltwap-is-unwired** | 🔴🔴 **THE CIRCULAR ORACLE IS STILL LIVE — THE FIX WAS WRITTEN AND NEVER CONNECTED. `grep -rn ExternalTwap evm/src evm/test evm/script` RETURNS NOTHING OUTSIDE ITS OWN FILE (2026-08-16).** `imports/ExternalTwap.sol` documents the defect precisely and proposes the remedy, but **zero call sites**. `Core.sol:838/:943` still call `_writeObservationPrice(px)` with a value sourced from `AUX.getTWAPforAsset`, which reads that same ring — so the ring records itself plus Chainlink, and `twapResolve`'s deviation test and `BasketLib.isManipulated` compare one source against a smoothed copy of itself. **Nothing reverts; the guards lost the ability to DISAGREE.** 🔴 **THIS MAKES THE MERGE A PRICING REGRESSION ON `main`, WHICH TODAY DOES NOT HAVE THE PROBLEM** — main still has the pool, so its ring records real executed spot. **A green suite cannot catch this: every guard still computes.** ⇒ **do not read "57 commits, zero conflicts, build green" as safe on this axis.** ⭐ **1inch's OffchainOracle IS THE RIGHT SOURCE AND IS VERIFIED LIVE (owner, 2026-08-16: *"this must be wired into 1inch"*).** `0x0AdDd25a91563696D8567Df78D5A01C9a991F9B8`, codesize 11,953. Measured against the Chainlink anchors the same block: `getRate(WETH,USDC)` = **1,877,080,514 ⇒ \$1,877.08** vs Chainlink ETH/USD **\$1,878.54** (**0.08%**); `getRate(WETH,WBTC)` = **2,982,839 ⇒ 0.02982839** vs the ETH/BTC feed **0.02985001** (**0.07%**). ✅ **It beats the branch's Curve choice on the branch's OWN stated objection.** `ExternalTwap.sol:36-40` warns *"CORRELATED SOURCES ARE ONE SOURCE… Count correlated readings as one observer"* — **a single Curve pool IS one venue with one depeg mode; the OffchainOracle aggregates across many**, so it is a genuinely independent observer rather than a second correlated one. ✅ It also keeps the property that motivated rejecting a v3 TWAP: **`getRate` is a PLAIN RATE — no ticks, no `1.0001^tick`, no `TickMath`** — so it does not reintroduce the dependency the cut removed. ✅ And it yields the **ETH↔BTC cross directly** (`getRate(WETH,WBTC)`), which is exactly §E221's "one external cross relating the two volatile legs" — avoiding compounding two USD oracle errors. ▶️ **BLOCKS THE PUSH on this axis: wire `_writeObservationPrice` to the OffchainOracle before landing, or land knowing main regresses from a real observation to a self-referential one.** 🔴 **UPDATE 2026-08-17 — TWO THINGS, AND THE SECOND IS A CORRECTION OF MY OWN NOTE ELSEWHERE IN THIS FILE.** ① **`ExternalTwap` DELIBERATELY SURVIVED A DEAD-CODE SWEEP.** The owner's standing rule is now *"anything that is unwired and dead code either needs to be wired all the way or deleted"*, and this library is the single most likely casualty of a literal reading: zero production callers, its only references are `test/OneInchObserverIsIndependent.t.sol` and a COMMENT at `Core.sol:1280`. **It was kept on purpose — deleting it deletes a written security fix for a live 🔴🔴 defect.** The discriminator applied was *"no caller AND no job"*, not *"no caller"*; this has a job. ② **THE FIX NEEDS NOTHING FROM THE WITHDRAWN 1inch WORK, contrary to what §E241-lib's open-items list said until today.** The reversed integration (§E248/§V-R1) was **AggregationRouterV6 `0x1111…2A65`, a SWAP venue**; this reads **OffchainOracle `0x0AdDd25a…F9B8`, a read-only `getRate`** — and the router address does not appear in `ExternalTwap.sol` at all. ⇒ **one staticcall to a contract live today; no API key, no off-chain client, no `bytes route`.** ⚠️ The mistake to avoid repeating: reasoning from the vendor's NAME rather than the ADDRESS. *"1inch was removed"* is true of one contract here and false of the other.  📌 **§SEQ-AUDIT: GATE 2 · lane L5. Core:1703 records setObservationSource has ZERO non-test callers - source must be CHOSEN** |
+| **E222-externaltwap-is-unwired** | 🔴🔴 **THE CIRCULAR ORACLE IS STILL LIVE — THE FIX WAS WRITTEN AND NEVER CONNECTED. `grep -rn ExternalTwap evm/src evm/test evm/script` RETURNS NOTHING OUTSIDE ITS OWN FILE (2026-08-16).** `imports/ExternalTwap.sol` documents the defect precisely and proposes the remedy, but **zero call sites**. `Core.sol:838/:943` still call `_writeObservationPrice(px)` with a value sourced from `AUX.getTWAPforAsset`, which reads that same ring — so the ring records itself plus Chainlink, and `twapResolve`'s deviation test and `BasketLib.isManipulated` compare one source against a smoothed copy of itself. **Nothing reverts; the guards lost the ability to DISAGREE.** 🔴 **THIS MAKES THE MERGE A PRICING REGRESSION ON `main`, WHICH TODAY DOES NOT HAVE THE PROBLEM** — main still has the pool, so its ring records real executed spot. **A green suite cannot catch this: every guard still computes.** ⇒ **do not read "57 commits, zero conflicts, build green" as safe on this axis.** ⭐ **1inch's OffchainOracle IS THE RIGHT SOURCE AND IS VERIFIED LIVE (owner, 2026-08-16: *"this must be wired into 1inch"*).** `0x0AdDd25a91563696D8567Df78D5A01C9a991F9B8`, codesize 11,953. Measured against the Chainlink anchors the same block: `getRate(WETH,USDC)` = **1,877,080,514 ⇒ \$1,877.08** vs Chainlink ETH/USD **\$1,878.54** (**0.08%**); `getRate(WETH,WBTC)` = **2,982,839 ⇒ 0.02982839** vs the ETH/BTC feed **0.02985001** (**0.07%**). ✅ **It beats the branch's Curve choice on the branch's OWN stated objection.** `ExternalTwap.sol:36-40` warns *"CORRELATED SOURCES ARE ONE SOURCE… Count correlated readings as one observer"* — **a single Curve pool IS one venue with one depeg mode; the OffchainOracle aggregates across many**, so it is a genuinely independent observer rather than a second correlated one. ✅ It also keeps the property that motivated rejecting a v3 TWAP: **`getRate` is a PLAIN RATE — no ticks, no `1.0001^tick`, no `TickMath`** — so it does not reintroduce the dependency the cut removed. ✅ And it yields the **ETH↔BTC cross directly** (`getRate(WETH,WBTC)`), which is exactly §E221's "one external cross relating the two volatile legs" — avoiding compounding two USD oracle errors. ▶️ **BLOCKS THE PUSH on this axis: wire `_writeObservationPrice` to the OffchainOracle before landing, or land knowing main regresses from a real observation to a self-referential one.** 🔴 **UPDATE 2026-08-17 — TWO THINGS, AND THE SECOND IS A CORRECTION OF MY OWN NOTE ELSEWHERE IN THIS FILE.** ① **`ExternalTwap` DELIBERATELY SURVIVED A DEAD-CODE SWEEP.** The owner's standing rule is now *"anything that is unwired and dead code either needs to be wired all the way or deleted"*, and this library is the single most likely casualty of a literal reading: zero production callers, its only references are `test/OneInchObserverIsIndependent.t.sol` and a COMMENT at `Core.sol:1280`. **It was kept on purpose — deleting it deletes a written security fix for a live 🔴🔴 defect.** The discriminator applied was *"no caller AND no job"*, not *"no caller"*; this has a job. ② **THE FIX NEEDS NOTHING FROM THE WITHDRAWN 1inch WORK, contrary to what §E241-lib's open-items list said until today.** The reversed integration (§E248/§V-R1) was **AggregationRouterV6 `0x1111…2A65`, a SWAP venue**; this reads **OffchainOracle `0x0AdDd25a…F9B8`, a read-only `getRate`** — and the router address does not appear in `ExternalTwap.sol` at all. ⇒ **one staticcall to a contract live today; no API key, no off-chain client, no `bytes route`.** ⚠️ The mistake to avoid repeating: reasoning from the vendor's NAME rather than the ADDRESS. *"1inch was removed"* is true of one contract here and false of the other.  📌 **§SEQ-AUDIT: GATE 2 · lane L5. Core:1703 records setObservationSource has ZERO non-test callers - source must be CHOSEN** 📌 **RE-POINT 2026-09-08: THE GREP THIS RESTS ON CANNOT FAIL ANY MORE — `ExternalTwap`'s FILE AND SYMBOL ARE DELETED (§E318 folded it in; `OracleLib.sol:401`, `curvePriceWad` at `:422`/`:428`), so "returns nothing outside its own file" is trivially true and certifies nothing. The circular-oracle concern IS still live, by a different mechanism: `Core.setObservationSource` has zero non-test callers and no deploy wiring (`Core.sol:1682`), leaving `observationSource` unset (`Core.sol:1515`, `:1547`, `:1634`). Do not close this on the old grep.** |
 
 | **E220-ring-sourced-from-chainlink** | ⭐ **DECIDED (owner, 2026-08-16): *"no more slot0 no more poolmanger or ticks"* — THE RING IS SOURCED FROM THE CHAINLINK ANCHOR. This is §E219's corrected step ②, and the evidence supports it rather than merely permitting it.** ✅ **THE MACHINERY EXISTS AND IS ALREADY TRUSTED AS THE AUTHORITY — this promotes a tested path, it does not add one.** `SwapLib.twapResolve` already returns `(ext18, true)` with the comment *"stale TWAP → trust Chainlink"*, already normalises decimals (`ext18 = uint(ans) * 10**(18-d)`), already applies the **WBTC ×1e10 lift**, and already gates on `maxAge` (staleness) and `maxDevBps` (deviation). §A.13 hardened it so `price == 0` FALLS THROUGH to the anchor rather than short-circuiting — i.e. the anchor is already the designated answer when the internal number is unusable. ✅ **MEASURED SHAPE — SMALLER THAN IT SOUNDS, AND IT DELETES MORE THAN IT ADDS.** The ring's ONLY source is the pool: three sites, all identical, `(uint160 sqrtP,,,) = poolManager.getSlot0(_poolId(isBTC)); _writeObservation(sqrtP, isBTC);` at `Core:933-935`, `:965-967`, `:1045-1047`. And `_writeObservation` (`:1341-1344`) then does `BasketLib.getPrice(sqrtPriceX96, isBTC ? token1isBTC : token1isETH)` to reach a plain price. ⇒ **swapping the source deletes: 3× `getSlot0`, the sqrt→price conversion, AND the `token1is*` orientation reads (which are EXTERNAL calls). `_writeObservation` then takes a price directly and its `sqrtPriceX96` parameter name — already a lie since §TICK-REMOVAL made the ring store plain price — goes with it.** ⭐ **AND IT DISSOLVES THE σ²=0 PATHOLOGY AT THE ROOT RATHER THAN GUARDING IT.** §E208 established the ring advances ONLY on a swap, so its window is "the last 9 blocks that had traffic"; §E213/`d892f3f1` then had to add a sentinel because unmeasured variance priced a partial drain at zero. **A feed-sourced ring samples on Chainlink's own heartbeat/deviation cadence, independent of our traffic — so "no data" stops being a NORMAL condition and becomes a genuine outage.** That is standing rule 17 exactly: prefer making the bad state unconstructible over making it detectable. ⚠️ **THE SENTINEL STAYS ANYWAY** — a feed can still be stale or absent, and `twapResolve`'s `maxAge` is the existing discriminator. 🔴 **OPEN, AND IT IS THE REASON THIS IS NOT YET LANDED: WHERE DOES `Core` GET THE FEED ADDRESS?** `assetPriceFeed[asset]` lives in **`Aux`**, not `Core`, and routing the ring write through `Aux.getTWAPforAsset` would be **CIRCULAR AGAIN** — that function takes the internal TWAP as its input. The source must be a DIRECT `IAggregatorV3(feed).latestRoundData()` read, so `Core` needs its own feed pointer (and `Core` has 551 bytes spare, while a two-address getter was measured at 91). ▶️ **PREDICTION WHEN IT RUNS (money-path, rule 10, ALONE): σ² changes for every range, so skew and fees move — this is NOT a bit-identical refactor and any test pinning a skew or fee magnitude WILL move. Those movements must be attributed one by one, and `FORK_BLOCK` must be PINNED in both arms (§E214) or the comparison is null.** | 🔴 **SUPERSEDED BY §E232 — DO NOT BUILD WHAT THIS ROW DESCRIBES.** Sourcing the ring from Chainlink is itself CIRCULAR: Chainlink is already the ANCHOR `twapResolve` checks against, so feeding it into the ring makes the anchor test a smoothed copy of itself — the very defect §E222 names. The live answer is **Curve `price_oracle`** (`SPRINT.md` C1), with the bound derived from `ma_time = 600s` (37–74 bps), NOT `TWAP_MAX_DEVIATION_BPS = 500` (~27σ, would never fire). 1inch was tried, committed and reverted: `getRate` costs 31.7M gas, above the block limit.  📌 **§SEQ-AUDIT: GATE 6 · lane L5. Open parameter is the deviation bound; TWAP_MAX_DEVIATION_BPS=500 would never fire** |
 
@@ -89589,7 +89821,7 @@ in ONE run: swapper balance deltas vs `skewPremiumCum` vs `USD_FEES`. Then mater
 
 ### `§E243-unwired` ⛔
 
-| §E243-unwired | ⛔ **WITHDRAWN 2026-08-17 — DUPLICATE OF `E222-externaltwap-is-unwired`, WHICH IS BOOKED AT 🔴🔴 WITH BETTER REASONING.** I booked this after observing that `ExternalTwap` has ZERO `src` consumers and concluding its independent price observer was built and never wired. That is true and it was ALREADY RECORDED — E222 states it as *"THE CIRCULAR ORACLE IS STILL LIVE — THE FIX WAS WRITTEN AND NEVER CONNECTED"*, and carries what my row lacked: WHY it matters (the oracle is circular without it) and a second entry noting the v4-cut merge ARMED it on main. ⚠️ **THE PROCESS FAILURE IS THE POINT, and it is rule 12's mirror image:** I greped the CODE (zero consumers, correct) and never greped `QUEUE.md`. A finding that is already booked, re-booked at lower severity, is worse than not booking it — it splits one item's attention across two rows and the weaker one is the one a reader may hit first. ⇒ Read E222/E223/E224 as one cluster: the observer is unwired (E222), 1inch is genuinely INDEPENDENT of Chainlink so it can serve as the second source (E223), and nothing wrapped is custodied so a WBTC depeg *"can only corrupt our PRICE"* (E224).  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): WITHDRAWN as a duplicate of E222** |
+| §E243-unwired | ⛔ **WITHDRAWN 2026-08-17 — DUPLICATE OF `E222-externaltwap-is-unwired`, WHICH IS BOOKED AT 🔴🔴 WITH BETTER REASONING.** I booked this after observing that `ExternalTwap` has ZERO `src` consumers and concluding its independent price observer was built and never wired. That is true and it was ALREADY RECORDED — E222 states it as *"THE CIRCULAR ORACLE IS STILL LIVE — THE FIX WAS WRITTEN AND NEVER CONNECTED"*, and carries what my row lacked: WHY it matters (the oracle is circular without it) and a second entry noting the v4-cut merge ARMED it on main. ⚠️ **THE PROCESS FAILURE IS THE POINT, and it is rule 12's mirror image:** I greped the CODE (zero consumers, correct) and never greped `QUEUE.md`. A finding that is already booked, re-booked at lower severity, is worse than not booking it — it splits one item's attention across two rows and the weaker one is the one a reader may hit first. ⇒ Read E222/E223/E224 as one cluster: the observer is unwired (E222), 1inch is genuinely INDEPENDENT of Chainlink so it can serve as the second source (E223), and nothing wrapped is custodied so a WBTC depeg *"can only corrupt our PRICE"* (E224).  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): WITHDRAWN as a duplicate of E222** 📌 **RE-POINT 2026-09-08: THE GREP THIS RESTS ON CANNOT FAIL ANY MORE — `ExternalTwap`'s FILE AND SYMBOL ARE DELETED (§E318 folded it in; `OracleLib.sol:401`, `curvePriceWad` at `:422`/`:428`), so "returns nothing outside its own file" is trivially true and certifies nothing. The circular-oracle concern IS still live, by a different mechanism: `Core.setObservationSource` has zero non-test callers and no deploy wiring (`Core.sol:1682`), leaving `observationSource` unset (`Core.sol:1515`, `:1547`, `:1634`). Do not close this on the old grep.** |
 
 ### `§E250-nodouble` ✅
 
