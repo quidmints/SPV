@@ -13951,13 +13951,19 @@ as such so nobody re-reads them:** conversational fragments about the 1inch API 
 api key?"*, *"the key doesn't buy 'more venues' in the abstract"*) matched on the word "key". Key
 handling itself is settled and lives in `CLAUDE.md` (`evm/.env`, mode 600, never `foundry.toml`).
 
-- 🟡 **CARRIED — the one real item: `#2 the untested join, via `prefer_fetched`.`** The A/B seam in
-  `quid-bridge/src/oneinch.rs` is covered on each half separately
-  (`measure_oneinch_against_the_self_planned_route` and
-  `prefer_fetched_takes_the_better_quote_and_ties_go_to_us`), **but the JOIN — a fetched route wins
-  the comparison AND is what the keeper then actually sends — is not exercised end to end.** This is
-  the one thing this thread named and did not close, and it is stated here rather than in a reply
-  because that is the failure mode the scanner exists to catch.
+- ⚠️ **`#2 the untested join, via `prefer_fetched`` — THE HIT IS STALE, AND I OVERSTATED IT WHEN I
+  FIRST BOOKED IT HERE (corrected same day, before push).** §SESS-105 already built that join:
+  `prefer_fetched_takes_the_better_quote_and_ties_go_to_us` asserts `p.route_bytes() == p.fetched`,
+  i.e. **a fetched winner's calldata IS what goes on the wire** — plus the three neighbours that
+  matter (ours wins ⇒ nothing attached · a TIE keeps ours, because `>` not `>=` · no plan of ours ⇒
+  theirs still wins over the default word). Verified by reading the test 2026-09-08.
+- 🟡 **WHAT IS GENUINELY UNCOVERED IS NARROWER AND IS A STRUCTURAL GAP, NOT AN OMISSION:**
+  `plan_for_lp`'s four wiring lines (`best_plan_quoted` → `api_key()` →
+  `swap_quote_and_calldata` → `prefer_fetched`). ⛔ **It cannot be unit-tested without canning
+  `pos()`/`stable()`/`netEquityUsd()` reads, which the standing no-mock rule forbids** — `oneinch.rs:225`
+  already states exactly this — and it cannot be fork-tested without a DEPLOYED `LevManager` to read
+  from. ⇒ **it opens with the deployment, not before**, and the honest form of this row is that
+  dependency rather than a to-do.
 - ✅ The remaining INCOMPLETE/DECISION/RISK hits resolve either to closed history from earlier
   compactions in the same JSONL — the file spans many sessions and the scanner's own header warns of
   exactly this — or to peer lanes with named owners.

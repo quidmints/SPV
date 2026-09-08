@@ -646,11 +646,22 @@ wording is *"if and only if the swapper agrees"*, so absent consent the answer i
 2,000 weETH exit asks more than the pool holds, and gating it would defer the whole exit instead of
 serving most of it. That is a redemption, not a swap; the owner's constraint names swaps.
 
-### 🔴 ALSO OPEN — the generic `swap()` descriptor
-Excluded by the whitelist. **Forcing `dstReceiver = address(this)` would be strictly stronger than
-`RouteTookAndGaveNothing` detecting a diversion after the fact**, and its descriptor is a STATIC struct
-so its fields are at fixed offsets. ▶️ Needs the exact v6 layout verified against the deployed router
-before patching — not guessed.
+### ✅ §SESS-118 CLOSED — the generic `swap()` descriptor. **BUILT, AND THE ROW WAS STALE BY TWO
+### SESSIONS.** §SESS-69 admitted `SWAP_SELECTOR` and §SESS-99 made the arm actually execute. Read
+### `_retarget`: it whitelists the selector, requires `len >= 4 + 10*32`, and **checks that the tail
+### offset equals the head size exactly** — the dynamic-call equivalent of the arity check the
+### unoswap family gets, so a crafted blob cannot move our amount off the amount field.
+### ⛔ **AND `dstReceiver` IS FORCED (`mstore(add(route, 0xA4), address())`), WHICH IS THE THING THIS
+### ROW ASKED FOR.** A diversion is now UNCONSTRUCTIBLE rather than detectable (standing rule 17), and
+### `RouteTookAndGaveNothing` is a backstop instead of the defence.
+### 🔑 **WHY IT MATTERS BEYOND THE GUARD:** a v4 pool has no address (a singleton keyed by `PoolKey`),
+### so no pool word can name one — same for Balancer. Admitting `swap()` is not "one more venue", it
+### is **every venue a pool word cannot spell.**
+### ⚠️ **AND THE PARAGRAPH ABOVE IN THIS SAME SECTION IS ALSO STALE:** *"The generic `swap()`
+### descriptor is DELIBERATELY excluded… its amount is not at a fixed offset and patching it is not
+### checkable"* — false on both counts. The descriptor is a STATIC struct, so the head is at fixed
+### offsets, and the offset word is what makes the tail checkable. Left in place as the record of what
+### was believed, flagged here so it is not read as current.
 
 ---
 
