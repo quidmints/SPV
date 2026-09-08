@@ -32,6 +32,20 @@ contract ConvertToRoutedTest is Test {
     ///    separately from the pinned suite total.
     function setUp() public { vm.createSelectFork(vm.envString("ETH_RPC_URL")); }
 
+    /// §SESS-111 — one discriminator for both tests: an UNSET key is an absence (skip); a key that IS
+    /// set and yields an empty route is a REJECTED request (403 on a bad `from`, a dead key, a rate
+    /// limit) and must read as a failure. `0x` looks identical either way, which is what let a 403
+    /// wear a routing defect's clothes for a day (§SESS-99).
+    function _requireRouteOrExplain(uint256 len) internal {
+        if (len >= 4) return;
+        if (bytes(vm.envOr("ONEINCH_API_KEY", string(""))).length == 0) {
+            emit log("SKIP: ONEINCH_API_KEY unset - the bridge has nothing to fetch");
+            vm.skip(true); return;
+        }
+        revert("the 1inch bridge returned an EMPTY route while a key IS configured - a REJECTED "
+               "request, not an absent one. See SESS-88b (bad `from` => 403) and SESS-99.");
+    }
+
     function _route(address src, uint256 amt) internal returns (bytes memory) {
         string[] memory c = new string[](5);
         c[0] = "python3";
@@ -71,7 +85,8 @@ contract ConvertToRoutedTest is Test {
         //    reported `0 <= 0` — a MISSING INPUT wearing a routing defect's clothes. That is why two
         //    tests sat in every baseline all day and were diagnosed twice (a stale pin, then a dead
         //    API key), both times wrongly.
-        if (r.length < 4) { vm.skip(true); return; }
+        _requireRouteOrExplain(r.length);
+        if (r.length < 4) return;
         vm.store(USDC, keccak256(abi.encode(address(this), uint256(9))), bytes32(a));
         assertEq(IERC20t(USDC).balanceOf(address(this)), a, "fixture");
         address[] memory t = new address[](1); uint256[] memory m = new uint256[](1);
