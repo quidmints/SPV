@@ -91975,7 +91975,13 @@ On the **flush/exempt** branch (`inv ≤ target`) σ²=0 does return 0 through t
 **OVERSHOOT** branch it returns **`UNKNOWN_VARIANCE_SKEW = 3e16`** — a flat 300 bps, measured
 constant from +1% to +200% overshoot — because `sellSkew` branches on `sigmaSqWad == 0` and never
 evaluates `qBar`. Anyone reaching for the sentinel-split work needs the second form.
-⭐ **SUPPORTING STRUCTURE FOR "NEVER EXECUTED": §SKEW-COVERAGE-HOLE.** It is not only that the
+⭐ **THE EVIDENCE FOR "NEVER EXECUTED" IS §E277, AND IT PREDATES ME BY THREE WEEKS.**
+`DrainAtomicity.test_UNITA_FixtureDrivesRealVariance` measured **σ² = 1, 1, 1, 0 wad across FOUR full
+suite runs (2026-08-21)** — deterministic, against a suite carrying a ±2-test noise floor — and is
+kept DELIBERATELY RED as the standing proof that *"`realizedVarianceWad()` is pinned at ~0 and 20
+driven ticks cannot budge it"*. ⇒ Cite THAT here rather than any inference: the sequencing claim rests
+on a measurement, not on an argument.
+⭐ **AND THE SECOND HALF: §SKEW-COVERAGE-HOLE.** It is not only that the
 mechanisms are dormant in PRODUCTION — the curve behind them has never run **under test** either.
 Every skew test in the suite runs its swaps at ONE pinned block, so σ² is structurally 0 and each one
 exercises the sentinel. Measured with a real-Chainlink-round harness, the curve is exactly linear in
@@ -97635,8 +97641,17 @@ one is re-walkable and every one presented as "the estimator does not work":
 number cannot distinguish "ran and recorded nothing" from "never ran", and five of the six above are
 invisible without that split.
 
-▶️ **OPEN:** every other skew/IL/variance test in the suite still runs at one pinned block and is
-therefore testing the sentinel. This row does not fix them; it names the class.
+✅ **CLOSED FOR THE TESTS THAT CAN BE WARMED (2026-09-08).** `warmVarianceFromRealRounds(n)` is on
+`AllesFixture` and wired into **`SkewCalibration`, `SkewVsUniswapV3`, `PremiumIsCarryNotIncome`,
+`DerivedTheta`, `RestoreProfitability`** — all five now measure σ² ≈ **0.113 wad (σ ≈ 34%)** and
+exercise the A-S curve. ⛔ **THREE MUST NEVER BE WARMED, and wiring them would destroy the
+instruments that recorded this problem:** `DrainAtomicity` (`test_UNITA_FixtureDrivesRealVariance` is
+§E277's DELIBERATE RED — *"DO NOT WEAKEN OR DELETE THIS TO GET THE SUITE GREEN"*; the warm-up moves
+the ANCHOR and σ² is `max(ring, anchor)`, so it would green the red while the RING stays exactly as
+unresponsive), `SkewLivePathReachesKernel` (§E306's sentinel instrument), `VarPrecision` (it measures
+the measurement). ▶️ **WHAT REMAINS IS THE RING, NOT THIS ROW** — see §E277, whose stated fix is
+*"FIX THE RING so a driven tick moves σ²"*. The warm-up is an ANCHOR-SIDE workaround and does not
+close that.
 
 📌 **WHAT THIS SETTLES FOR E48/E70:** restoration is **value-NEUTRAL** (0 bps), not loss-making. But
 value-neutral still means **nothing pays anyone to do it** ⇒ **E48's async keeper fallback is
