@@ -495,6 +495,31 @@ contract LevYbRealProbe is AllesFixture {
         emit log_named_int("SELLS ONLY   residual after ", _res());
         emit log_named_int("SELLS ONLY   DELTA          ", _res() - r0);
     }
+    /// ⭐ §CALMVOL-LEG-SPLIT ROUND 2 — **NO SINGLE LEG PRODUCES THE OFFSET.** Measured: drains −9 wei,
+    ///   sells −450,000,000,000,000 (NEGATIVE, the premium direction, which independently confirms
+    ///   §PREMIUM-DENOM-ROOT's sign prediction), feed resets EXACTLY 0. They sum to −0.00045 ETH while
+    ///   `_calmVol` produced **+0.005358**. ⇒ the offset is not in any leg; it needs TIME TO PASS
+    ///   BETWEEN SWAPS, which is the one thing the isolated arms above do not do.
+    ///   ⚠️ Leading candidate: debt accrues (Morpho) while `POOLED` is a raw token count that cannot
+    ///   follow, so `totalNetEquity = collateral − debt` falls and `rangeETH` with it. The feed-only
+    ///   arm reads 0 because with NO Morpho interaction the debt is never accrued — lazily, on touch.
+    ///   ⇒ This arm is sells + warps: same swaps as arm B, with the 6-minute gaps restored.
+    function testReal_CalmLeg_D_SellsWithWarps() public {
+        _setupToRebalanced();
+        vm.deal(address(this), 20 ether);
+        int256 r0 = _res();
+        uint d0 = rvenue.debtOf(LP);
+        for (uint i; i < 8; i++) {
+            vm.warp(block.timestamp + 12 minutes); vm.roll(block.number + 1);
+            try AUX.swap{value: 0.015 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch {}
+        }
+        emit log_named_int ("SELLS+WARP   residual before", r0);
+        emit log_named_int ("SELLS+WARP   residual after ", _res());
+        emit log_named_int ("SELLS+WARP   DELTA          ", _res() - r0);
+        emit log_named_uint("SELLS+WARP   debt before    ", d0);
+        emit log_named_uint("SELLS+WARP   debt after     ", rvenue.debtOf(LP));
+    }
+
     function testReal_CalmLeg_C_FeedResetsOnly() public {
         _setupToRebalanced();
         int256 r0 = _res();
