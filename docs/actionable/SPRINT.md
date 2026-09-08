@@ -99853,3 +99853,56 @@ A null result and a broken instrument are indistinguishable at the point of read
   · `grep -E "Compiling [0-9]+ files"` — identical gas across a source change means a CACHED artifact;
   · for any null, name the OTHER state that produces the same reading, and rule it out by measurement.
 
+
+---
+
+## ✅ §LIQ-PENALTY-REFUTED — the over-claim is a SWAP-PATH divergence, not a liquidation penalty
+
+Owner: *"test the liquidation penalty hypothesis by varying the liquidated fraction. maybe its a problem
+in the tests themselves."* Both halves answered — the hypothesis is dead, and the residual is upstream of
+the liquidation exactly as suspected, though it is not a test defect either.
+
+### THE FALSIFIER FIRED — residual IDENTICAL TO THE WEI at every fraction, including ZERO
+| liquidated | `POOLED` | `rangeETH` | `levBuf` | residual |
+|---|---:|---:|---:|---:|
+| **none (control)** | 7.793519 | 7.580780 | 0.207959 | **4,780,507,795,264,422** |
+| 1/4 | 6.358595 | 6.187686 | 0.166128 | **4,780,507,795,264,422** |
+| 1/2 | 4.923670 | 4.811230 | 0.107660 | **4,780,507,795,264,422** |
+| 3/4 | 3.488746 | 3.434774 | 0.049192 | **4,780,507,795,264,422** |
+
+A penalty MUST scale with the fraction. This does not move by one wei, and it is fully present with **no
+liquidation at all**. ⇒ **the liquidation-penalty hypothesis is refuted**, and `levBuf` tracks the
+liquidation correctly at every fraction (0.208 → 0.166 → 0.108 → 0.049), which is further confirmation of
+§LEVBUF-NOT-STALE.
+
+### AND THE SETUP WALK PUTS IT ON ONE STEP
+| after | residual |
+|---|---:|
+| `_setupMorpho` | 0 |
+| `_openLpFlat` | −5,516,159,696,406,518,119 |
+| `_rallyRange` | −5,516,736,717,954,571,292 |
+| `rebalance` | −577,021,548,053,173 |
+| **`_calmVol`** | **+4,780,507,795,264,422** ← introduced entirely here |
+| `syncLev` | unchanged |
+
+**`_calmVol` is 16 SWAPS** (8 sells of 0.015 ETH in, 8 drains of 30 USDC out) and nothing else. Across
+them `POOLED` gained 0.028051 ETH while `rangeETH` gained 0.022693 — **`POOLED` over-counted by
+0.005358 ETH, ~0.000335 per swap, 4.46% of the ETH sold in.**
+
+🔴 **SO THE OVER-CLAIM IS A SWAP-PATH ACCOUNTING DIVERGENCE: the range's book gains more volatile than
+its custody does, on ordinary swaps.** It has nothing to do with liquidation, and every symptom that led
+here — the honest-LP red, the 0.004915 residual — is downstream of it.
+⛔ **AND IT IS NOT THE RETAINED PREMIUM, BY SIGN AND BY SIZE.** The premium is deducted from `r.amount`
+before Core books it, so it makes `POOLED` gain LESS than custody — it would drive this NEGATIVE. The
+measured divergence is POSITIVE, and 4.46% is four orders above the 0.07 bps premium. §PREMIUM-DENOM-ROOT
+explains the Γ SENSITIVITY of the assertion; it does not explain this level, and the two must not be
+conflated. **Γ is not implicated in this at all.**
+
+▶️ **NEXT, and it is now a narrow question:** instrument per-swap inside `_calmVol` and split the two
+legs. On a drain `POOLED -= out` while `deliverVolatile` sends the ether, and on a sell `POOLED += amount`
+while `depositBody` wraps it — those should be custody-neutral in both directions, so one of the four
+movements is not matched. The probe (`testReal_LiqPenalty_4_WhereDoesTheOffsetEnter`) is committed and
+the next step is one more emit inside the loop.
+📌 The probes are LANDED, not held dirty: `9d9ed014` and its follow-up. This file has been reverted under
+this session twice mid-run, which silently produced two instrumented runs that measured the
+un-instrumented file — committing first is the only way the numbers can be trusted.
