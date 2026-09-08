@@ -562,8 +562,12 @@ contract LevYbRealProbe is AllesFixture {
         USDC.approve(address(AUX), 20_000 * USDC_PRECISION);
         vm.deal(address(this), 20 ether);
         int256 prev = _res() + int256(CORE.retainedEthPremium());
+        int256 first = prev;
         uint pP = CORE.POOLED(); uint pR = AUX.rangeETH(); uint pB = ETH.levBuf(LP); uint pX = CORE.retainedEthPremium();
-        for (uint i; i < 8; i++) {
+        // 16, matching `_calmVol` EXACTLY. At 8 every swap conserved, so if the interleaved arm really
+        // breaks conservation the offending swap is in the second half — and if it does NOT break here,
+        // then arm B and this probe disagree and the arm is the thing that is wrong.
+        for (uint i; i < 16; i++) {
             vm.warp(block.timestamp + 6 minutes); vm.roll(block.number + 1);
             { uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px != 0) _setEthFeed(px / 1e10); }
             if (i % 2 == 0) { try AUX.swap(address(USDC), address(WETH), true, 30 * USDC_PRECISION, 0, true) {} catch {} }
@@ -577,6 +581,8 @@ contract LevYbRealProbe is AllesFixture {
             prev = _res() + int256(CORE.retainedEthPremium());
             pP = CORE.POOLED(); pR = AUX.rangeETH(); pB = ETH.levBuf(LP); pX = CORE.retainedEthPremium();
         }
+        emit log_named_int("TOTAL invariant drift over 16 swaps", prev - first);
+        assertEq(prev, first, "the invariant must be conserved across the WHOLE interleaved run");
     }
 
     function testReal_Identity_B_Interleaved() public {
