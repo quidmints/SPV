@@ -645,99 +645,11 @@ contract DrainAtomicity is AllesFixture {
     /// `(cum[0] - cum[1]) / window` — no new state, no new accumulator.
     /// The point of the test: a SPOT reading and a TWAP must DIVERGE after a fresh move, and the
     /// TWAP must lag. If they are identical the ring is not accumulating and the design is dead.
-    /// §E117 — THE LAST UNMEASURED CASE: what does a `tickCumulative` window do when the FRAME MOVES
-    /// mid-window? A reseat changes `loPrice`/`upPrice`, so a normalized position computed from a
-    /// TWAP that spans the change mixes TWO frames. E114/E115 identified `reseatEpoch` as the public,
-    /// monotonic discriminator; this measures what actually goes wrong without it.
     /// §E118 — CONSEQUENCES OF ELIMINATING THE MOVING FRAME, measured BEFORE proposing it. If the
     /// range never re-centred, `reseatEpoch` and E117's frame-mixing hazard would both vanish. The
     /// question is what that would COST: a fixed range that price leaves is OUT OF RANGE — 100% one
     /// asset, earning NOTHING. So the measurable is TICK TRAVEL vs RANGE WIDTH. If travel >> width,
     /// a fixed frame is untenable and the epoch is unavoidable rather than incidental.
-    function test_E118_TickTravelVersusRangeWidth() public {
-        _seedBasket();
-        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
-        _settle();
-        (uint t0,) = CORE.poolStats();
-        uint origLo = _bLo(address(ETH)); uint origHi = _bHi(address(ETH));
-        emit log_named_uint("range width (price)        ", origHi - origLo);
-        emit log_named_uint("start price              ", t0);
-
-        uint minT = t0; uint maxT = t0;
-        for (uint d = 0; d < 30; ++d) {
-            deal(address(WETH), drainer, 30 ether);
-            vm.startPrank(drainer);
-            WETH.approve(address(AUX), 30 ether);
-            try AUX.swap(bold, address(WETH), false, 30 ether, 0, true) {} catch { vm.stopPrank(); break; }
-            vm.stopPrank(); _settle();
-            (uint t,) = CORE.poolStats();
-            if (t < minT) minT = t; if (t > maxT) maxT = t;
-        }
-        emit log_named_uint("price range visited      ", maxT - minT);
-        emit log_named_uint("  min price              ", minT);
-        emit log_named_uint("  max price              ", maxT);
-        emit log_named_uint("frame lower price        ", _bLo(address(ETH)));
-        emit log_named_uint("frame upper price        ", _bHi(address(ETH)));
-        emit log_named_uint("range NOW  LOWER         ", _bLo(address(ETH)));
-        emit log_named_uint("range NOW  UPPER         ", _bHi(address(ETH)));
-        emit log_named_uint("ORIGINAL  LOWER         ", origLo);
-        emit log_named_uint("ORIGINAL  UPPER         ", origHi);
-
-        uint travel = maxT - minT; uint width = origHi - origLo;
-        if (travel > width) {
-            emit log("TRAVEL EXCEEDS WIDTH: a FIXED range would have gone OUT OF RANGE and stayed there,");
-            emit log("holding 100% of one asset and earning nothing. The moving frame is REQUIRED, so");
-            emit log("FRAME MOVES are UNAVOIDABLE -- not an incidental complication to design away.");
-        } else {
-            emit log("Travel stayed within width here -- a fixed range MIGHT be viable; widen the test");
-            emit log("before concluding, because one sequence is not the operating envelope.");
-        }
-    }
-
-    function test_E117_TwapAcrossAReseatMixesFrames() public {
-        _seedBasket();
-        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
-        _settle();
-        for (uint d = 0; d < 6; ++d) _drain(20_000 * 1e18);
-
-        uint32[] memory ago = new uint32[](2); ago[0] = 0; ago[1] = 3600;
-        bytes32 ep0 = keccak256(abi.encode(_bLo(address(ETH)), _bHi(address(ETH))));  // the FRAME, not a count
-        uint lo0 = _bLo(address(ETH)); uint hi0 = _bHi(address(ETH));
-        // §TICK-REMOVAL — the ring yields a PRICE TWAP now, so the reading is in price space. The
-        // frame (LOWER/UPPER_TICK) is still v4's and still ticks, so the FRAME-MOVED signal below —
-        // which is what this diagnostic exists to surface — is unchanged.
-        uint192[] memory c0 = CORE.observe(ago);
-        uint twap0 = uint(c0[0] - c0[1]) / 3600;
-        emit log_named_uint("BEFORE: lower price     ", _bLo(address(ETH)));
-        emit log_named_uint("BEFORE: 1h TWAP price  ", twap0);
-
-        // Force frame motion the way E112 did -- sells push price to loPrice and trigger repacks.
-        for (uint d = 0; d < 40; ++d) {
-            deal(address(WETH), drainer, 30 ether);
-            vm.startPrank(drainer);
-            WETH.approve(address(AUX), 30 ether);
-            try AUX.swap(bold, address(WETH), false, 30 ether, 0, true) {} catch { vm.stopPrank(); break; }
-            vm.stopPrank(); _settle();
-        }
-
-        bytes32 ep1 = keccak256(abi.encode(_bLo(address(ETH)), _bHi(address(ETH))));
-        uint lo1 = _bLo(address(ETH)); uint hi1 = _bHi(address(ETH));
-        uint192[] memory c1 = CORE.observe(ago);
-        uint twap1 = uint(c1[0] - c1[1]) / 3600;
-        emit log_named_uint("AFTER : lower price     ", _bLo(address(ETH)));
-        emit log_named_uint("AFTER : 1h TWAP price  ", twap1);
-        emit log_named_uint("AFTER : range LOWER     ", lo1);
-        emit log_named_uint("AFTER : range UPPER     ", hi1);
-
-
-        if (ep1 == ep0) { emit log("VOID: no reseat occurred -- the frame never moved."); return; }
-        emit log("FRAME MOVED. The TWAP above spans BOTH frames, so `normalized` mixes a pre-reseat");
-        emit log("tick with a post-reseat range. The range BOUNDS moving is the signal of that --");
-        emit log("without it the number looks perfectly ordinary. THAT is why it must be read.");
-        if (twap1 == twap0) emit log("TWAP price UNCHANGED across the reseat.");
-    }
-
-
     // ⛔ §SESS-87 — **`test_E116_TimeWeightedTickLagsTheSpot` DELETED: THE PROPERTY IS NOT MEASURABLE
     //    IN THIS FIXTURE.** It compared `CORE.poolStats()`'s spot against `CORE.observe()`'s 1h mean
     //    and printed "LIVE" or "design is DEAD" without asserting either. Turned into an assertion it
@@ -750,6 +662,23 @@ contract DrainAtomicity is AllesFixture {
     // ⇒ the half that IS measurable — *does the ring accumulate at all* — is now asserted head-on by
     //   `test_E88_SigmaSentinelDiscriminatesUnmeasuredFromCalm` (σ² > 0 after a driven tick) and by
     //   `test_UNITA_FixtureDrivesRealVariance`. A second test that can only print is not a third.
+    //
+    // ⛔ **2026-09-08 — `test_E117_TwapAcrossAReseatMixesFrames` AND
+    //    `test_E118_TickTravelVersusRangeWidth` DELETED FOR THE SAME STRUCTURAL REASON.** Both were
+    //    zero-assertion diagnostics that printed one of two conclusions, and in both the interesting
+    //    branch is UNREACHABLE rather than merely unobserved:
+    //    · E118 compared `travel = maxT - minT` against the range width after 30 swaps. `poolStats()`
+    //      returns `obsState.lastPrice` (`Core.sol:1416-1418`) — the ORACLE reading — so `travel` is
+    //      structurally ZERO and "TRAVEL EXCEEDS WIDTH" could never print. Its own premise is
+    //      refuted twelve lines above this comment.
+    //    · E117 needed a RESEAT to occur mid-window, and provoked it with 40 sells. A reseat needs
+    //      price out of range; price is the oracle's; sells do not move it. Its `VOID: no reseat
+    //      occurred` early-return was the only reachable path, and after `RANGE_DELTA` widened
+    //      20 → 200 it became ten times harder still.
+    // ⚠️ **THE TRAP, AND WHY THIS NOTE IS NOT A TOMBSTONE:** both questions are worth asking and
+    //    neither can be posed by SWAPPING. Anything that re-attempts them must drive the OBSERVATION
+    //    SOURCE (`_driveTick`), not the pool. Without that warning the natural rewrite is the one
+    //    that was just deleted, for the third time.
 
 
 
