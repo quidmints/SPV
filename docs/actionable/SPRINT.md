@@ -98784,3 +98784,45 @@ landed, not after.**
   symmetric width, so widening does not rescue it as an IL measure.
 · `Alles.t.sol`'s *"capped at 20bps = 0.002e18"* → 200 bps, with a note that the assertion derives its
   bound from live state and must not be re-keyed to the literal.
+
+## §THE-QUOTE-IS-THE-BUG-2026-09-08 — 🔴 **THE ETH SKEW CEILING IS 0.000054 bps. MEASURED.**
+
+Owner: *"fix the quote"* — after the solver gloss was struck (§17722). Under the owner's actual words
+the mechanism IS the skew, so the question became *what does the skew actually charge?* **Computed at
+the production σ², and the answer is: nothing.**
+
+| | `_maxWellSkew = σ²·confFracWad/8 + spliceFloor` | at σ² = 0.113 wad |
+|---|---|---|
+| **ETH** | `ETH_CONF_FRAC_WAD = 380e9` (12s/1yr), `spliceFloor = 0` | **5.37e-9 wad = 0.000054 bps** |
+| **BTC** | `CONF_FRAC_WAD = 114e12` (1hr/1yr), `SPLICE_FLOOR = 2e15` | 2.00e-3 wad = **20.02 bps** |
+⇒ **ON ETH THE SKEW IS NUMERICALLY INERT.** Whatever the A&S kernel computes, the cap clamps it to
+~5 billionths of a wad. There is no penalty on the worsening side, no asymmetry, and therefore
+**nothing that moves flow back** — which is the mechanism the design relies on now that there is no
+keeper and no solver. ⚠️ **On BTC it only looks alive because `SPLICE_FLOOR` (0.2%) masks it: the σ²
+term contributes 0.016 bps of the 20.02.** The floor is doing all the work on both legs.
+
+### 🔑 THE MECHANISM — A WINDOW MISMATCH, NOT A MISSING FEATURE
+`confFracWad` is the **SETTLEMENT** window: *"ETH settles in ~one block … Charging ETH the BTC 1hr
+window over-priced its cap."* That is the right basis for **settlement** risk — the price move you eat
+between agreeing and settling. ⛔ **BUT `wellSkew` IS NOT PRICING SETTLEMENT. IT PRICES INVENTORY
+IMBALANCE**, and `sellSkew`'s own comment states the correct exposure two hundred lines away:
+*"the only real cost of taking volatile we did not want is that we must SHED it, shedding happens INTO
+FLOW, and the holding time is `qBar/flow`"* — **τ, the HOLDING period, not one block.**
+⇒ **The cap is derived from a window 12 seconds long while the exposure it bounds lasts until flow
+rebalances us.** BTC's 1hr is equally arbitrary as a holding time; it is just large enough that the
+floor hides the error.
+
+### ⛔ AND A BELOW-ORACLE QUOTE IS NOT REPRESENTABLE, SO "PAY THE RESTORER" IS NOT A ONE-LINE FIX
+`skew` is a `uint` and `retainSkewPremium` only ever does `r.amount -= premium`. **The restoring side
+can be EXEMPT but never PAID.** ⇒ E65's *"exemption is not an incentive"* is a statement about the
+TYPE, not just the policy. ⚠️ **And the premium is NOT a pot to draw on:** `creditSkewPremium` credits
+it straight into the per-share accumulator (`Quid.sol:1428`), so it is DISTRIBUTED to LPs on receipt.
+Paying a restorer from it means taking it back from LPs, which is a different decision than it sounds.
+⇒ **The asymmetry the design actually has is "penalty vs nothing" — which is enough to move a router,
+but ONLY if the penalty is non-zero. On ETH it is 0.000054 bps.**
+
+▶️ **THE FIX IS THE CAP'S BASIS, AND THE NUMBER IS THE OWNER'S.** Re-derive `_maxWellSkew` from the
+HOLDING time (`τ = qBar/flow`, already computed in `sellSkew`) rather than the settlement window, and
+`SPLICE_FLOOR` stops being load-bearing on BTC as a side effect.
+⚠️ **NOT LANDED: `SwapLib.sol` is another session's dirty file, this is a money path (rule 15), and
+the replacement window is a pricing choice.** project-bc informed.
