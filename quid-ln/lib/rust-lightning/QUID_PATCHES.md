@@ -4,15 +4,70 @@ This directory is a **vendored copy** of the lexe LDK fork, pinned to:
 
     https://github.com/lexe-app/rust-lightning   branch lexe-v0.2.2-2026_04_28   (commit 027c6a1)
 
-It is vendored (rather than referenced by git) so QU!D can carry a small,
-explicit local patch. The workspace `[patch.crates-io]` in `quid-ln/Cargo.toml`
-points the `lightning*` crates at this path instead of the git source.
+The workspace `[patch.crates-io]` in `quid-ln/Cargo.toml` points the `lightning*` crates at this path.
 
-Treat everything here as upstream/read-only **except** changes tagged
-`QU!D PATCH` (grep `QU!D PATCH`). Re-vendoring (to bump the lexe branch) means
-re-copying the checkout and re-applying these patches.
+## ⛔ MEASURED 2026-09-08 — THIS FILE WAS DESCRIBING A DIFFERENT ARTEFACT
+
+It said the tree was vendored *"so QU!D can carry a small, explicit local patch"*, told you to
+*"treat everything here as upstream/read-only **except** changes tagged `QU!D PATCH`"*, and listed
+**three** patches. All three of those statements are false, and the third is the one that misleads:
+
+**A `diff -r` against the pinned upstream measures `+7,115 / −565` lines across 33 modified files,
+plus one entirely new 548-line file (`lightning/src/sign/taproot_signer.rs`) — an 11,202-line patch.**
+Only 29 lines anywhere in the tree carry a `QU!D PATCH` marker, so **grepping the marker finds well
+under 1% of what we changed.**
+
+Where the weight actually is (added/removed vs upstream):
+
+| file | +/− | what it is |
+|---|---|---|
+| `ln/channel.rs` | +1526 / −250 | taproot channel state, splice signing, acceptor contribution |
+| `ln/functional_tests.rs` | +1213 / −1 | |
+| `ln/chan_utils.rs` | +1003 / −22 | taproot script/sighash builders |
+| `sign/mod.rs` | +993 / −50 | the taproot signer trait surface |
+| `sign/taproot_signer.rs` | +548 (new) | MuSig2 key-path partials |
+| `ln/splicing_tests.rs` | +557 / −10 | |
+| `chain/channelmonitor.rs` | +451 / −27 | the accessors this file *did* document |
+| `chain/package.rs` | +377 / −4 | taproot on-chain resolution |
+| `ln/msgs.rs` | +156 / −71 | |
+| 25 more | | |
+
+### 🔑 AND THE CORRECTION THAT MATTERS MOST: **SIMPLE-TAPROOT CHANNEL SUPPORT IS OURS, NOT LEXE'S.**
+
+`QUEUE-KNOWLEDGE.md`'s §E174-r records the opposite — *"Simple-taproot support comes from the
+**vendored LDK fork itself**… the fork carries `negotiate_simple_taproot` in `util/config.rs:242`…
+taproot lives in the LDK codebase, not in those patches — **absence from a changelog is not absence
+from the code**."* The reasoning was sound and the conclusion is wrong, because it was checked
+against the vendored tree rather than against upstream. **Counted at commit `027c6a1`:**
+
+| symbol | upstream `027c6a1` | this tree |
+|---|---|---|
+| `negotiate_simple_taproot` | **0** | 20 |
+| `supports_simple_taproot` | **0** | 87 |
+| `partially_sign_splice_shared_input` | **0** | 9 |
+| `channel_taproot_script_pubkey` | **0** | 8 |
+| `taproot_funding_aggregate_xonly` | **0** | 4 |
+| `splice_nonce_height` | **0** | 9 |
+
+Upstream also still has MuSig2 behind `[target.'cfg(taproot)'.dependencies]` on the dead
+`arik-so/rust-musig2` (no taproot tweak). **We replaced it with `musig2 = "0.1.2"` in the DEFAULT
+build.** ⇒ *"absence from a changelog is not absence from the code"* was right; the trap it missed is
+that **presence in a vendored tree is not presence upstream** — the one comparison nobody ran.
+
+⇒ **THIS IS NOT A PATCHED DEPENDENCY. IT IS A FORK, AND IT SHOULD LIVE IN ITS OWN REPO** — like the
+other thirteen `github.com/quidmints/*` forks the workspace already uses (`rust-sgx`, `axum-server`,
+`rust-esplora-client`, `hyper-util`, `mio`, `ring`, `tokio`). LDK is the one in-tree vendor exception,
+and the exception was justified by a "small local patch" that does not exist.
+▶️ **Owner ruling 2026-09-08: *"make any changes to ldk that are needed but that involves cloning our
+fork repo and doing it there."*** ⚠️ **`quidmints/rust-lightning` DOES NOT EXIST YET** — probed over
+SSH with a working control (`quidmints/tokio` resolves; the four candidate LDK names return
+`Repository not found`). **Creating it is the prerequisite for any further LDK change.**
+
+⚠️ **RE-VENDORING IS NO LONGER "re-copy and re-apply".** Upstream lexe is three releases ahead
+(`lexe-v0.2.3-2026_07_21`, `a3ba0972`). Rebasing an 11,202-line patch is a project, not an errand.
 
 ## QU!D patches
+
 
 ### 1. `ChannelMonitor::funding_pubkeys()` — `lightning/src/chain/channelmonitor.rs`
 

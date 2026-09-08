@@ -44,6 +44,65 @@ because the three documents that tell you WHAT ORDER to work in are buried at th
    turned green weeks earlier. A stale ✅ hides work; **a stale ⛔ SUPPRESSES it, and nothing fails to
    tell you.** When a row forbids something, re-run its evidence before obeying it.
 
+## 🍴 §LDK-IS-A-FORK-NOT-A-PATCH — **MEASURED 2026-09-08: `+7,115 / −565`, AND THE TAPROOT ATTRIBUTION WAS BACKWARDS**
+
+Owner, 2026-09-08: *"make any changes to ldk that are needed but that involves cloning our fork repo
+and doing it there."*
+
+🔑 **`quid-ln/lib/rust-lightning` IS NOT A VENDORED DEPENDENCY WITH A LOCAL PATCH. IT IS A FORK.**
+`QUID_PATCHES.md` said it was vendored *"so QU!D can carry a small, explicit local patch"*, told
+readers to treat everything as read-only *"except changes tagged `QU!D PATCH`"*, and listed **three**
+patches. **`diff -r` against the pinned upstream (`lexe-app/rust-lightning` @ `027c6a1`, fetched and
+diffed, not recalled): +7,115 / −565 lines across 33 files, plus a new 548-line
+`lightning/src/sign/taproot_signer.rs` — an 11,202-line patch.** Only **29 lines** in the whole tree
+carry a `QU!D PATCH` marker, so **the marker finds under 1% of what we changed** — and the marker is
+what `QUID_PATCHES.md` told everyone to grep.
+
+⛔ **§E174-r IS CORRECTED, AND IT IS A GOOD FAILURE TO LEARN FROM.** It records: *"Simple-taproot
+support comes from the **vendored LDK fork itself** … taproot lives in the LDK codebase, not in those
+patches — **absence from a changelog is not absence from the code**."* **Counted at `027c6a1`:
+`negotiate_simple_taproot` 0 upstream / 20 here · `supports_simple_taproot` 0 / 87 ·
+`partially_sign_splice_shared_input` 0 / 9 · `channel_taproot_script_pubkey` 0 / 8 ·
+`taproot_funding_aggregate_xonly` 0 / 4 · `splice_nonce_height` 0 / 9.** Upstream still has MuSig2
+behind `[target.'cfg(taproot)'.dependencies]` on the **dead** `arik-so/rust-musig2` (no taproot
+tweak); we replaced it with `musig2 = "0.1.2"` in the DEFAULT build.
+⭐ **THE LESSON: its own maxim was right and it applied it one level short.** *"Absence from a
+changelog is not absence from the code"* — so it checked the CODE. But it checked the code in the
+**vendored tree**, which is our own work, and concluded the work was upstream's. **Presence in a
+vendored copy is not presence upstream.** The comparison that decides it is `diff` against the pinned
+commit, and nobody had run it. Same family as §INSTRUMENT-DRIFT: the instrument was pointed at the
+thing being measured instead of at the reference.
+
+▶️ **WHAT THIS CHANGES, IN ORDER:**
+1. 🔴 **`quidmints/rust-lightning` DOES NOT EXIST.** Probed over SSH with a working control —
+   `quidmints/tokio` resolves; `rust-lightning`, `ldk`, `lightning`, `rust-lightning-fork` all return
+   `Repository not found`. **Creating it is a prerequisite for any further LDK change**, and it is
+   the owner's to create (I cannot create a repo under the org).
+2. **LDK IS THE ONE IN-TREE VENDOR EXCEPTION AND THE EXCEPTION'S JUSTIFICATION IS FALSE.** The
+   workspace already consumes thirteen `github.com/quidmints/*` forks by git URL (`rust-sgx`,
+   `axum-server`, `rust-esplora-client`, `hyper-util`, `mio`, `ring`, `tokio` — audited at
+   §SGX-FORKS). LDK was vendored for a "small patch" that measures 11,202 lines.
+3. ⚠️ **RE-VENDORING IS NOW A PROJECT.** `QUID_PATCHES.md` said bumping means *"re-copying the
+   checkout and re-applying these patches"*. Upstream lexe is **three releases ahead**
+   (`lexe-v0.2.3-2026_07_21`, `a3ba0972`). Rebasing 11,202 lines is not an errand.
+4. ⏸️ **§T9 STEP 3 IS THE FIRST THING THAT NEEDS AN LDK CHANGE** and is therefore blocked behind (1).
+   The continuing-funding check needs the counterparty's ROTATED funding pubkey threaded into
+   `partially_sign_splice_shared_input`. LDK has it — `pending_splice`'s new `FundingScope` exposes
+   `counterparty_funding_pubkey()` and `get_funding_spk()` at the exact call site
+   (`channel.rs:9709`) — but the trait signature does not carry it. **One parameter, in LDK.**
+
+📌 **AND THE CORRECTION TO MY OWN CLAIM EARLIER TODAY:** I said step 3's continuing-funding half
+*"needs no EVM read and no threaded parameter"*. The EVM half is right; the parameter half is wrong.
+The signer can self-derive ITS rotated key from `prev_funding_txid` (already a parameter), but `Q'`
+needs BOTH halves and the counterparty's is node-supplied. ⭐ **That is still worth building, and the
+reason is worth writing down: a node that LIES about the counterparty half cannot steal with it** —
+the output would then not aggregate OUR self-derived key, so it fails the check; and any output that
+DOES aggregate our key is still a 2-of-2 we co-control. **The check binds even though one input to it
+is attacker-chosen, because the attacker-chosen half cannot produce a spendable-by-them output that
+passes.**
+
+---
+
 ## 🧹 §DEDUP-2026-09-08 — **THE FILE CARRIED ITSELF TWICE. THE SECOND COPY IS DELETED.**
 
 Owner, 2026-09-08: *"there should not be two separate copies."*
