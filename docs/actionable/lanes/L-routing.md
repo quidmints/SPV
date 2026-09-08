@@ -564,6 +564,23 @@ dodge, so `unoswap3` is reachable through the existing `bytes route` with no new
 ###   above ~$500k: −0.42 vs −0.72 bps at $1M, −0.68 vs −2.16 at $5M) — a pair the table ALREADY
 ###   routes to 3pool, so it justifies nothing further.
 ### 🔴 STILL NOT BUILT — 2. **IL-PROTECT: BORROW THE CHEAPEST DOLLAR, THEN HOP TO THE ONE WE NEED**
+### ⛔ **§SESS-115 — AND THE BLOCKER THIS ROW NAMES IS NOT THE ONE THAT BINDS. TWO CORRECTIONS,
+### BOTH MEASURED, AND THEY MOVE THIS ROW FROM "unbuilt" TO "has nowhere to be built."**
+### ① **`LevVenueBase.STABLE` BEING `immutable` WAS NEVER THE BLOCKER.** `_params()` reconstructs the
+###   Morpho market from `STABLE`, while `MARKET_ID` is a SEPARATE immutable — so mutating `STABLE`
+###   would not re-point an existing position, it would STRAND it against a market id that no longer
+###   describes it. ⇒ the door the row below wants to open is not merely shut, it opens onto a drop.
+### ② **THE KEEPER NEVER OPENS POSITIONS, SO A KEEPER-SIDE STABLE CHOOSER HAS NO CALL SITE.** It sends
+###   `rebalanceMany`, `cascadeDelever`, `compound` and `protectFromQuid` — every one of them acts on
+###   a position that ALREADY EXISTS and already has its dollar. "Pick the stable by total cost" is a
+###   decision at OPEN, and open is not a thing the keeper does. This is why §SESS-115 deleted
+###   `quote_venues`: it was a producer with no consumer, and building more of it would have been
+###   building a second one.
+### ⇒ **WHAT WOULD ACTUALLY UNBLOCK IT is a decision about where the choice LIVES — at open, on the
+###   user's path — not more keeper machinery.** ⛔ Do not reopen this row by writing a scorer; that
+###   is what was already tried twice.
+### 🔑 The prose below is kept because its ECONOMICS are still right (the hop is expressible now, and
+###   the cost argument stands). Only its diagnosis of the blocker is superseded, by the two above.
 ### ⚠️ §SESS-107 — **AND I MAY HAVE MISREAD THE OWNER'S INSTRUCTION ABOUT THE `immutable` HERE.**
 ### Pre-compaction the owner said *"do the deploy change and kill the immutable"*. §SESS-93 read that
 ### as killing the `public` on `MANAGER`/`STABLE` — measured, `.STABLE()` and `.MANAGER()` had ZERO

@@ -13944,6 +13944,24 @@ right; a skip that can absorb a FAILURE is not.*
   so the assertions below them still run. **Owner: the `RestoreProfitability` lane — the file was
   ` M` in the shared tree at scan time and was not touched from here.**
 
+### 🔴 THE ONE ITEM THIS LANE LEAVES OPEN, NAMED HERE SO CLOSING THE THREAD DOES NOT REQUIRE
+### OPENING THE LANE BOOK
+
+**§SESS-65 row 2 — IL-protect: borrow the cheapest dollar, then hop to the one we need.** Everything
+else in that table is closed (rows 1 and 3 and the generic `swap()` descriptor, §SESS-118). This one
+is **not merely unbuilt — it has nowhere to be built**, and §SESS-115 measured why:
+· **The keeper never OPENS positions.** It sends `rebalanceMany`, `cascadeDelever`, `compound` and
+  `protectFromQuid`; every one acts on a position that already exists and already has its dollar.
+  "Pick the stable by total cost" is a decision at OPEN. ⇒ a keeper-side chooser has no call site,
+  which is why `quote_venues` was deleted rather than extended — a producer with no consumer.
+· **`LevVenueBase.STABLE` being `immutable` was never the blocker either.** `_params()` rebuilds the
+  Morpho market from it while `MARKET_ID` is a SEPARATE immutable, so mutating `STABLE` would strand
+  an existing position rather than re-point it.
+⇒ **What would unblock it is an owner decision about where the choice LIVES — at open, on the user's
+path — not more keeper machinery.** ⛔ Do not reopen it by writing another scorer; that has been tried
+twice. Full reasoning in `lanes/L-routing.md` at the row itself and in `lev_keeper.rs` where the
+deleted producer used to be.
+
 ### 📌 THE TRANSCRIPT HALF — 2,667 blocks, ONE item survives triage
 
 The scanner flagged 8 SECURITY hits as "not obviously booked". ⛔ **All 8 are FALSE POSITIVES, recorded
