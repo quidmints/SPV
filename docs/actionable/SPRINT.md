@@ -99590,3 +99590,51 @@ nothing new, and reduces the remaining surface to "one output, one obligation."*
 ⚠️ **STILL TO ENUMERATE BEFORE THE SECOND HALF: the splice-IN shape** (grow / fee-flush), which is
 where hop change appears and which this trace does not cover. **Do not generalise a two-output model
 to it** — that is the same over-generalisation the three-class model would have been.
+
+---
+
+## ⛔ §E42-DENOM — ATTEMPTED, MEASURED, **REVERTED**. Do not re-attempt in this form.
+
+Owner: *"fix the premium booking so pooled counts it."* **I built it, it made the invariant WORSE, and the
+reason is the fact I had not established. Reverted uncommitted; `main` is clean.**
+
+**WHAT I BUILT.** `recordSkewPremium(uint256)` → `recordSkewPremium(uint256 premiumUsd, uint256
+premiumNative)`, so §E42's backing line could book the mirror matching the asset actually retained:
+`if (premiumNative != 0) POOLED += premiumNative; else POOLED_USD += premiumUsd;` — on the reasoning that
+`SwapLib.retainSkewPremium` does `r.amount -= premium` and *"ONLY the sell leg holds a NATIVE amount"*,
+so Core books `POOLED += (amount − premium)` and the retained ether is counted by nothing.
+
+**WHY IT IS WRONG — MEASURED, NOT ARGUED.** The honest-LP gap moved the WRONG WAY:
+
+| | GAP (`POOLED − rangeETH`) | `levBuf` |
+|---|---:|---:|
+| before the fix (derived Γ) | 112,575,381,181,435,435 | 107,659,990,943,916,395 |
+| **after the fix** | **115,380,001,013,000,333** | 107,659,990,788,149,269 |
+
+⇒ **`POOLED` counting the premium makes the range claim MORE depth, not less.** And five tests went red
+(project-bc's attribution, exact: their three OOR fills were 14/14 at 16:05 and red at 17:28 with nothing
+of theirs changed between; plus both `E289 kappa=1` identities). Their sharpest diagnostic —
+*"reverted as expected, but WITHOUT DATA"* on a named custom error — located the revert inside the new
+booking path rather than at their consent gate.
+
+🔑 **THE FACT I HAD NOT ESTABLISHED, AND IT SETTLES IT:** the retained sell-leg premium **stays in Aux as
+fungible basket backing and never reaches a venue** — `SwapLib:2084` says so outright (*"the withheld
+premium stays in Aux as fungible backing … it NEVER enters POOLED"*). `AUX.rangeETH()` counts
+**venue-held** ETH only. So booking that premium into `POOLED` claims range depth that no venue backs,
+which is the opposite of the repair.
+⇒ **`POOLED` NOT COUNTING IT IS CORRECT.** The under-booking is by design, not a defect, and my §SESS-119
+framing that called it one was wrong.
+
+### WHAT SURVIVES, STATED NARROWLY
+· **The Γ attribution stands** (three methods, four symptoms) — `a4787689` is why the assertion is red.
+· **The over-claim stands and is real:** at the derived Γ the book claims **0.004915 ETH** more range
+  depth than venue ETH plus the debt-funded buffer justify, and a larger Γ hid it by booking less.
+· **project-bc's ruling stands and is the important one:** *you cannot re-baseline an invariant that was
+  passing on an accounting artefact.* That retires "just move the assertion".
+· **The fix is NOT KNOWN.** It is not "make POOLED count the premium" — that is now measured and refuted.
+  Booked unfixed rather than shipping a second wrong mechanism; one has already been published wrong on
+  this row and that is the whole reason this section exists.
+📌 The live question is unchanged and now sharper: an LP claim is created in **dollars**
+(`creditSkewPremium`), its backing is recorded in the **dollar** mirror (`POOLED_USD += premiumUsd`), and
+the asset actually held is **ether in Aux**. Three denominations, one premium. Reconciling those is the
+work — not moving a number between mirrors.
