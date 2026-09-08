@@ -98821,8 +98821,23 @@ Paying a restorer from it means taking it back from LPs, which is a different de
 ⇒ **The asymmetry the design actually has is "penalty vs nothing" — which is enough to move a router,
 but ONLY if the penalty is non-zero. On ETH it is 0.000054 bps.**
 
-▶️ **THE FIX IS THE CAP'S BASIS, AND THE NUMBER IS THE OWNER'S.** Re-derive `_maxWellSkew` from the
-HOLDING time (`τ = qBar/flow`, already computed in `sellSkew`) rather than the settlement window, and
-`SPLICE_FLOOR` stops being load-bearing on BTC as a side effect.
-⚠️ **NOT LANDED: `SwapLib.sol` is another session's dirty file, this is a money path (rule 15), and
-the replacement window is a pricing choice.** project-bc informed.
+▶️ ✅ **DECIDED (owner, 2026-09-08): *"use the holding time, coordinate with project-bc."*** Re-derive
+`_maxWellSkew` from the HOLDING time (`τ = qBar/flow`, already computed in `sellSkew`) rather than the
+settlement window; `SPLICE_FLOOR` stops being load-bearing on BTC as a side effect.
+⛔ **SEQUENCED BEHIND THE REFILL, ALSO THE OWNER'S CALL:** *"all of this touches the refill deeply so
+we have to land that feature before anything else."* `SwapLib.sol` is project-bc's dirty file and the
+refill is their lane, so the cap change waits for it. **NOT LANDED.**
+
+### ⛔ AND A CORRECTION I OWE, BECAUSE MY OWN REASONING USED AN ACTOR THAT DOES NOT EXIST
+I wrote that the penalty-vs-nothing asymmetry is *"enough to move a router"*. **Owner challenged it and
+it is FALSE. MEASURED: we only CALL `ONEINCH_ROUTER` (`LevMath.sol:891`) to execute our OWN lever
+legs. We are NOT a registered 1inch liquidity source — no adapter, no limit-order integration, nothing
+that makes any aggregator route TO us.** ⇒ **NO EXTERNAL ROUTER SEES OUR QUOTE.** The only parties who
+see it are direct callers of `Aux.swap`.
+🔑 **THAT IS THE WHOLE REASON THE REFILL COMES FIRST, and it sharpens the §17722 destale rather than
+softening it.** Striking the solver gloss removed a restoration ACTOR; this removes the last passive
+mechanism I had substituted for one. **Flow does not come back on its own, because nobody outside is
+watching the quote to be attracted by it.** ⇒ the refill is not a nicety behind a self-correcting
+market — it is the only restoration path, which is exactly what the owner said.
+📌 **AND THE REFILL IS A PREDICATE WITH NO CONSUMER TODAY: `SwapLib.refillNeeded` has SIX callers and
+ALL SIX ARE IN `RefillTriggerAndProRata.t.sol` — ZERO in `evm/src`.** Built, tested, unwired.
