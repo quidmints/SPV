@@ -2,8 +2,8 @@
 //!
 //! The hop emits [`ChannelLifecycleEvent`]s (funding ready / closed); 
 //! driver turns a `Closed` event into matching `BTCChannels` call so 
-//! EVM retires the position. OPEN path (which needs the LP's `lpAuth` 
-//! over a custom LN message) is wired separately.
+//! EVM retires the position. OPEN path (which relays the LP's pre-bound
+//! `LpConsent` out of the vault registry) is wired separately.
 //!
 //! self-contained from Bitcoin — no `lpAuth`, no custom message, permissionless:
 //!   1. the close tx is the spend of the funding outpoint (esplora `outspend`);
@@ -647,9 +647,9 @@ pub async fn drive_force_close<R: JsonRpc>(
 
 /// Drive the EVM open for a freshly-confirmed channel: read the channel's
 /// 2-of-2 funding pubkeys from LDK, build + verify the canonical OpenParams,
-/// obtain the LP's `lpAuth` over the custom LN message, and submit
-/// `openChannel`. Idempotent (skips if already open on-chain) and
-/// confirmation-gated, like the close path.
+/// read the LP's pre-bound [`crate::vault::LpConsent`] (its `OpenAuth` plus the
+/// exit ladder) from the vault registry, and submit `openChannel`. Idempotent
+/// (skips if already open on-chain) and confirmation-gated, like the close path.
 #[allow(clippy::too_many_arguments)]
 pub async fn drive_open<R: JsonRpc + Send + Sync + 'static>(
     cfg: Arc<BridgeConfig>,
@@ -989,11 +989,11 @@ pub async fn drive_splice<R: JsonRpc + Send + Sync + 'static>(
 }
 
 /// Consume channel-lifecycle events and mirror them on the EVM. Both arms run on
-/// their own task so a long confirmation-wait / lpAuth round-trip can't
-/// head-of-line block other events.
+/// their own task so a long confirmation-wait can't head-of-line block other
+/// events.
 ///
-/// `Ready` → [`drive_open`] (`openChannel`, with the LP's lpAuth over the custom
-/// LN message); `Closed` → [`drive_close`] (`recordClose`).
+/// `Ready` → [`drive_open`] (`openChannel`, relaying the LP's pre-bound
+/// `LpConsent` from the vault registry); `Closed` → [`drive_close`] (`recordClose`).
 /// The hop reads the funding pubkeys from its own monitor
 /// ([`channel_funding_pubkeys`]) so the open is correct-by-construction.
 #[allow(clippy::too_many_arguments)]

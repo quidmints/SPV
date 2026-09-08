@@ -31,8 +31,9 @@ impl LocalSigner {
         let secp = Secp256k1::new();
         let sk = SecretKey::from_slice(&bytes)?;
         let pk = PublicKey::from_secret_key(&secp, &sk);
-        // EVM address derivation — the single audited home (mirrors the bridge's
-        // lpAuth recovery + LpAuthResponder::lp_eth).
+        // EVM address derivation — `quid_hop::evm_codec::evm_address_of` is the
+        // single audited home for it, and the contract's `ChannelLib.lpEthOf`
+        // mirrors that same derivation on-chain.
         let address = quid_hop::evm_codec::evm_address_of(&pk);
         Ok(Self { secp, sk, address, policy: None })
     }

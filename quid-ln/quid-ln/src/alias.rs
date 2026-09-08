@@ -71,8 +71,9 @@ pub type PeerManagerType<
     RMH,
     PERSISTER,
     // CustomMessageHandler — defaults to IgnoringMessageHandler so existing
-    // 3-arg users (and the QuidPeerManager trait bounds) are unaffected; the hop
-    // overrides it to carry its lpAuth custom messages.
+    // 3-arg users (and the QuidPeerManager trait bounds) are unaffected. Nothing
+    // overrides it today — `HopPeerManagerType` passes IgnoringMessageHandler
+    // explicitly — and it is kept because the bound is public API.
     CMH = IgnoringMessageHandler,
 > = PeerManager<
     ConnectionTx,

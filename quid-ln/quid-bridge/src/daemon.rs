@@ -517,9 +517,11 @@ pub async fn run(
         // on-chain cid, and `channel_keys_id` sits on the same monitor, so the pairing costs one
         // read in a loop that exists.
         // ⛔ STILL NOT §T9 DONE. This is step 1 of three: the signer can now RESOLVE a channel.
-        //    Step 2 is attaching the factory (LP-side lives in the react-native wallet, not here —
-        //    the LP runs no daemon), step 3 is the delivery-output bound. Do not mark §T9 done on
-        //    this commit.
+        //    Step 2's HOP half has since landed: `bin/quid-bridge-daemon.rs` builds an
+        //    `OnChainTruthFactory` over `evm.rpc_handle()` and hands it to `quid_hop::node::boot`.
+        //    Its LP half is NOT here and never will be — the LP runs no daemon (§E175), so the
+        //    refusal that MATTERS lives in the react-native wallet. Step 3 is the delivery-output
+        //    bound. Do not mark §T9 done on this commit.
         Some(cid_registry.clone()),
         cfg.channel_reconcile_secs,
         channel_active.clone(),

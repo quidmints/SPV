@@ -62,8 +62,13 @@ fn reject_weak_secret(bytes: &[u8; 32]) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The node's EVM signing key (the hop's `onlyHop` hot key, or an LP's `lpAuth`
-/// key). By default it is **DERIVED from the born-in-enclave sealed [`RootSeed`]**
+/// The node's EVM signing key — the hop's `onlyHop` hot key, which is its only
+/// production caller (`quid-bridge-daemon.rs`, `QUID_HOT_KEY`). An LP signs
+/// NOTHING on the EVM (§E183): the contract DERIVES its `lpEth` from the LP
+/// pubkey, and the LP's consent is Bitcoin-side (a BIP-340 proof-of-possession
+/// plus a pre-signed exit ladder), relayed by the fleet.
+///
+/// By default it is **DERIVED from the born-in-enclave sealed [`RootSeed`]**
 /// via [`RootSeed::derive_eth_wallet_key`] — so under SGX it is born inside the
 /// enclave and never exists in plaintext outside it.
 ///

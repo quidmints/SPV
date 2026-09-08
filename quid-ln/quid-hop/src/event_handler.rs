@@ -176,12 +176,15 @@ pub type SwapInMsg = (ClaimedSwapIn, Option<tokio::sync::oneshot::Sender<()>>);
 pub enum ChannelLifecycleEvent {
     /// Funding tx confirmed + channel usable → drive `openChannel`. The driver
     /// fetches the funding tx (`funding_txid:funding_vout`), proves inclusion,
-    /// obtains `lpAuth` from `counterparty_node_pk` (the LP) over the custom LN
-    /// message, and submits.
+    /// reads the LP's pre-bound consent (`OpenAuth` + exit ladder) from the vault
+    /// registry, and submits.
     Ready {
         /// LDK channel id (logging / dedup).
         channel_id: [u8; 32],
-        /// The LP's LN node key — the peer the driver asks to sign `lpAuth`.
+        /// The LP's LN node key. Carried for provenance/logging only (this enum is
+        /// `Debug`); it authorises NOTHING — the open is `_onlyHop()`-gated on-chain
+        /// and the LP's consent is relayed from the vault registry, so
+        /// `run_channel_driver` destructures this as `_`.
         counterparty_node_pk: PublicKey,
         /// Bitcoin funding outpoint.
         funding_txid: Txid,
@@ -204,7 +207,9 @@ pub enum ChannelLifecycleEvent {
     Spliced {
         /// LDK channel id (stable across the splice).
         channel_id: [u8; 32],
-        /// The LP's LN node key — the peer the driver asks to sign the splice lpAuth.
+        /// The LP's LN node key. Carried for provenance/logging only (this enum is
+        /// `Debug`); it authorises NOTHING — the splice is `_onlyHop()`-gated on-chain,
+        /// so `run_channel_driver` destructures this as `_`.
         counterparty_node_pk: PublicKey,
         /// The splice tx's NEW funding outpoint.
         new_funding_txid: Txid,

@@ -76,8 +76,9 @@ where
 
 /// A 'trait alias' defining all the requirements of a Quid peer manager. `CMH`
 /// is the custom-message handler; it defaults to `IgnoringMessageHandler` so
-/// existing 3-arg bounds are unchanged, but the hop overrides it to carry its
-/// lpAuth custom messages.
+/// existing 3-arg bounds are unchanged. NO node overrides it today — the hop
+/// passes `IgnoringMessageHandler` explicitly (`HopPeerManagerType`) — and the
+/// parameter is kept because the bound is public API.
 pub trait QuidPeerManager<CM, PS, RMH, CMH = IgnoringMessageHandler>:
     Clone + Send + Sync + 'static + Deref<Target = PeerManagerType<CM, RMH, PS, CMH>>
 where

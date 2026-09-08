@@ -322,7 +322,11 @@ impl RootSeed {
     ///
     /// This is the node's on-chain EVM identity: for the hop custody node it is
     /// the `onlyHop` "hot key" that signs the settle / splice / close / freshness
-    /// transactions; for an LP node it is the key that signs `lpAuth` digests.
+    /// transactions, and that is its only production consumer: an LP signs NOTHING
+    /// on the EVM (§E183), since the contract DERIVES its `lpEth` from the LP pubkey
+    /// and the LP's consent is Bitcoin-side (a BIP-340 proof-of-possession plus a
+    /// pre-signed exit ladder).
+    ///
     /// Like every other key here it is derived from the [`RootSeed`] — which under
     /// SGX is *born inside the enclave* and sealed to `EGETKEY` — so the EVM key is
     /// **never supplied in plaintext and never leaves the enclave** (this replaces
