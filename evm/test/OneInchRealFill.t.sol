@@ -40,7 +40,23 @@ contract OneInchRealFillTest is Test {
 
     function _run(address dst, address ourPool, uint256 amt, uint8 dec, string memory label) internal {
         bytes memory theirs = _fetch(dst, amt);
-        if (theirs.length < 4) { emit log("SKIP: bridge returned no route"); vm.skip(true); return; }
+        // 🔴 §SESS-111 — **AN ABSENT KEY AND A REJECTED ONE BOTH RETURN `0x`, AND ONLY ONE OF THEM IS
+        //    A REASON TO SKIP.** `tools/scan-loose-ends.py` asks of every skip: *can a FAILURE reach
+        //    this, not just an absence?* Here it could — a 403 (bad `from`, dead key, rate limit)
+        //    yields the same empty route as no key at all, so this skipped past exactly the defect
+        //    §SESS-99 spent a day on.
+        // ⇒ the key's PRESENCE is the discriminator: unset ⇒ genuinely nothing to test, SKIP; set but
+        //   empty ⇒ a producer we are paying for returned nothing, which is a FAILURE and must read
+        //   as one.
+        if (theirs.length < 4) {
+            if (bytes(vm.envOr("ONEINCH_API_KEY", string(""))).length == 0) {
+                emit log("SKIP: ONEINCH_API_KEY unset - nothing to compare against");
+                vm.skip(true); return;
+            }
+            revert("the 1inch bridge returned an EMPTY route while a key IS configured - that is a "
+                   "rejected request (403 on a bad `from`, a dead key, or a rate limit), not an "
+                   "absent one. See SESS-88b and SESS-99.");
+        }
 
         uint256 snap = vm.snapshotState();
         deal(USDC, address(this), amt);
