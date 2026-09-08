@@ -68,10 +68,22 @@ contract ConvertToRoutedTest is Test {
     ///    identical. **`0 skipped` is what says the guard let the tests actually run**, so quote that
     ///    and not the pass count when re-checking it.
     /// ⚠️ **THE SKIP BRANCH ITSELF IS STILL UNEXERCISED**, and is stated rather than implied: reaching
-    ///    it needs a fork >300s behind, which is the condition this suite now avoids. It is five
-    ///    `emit`s and a `vm.skip`, and the arithmetic above it saturates, so the residual risk is that
-    ///    the branch is never taken — not that it misbehaves when it is.
-    uint256 constant MAX_FORK_LAG = 300;
+    ///    it needs a fork behind the threshold, which is the condition this suite now avoids. It is
+    ///    five `emit`s and a `vm.skip`, and the arithmetic above it saturates, so the residual risk is
+    ///    that the branch is never taken — not that it misbehaves when it is.
+    /// 🔴 §GATE-0d **LOWERED 300 → 120 (25 blocks → 10), AND THIS IS A CORRECTION OF THE THRESHOLD'S
+    ///    OWN ARITHMETIC, NOT A LOOSENING AND NOT A TIGHTENING FOR COMFORT.** The paragraph above
+    ///    reads *"20 blocks was measured to break a route and 70 was observed breaking one; a
+    ///    threshold inside that band skips exactly the runs that cannot test the property"* — and
+    ///    **300s IS ~25 BLOCKS, WHICH IS ABOVE THE LOWER MEASURED BREAK POINT, NOT INSIDE THE BAND.**
+    ///    A threshold set at 25 admits every run between 20 and 25 blocks stale, i.e. precisely the
+    ///    runs the header already measured as unable to execute a route. That is what a threshold
+    ///    chosen at the top of a band does: it certifies the failures it was built to skip.
+    ///    ⇒ The band's SAFE side is BELOW its lower break point. 120s = 10 blocks, half the measured
+    ///      break, and a route built at head is then at most 10 blocks ahead of the fork executing it.
+    ///    ⛔ **STILL DO NOT RAISE IT TO MAKE A RED GO AWAY.** With a fork inside this bound a zero
+    ///      means the route genuinely did not execute, which is the defect this suite exists to catch.
+    uint256 constant MAX_FORK_LAG = 120;
 
     function _requireFreshForkOrExplain() internal returns (bool ok) {
         // ⚠️ SATURATING, NOT BARE `-`. `block.timestamp` can EXCEED wall clock — a fork one block
@@ -81,6 +93,16 @@ contract ConvertToRoutedTest is Test {
         //    reads as zero lag.
         uint256 nowSec = vm.unixTime() / 1000;
         uint256 lag = nowSec > block.timestamp ? nowSec - block.timestamp : 0;
+        // 🔴 §GATE-0d — **EMITTED ON EVERY RUN, NOT ONLY ON THE SKIP, AND THAT IS THE WHOLE POINT.**
+        //    CLAUDE.md: *"a parameter you passed is an intention; only the echo is evidence."* The
+        //    2026-09-08 full-suite run failed `0 <= 0` here **without skipping**, which proves the lag
+        //    was under the threshold and nothing else — the actual number was never recorded, so the
+        //    two live hypotheses (a fork stale but under the bound vs. a route that reverted for its
+        //    own reasons) could not be separated after the fact. One `emit` makes the next red
+        //    self-diagnosing: a lag near the bound is staleness, a lag near zero is not.
+        emit log_named_uint("fork block               ", block.number);
+        emit log_named_uint("fork lag (seconds)       ", lag);
+        emit log_named_uint("fork lag (blocks, ~12s)  ", lag / 12);
         if (lag <= MAX_FORK_LAG) return true;
         emit log_named_uint("SKIP: fork is stale by (seconds)", lag);
         emit log("  a live 1inch route cannot execute against a fork this far behind head - this is an");

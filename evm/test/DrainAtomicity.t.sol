@@ -1414,6 +1414,23 @@ contract DrainAtomicity is AllesFixture {
         // anything.
         assertLt(premBig,   TOTAL / 1e12 * 3 / 100, "SATURATION: the big leg is pinned at the 3% cap");
         assertLt(premSplit, TOTAL / 1e12 * 3 / 100, "SATURATION: the split leg is pinned at the 3% cap");
+        // 🔴 §GATE-0d FLOOR CONTROL — **THIS SUITE WAS GREEN AND MEASURING NOTHING, WHICH IS WORSE
+        //    THAN THE RED NEXT DOOR.** Arm A here is byte-identical to
+        //    `test_UNITB_FrozenTargetInvertsTheConsolidationDiscount`'s big arm — same `_setupRange`,
+        //    same `_pinFlow(PINNED)`, same single `_drain(TOTAL)` — and that test measured
+        //    `premBig == 50,400,000`, i.e. `MIN_SWAP_SKEW_WAD × 120,000e6` exactly. So `premBig` is
+        //    the §MIN-SWAP-FEE floor here too, and the only assertions this test carried are
+        //    `> 0` and `< 3% cap`, **both of which the floor satisfies**. It reports a discount in
+        //    bps computed from two floored numbers.
+        //    ⚠️ §VACUOUS-BOUNDS, arriving through a `max` instead of a `min`: a one-sided bound is a
+        //    rubber stamp when a clamp drives the value to the asserted side, and a NEW clamp landed
+        //    under both bounds at once. See the failing sibling for why subtracting the floor cannot
+        //    recover the kernel.
+        uint floorPrem = TOTAL / 1e12 * SwapLib.MIN_SWAP_SKEW_WAD / 1e18;
+        assertGt(premBig, floorPrem,
+            "FLOOR: the big leg is pinned at the MIN_SWAP_SKEW_WAD floor -- every number this test "
+            "emits is the floor times a notional, not the consolidation discount it claims to show");
+        assertGt(premSplit, floorPrem, "FLOOR: the split leg is pinned at the MIN_SWAP_SKEW_WAD floor");
     }
 
     /// §UNIT-B-PATIENCE — HOW MUCH OF THE RATCHET'S DEFENCE DOES WAITING BUY?
@@ -1658,6 +1675,30 @@ contract DrainAtomicity is AllesFixture {
         // mechanism was destroyed, not fixed (§SIGMA-REMOVE-P2-FALSE-PASS).
         assertLt(premBig,   TOTAL / 1e12 * 3 / 100, "SATURATION: big leg pinned at the 3% cap");
         assertLt(premSplit, TOTAL / 1e12 * 3 / 100, "SATURATION: split leg pinned at the 3% cap");
+        // 🔴 §GATE-0d FLOOR CONTROL — **THE SATURATION CONTROL'S MISSING TWIN, AND ITS ABSENCE IS WHY
+        //    THIS TEST WENT RED WITH THE TWO SIDES EXACTLY EQUAL.** §MIN-SWAP-FEE (`d047fd6e`,
+        //    2026-09-08) added `MIN_SWAP_SKEW_WAD = 4.2e14` as `max(kernel, floor)` at BOTH producers
+        //    (`SwapLib:1935` `wellSkew`, `SwapLib:2116` `sellSkew`). `retainSkewPremium` books
+        //    `amount·skew/1e18` (`SwapLib:2725`), so a floored leg retains exactly 420 ppm of its
+        //    notional — and **BOTH ARMS MEASURED 50,400,000, WHICH IS 420 ppm × 120,000e6 TO THE
+        //    UNIT**: the whale as one leg, the chopper as 12 × 4,200,000. The kernel on this fixture
+        //    is BELOW 420 ppm in both arms, so `max` returns the floor twice and every ordering the
+        //    test exists to measure is destroyed — the pass/fail then says nothing about the ratchet.
+        //    ⚠️ **THIS IS EXACTLY THE SHAPE THE SATURATION CONTROL GUARDS AT THE OTHER END.** Its own
+        //    comment says *"a criterion a CLAMP can satisfy cannot distinguish success from
+        //    destruction"* — `max` is a clamp too, and only the ceiling had a control.
+        //    ⛔ **DO NOT DISCHARGE THIS BY SUBTRACTING THE FLOOR.** `max` is not additive: once the
+        //    kernel is under the floor its value is UNRECOVERABLE from `skewPremium`. The fixture has
+        //    to drive the kernel ABOVE 420 ppm (a scarcer range, or a larger `TOTAL`) or the question
+        //    must be asked of a surface that exposes the pre-floor kernel. Raising `TOTAL` alone is
+        //    NOT obviously enough — the premium is proportional to notional on the floored branch, so
+        //    both sides scale together; what must change is the SCARCITY the kernel reads.
+        uint floorPrem = TOTAL / 1e12 * SwapLib.MIN_SWAP_SKEW_WAD / 1e18;
+        assertGt(premBig, floorPrem,
+            "FLOOR: the big leg is pinned at the MIN_SWAP_SKEW_WAD floor -- the A-S kernel is "
+            "invisible and the comparison below measures the floor, not the ratchet");
+        assertGt(premSplit, floorPrem,
+            "FLOOR: the split leg is pinned at the MIN_SWAP_SKEW_WAD floor -- see above");
 
         // THE CLAIM UNDER TEST. If this fails, the ratchet is NOT the sole mover and
         // §UNIT-B-ATTRIBUTED's pure-function result does not survive contact with the real path.

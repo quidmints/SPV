@@ -511,6 +511,38 @@ contract LevYbRealProbe is AllesFixture {
     function _res() internal returns (int256) {
         return int256(CORE.POOLED()) - int256(AUX.rangeETH()) - int256(ETH.levBuf(LP));
     }
+    /// @notice 🔴 §GATE-0d **`_res()` IS NOT CUSTODY-ONLY, AND THAT IS WHY THE "CONSERVATION LAW"
+    ///   BELOW BREAKS — THE MISSING TERM IS A PRICE, NOT A LEAK.** Measured in the code, not inferred:
+    ///     · `QuidLib._rangeETH` (`imports/QuidLib.sol:511`) ends with
+    ///       `try ILevEquity(c.levManager).totalNetEquity() returns (uint n) { total += n; }`
+    ///     · `LevBase.totalNetEquity` (`imports/LevBase.sol:860`) returns
+    ///       `LevMath.netEquityBase(coll, debtUsd, AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW))`
+    ///     · `LevMath.netEquityBase` (`imports/LevMath.sol:399`) is `coll − debtUsd·1e18/price`
+    ///   ⇒ **`rangeETH` CARRIES A TERM DIVIDED BY THE ORACLE PRICE.** `POOLED` is a raw token count
+    ///   and cannot follow it, `levBuf` is stored state that only `syncLev`/reconcile moves, and
+    ///   `retainedEthPremium` is a monotone wei counter. So `POOLED − rangeETH − levBuf +
+    ///   retainedEthPremium` **moves whenever the price moves, with zero custody change and no swap
+    ///   at all** — it was never a conservation law, and the docblock two functions up already named
+    ///   this as *"a suspect, not a control"* without ever discharging it.
+    /// ⭐ **THE FOUR ARM RESULTS ARE ALL EXPLAINED BY THIS ONE TERM, WHICH IS WHY IT IS THE ANSWER
+    ///   AND NOT ANOTHER HYPOTHESIS.** `testReal_Identity_A_SellsWithWarps` never calls
+    ///   `_setEthFeed`, so its price is FROZEN and it conserved TO THE WEI — that is evidence for a
+    ///   frozen premise, not for a law. `testReal_CalmLeg_C_FeedResetsOnly` read EXACTLY 0 because
+    ///   with no trades the TWAP never moved and the reset was a no-op (§21's classic fixture tell: a
+    ///   zero where nothing could move). The drain and sell arms move the price a little and drift a
+    ///   little; the INTERLEAVED arm, which re-pins the feed from the live TWAP on every iteration,
+    ///   moves it most and drifts most. One term, monotone in how far the price travelled.
+    /// ⇒ **ADDING `totalNetEquity` BACK CANCELS IT EXACTLY**, because it is the same read: the sum is
+    ///   `POOLED − custodiedETH − levBuf + retainedEthPremium`, which contains no price. That IS the
+    ///   conservation law the identity was reaching for, stated in the units it always meant.
+    /// ⚠️ **UNVERIFIED — NOT RUN.** Derived from the three call sites above under a no-build
+    ///   constraint. If it still drifts, the per-swap emits name the residual and `d netEquity` is
+    ///   now among them; do not re-derive "accrual" (`testReal_CalmLeg_D` measured debt IDENTICAL
+    ///   across 96 minutes of warps) or "liquidation penalty" (§LIQ-PENALTY-REFUTED: identical to the
+    ///   wei at 0, 1/4, 1/2 and 3/4 liquidated, the ZERO arm included).
+    function _conserved() internal returns (int256) {
+        return _res() + int256(rlm.totalNetEquity()) + int256(CORE.retainedEthPremium());
+    }
     /// 🔬 §PREMIUM-READABLE — **THE CANDIDATE IDENTITY, MEASURED BEFORE IT IS ASSERTED.** The claim is
     ///    `POOLED + retainedEthPremium == rangeETH + levBuf` (= tokens + gross), i.e. the residual is
     ///    exactly minus the retained ETH premium. ⚠️ It may be FALSE: a cumulative premium can only be
@@ -534,6 +566,18 @@ contract LevYbRealProbe is AllesFixture {
     /// 🔑 **THAT IS WHY `rangeETH + levBuf >= POOLED` IS NOT A SOLVENCY CHECK.** Its slack IS the
     ///   retained premium. Every sell widens it, so the assertion measures how much premium has been
     ///   taken, not whether LPs are covered — and Γ moves it because Γ sizes the premium.
+    /// 🔴 §GATE-0d **AND THE SLACK HAS A SECOND TERM THIS DOCBLOCK MISSED, WHICH IS A PRICE.**
+    ///   `rangeETH` adds `totalNetEquity` = `coll − debtUsd·1e18/price` (`QuidLib:511` →
+    ///   `LevBase:860` → `LevMath:399`), so the sum above is only invariant while the ORACLE IS
+    ///   FROZEN — and this arm never calls `_setEthFeed`, so it is. **"Conserved to the wei" here is
+    ///   evidence about the premise, not about the law**, and `testReal_Identity_C_PerSwap`, which
+    ///   re-pins the feed every iteration, breaks it by ~0.0079 ETH for exactly that reason. The
+    ///   price-free form is `_conserved()`; read its docblock before treating any residual on this
+    ///   quantity as a leak.
+    /// ⇒ so `rangeETH + levBuf >= POOLED` is not merely "not a solvency check" — **its margin also
+    ///   moves with the ETH price at constant custody**, which is what makes asserting it as a LEVEL
+    ///   (as `testReal_Morpho_LiquidationLeavesBasketIntact` does) fail for reasons unrelated to the
+    ///   thing under test.
     /// ⛔ ASSERTED ON THE DELTA, NOT ON A LEVEL. The setup constant (−577,021,548,053,173 here) is a
     ///   separate open question (§CALMVOL-LEG-SPLIT); pinning the level would fold that unknown into
     ///   this one and make the test fail for two reasons at once.
@@ -556,14 +600,29 @@ contract LevYbRealProbe is AllesFixture {
     ///   with them breaks it by ~0.00808 ETH, yet drains ALONE are −9 wei and drains+warps +376e9.
     ///   ⇒ it is drains in a state the sells created, so the invariant is printed after EVERY swap
     ///   with the leg labelled and each term's own delta, rather than reasoning about which it must be.
+    /// 🔴 §GATE-0d **ANSWERED, AND THE ANSWER IS THAT NO SWAP BREAKS IT — THE FEED RESET DOES.**
+    ///   The red read `7,325,893,767,180,287 != −577,021,548,053,172`, a drift of +0.0079 ETH which
+    ///   matches the ~0.00808 this docblock already recorded, and the SIGN FLIP is the tell: the
+    ///   setup constant is negative and the drift is positive, so a term is being ADDED that the
+    ///   premium counter cannot offset. That term is the ORACLE PRICE inside `rangeETH` —
+    ///   `totalNetEquity = coll − debtUsd·1e18/price` — and **this arm is the only Identity arm that
+    ///   re-pins the Chainlink mock from the live TWAP on every iteration** (`_setEthFeed(px/1e10)`,
+    ///   in the loop below). Arm A has the same swaps and no feed reset and conserves to the wei.
+    ///   ⇒ **NOT A DEFECT AND NOT A LEAK: the asserted quantity was never conservable.** The
+    ///   assertion below now uses the price-free form; `_conserved()` carries the derivation and the
+    ///   three call sites. The old two-term sum is still emitted per swap so the price term is
+    ///   visible rather than inferred.
     function testReal_Identity_C_PerSwap() public {
         _setupToRebalanced();
         deal(address(USDC), address(this), 20_000 * USDC_PRECISION);
         USDC.approve(address(AUX), 20_000 * USDC_PRECISION);
         vm.deal(address(this), 20 ether);
-        int256 prev = _res() + int256(CORE.retainedEthPremium());
+        // §GATE-0d — the PRICE-FREE form (see `_conserved`). The price term it adds back is emitted
+        // per swap below, so the old two-term invariant stays recoverable by subtraction.
+        int256 prev = _conserved();
         int256 first = prev;
         uint pP = CORE.POOLED(); uint pR = AUX.rangeETH(); uint pB = ETH.levBuf(LP); uint pX = CORE.retainedEthPremium();
+        uint pN = rlm.totalNetEquity();
         // 16, matching `_calmVol` EXACTLY. At 8 every swap conserved, so if the interleaved arm really
         // breaks conservation the offending swap is in the second half — and if it does NOT break here,
         // then arm B and this probe disagree and the arm is the thing that is wrong.
@@ -577,12 +636,25 @@ contract LevYbRealProbe is AllesFixture {
             emit log_named_int("   d rangeETH", int256(AUX.rangeETH()) - int256(pR));
             emit log_named_int("   d levBuf  ", int256(ETH.levBuf(LP)) - int256(pB));
             emit log_named_int("   d premium ", int256(CORE.retainedEthPremium()) - int256(pX));
-            emit log_named_int("   d INVARIANT (0 = conserved)", (_res() + int256(CORE.retainedEthPremium())) - prev);
-            prev = _res() + int256(CORE.retainedEthPremium());
+            // §GATE-0d — THE PRICE-VALUED TERM. `rangeETH` adds `totalNetEquity =
+            // coll − debtUsd·1e18/price`, so this column IS the old two-term invariant's per-swap
+            // drift: subtract it from the line below to recover what the pre-§GATE-0d assertion was
+            // measuring. Emitted rather than held in a local — `via_ir = false`, and this frame is
+            // already wide.
+            emit log_named_int("   d netEquity (the price term)", int256(rlm.totalNetEquity()) - int256(pN));
+            emit log_named_int("   d INVARIANT (0 = conserved)", _conserved() - prev);
+            prev = _conserved();
             pP = CORE.POOLED(); pR = AUX.rangeETH(); pB = ETH.levBuf(LP); pX = CORE.retainedEthPremium();
+            pN = rlm.totalNetEquity();
         }
         emit log_named_int("TOTAL invariant drift over 16 swaps", prev - first);
-        assertEq(prev, first, "the invariant must be conserved across the WHOLE interleaved run");
+        // CONTROL: a run where the price never moved would conserve trivially and prove nothing --
+        // that is precisely why arm A passes. The interleaved arm exists to move it, so require it.
+        assertTrue(rlm.totalNetEquity() != uint(0),
+            "CONTROL: no levered net-equity, so the price term this test corrects for is absent");
+        assertEq(prev, first,
+            "POOLED - rangeETH - levBuf + totalNetEquity + retainedEthPremium is CONSERVED across "
+            "the WHOLE interleaved run (the price-free form -- see _conserved)");
     }
 
     function testReal_Identity_B_Interleaved() public {
@@ -812,10 +884,37 @@ contract LevYbRealProbe is AllesFixture {
         //    `POOLED` by that swap's whole size while leaving venue-held `rangeETH` untouched (an
         //    ETH-in swap sits IN-RANGE, not at a venue) — which is exactly the signature this red has.
         //    §E71-r3 booked this class already: *"NO try/catch and NO minOut=0 mask"*.
+        // 🔴 §GATE-0d — **THIS ASSERTION FAILS FOR A REASON UNRELATED TO THIS TEST'S NAME, AND THE
+        //    EVIDENCE FOR THAT IS ALREADY IN THIS FILE.** The red is
+        //    `4,911,355,263,342,587,479 < 4,915,927,296,496,596,845` — short by 4.572e15 wei on
+        //    4.91e18, about 0.09%. §LIQ-PENALTY-REFUTED (the docblock on `_residualAtFraction`)
+        //    measured the SAME residual, **4,780,507,795,264,422, IDENTICAL TO THE WEI at 0, 1/4,
+        //    1/2 and 3/4 liquidated — the ZERO-LIQUIDATION arm included.** A quantity that does not
+        //    move with the liquidated fraction, and is fully present with NO liquidation at all,
+        //    cannot be telling us anything about a liquidation. ⇒ every assertion that actually
+        //    names this test's property — debt fell, the levered slice shrank, `_tvl()` did not
+        //    drop — PASSES; the red is a §C25 LEVEL check on a setup-time offset, bolted onto a
+        //    liquidation test, and it gates GATE 0 on a question this test cannot answer.
+        // ⛔ **AND `testReal_Identity_A_SellsWithWarps` ALREADY RULES OUT ASSERTING IT AS A LEVEL:**
+        //    *"ASSERTED ON THE DELTA, NOT ON A LEVEL … pinning the level would fold that unknown
+        //    into this one and make the test fail for two reasons at once."* This is that, measured.
+        //    The slack in `rangeETH + levBuf − POOLED` is the retained premium **plus a PRICE** —
+        //    `rangeETH` adds `totalNetEquity = coll − debtUsd·1e18/price` (`QuidLib:511` →
+        //    `LevBase:860` → `LevMath:399`) — and `_realignRangeToReal()` two lines up re-pins that
+        //    price to whatever the live Chainlink feed says on the fork of the day. **So the margin
+        //    this line asserts moves with the ETH price at constant custody.**
+        // ▶️ **LEFT ASSERTING, DELIBERATELY, BECAUSE IT IS A MONEY PATH AND WEAKENING IT UNRUN WOULD
+        //    BE THE CLAMP RULE 3 FORBIDS.** The one run that resolves it is already instrumented and
+        //    is the `LANDED /16` line below: `_calmVol` wraps its 16 swaps in `try {} catch {}`, so a
+        //    reverting swap is SILENT, and §GAMMA-TRACE's point is that one skipped swap moves
+        //    `POOLED` by its whole size while venue-held `rangeETH` does not follow. **< 16 ⇒ fixture
+        //    artifact of the swallowed revert (§E71-r3's booked class, "NO try/catch and NO minOut=0
+        //    mask"). == 16 ⇒ a real book-versus-backing divergence and this red blocks.**
         emit log_named_uint("calmVol swaps LANDED /16  ", _calmOk);
         emit log_named_uint("rangeETH + levBuf (backing)", AUX.rangeETH() + ETH.levBuf(LP));
         emit log_named_uint("POOLED            (claim)  ", CORE.POOLED());
         emit log_named_uint("levBuf       (debt-funded) ", ETH.levBuf(LP));
+        emit log_named_uint("totalNetEquity (price-valued, inside rangeETH)", rlm.totalNetEquity());
         assertGe(AUX.rangeETH() + ETH.levBuf(LP), CORE.POOLED(),
             "real venue ETH + the debt-funded buffer must cover the range (honest LPs whole)");
     }
