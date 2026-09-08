@@ -610,6 +610,18 @@ conflicted, and `rescue/c17-lend-own-dollars` would have RESURRECTED `docs/actio
 redone properly since. **A branch that is not `main` accumulates work whose only fate is to be
 re-derived or abandoned.**
 
+⛔ **AND `git push HEAD:main` PUBLISHES A PEER'S COMMITS, NOT ONLY YOURS. RULE 14 DOES NOT COVER THIS
+AND I TRIPPED IT (2026-09-08).** Rule 14 says stage your own files by name, and it stops you sweeping
+someone's FILES into a `git add`. It says nothing about their COMMITS. In a shared checkout a peer can
+commit to the same branch between your last fetch and yours, your HEAD then sits on top of theirs, and
+`git push HEAD:main` carries **both** out. ⇒ measured: `9d9ed014 §LIQ-PENALTY-PROBE` — another
+session's instrumentation, whose own message said *"Committed before running"*, i.e. deliberately
+UNRUN — was published by my push of an unrelated docs commit. A third session had already inspected it
+and correctly REFUSED to push it under rule 15; I published it without ever looking.
+▶️ **`git log --oneline origin/main..HEAD` BEFORE EVERY PUSH, AND CONFIRM EVERY COMMIT IS YOURS** —
+the exact analogue of rule 14's `git diff <file>` before `git add <file>`, one level up. Same one-line
+cost, same failure class, and the tell is printed either way.
+
 ⇒ **THE RULE: lanes are SHORT-LIVED and merge to `main`. Nothing else is long-lived.**
 ```bash
 git merge --no-ff lane/L3        # in the main tree, ON main
