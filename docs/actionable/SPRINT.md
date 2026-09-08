@@ -98301,7 +98301,29 @@ and is SKIPPED, so an unrouted leg **succeeds having moved nothing.**
 and `:432` (*"an EMPTY route … is `NoVolatileRoute()`. ⇒ One entrypoint, and it fails closed"*).
 **It does not fail closed. It fails quiet.** Rule 19's worst shape: a confident sentence asserting a
 safety property the code gave up.
-⭐ **THIS IS THE MECHANISM BEHIND THE TWO UNEXPLAINED `ConvertToRouted` FAILURES** (§FULL-SUITE, and
+⛔ **CORRECTED 2026-09-08 — THIS IS *A* MECHANISM, NOT *THE* MECHANISM, AND THE DEEPER ONE IS WORSE.**
+project-bc found the real cause and both defects had to go before the tests filled:
+🔴 **`LevMath._retarget` WROTE `minReturnAmount = 0` INTO 1inch's GENERIC `swap()` DESCRIPTOR, AND
+AggregationRouterV6 REVERTS `ZeroMinReturn()` ON EXACTLY THAT.** Deliberate design — *"the aggregate
+delta floor is the bound"* — and an impossible call. ⇒ **the 1inch GENERIC ARM HAD NEVER FILLED
+ONCE**, which retroactively voids every claim that rested on it: §SESS-88's A/B measured QUOTES and
+never executed one, and §SESS-90 wired `plan_for_lp` to PREFER a fetched route that would have
+reverted in production and degraded to a skipped leg. **Fixed by writing `1`** — satisfies the
+router's sanity check and leaves the real bound on the measured delta across the whole conversion,
+which a per-leg `minReturn` cannot express anyway. ✅ Now FILLS: 250k USDC → 100.11 WETH; 250k USDC +
+250k USDT → 200.21 WETH in one call. ⚠️ `LevMath.sol` is project-bc's uncommitted work — **do not
+stage it from this lane.**
+⭐ **THE SHAPE IS THE SAME ONE THIS SECTION IS ABOUT, ONE LEVEL DEEPER: `convertTo` TREATS A FAILED
+LEG AS ORDINARY AND CONTINUES** — correctly, because one bad leg must not void a multi-leg conversion
+— **so a NAMED revert became an anonymous zero.** An error path that CONTINUES converts a
+self-describing failure into a number. **That is why the diagnosis went wrong four times: a stale fork
+pin, a dead key, a bad `from`, and an empty route were all indistinguishable from a reverting router.**
+⚠️ **AND MY OWN CONTRIBUTION TO THAT LIST WAS THE `from`** — with `address(this)` the fetcher got 403
+and returned `0x`, so the call never reached the router at all. Both defects were real and mine was in
+front; neither alone explains the failure.
+
+*(what this section originally claimed, kept because the empty-route synthesis is still real:)*
+⭐ **THIS IS A MECHANISM BEHIND THE TWO UNEXPLAINED `ConvertToRouted` FAILURES** (§FULL-SUITE, and
 project-bc's measurement that the leg contributes nothing even with real calldata in hand): an empty
 or unusable route is skipped, so the test reads `0 <= 0` instead of reverting. **project-bc separately
 found the test-side twin — `ConvertToRouted:55` is `vm.skip(true)` with no `return`, and `vm.skip`
