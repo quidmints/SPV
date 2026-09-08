@@ -551,6 +551,34 @@ contract LevYbRealProbe is AllesFixture {
         assertEq(_res() + int256(CORE.retainedEthPremium()), inv0,
             "POOLED - rangeETH - levBuf + retainedEthPremium is CONSERVED across sells");
     }
+    /// @notice 🔬 §IDENTITY-PER-SWAP — **WHICH SWAP BREAKS CONSERVATION, AND BY HOW MUCH.** Sells alone
+    ///   conserve `POOLED − rangeETH − levBuf + retainedEthPremium` to the wei; interleaving drains
+    ///   with them breaks it by ~0.00808 ETH, yet drains ALONE are −9 wei and drains+warps +376e9.
+    ///   ⇒ it is drains in a state the sells created, so the invariant is printed after EVERY swap
+    ///   with the leg labelled and each term's own delta, rather than reasoning about which it must be.
+    function testReal_Identity_C_PerSwap() public {
+        _setupToRebalanced();
+        deal(address(USDC), address(this), 20_000 * USDC_PRECISION);
+        USDC.approve(address(AUX), 20_000 * USDC_PRECISION);
+        vm.deal(address(this), 20 ether);
+        int256 prev = _res() + int256(CORE.retainedEthPremium());
+        uint pP = CORE.POOLED(); uint pR = AUX.rangeETH(); uint pB = ETH.levBuf(LP); uint pX = CORE.retainedEthPremium();
+        for (uint i; i < 8; i++) {
+            vm.warp(block.timestamp + 6 minutes); vm.roll(block.number + 1);
+            { uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px != 0) _setEthFeed(px / 1e10); }
+            if (i % 2 == 0) { try AUX.swap(address(USDC), address(WETH), true, 30 * USDC_PRECISION, 0, true) {} catch {} }
+            else            { try AUX.swap{value: 0.015 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch {} }
+            emit log_named_string("LEG", i % 2 == 0 ? "DRAIN" : "SELL ");
+            emit log_named_int("   d POOLED  ", int256(CORE.POOLED()) - int256(pP));
+            emit log_named_int("   d rangeETH", int256(AUX.rangeETH()) - int256(pR));
+            emit log_named_int("   d levBuf  ", int256(ETH.levBuf(LP)) - int256(pB));
+            emit log_named_int("   d premium ", int256(CORE.retainedEthPremium()) - int256(pX));
+            emit log_named_int("   d INVARIANT (0 = conserved)", (_res() + int256(CORE.retainedEthPremium())) - prev);
+            prev = _res() + int256(CORE.retainedEthPremium());
+            pP = CORE.POOLED(); pR = AUX.rangeETH(); pB = ETH.levBuf(LP); pX = CORE.retainedEthPremium();
+        }
+    }
+
     function testReal_Identity_B_Interleaved() public {
         _setupToRebalanced();
         _identity("before");
