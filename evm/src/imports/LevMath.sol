@@ -729,14 +729,25 @@ library LevMath {
     ///    `dstReceiver` and a nested struct, so its amount is NOT at a fixed offset and its payout
     ///    target is caller-chosen — the exact shape `RouteTookAndGaveNothing` exists to catch. It
     ///    cannot be made safe by patching, so it is not admitted at all.
-    /// ⚠️ **EMPTY IS LEGAL AND MEANS "NO SUPPLIED ROUTE"** — `routedSwap` encodes one from pool words
-    ///    instead. Both arms end in the same executor and the same floor.
+    /// ⚠️ **EMPTY IS LEGAL AND MEANS "NO SUPPLIED ROUTE"** — §SESS-92: `routedSwap` synthesises a
+    ///    one-hop unoswap over the protocol's own default venue (`DEFAULT_UNWIND_DEX`, or
+    ///    `DEFAULT_WBTC_DEX` when either side is WBTC), because the RANGE cannot discover a route and
+    ///    §G.7 requires it trade anyway. ⛔ It does NOT "encode one from pool words" — §SESS-91
+    ///    deleted that encoder as a duplicate of the keeper's `Plan::route_bytes`.
     /// 📌 Memory layout: `route` data begins at `route + 0x20`; the 4-byte selector sits there, so
     ///    word 0 (`token`) is at `+0x24`, word 1 (`amount`) at `+0x44`, word 2 (`minReturn`) at `+0x64`.
-    /// ⚠️ `minReturn` is set to **0** on purpose. The bound that matters is `convertTo`'s aggregate
-    ///    floor on the MEASURED balance delta — the one number this contract computes itself. Writing
-    ///    a per-leg floor here would add a second bound that a multi-input conversion cannot size
-    ///    correctly, and the file's own rule is ONE floor on the whole conversion.
+    /// 🔴 **`minReturn` IS ZEROED ON THE UNOSWAP FAMILY AND SET TO `1` ON THE GENERIC `swap()`, AND
+    ///    THE ASYMMETRY IS FORCED.** This docblock said "0 on purpose" for both, and that claim was
+    ///    still here after §SESS-99 changed the generic arm — a contradiction with the `mstore` fifty
+    ///    lines below, on the docblock a reader hits FIRST. Caught by a peer, not by me.
+    ///    ⇒ 1inch's `AggregationRouterV6` reverts **`ZeroMinReturn()`** on a zero `minReturnAmount`
+    ///    in the descriptor, so the generic arm could never fill with a zero there. `unoswap` has no
+    ///    such check and keeps 0.
+    /// 🔑 **THE INTENT IS UNCHANGED EITHER WAY: `minReturn` IS OURS, NEVER THE CALLER'S.** The bound
+    ///    that matters is `convertTo`'s aggregate floor on the MEASURED balance delta — the one number
+    ///    this contract computes itself. `1` is the smallest value the router accepts, not a floor;
+    ///    writing a real per-leg floor here would add a second bound a multi-input conversion cannot
+    ///    size correctly, and the file's rule is ONE floor on the whole conversion.
     function _retarget(bytes memory route, address tokenIn, address tokenOut, uint256 amountIn)
         internal view
     {
