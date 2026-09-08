@@ -99151,3 +99151,41 @@ which is precisely what L4 item 1 below would fix.
 3. **Keeper vs contract on where liquidation is** — `LevManager.sol:51-58`: the band reads
    `liqThresholdBps()` on-chain while the keeper carries a hardcoded `QUID_LEV_VENUE_LIQ_BPS`
    (`quid-bridge/src/daemon.rs`). Make the keeper read it, or prove they cannot diverge.
+
+## §T9-STEP-3-SHAPE-2026-09-08 — the delivery-output bound: where it must live, and the lookup that decides it
+
+Step 3 is *"a splice paying `S` for `V` sats is legitimate only if `BTCChannels` records a matching
+swap-out obligation."* **Scoped against code before writing any of it, because §T9-IS-WIRING-E177's
+own warning is that THE NAIVE WIRING BREAKS EVERY SPLICE.**
+
+### ✅ THE GAP IS REAL AND IS EXACTLY WHERE THE ROW SAYS
+`partially_sign_splice_shared_input` (`validating_signer.rs:1734`) computes
+`taproot_splice_keyspend_sighash(tx, input_index, all_prevouts)` and signs. **It never inspects
+`tx.output`.** ⇒ the funding PAIR and SIZE are now checked (step 2), but **where the splice PAYS is
+not** — a splice can pay any script and the signer does not look. The close path is bounded
+(`check_closing_payout_script` runs FIRST in `partially_sign_closing_transaction`); the splice path
+has no equivalent.
+
+### 🔑 AND THE CONSTRAINT THAT DECIDES THE DESIGN — THERE IS NO REVERSE INDEX
+`pendingOnchainSwapOut` is `mapping(bytes32 => PendingOnchainSwapOut)` **keyed by `swapId`**, holding
+`{swapper, sats, requestBlock, swapperScriptHash}`. **There is no script-hash-keyed mapping anywhere
+in `BTCChannels`** (checked: the only `bytes32 =>` maps are `exitArmedOnOutpoint`, `checkpointOf`,
+`paidOutSinceCheckpoint`, `pendingClaimSats`, `pendingOnchainSwapOut`).
+⇒ **The signer CANNOT ask "is there an obligation paying script `S`". It can only ask "does obligation
+`X` pay `S` for `V`".** So the claimed `swapId` must be SUPPLIED to the signer and verified — a
+challenge/response, not a search.
+📌 `TaprootSignerContext` carries `counterparty_funding_pubkey`, `funding_value_sat` and
+`counterparty_closing_nonce` — **no obligation context.** The shape is therefore the one the closing
+nonce already uses: thread the claim into the context, verify it at signing time.
+⛔ **DO NOT ADD A REVERSE INDEX TO GET A SEARCH.** `BTCChannels` is immutable and GATE 3 is the one
+attempt; adding state to avoid threading a parameter is the wrong side of that trade.
+
+### ⚠️ WHY THIS IS NOT YET WRITTEN — THE FAILURE MODE IS "REFUSE EVERY SPLICE"
+Every output must be CLASSIFIABLE or the signer fails closed on legitimate traffic: the continuing
+2-of-2 (rotated pair — and §SPLICE-ROTATES means the CURRENT scope, not the base, which is the exact
+bug already fixed once in `check_against_chain`), the swap-out payment, and the hop's own change from
+its contributed inputs (`hop/node.rs:304` builds `SpliceContribution::SpliceIn` with an internal
+change address). **Miss any one and the signer refuses a good splice — the row's stated hazard.**
+▶️ **NEXT, IN ORDER:** (1) enumerate the output classes from a real splice trace rather than from
+reading, (2) thread the claimed obligation into `TaprootSignerContext`, (3) verify it through the
+truth source that step 2 attached, (4) fail closed only on an output matching NO class.
