@@ -2,10 +2,13 @@
 pragma solidity ^0.8.28;
 
 import {AllesFixture} from "./Alles.t.sol";
+import {QuidLib} from "../src/imports/QuidLib.sol";
+import {SwapLib} from "../src/imports/SwapLib.sol";
 
 /// @notice Reads the REAL derived θ = yield/(K·σ²) from live on-chain inputs, where BOTH K and σ²
 ///   are measured live (no hardcoded constant). σ² = Quid.realizedVarianceWad (Core's oracle ring);
-///   K = Quid.kLvrWad — the closed-form range-geometry LVR coefficient computed from the live ticks.
+///   K = Quid.kLvrWad — the closed-form range-geometry LVR coefficient computed from the live range
+///   BOUNDS (there are no ticks; §V4-CUT removed them and `updateBounds` is a bps band on a price).
 ///   avgYield on the fork is ~0 (mock venues don't accrue over a short test), so we ALSO show θ at
 ///   realistic yields {3,5,8%} using the real measured K·σ² — the meaningful "real number".
 contract DerivedThetaProbe is AllesFixture {
@@ -83,17 +86,26 @@ contract DerivedThetaProbe is AllesFixture {
         //     sim-fit constants, and finite. The calm regime keeps spot near range-centre, so this is the
         //     deterministic central value; later regimes move spot and K tracks it (correctly) live.
         assertGt(kCalm, 0, "K must be measurable from the live range (not 0/degenerate)");
-        assertGt(kCalm, 4e18, "live range-geometry K must be O(10) for a concentrated range, NOT the old ~0.71/2.24 constant");
-        // CEILING CORRECTED (2026-07-26) — the old 100e18 encoded a range width the fixture does not
-        // have. The comment above assumes "K_center ~= 12.56 for the +/-2% range", but the live range is
-        // MEASURED at LOWER_TICK 200570 / UPPER_TICK 200610 = 40 ticks ~ +/-0.2%, i.e. TEN TIMES
-        // narrower. K rises as the range narrows (denom = 2 - r1 - r2 shrinks), so ~125e18 is the
-        // correct central value for THIS geometry — exactly the 10x of 12.56, so the closed form is
-        // right and only the assumed width was stale. Verified pre-existing: upstream origin/main
-        // fails identically at 125131291560419227605, to the wei.
-        // The ceiling still does its real job — catching a DEGENERATE K (spot pinned at a range edge
-        // drives denom -> 0 and K -> infinity) — with headroom above the measured central value.
-        assertLt(kCalm, 400e18, "live K must stay in the range\'s finite closed-form range (non-degenerate)");
+        // ⭐ BOUNDED BY DERIVATION, NOT BY A REMEMBERED NUMBER — and the window is TIGHT because the
+        //    geometry makes it tight. The band is always `updateBounds(spot, RANGE_DELTA)`, so the
+        //    RATIO `lo/up` is pinned at `(1-δ)/(1+δ)` however far spot has drifted; and `kLvrAt`
+        //    CLAMPS spot into the band, so K cannot run away. K therefore lives in a closed interval
+        //    whose ends are the two extreme spot positions:
+        //      · spot at the CENTRE → the minimum (the widest denominator)
+        //      · spot at either EDGE → the maximum (`r2 = 1`, the narrowest)
+        //    Both are computed here from `SwapLib.RANGE_DELTA` through the production `QuidLib.kLvrAt`,
+        //    so widening the range moves the window with it instead of leaving it behind.
+        // ⚠️ WHAT WAS HERE BEFORE, AND WHY IT COULD NOT FAIL: `4e18 < kCalm < 400e18`, justified by a
+        //    comment reading "the live range is MEASURED at LOWER_TICK 200570 / UPPER_TICK 200610 = 40
+        //    ticks ~ +/-0.2% ... so ~125e18 is the correct central value for THIS geometry". There are
+        //    no ticks any more and the band is ±2%, so the 12.56 that comment overrode was right all
+        //    along. The window it left was 3x below and 32x above the true value — wide enough that
+        //    the DEGENERATE case it named (spot pinned at an edge) also passes, at 12.62.
+        (uint loK, uint upK) = SwapLib.updateBounds(1e18 * 100_000, SwapLib.RANGE_DELTA);
+        uint kAtCentre = QuidLib.kLvrAt(1e18 * 100_000, loK, upK);
+        uint kAtEdge   = QuidLib.kLvrAt(loK,            loK, upK);
+        assertGe(kCalm, kAtCentre, "live K below the centre-of-band minimum -- the band is not RANGE_DELTA wide");
+        assertLe(kCalm, kAtEdge,   "live K above the edge-of-band maximum -- the clamp is not holding");
         // cross-check θ@5% is exactly yield/(K·σ²) at the live K (no clamp in this regime).
         if (sigCalm > 0) assertEq(th5Calm, _thetaAt(kCalm, sigCalm, 5e16), "theta must be yield/(K*sigma^2) at the live K");
         // (2) MORE realized vol ⇒ SMALLER safe θ (the entire point of deriving θ live).
