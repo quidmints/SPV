@@ -5,7 +5,8 @@ import {Types} from "./imports/Types.sol";
 import {ILevEquity} from "./imports/Interfaces.sol";   // §FOLD-LEVGROSS
 import {LevManagerPinned, WrongRangeManager} from "./imports/Types.sol";   // §FOLD-PINLEV
 
-/// @title  Shares — the range's share token. ONE declaration of the per-LP state, TWO instances.
+/// @title  Shares — the range's share token. ONE declaration of the per-LP state THAT BOTH RANGES
+///         HAVE, TWO instances. §VENUE-STATE-HOLE below names what it deliberately does NOT hold.
 ///
 /// @notice §SLOP — THIS CONTRACT EXISTS TO DELETE TWELVE DUPLICATED STATE CONCEPTS. Measured on the
 ///         pre-fold tree, the same per-LP state was declared twice, once in `Quid` (ETH) and once
@@ -40,6 +41,30 @@ import {LevManagerPinned, WrongRangeManager} from "./imports/Types.sol";   // §
 /// ⚠️ NOT YET WIRED. The state and the share face live here; the engine still owns the range
 ///    (`POOLED`, the ring, skew, settlement). Migration order is in
 ///    `docs/actionable/SPRINT.md §DOCS-FOLD/ONE-ENGINE-TWO-SHARE-TOKENS`.
+///
+/// 🟡 **§VENUE-STATE-HOLE (recorded 2026-09-08) — "ONE DECLARATION OF THE PER-LP STATE" IS TRUE OF
+///    THE THIRTEEN BELOW AND OF NOTHING ELSE. `Quid` STILL DECLARES PER-LP STATE THAT IS NOT HERE.**
+///    Four names live on `Quid` alone (`Quid.sol:~269-283`) and have no `Vault` counterpart to fold
+///    against, which is exactly why they were never hoisted:
+///
+///      `venueBm` (mapping — PER-LP) · `venueFeesPerShare` · `bookmark` · `totalLevPooled`
+///
+///    They are the ETHER.FI VENUE lane. BTC has no venue — its yield is Lightning routing, settled per
+///    channel — so the pair-and-hoist argument that produced this file returns nothing for them: there
+///    is one instance, not two. That is a real asymmetry (the same shape as the ERC-20 face note
+///    above), NOT drift, and hoisting them would give `Vault` four slots it can never write.
+///
+/// ⚠️ **WHY IT IS RECORDED HERE ANYWAY, AND WHY GATE 2.3 CANNOT SKIP IT: `venueBm` IS PER-LP AND THE
+///    FOLD MOVES PER-LP STATE AS A UNIT.** A position token that carries `autoManaged[user]` +
+///    `levPooled` + `levBuf` and leaves `venueBm` behind moves a claim while stranding the bookmark
+///    that prices its venue yield — the transferee would collect the transferor's whole accrued venue
+///    lane. The transfer path already had the un-harvested version of this bug (`Quid.sol`
+///    §VENUE-XFER), and `_onExit` already leaves `venueBm` stale on a full exit (§VENUE-BM-EXIT,
+///    harmless only because every reader multiplies by a zero weight first). Both notes are the
+///    evidence that this slot does not travel with the position on its own.
+///    ⇒ EITHER the venue lane folds into `Types.Deposit` (where a position token carries it by
+///    construction) OR the position token must move `venueBm` explicitly. Deciding that is GATE 2.3's,
+///    not this file's; what this file owes is the DECLARATION that the hole exists.
 
 /// @title  State — the 13 per-LP declarations both range managers had a private copy of
 ///

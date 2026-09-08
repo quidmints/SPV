@@ -315,6 +315,16 @@ library QuidLib {
             if (plainDepth == 0) {
                 o.newBookmark = current;                         // no plain LP depth; just refresh the bookmark
             } else {
+                // 🟡 §VENUE-BM-WITHDRAW — ⚠️ THE GUARD AND THE STAMP ARE DELIBERATELY ASYMMETRIC, AND
+                //    THAT ASYMMETRY IS WHAT DROPS A WINDOW WHEN A CALLER FORGETS TO RE-STAMP.
+                //    The INCREMENT is gated on `current > bookmark`; `newBookmark = current` is
+                //    UNCONDITIONAL, so a venue DRAIN between two rebalances is silently absorbed —
+                //    which is correct here (a withdrawal is not negative yield) and is exactly why the
+                //    drain site must re-stamp `bookmark` itself. `Quid._depositImpl` does
+                //    (`Quid.sol:~1122`, unconditional); `Quid._withdraw` does it ONLY in the shortfall
+                //    branch, so a fully-served `offrampEtherFi` exit leaves `bookmark` stale-HIGH and
+                //    the next pass here skips one window's yield. UNDER-payment, self-healing, and
+                //    booked at that site with the reason it is not patched inline.
                 if (c.bookmark > 0 && current > c.bookmark)
                     o.venueFeesPerShareInc = SoladyMath.fullMulDiv(current - c.bookmark, WAD, plainDepth);
                 o.newBookmark = current;
@@ -330,7 +340,7 @@ library QuidLib {
             // `Core._fillDelta` (fees currently compound into POOLED_* instead).
             o.setLastRepack = true;
         }
-        if (r.loPrice != c.loPrice || r.upPrice != c.upPrice) o.reseatBump = true; // ticks recentered → re-anchor
+        if (r.loPrice != c.loPrice || r.upPrice != c.upPrice) o.reseatBump = true; // bounds recentred → re-anchor
         o.spotPrice = r.spotPrice; o.loPrice = r.loPrice; o.upPrice = r.upPrice;
         o.myLiquidity = r.myLiquidity; o.resolvedTwap = r.resolvedTwap;
     }
@@ -359,6 +369,20 @@ library QuidLib {
     //  delta the Quid forwarder applies; the Transfer event stays in Quid.
     //  `pendingRewards` is reached via a self-STATICCALL (public view — same
     //  storage, no reentrancy); the small _refreshBookmarks is replicated above.
+    //
+    //  🔴 **§VENUE-XFER — PRECONDITION, NOT AN OPTIMISATION: THE CALLER MUST HAVE
+    //     HARVESTED FIRST, AND `Quid._transferShares` NOW DOES (`_rebalance()`).**
+    //     `venueFeesPerShare` arrives here as a VALUE PARAMETER and this body both
+    //     settles against it and re-stamps BOTH `venueBm` bookmarks to it
+    //     (`_refreshBookmarksLib`, twice, at the bottom). It only ever advances
+    //     inside `rebalanceBody` above, so an UN-harvested value makes the settle a
+    //     no-op on the venue lane while the re-stamp still lands — the window's
+    //     appreciation is then attributed to `to` and lost to `from`. Bounded and
+    //     zero-sum (plain depth is conserved; a self-transfer reverts), but it is the
+    //     exact inverse of what the docblock promises.
+    //     ⇒ **A SECOND CALLER OF THIS BODY MUST `_rebalance()` FIRST.** The
+    //     `feesPerShare`/`usdFees` legs do not share the hazard: those advance only
+    //     via `Quid.creditSkewPremium`, a Core-driven write, never a lazy harvest.
     // ════════════════════════════════════════════════════════════════════
     function transferSharesBody(
         mapping(address => Types.Deposit) storage autoManaged,

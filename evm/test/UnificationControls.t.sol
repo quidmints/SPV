@@ -292,6 +292,79 @@ contract UnificationControls is AllesFixture {
         assertEq(usdB, 0, "a late joiner must not inherit USD-leg fees earned before entry");
     }
 
+    /// 🔴 §VENUE-XFER — THE MIRROR OF THE LATE-JOINER PROPERTY, ON THE **VENUE** LANE AND THROUGH
+    ///    THE **TRANSFER** PATH. `Quid._transferShares` settles both sides and re-stamps both
+    ///    `venueBm` bookmarks against `venueFeesPerShare`; that accumulator only advances inside
+    ///    `QuidLib.rebalanceBody`, and this was the ONE `venueBm` write reachable from a size change
+    ///    with no `_rebalance()` in front of it (every sibling — `_withdraw`, `_depositImpl`,
+    ///    `collectFees`, `compound` — opens with one). Un-harvested venue appreciation was therefore
+    ///    stamped into `venueBm[to]` as if it had never accrued: the transferee collected the whole
+    ///    window on the moved principal and the transferor collected none of it.
+    ///
+    /// ⭐ **THE ASSERTION IS A RATIO, NOT A MAGNITUDE, SO IT CANNOT BE SATISFIED BY A ZERO.** Two
+    ///    equal LPs hold the venue through the SAME window, then A moves half its balance to B.
+    ///    Venue yield is earned by the depth held DURING the window, so A and B must realize the
+    ///    SAME amount. Correct ordering ⇒ 1:1. The defect ⇒ A realizes the window at its POST-move
+    ///    depth (50) and B at its post-move depth (150), i.e. **1:3** — a 2× shortfall for A that
+    ///    a one-sided bound would have waved through (`CLAUDE.md` §VACUOUS-BOUNDS).
+    ///
+    /// ⚠️ **PREMISE, AND WHY A BARE `vm.warp` WOULD MAKE THIS TEST VACUOUS** (`CLAUDE.md` rule 21 —
+    ///    *"before reading 'X did not change' as a property of the DESIGN, establish that the fixture
+    ///    contains a mechanism that could have changed X at all"*): weETH's ETH value is an ON-CHAIN
+    ///    oracle write, so on a fork `getEETHByWeETH` does NOT move with time and warping alone
+    ///    accrues exactly ZERO. Idle WETH at the range is venue balance by the SAME `QuidLib._rangeETH`
+    ///    term the weETH leg uses, so topping it up moves `_venueBalance()` exactly as appreciation
+    ///    does — and the two premise assertions below prove the rise happened AND is un-harvested.
+    ///    The size is chosen for signal, not realism; what is under test is the ORDERING.
+    function test_V2_TransferSettlesVenueYieldAtTheDepthThatEarnedIt() public {
+        uint APPRECIATION = 2 ether;   // ~1% of the 200-ETH plain depth below
+
+        _seedBasket();
+        vm.prank(lpA); ETH.deposit{value: 100 ether}(0, lpA);
+        vm.prank(lpB); ETH.deposit{value: 100 ether}(0, lpB);
+        vm.roll(block.number + 1);
+
+        // Baseline. Any residue from the deposits is carried in the claim below rather than
+        // assumed away, so the measurement is exact regardless of what entry left pending.
+        ETH.reseat();
+        (uint pA0,) = ETH.pendingRewards(lpA);
+        (uint pB0,) = ETH.pendingRewards(lpB);
+        uint balA0   = ETH.balanceOf(lpA);
+        uint claimA0 = balA0 + pA0;
+        uint claimB0 = ETH.balanceOf(lpB) + pB0;
+        assertApproxEqRel(balA0, ETH.balanceOf(lpB), 1e16, "PREMISE: the two LPs entered equal");
+
+        // ── THE WINDOW: venue value rises with NO pool activity and NO harvest. ──
+        vm.warp(block.timestamp + 1 hours);
+        uint vfps0  = ETH.venueFeesPerShare();
+        uint venue0 = ETH.rangeETH();
+        deal(address(WETH), address(ETH), WETH.balanceOf(address(ETH)) + APPRECIATION);
+        assertGt(ETH.rangeETH(), venue0,
+            "PREMISE: the venue balance actually rose (else the window is empty and this measures nothing)");
+        assertEq(ETH.venueFeesPerShare(), vfps0,
+            "PREMISE: and the rise is UN-HARVESTED -- no _rebalance has folded it into the accumulator yet");
+
+        // ── THE MOVE, followed by a harvest of whatever the transfer did not take. ──
+        uint half = balA0 / 2;
+        vm.prank(lpA); ETH.transfer(lpB, half);
+        ETH.reseat();
+
+        (uint pendA,) = ETH.pendingRewards(lpA);
+        (uint pendB,) = ETH.pendingRewards(lpB);
+        // Realized venue yield = claim now (compounded principal + still-pending) minus claim then,
+        // with the moved principal netted out on both sides.
+        uint gotA = ETH.balanceOf(lpA) + pendA + half - claimA0;
+        uint gotB = ETH.balanceOf(lpB) + pendB - half - claimB0;
+        emit log_named_uint("venue yield realized by A (transferor)", gotA);
+        emit log_named_uint("venue yield realized by B (transferee)", gotB);
+
+        assertGt(gotA + gotB, 0,
+            "PREMISE: the window paid SOMETHING, else the 1:1 below is satisfied by two zeros");
+        assertApproxEqRel(gotA, gotB, 1e16,
+            "VENUE-XFER: equal LPs held the venue through the same window, so the transfer must not "
+            "move that window's yield from the transferor to the transferee");
+    }
+
     /// EDGE: a non-depositor has no claim. Guards the `pooled == 0` early-out in `_settlePending`.
     function test_V2_NonDepositorHasNoClaim() public {
         _seedBasket();

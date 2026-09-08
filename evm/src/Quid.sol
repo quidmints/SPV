@@ -301,7 +301,8 @@ contract Quid is Shares,
     ///         it without stranding basket USD. Bounded by the LP's own debt by construction (`levAddBuf`
     ///         sizes it to the buffer collateral at the range price, capped at debtUsd).
 
-    /// A reseat realizes the range's IL and moves the ticks, so the IL-protect must re-anchor its
+    /// A reseat realizes the range's IL and moves the range BOUNDS (§DE-TICK: there are no ticks —
+    /// the range is `updateBounds(RANGE_ANCHOR, RANGE_DELTA)`, two prices), so the IL-protect must re-anchor its
     /// `syncKeyPx`/`E0` across one. The signal is the RANGE BOUNDS themselves — `LevMath.reanchorCompute`
     /// re-anchors iff the position's `syncKeyPx` now sits OUTSIDE `[lower, upper]` — so there is no
     /// counter here to read or to desynchronise.
@@ -462,7 +463,8 @@ contract Quid is Shares,
         if (QUID.RANGE() != address(this)) revert WrongQuid();
         // The rest is deploy-time-only work that was costing Quid RUNTIME bytes
         // under a hard EIP-170 deficit (E32) -- the WETH read + approval, the range
-        // seed read, and the initial tick derivation. Only the value-type state
+        // seed read, and the initial BOUND derivation (§DE-TICK: `setupBody` returns two PRICES
+        // from `updateBounds`, never ticks). Only the value-type state
         // writes stay here; they have no storage pointer to hand the library.
         address weth;
         uint lo_; uint hi_;
@@ -817,6 +819,27 @@ contract Quid is Shares,
             if (ethfiPart > 0) {
                 uint incrPre = _rangeIncrement6();          // BEFORE the burn shrinks it
                 uint served = offrampEtherFi(ethfiPart, recipient);
+                // 🟡 **§VENUE-BM-WITHDRAW — THE MIRROR OF §VENUE-XFER, AND IT IS *NOT* FIXED HERE.
+                //    `offrampEtherFi` DRAINS THE VENUE AND NOTHING RE-STAMPS `bookmark` ON THIS PATH.**
+                //    `_rebalance()` at the top of `_withdraw` (`:~784`) set `bookmark` to the PRE-drain
+                //    venue balance; the offramp then sells weETH out of it. The re-stamp
+                //    `bookmark = _venueBalance()` exists ONLY in the shortfall branch below (`~:929`) —
+                //    i.e. only when the in-range burn UNDER-delivered — never on the fully-served path.
+                //    At the next rebalance `QuidLib.rebalanceBody` reads `current` (post-drain) against a
+                //    stale-HIGH `bookmark` and its `:~328` guard is `current > bookmark`, so the increment
+                //    is skipped entirely while `:~330` sets `newBookmark = current` UNCONDITIONALLY.
+                //    ⇒ exactly ONE window of venue yield is dropped from `venueFeesPerShare` per withdraw.
+                //    The DEPOSIT side has no such hole: `_depositImpl` re-stamps unconditionally (`:~1122`).
+                //  ✅ SAFE DIRECTION AND SELF-HEALING — this UNDER-pays the venue lane and the very next
+                //    rebalance re-baselines, so nothing compounds and no LP is over-paid.
+                //  ⚠️ BUT IT IS NOT A PURE ROUNDING LOSS, WHICH IS WHY IT IS RECORDED RATHER THAN
+                //    SHRUGGED OFF: the dropped slice does not evaporate. It stays in the venue, so it
+                //    reaches LPs through `rangeETH` → share price, weighted by `pooled` (GROSS), instead of
+                //    through the venue lane, weighted by `plainNet` (PLAIN). The LEVERED slices are
+                //    designed to be EXCLUDED from plain-venue yield (see `venueFeesPerShare`'s docblock,
+                //    `:~277`) and this hands them a share of it. A fix belongs with GATE 2.3's fold, not
+                //    inline here — the honest stamp is one `_venueBalance()` after the ladder finishes,
+                //    not one per branch, and the branches below re-enter the venue again.
                 if (served > 0) {
                     _burnInRange(served, address(0));
                     // §E28-r(2): the ETH came from ether.fi, so the range burn delivers to nobody —
@@ -898,6 +921,11 @@ contract Quid is Shares,
      // whatever the burn + venue-share could NOT deliver stays
     // as the LP's recoverable `pooled` deferral (re-withdrawn on venue thaw).
             if (shortfall > 0) _creditShares(LP, shortfall);
+                        // ⚠️ THE ONLY VENUE RE-STAMP ON THE WHOLE WITHDRAW PATH, AND IT IS IN THE WRONG
+                        // PLACE — see §VENUE-BM-WITHDRAW above. It is inside `if (amount > sent)`, so a
+                        // withdraw the offramp served in FULL leaves `bookmark` stale-high and drops one
+                        // window of venue yield. Do NOT "tidy" this by deleting it; the bug is the
+                        // branches that lack it, not this one.
                                                     bookmark = _venueBalance();
             }
         }
@@ -927,6 +955,23 @@ contract Quid is Shares,
                         address user) internal {
         if (LP.pooled == 0) {
             delete autoManaged[user];
+            // 🟡 **§VENUE-BM-EXIT — `venueBm[user]` IS *NOT* DELETED HERE, AND THAT IS TRACED
+            //    HARMLESS RATHER THAN INTENDED.** `delete autoManaged[user]` clears the `Deposit`
+            //    (`pooled`, `usd_owed`, `fees_tok`, `fees_usd`) and the line below clears `levBuf`, but
+            //    `venueBm` lives in its own Quid-local mapping (`:278`) and is left STALE-HIGH.
+            //    WHY IT CANNOT PAY OUT: every reader multiplies by weight first — `_pendingFor` computes
+            //    `venueOwed = _venueAccrued(user, LP.pooled)` which is 0 at `pooled == 0`, and
+            //    `0 > venueBm[user]` is false, so the venue leg contributes nothing; `_settlePending`
+            //    returns at `LP.pooled == 0` before that even runs.
+            //    WHY A RE-DEPOSIT IS ALSO SAFE: `_depositImpl` re-stamps via `_refreshBookmarks` on both
+            //    the paired (`:~1101`) and unpaired (`:~1115`) branches, and returns early when neither
+            //    fires — so no path credits against the stale value. A stale-HIGH bookmark is the
+            //    UNDER-paying direction in any case.
+            //    ⚠️ LEFT AS A COMMENT, NOT A `delete`: adding one costs a cold SSTORE on every full exit
+            //    to clear a slot nothing reads, and the accumulator reset below already zeroes
+            //    `venueFeesPerShare` when the last LP leaves. It is booked because GATE 2.3's
+            //    position-token fold moves per-LP state as a UNIT, and this is per-LP state that the
+            //    unit does not currently contain (see `Shares.sol`'s §VENUE-STATE-HOLE).
             // Defensive: a fully-exited position carries no buffer depth (levBurnAll
             // already zeroed it on close); clear any residual so totalBuffer stays exact.
             if (levBuf[user] > 0) { totalBuffer -= levBuf[user]; delete levBuf[user]; }
@@ -1123,10 +1168,10 @@ contract Quid is Shares,
     ///         hedge must cancel, straight from the concentrated-position geometry, so it reflects the real
     ///         (drifting) α with NO sqrt/pow and NO α parameter. Held-volatile amount is ∝ (1/√P − 1/√P_b)
     ///         when the volatile is token0 (sold as √P RISES) or ∝ (√P − √P_a) when it's token1 (sold as √P
-    ///         FALLS); soldFrac = 1 − amount_now/amount_entry. VALID WITHIN ONE TICK-CONFIG ONLY — a reseat
-    ///         recenters the ticks and realizes IL, so the CALLER must re-anchor `syncKeyPx` on reseat.
+    ///         FALLS); soldFrac = 1 − amount_now/amount_entry. VALID WITHIN ONE BOUND-CONFIG ONLY — a reseat
+    ///         recenters the range bounds and realizes IL, so the CALLER must re-anchor `syncKeyPx` on reseat.
     ///         Returns 0 on the non-IL side (up-side-only, matching the current target) or a degenerate range.
-    ///         ETH range (the BTC parallel lives on the Vault with the BTC ticks/ordering).
+    ///         ETH range (the BTC parallel lives on the Vault with the BTC bounds/ordering).
     function soldFractionWad(uint syncKeyPx) public view returns (uint) {
         return SwapLib.soldFractionWad(syncKeyPx, _corePrice(), _lo(), _hi());
     }
@@ -1144,7 +1189,8 @@ contract Quid is Shares,
     }
 
     /// @notice θ derived live: yield / (K·σ²), clamped to ≤1. Body in QuidLib
-    ///         (EIP-170 headroom); range ticks + the Core handle passed in.
+    ///         (EIP-170 headroom); the range's two BOUND PRICES (`_lo()`/`_hi()`, §DE-TICK — not ticks)
+    ///         + the Core handle passed in.
     /// ⚠️ THE CORE IS A PARAMETER, NOT A CONSTANT, AND THAT MATTERS. `QuidLib.derivedThetaWad` reads
     ///    `ICore(core).realizedVarianceWad()`, so a range handed ANOTHER range's Core gets that ring's
     ///    variance applied to its own price bounds. θ throttles range depth by the range's OWN
@@ -1161,7 +1207,8 @@ contract Quid is Shares,
     }
 
     /// @notice Size how much of the volatile asset (`deltaTok`) + paired
-    ///         synthetic USD to commit into the in-range V4 position. Returns
+    ///         synthetic USD to commit into the in-range CORE position (§NAMING `:73` — the engine
+    ///         is Core's own range, never a Uniswap pool). Returns
     ///         the LARGEST pairing that fits BOTH bounds below; the
     ///         requested amount is clamped DOWN to fit.
     ///
@@ -1527,10 +1574,10 @@ contract Quid is Shares,
 
 
     /// @notice Thin forwarder to `QuidLib.rebalanceBody` (delegatecall — EIP-170 headroom). The
-    ///         SHARED skeleton (range read, TWAP manipulation guard, CORE.repack, JIT-defense
-    ///         collect) is `SwapLib.rebalanceCore`, inlined inside that body; the ETH-only steps
-    ///         around it are the venue-yield pre-sync, the LAST_REPACK stamp, and the per-pool fee
-    ///         reorder/distribute.
+    ///         SHARED skeleton (range read, TWAP manipulation guard, CORE.repack) is
+    ///         `SwapLib.rebalanceCore`, inlined inside that body; the ETH-only steps around it are the
+    ///         venue-yield pre-sync and the LAST_REPACK stamp. There is no fee distribution step — see
+    ///         §DORMANT-ETH-FEE-LANE on the apply line below.
     /// @dev The body mutates only value-type accumulators, returned as increments/flags and applied
     ///      here. ⚠️ ORDERING IS LOAD-BEARING: the venue-yield sync reads the venue balance BEFORE
     ///      `rebalanceCore` runs, or a repack's own movement is booked as venue appreciation.
@@ -1543,7 +1590,24 @@ contract Quid is Shares,
             totalBuffer: totalBuffer, loPrice: _lo(), upPrice: _hi(), bookmark: bookmark}));
         venueFeesPerShare += o.venueFeesPerShareInc;             // venue-yield accrual
         bookmark = o.newBookmark;
-        feesPerShare += o.feesPerShareInc; USD_FEES += o.usdFeesInc; // pool-fee distribution
+        // 🟡 **§DORMANT-ETH-FEE-LANE (verified 2026-09-08) — BOTH TERMS ON THIS LINE ARE
+        //    STRUCTURALLY ZERO. THIS STATEMENT IS A NO-OP TODAY.** `QuidLib.rebalanceBody` never
+        //    ASSIGNS `o.feesPerShareInc` or `o.usdFeesInc` (grep the symbols: the struct field at
+        //    `QuidLib:295` is written nowhere), because `SwapLib.Rebalanced` no longer carries the
+        //    fee/delta tuple that used to feed `SwapLib.feeIncrements` — §V4-CUT deleted it, and
+        //    `Core.repack` harvests nothing (`Core.sol:~1145`: "there is no accrual to harvest").
+        //    ⇒ the ONLY live per-share accumulators on the ETH range are `venueFeesPerShare` (venue
+        //    appreciation, written by `rebalanceBody`'s `_syncYield` and applied on the line above)
+        //    and `USD_FEES` (written SOLELY by `creditSkewPremium`, `:~1507`, off Core's swap path).
+        //    `feesPerShare` has NO live writer at all; every `pendingFor` trading-fee term is 0.
+        // ⚠️ **KEPT, NOT DELETED — BUT A ZERO-ONLY FIELD IS A SHAPE THIS REPO HAS BEEN BITTEN BY**
+        //    (§V4-CUT's own note: "a return-value deletion is not finished until the STRUCT that
+        //    carried it is checked — the callers compiled and the zeros stayed correct, so nothing
+        //    announced the leftovers"). The lane is DORMANT, not removed: whether per-share trading-fee
+        //    accrual comes back is the deferred decision recorded at `Core._fillDelta` (fees currently
+        //    compound into `POOLED_*` instead). Re-reading this as "trading fees are distributed here"
+        //    is the misread the comment that used to sit on this line invited.
+        feesPerShare += o.feesPerShareInc; USD_FEES += o.usdFeesInc; // §DORMANT: both increments are 0
         
         if (o.setLastRepack) LAST_REPACK = block.timestamp;      // the APY clock
         RANGE_ANCHOR = o.spotPrice;   // §ONE-ANCHOR: store the anchor; the range derives from it
@@ -1584,18 +1648,29 @@ contract Quid is Shares,
     // below, over the same `autoManaged[].pooled` / `lpShares` they have always described.
     //
     // Yield attribution preservation invariant:
-    //   On any transfer, BOTH parties' pending rewards are settled
-    //   (compounded into pooled / accumulated in usd_owed) BEFORE
-    //   the principal moves. The transferred pooled therefore
-    //   carries no entitlement to past rewards — they're already
-    //   credited to the sender. The receiver starts earning on the
-    //   transferred principal from the current accumulator bookmark.
+    //   On any transfer, the accumulators are HARVESTED and then BOTH
+    //   parties' pending rewards are settled (compounded into pooled /
+    //   accumulated in usd_owed) BEFORE the principal moves. The
+    //   transferred pooled therefore carries no entitlement to past
+    //   rewards — they're already credited to the sender. The receiver
+    //   starts earning on the transferred principal from the current
+    //   accumulator bookmark.
+    //   ⚠️ THE "HARVESTED" CLAUSE IS LOAD-BEARING AND WAS MISSING, IN THE
+    //   CODE AS WELL AS HERE: `venueFeesPerShare` only advances inside
+    //   `_rebalance`, so settling against an un-harvested accumulator
+    //   settled nothing on the venue lane and re-stamped both bookmarks
+    //   as if the window's appreciation had never happened. See
+    //   §VENUE-XFER on `_transferShares` for the measurement.
     //
-    // V4 position ownership: Core's V4 positions use salt=0 (read
-    // _modifyLiquidity at line ~561). All LP capital sits in ONE
-    // collective V4 position per range, with autoManaged tracking
-    // per-LP proportional ownership. ERC-20 transfer just rebalances
-    // the mapping — no CORE-side coordination needed.
+    // Position ownership: ALL LP capital sits in ONE collective range
+    // position per range manager, with `autoManaged` tracking per-LP
+    // proportional ownership. ERC-20 transfer just rebalances the
+    // mapping — no CORE-side coordination needed.
+    //   ✅ CORRECTED (§DE-TICK / §NAMING): this used to read "Core's V4
+    //   positions use salt=0 (read _modifyLiquidity at line ~561)".
+    //   There is no `_modifyLiquidity` and no `salt` anywhere in `Core.sol`
+    //   — grep both symbols — and no PoolManager to hold them. The line
+    //   cite had drifted on top of describing code that no longer exists.
 
     uint8  public constant decimals = 18;
 
@@ -1703,7 +1778,39 @@ contract Quid is Shares,
     ///      QuidLib.transferSharesBody (delegatecall — EIP-170). Value-type `lpShares` growth returns as a delta
     ///      applied here; the Transfer event stays here (emitted for amount==0 too — Transfer(from,to,0)). Logic
     ///      unchanged (pendingRewards reached via self-staticcall; _refreshBookmarks replicated in the lib).
+    ///
+    /// 🔴 **§VENUE-XFER — THE `_rebalance()` BELOW IS WHAT MAKES THE DOCBLOCK ABOVE TRUE. IT WAS
+    ///    FALSE AS WRITTEN.** The body settles both sides and re-stamps both `venueBm` bookmarks
+    ///    against `venueFeesPerShare` — but `venueFeesPerShare` only moves inside
+    ///    `QuidLib.rebalanceBody`, and this was the ONE `venueBm` write reachable from a size change
+    ///    with NO harvest in front of it. Every sibling has one: `_withdraw` and `_depositImpl` both
+    ///    OPEN with `_rebalance()` before any `_refreshBookmarks`, so do `collectFees` and `compound`,
+    ///    and `_onExit`'s refresh runs inside `_withdraw`'s. Grep `_rebalance();` — this was the gap.
+    ///    ⇒ venue appreciation ACCRUED SINCE THE LAST REBALANCE BUT NOT YET FOLDED IN was stamped
+    ///    into `venueBm[to]` as if it had never accrued: `to` collected it at the next rebalance and
+    ///    `from` collected NOTHING on the principal it had actually carried through that window —
+    ///    exactly the "moved principal carries no past-rewards claim" the docblock promises, inverted.
+    ///    The TRADING-fee leg was never exposed: `feesPerShare`/`USD_FEES` move only on
+    ///    `creditSkewPremium`, which is a Core-driven write, not a lazily-harvested one.
+    ///    BOUNDED AND ZERO-SUM — plain depth is conserved and a self-transfer reverts, so nothing was
+    ///    ever over-distributed; it was a transferor→transferee leak of ONE inter-rebalance window
+    ///    (~3.4e-6 of the amount at weETH's ~3% APY over an hour). Correctness, not value-at-risk.
+    /// ⚠️ THE LOCK ALLOWS IT: `_rebalance` is `internal` and carries NO guard of its own — the
+    ///    `nonReentrant` wrapper is `reseat()`. `collectFees`/`compound` already call it from inside
+    ///    their own `nonReentrant` bodies, which is the same shape `transfer`/`transferFrom` have.
+    ///    Guarded on `amount > 0` because the body returns before touching any bookmark at zero (the
+    ///    `to != 0` / `from != to` requires still run), so a zero-value ERC-20 probe stays cheap.
+    /// ⚠️ **TWO PRICES THIS CHARGES, BOTH DELIBERATE, BOTH SHARED WITH EVERY OTHER LP ENTRYPOINT.**
+    ///    (1) GAS: a transfer now carries a repack — the same one `deposit`/`withdraw`/`collectFees`
+    ///    already pay (`COMPOUND_GAS` measures that shape at ~230k on a cold crank). An ERC-20
+    ///    transfer is no longer a cheap mapping write, and it never really was: it moves an LP
+    ///    POSITION, not a number (see `Shares.sol`'s hand-rolled-balance docblock).
+    ///    (2) A NEW REVERT SURFACE: `rebalanceCore`'s TWAP-manipulation guard can revert, so a
+    ///    transfer can now fail on oracle health. That is NOT a new freeze — deposit, withdraw and
+    ///    `collectFees` already revert on the same condition, so a pool where a transfer fails is a
+    ///    pool where nothing else works either. It IS a change an ERC-20 integrator can observe.
     function _transferShares(address from, address to, uint amount) internal {
+        if (amount > 0) _rebalance();   // §VENUE-XFER: harvest venue yield BEFORE both venueBm re-stamps
         lpShares += QuidLib.transferSharesBody(
             autoManaged, levPooled, levBuf, venueBm, from, to, amount, feesPerShare, USD_FEES, venueFeesPerShare);
     }
