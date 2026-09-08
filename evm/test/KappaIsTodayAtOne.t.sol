@@ -16,6 +16,17 @@ import {SwapLib} from "../src/imports/SwapLib.sol";
 ///         claiming to be behaviour-preserving is exactly the case a directional assertion cannot
 ///         check, so there is not one here.
 ///
+///         🔴 **§E274-LAND — AND Γ MOVING RAISES THEM TOO, WHICH IS A FALSE SIGNAL THIS FILE COULD NOT
+///         DISTINGUISH.** All three equalities below went red on `a4787689`, which moved Γ off `3e16`
+///         onto its `FLOW_HALFLIFE` derivation and touched κ not at all. project-bc attributed it:
+///         green at 11:26, red at 17:32, and **byte-identical before and after an unrelated revert**,
+///         which is what proved the cause was neither of the changes in flight. ⇒ They are the fifth,
+///         sixth and seventh members of the stale-Γ-binder class `37d752b4` fixed four of.
+///         ⛔ **AND A Γ-KEYED SWEEP CANNOT FIND THEM — THE LITERALS ARE KERNEL *OUTPUTS*, NOT Γ.** My
+///         sweep grepped for Γ's VALUE (`3e16`); `225438091215876142` contains it nowhere. The
+///         structural sweep is *"every literal compared against a `_skew`/kernel reading"*, never
+///         *"every file that mentions gamma"* — a third arrival of the same audit-by-name failure.
+///
 ///         🔴 **WHEN κ IS RAISED, THESE NUMBERS MUST CHANGE.** That is the intended failure: this file
 ///         going red on a κ move is the signal that the ECONOMIC commit has landed, and the expected
 ///         values must then be re-derived from the new κ rather than relaxed. **Do not "fix" it with a
@@ -36,15 +47,33 @@ contract KappaIsTodayAtOneTest is Test {
     }
 
     /// A mid-range drain, well clear of both the flush branch and the pole.
+    /// ⚠️ **RE-CAPTURED AT THE DERIVED Γ, AND THEREBY DEMOTED.** `225438091215876142` was a genuine
+    ///    pre-κ-refactor capture, which is what made it evidence rather than a lock. Γ moving spends
+    ///    that provenance and **no rescaling recovers it**: MEASURED, `base + (captured−base)·Γ/3e16`
+    ///    gives 41,176,528,258,607,510 against an actual 41,252,814,407,770,371 — **0.185% out**,
+    ///    because §E68's midpoint `qBar` and §E89b's amplifier are not linear in Γ (only the Δ=0
+    ///    branch is; see the next test, where the same rescaling is EXACT to the wei).
+    /// ⇒ So this is now a DRIFT LOCK at the landed Γ, exactly what the header already says about
+    ///   `NearThePole`, and it must NOT be cited as evidence the κ refactor preserved behaviour.
+    ///   ⛔ Not given a tolerance — that is the header's own rule 4 — and not deleted, because a lock
+    ///     that catches the next unintended move is still worth having.
     function test_E289_MidRangeDrainIsUnchanged() public pure {
-        assertEq(_skew(0.10e18, 0.50e18), 225438091215876142, "kappa=1 must reproduce the original");
+        assertEq(_skew(0.10e18, 0.50e18), 41252814407770371, "kappa=1 must reproduce the original");
     }
 
     /// The zero-size read — the Aux/MM signal, and the Δ=0 branch the refactor rewrote.
     function test_E289_ZeroSizeReadIsUnchanged() public pure {
         uint inv = _invFor(0.40e18);
+        // ⭐ **THIS ONE KEEPS ITS PROVENANCE, because the Δ=0 branch IS exactly linear in Γ.** The
+        //    original pre-refactor capture was `320000759999999999` at Γ = 3e16; rescaling the KERNEL
+        //    part while leaving the Γ-free base alone reproduces the live value **to the wei**
+        //    (58,448,248,584,474,879 — verified, not asserted). So the §E287 cross-check survives Γ
+        //    intact here, and it is written as the derivation so it survives the NEXT Γ move too.
+        //    `base` is read live from the flush branch, which charges the base alone (§E89).
+        uint base = SwapLib.skewWad(TARGET, TARGET, SIGMA, SwapLib.ethRisk(), 0);
         assertEq(SwapLib.skewWad(inv, TARGET, SIGMA, SwapLib.ethRisk(), 0),
-                 320000759999999999, "the delta-zero branch must be untouched at kappa=1");
+                 base + (uint(320000759999999999) - base) * SwapLib.GAMMA_WAD / 3e16,
+                 "the delta-zero branch must be untouched at kappa=1");
     }
 
     /// Deep scarcity, where the pole's convexity dominates and any change of exponent would show.
@@ -54,7 +83,11 @@ contract KappaIsTodayAtOneTest is Test {
     ///    cross-checks of behaviour-preservation.** This one was captured AFTER, so it is a LOCK
     ///    against future drift, not evidence about the refactor. Do not cite it as the latter.
     function test_E289_NearThePoleIsUnchanged() public pure {
-        assertEq(_skew(0, 0.90e18), 748235142930157697, "the convex tail must be untouched");
+        // §E274-LAND: re-captured at the derived Γ. Rescaling misses by 0.113%
+        // (136,664,574,233,818,743 vs 136,819,053,685,873,538) for the same non-linearity as
+        // `MidRangeDrain`. This value was ALREADY a lock rather than evidence, per the note above, so
+        // re-capturing costs nothing here — unlike the other two, it loses no provenance it had.
+        assertEq(_skew(0, 0.90e18), 136819053685873538, "the convex tail must be untouched");
     }
 
     /// 🔴 THE POLE ITSELF. At κ = 1e18 a full drain still ends at `inv1 == 0`, so `kMinusQ1 == 0` and
