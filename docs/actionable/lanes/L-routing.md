@@ -754,7 +754,9 @@ reason.**
 ⚠️ It is a NEW EXTERNAL DEPENDENCY (key, rate limit, availability) on a path that currently has none,
 and it must degrade to the self-planned route rather than to no route.
 
-## ⛔ §SESS-76 — THE `_aggSwap` DELETION: MEASURED, WORTH DOING, **NOT LANDED**
+## ✅ §SESS-76 — THE `_aggSwap` DELETION: **LANDED IN §SESS-91.** Measured 24,161 → 22,720 B, margin
+## 415 → 1,856. The analysis below is the record of why; the "NOT LANDED" it carried was stale from
+## the moment §SESS-91 committed, and stayed stale through §SESS-102's own booking pass.
 
 Owner sanctioned deleting the pool-word encoder to pay for direction derivation on the route arm.
 **Built and measured:** deleting `_aggSwap` frees **~810 bytes**; the derivation costs **~386**; net
@@ -821,7 +823,10 @@ because a singleton has no address.
 ⛔ **AND IT ADDS A SECOND PINNED CALLEE** (`UNIVERSAL_ROUTER` beside `ONEINCH_ROUTER`) — sanctioned by
 the owner, and worth stating plainly because "the callee is pinned, not a parameter" is load-bearing in
 every safety argument this lane has made.
-📌 **NOT BUILT.** The hard part is de-risked: the router, the selector, the head layout and the reason
+⛔ **SUPERSEDED — DO NOT BUILD THIS.** §SESS-86 deleted `V4Lib` as unreachable and §SESS-99 then made
+the 1inch generic descriptor actually fill, so v4 is reached through `swap()` with the key rather than
+through an on-chain UniversalRouter arm. Kept as the record of what was measured, not as a plan.
+📌 The original note read: The hard part is de-risked: the router, the selector, the head layout and the reason
 patching fails are all measured. **Do not start it in `LevMath`.**
 
 ---
@@ -856,7 +861,10 @@ some; *"there is liquidity we cannot address"* sends you to write an encoder.
 dropped **silently and the direct arm produced NOTHING** — not the second-best V3, nothing. Fixed in
 `best_direct`, where the ranking happens: a venue we cannot encode no longer competes.
 
-### 📌 STILL OPEN — **THE HUB ARM DISCARDS THE SUPPLIED ROUTE**
+### ✅ CLOSED IN §SESS-91 — **THE HUB ARM NO LONGER DISCARDS THE SUPPLIED ROUTE.** The branch is gone;
+### one `routedSwap` call carries whatever shape the route describes, and `_startsAt` (§SESS-92) hops
+### `_hubRowOf` when the route does not begin at the token we are selling. Retained below as the
+### statement of the defect, NOT as an open item.
 `LevMath:1178, 1356, 1380` pass `""` as the route: when the keeper has no 1inch-reachable hub word, the
 stable↔USDC leg takes the on-chain Curve table and **the volatile leg falls back to a single pool
 word**, throwing away whatever route the keeper computed. So for every NON-HUB stable a two-hop or
