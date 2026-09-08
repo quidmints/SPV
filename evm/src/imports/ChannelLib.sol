@@ -667,6 +667,11 @@ library ChannelLib {
         if (lpPubkey.length != 33 || hopPubkey.length != 33) revert InvalidParam();
         // SIMPLE-TAPROOT: locate the key-path P2TR funding output `0x5120||Q`. No
         // secp256k1 EC math HERE — Q is proven `== TapTweak(KeyAgg(lp,hop))` by the caller's
+        // `BitcoinTx.isTwoOfTwoOutputKey` gate, NOT by this frame. This function's ONE live
+        // caller is `BTCChannels._verifySplice`, which runs that gate (§E129) IMMEDIATELY AFTER
+        // this locate returns; the open path reaches the same gate through
+        // `BTCChannels._proveFundingKeys` (§E142) BEFORE it calls `openChannelBody`.
+        // ⇒ this frame byte-matches a script; the CALLER proves the script's key is the 2-of-2.
         uint outputSats;
         (vout, outputSats) = BitcoinTx.findOutputByScript(
             rawTx, BitcoinTx.buildTaprootScriptPubKey(fundingTaproot));

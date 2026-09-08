@@ -1196,10 +1196,13 @@ contract BTCChannels {
         //    over the destination.** Deleting it removes a clamp, not a guarantee.
         //
         // ⚠️ THE PRECONDITION, STATED PLAINLY: the "spend requires the LP" argument is VACUOUS
-        // while the fleet holds both halves (§M1#2, PHASE 1). That is not a regression introduced
-        // here — `_requireChannelKeys` is an equality check a both-halves fleet satisfies with keys
-        // it already holds, so it bought nothing across that same gap. **This loses no security
-        // that exists today and gains the real guarantee the moment §M1#2 lands.**
+        // only where the fleet holds BOTH halves — i.e. under `QUID_FLEET_COHOSTS_VAULT=true`,
+        // which is DEFAULT FALSE. §M1#2 HAS LANDED: in the default topology the LP holds its own
+        // funding half, so the argument is IN FORCE, not pending. Even in the co-hosting
+        // deployment this is not a regression introduced here — `_requireChannelKeys` is an
+        // equality check a both-halves fleet satisfies with keys it already holds, so it bought
+        // nothing across that same gap. **Deleting it loses no security under either topology,
+        // and under the default one the real guarantee is already what stands in its place.**
         // (§SPLICE-ROTATES-BOTH-FUNDING-KEYS) THE TWO "UNCHANGED" GUARDS, FOLDED. This was
         // `p.amountSats == ch.amountSats`, which refused a PURE ROTATION — the image-upgrade case
         // §E182 built `rekey` for. `rekey`'s own `RekeyUnchanged` was the mirror image, refusing a
@@ -1403,8 +1406,18 @@ contract BTCChannels {
     }
 
     /// @notice (#114 DEAD-MAN EXIT) Emit / refresh the fleet's pre-signed, CLTV-
-    ///         timelocked unilateral-exit tx for a channel — the heartbeat. The fleet
-    ///         holds both MuSig2 key halves (Option B) and signs OFF-CHAIN a tx that
+    ///         timelocked unilateral-exit tx for a channel — the heartbeat.
+    ///         🔴 §M1#2 HAS LANDED: *"the fleet holds both MuSig2 key halves (Option B)"* is the
+    ///         PRE-§M1#2 topology and is FALSE IN THE DEFAULT DEPLOYMENT — it holds only under
+    ///         `QUID_FLEET_COHOSTS_VAULT=true`, which is DEFAULT FALSE (`quid-ln/quid-ln/src/
+    ///         deadman_exit.rs`, `taproot_signer.rs`, `validating_signer.rs`). By default the
+    ///         fleet holds ONE half and the LP's half — the LP's pubnonce/partial from the LP's
+    ///         own host — is required, which is why the LADDER (`_armLadder`, signed once at
+    ///         open) is the heartbeat's substitute and this refresh path is the EXCEPTION.
+    ///         See the fuller §M1#2 correction block at the head of the DEAD-MAN EXIT (#114)
+    ///         storage section (above `exitArmedOnOutpoint`).
+    ///         The signing party (fleet alone under co-hosting, fleet + LP by default) signs
+    ///         OFF-CHAIN a tx that
     ///         pays the LP's `checkpointSats` balance → its committed `btcRecipientOf`
     ///         P2TR shutdown script, with an absolute CLTV = `cltvDeadline`. On-chain we
     ///         ONLY record the deadline (liveness) and re-publish the raw bytes as an
@@ -1450,8 +1463,9 @@ contract BTCChannels {
         // ⚠️ THE OLD JUSTIFICATION — *"the balance may have DROPPED, and keeping a stale higher
         //    attestation would reject legitimate closes"* — IS COVERED TWICE OVER BY THE OTHER
         //    TERM, AND THAT IS WHY THIS IS SAFE TO REFUSE. A fall is recorded by crediting
-        //    `paidOutSinceCheckpoint` (`:1568` cooperative payout, *"legitimate balance fall"*;
-        //    `:2446` splice-out), and the guard subtracts precisely that term. Lowering the
+        //    `paidOutSinceCheckpoint` at exactly two sites — `_applySplice`'s withdrawal-shrink
+        //    branch (*"legitimate balance fall"*) and `_deliverSwapOut`'s splice-out (`+=
+        //    shrinkSats`) — and the guard subtracts precisely that term. Lowering the
         //    checkpoint was a SECOND way to say the same thing — redundant with the mechanism
         //    that is driven by proven on-chain events, and unlike it, drivable at will by the hop.
         //
@@ -1853,8 +1867,10 @@ contract BTCChannels {
 
     /// @notice (#114) Retire a channel ended by the pre-signed DEAD-MAN EXIT. Without this the
     ///         exit is UNRECORDABLE and the position never retires: `recordClose` routes a
-    ///         nonzero-locktime tx to the force branch, and BOTH that branch (`:1014`) and
-    ///         `recordForceClosePermissionless` (`:1054`) demand `isCommitmentTx` — BOLT#3
+    ///         nonzero-locktime tx to the force branch, and BOTH that branch (the
+    ///         `if (!coop && !BitcoinTx.isCommitmentTx(rawCloseTx)) revert NotForceClose();` in
+    ///         `recordClose`) and `recordForceClosePermissionless`'s own first statement demand
+    ///         `isCommitmentTx` — BOLT#3
     ///         encoding, nLockTime top byte 0x20 + nSequence top byte 0x80. The exit tx is
     ///         built (`quid-ln/quid-ln/src/deadman_exit.rs`) with nLockTime = the ABSOLUTE CLTV
     ///         deadline (a block height, top byte 0x00) and nSequence = ENABLE_LOCKTIME_NO_RBF
@@ -2305,15 +2321,17 @@ contract BTCChannels {
         _onlyHop();
         // 🔴 §AUDIT-DELIVER-KEYS — THE PIN EVERY OTHER KEY-ROTATING PATH HAD AND THIS ONE DID NOT.
         // `_deliverSwapOut` rotates the funding outpoint (it assigns `fundingTxId`/`fundingVout`
-        // and calls `_useOutpoint`), and it proves the rotation with `_verifySplice`, which
-        // "proves KeyAgg over WHATEVER PAIR IT IS GIVEN" (`splice:1123`). So without this line the
-        // hop supplies `p.lpPubkey`/`p.hopPubkey` of its OWN choosing, the aggregate verifies
-        // against those, and custody moves to a 2-of-2 the LP is not half of — the exact attack
-        // `_requireChannelKeys`'s own docblock (:1832) describes: *"a compromised hop splices to
-        // keys it solely controls and CUTS THE LP OUT of its own 2-of-2."*
+        // and calls `_useOutpoint`), and it proves the rotation with `_verifySplice`, whose
+        // KeyAgg gate (`_verifySplice`, `isTwoOfTwoOutputKey`) proves the aggregate over the
+        // CALLER-SUPPLIED pair — see `_requireChannelKeys`'s docblock: *"`_verifySplice` proves
+        // KeyAgg over the CALLER-SUPPLIED pair, so a splice carrying a DIFFERENT pair passed,
+        // rotated the funding outpoint, and left `keysHash` at the original pair."* So without
+        // this line the hop supplies `p.lpPubkey`/`p.hopPubkey` of its OWN choosing, the aggregate
+        // verifies against those, and custody moves to a 2-of-2 the LP is not half of.
         // ⚠️ AND THE SECOND HALF IS AS BAD AS THE FIRST: `keysHash` would be left STALE against a
-        // rotated outpoint, which is §E153's *unretirable forever* regression verbatim (:1258) —
-        // both retirement paths then revert and the position can never be closed.
+        // rotated outpoint, which is §E153's *unretirable forever* regression verbatim (the same
+        // docblock: *"the channel was unretirable FOREVER"*) — both retirement paths then revert
+        // and the position can never be closed.
         // The siblings that already do this: `emitDeadManExit` and `_requireNotSplice` (the
         // recordClose / recordDeadManExit retire paths). `splice` is the exception BY DESIGN —
         // it RE-PINS `keysHash` after `_verifySplice` instead of pinning against it.
