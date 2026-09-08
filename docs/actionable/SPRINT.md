@@ -98483,6 +98483,19 @@ asks for a falsifiable prediction first; mine was *"assertions keyed to 20 bps w
 good design and ALSO means **a green run here is weak evidence about a 10× geometry change.**
 📌 **A FULL SUITE IS OWED AND NOT RUN** — the builder was handed to another lane. Until it runs, treat
 the widening as compiled-and-spot-checked, not verified.
+✅ **ONE NAMED RISK CHECKED AND CLEARED, WITH A CONTROL.** project-91 warned that
+`DrainAtomicity.test_UNITA_FixtureDrivesRealVariance` is a *"deliberately red"* §E277 measurement
+(*"DO NOT WEAKEN OR DELETE THIS TO GET THE SUITE GREEN"*) and that **if the δ change turned it green
+that was a signal to investigate, not accept.** It IS green after the change — and the control says
+that is not mine: **it was ALREADY `[PASS]` in my pre-change full suite at `FORK_BLOCK=25928228`**
+(gas 49,501,449 then, 49,233,102 now). ⇒ **§E327 turned it green weeks ago** by pinning a source in
+`_driveTick` (σ² 0 → ≈23.6 wad), exactly as `§RE-AUDIT 2026-08-24` at `:17083` already records.
+🔴 **THAT ROW IS STILL OPEN AND IS NOW COSTING SOMEBODY WORK.** It asks to *"re-point the row at the
+GREEN test and delete the pinned-at-zero sentence"*, and because nobody has, a live session is
+**deliberately declining to wire three tests** (`test_UNITA_…`, `SkewLivePathReachesKernel`,
+`VarPrecision`) to preserve a redness that no longer exists. **A stale ⛔ is as expensive as a stale ✅
+— it suppresses work instead of hiding it**, and this is the first measured instance of that in this
+file.
 🔴 **AND THE SUITES MOST LIKELY TO MOVE ARE ANOTHER SESSION'S:** the σ² warm-up work
 (`SkewCalibration`, `SkewVsUniswapV3`, `PremiumIsCarryNotIncome`, `DerivedTheta`) calibrates against
 in-range fraction, which is exactly what a 10× width changes. **They were warned before the change
