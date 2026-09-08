@@ -575,9 +575,24 @@ pub async fn run(
                 .context("QUID_LEV_MANAGER set without QUID_RANGE (the Quid addr for syncLev)")?
                 .parse()
                 .context("QUID_RANGE not a valid address")?;
+            // §KEEPER-LIQ-FALLBACK — FALLBACK ONLY. The live per-LP read in `lev_keeper.rs`
+            // (`pos(lp).venue -> liqThresholdBps()`) is authoritative; this is used ONLY when that
+            // read fails, so it must never be OPTIMISTIC.
+            // 🔴 IT WAS. The default was 9000 while `DeployL1_s.sol:91` pins
+            // `MORPHO_LLTV_86 = 0.86e18` as *"the Morpho-whitelisted LLTV every lev market uses"* and
+            // creates both lev markets with it (`:666`, `:670`). `decide()` computes
+            // `urgent_threshold = venue_liq_ltv_bps - safety_margin_bps` (`lev_keeper.rs:199`), so a
+            // HIGHER value makes the keeper wait LONGER. A 9000 fallback against an 8600 market told
+            // the keeper it had 400 bps more room than it had — on the one quantity that decides
+            // whether it acts before Morpho does, and only on the RPC-failure path where nothing else
+            // would catch it.
+            // ⚠️ THE INVARIANT, since a constant cannot track a venue: this value must be <= the
+            // LOWEST `liqThresholdBps()` of any venue the keeper may see. Raising it is unsafe;
+            // lowering it only costs earlier de-levers. If a market with a lower LLTV is ever
+            // whitelisted, LOWER this — do not average.
             let venue_liq_ltv_bps: u32 = std::env::var("QUID_LEV_VENUE_LIQ_BPS")
                 .ok().and_then(|s| s.parse().ok())
-                .unwrap_or(9000); // weETH market default liq LTV
+                .unwrap_or(8600); // = MORPHO_LLTV_86, the LLTV every deployed lev market uses
             
             let dwell_secs: u64 = std::env::var("QUID_LEV_DWELL_SECS").ok()
                             .and_then(|s| s.parse().ok()).unwrap_or(1800);

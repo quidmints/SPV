@@ -523,7 +523,13 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
                 .unwrap_or(u64::MAX);
             // PER-LP venue liquidation threshold (live) — pos(lp).venue → liqThresholdBps(), so it tracks an
             // Morpho LLTV ramp instead of going stale. Falls back to the configured constant on any read
-            // failure (never widens the safety margin silently).
+            // failure.
+            // ⚠️ THAT FALLBACK IS ONLY FAIL-SAFE IF THE CONSTANT IS <= THE TRUE THRESHOLD, and the
+            // shipped default violated it: 9000 against the 8600 every deployed lev market uses
+            // (`DeployL1_s.sol:91`). `urgent_threshold = venue_liq_ltv_bps - safety_margin_bps`, so
+            // too HIGH a constant DELAYS the de-lever. Corrected to 8600 in `daemon.rs`
+            // (§KEEPER-LIQ-FALLBACK); the claim this line used to make — "never widens the safety
+            // margin silently" — was exactly backwards on the value actually shipped.
             let vliq: u32 = (|| -> Option<u32> {
                 let pw = evm.eth_read(lm, "pos(address)", Some(&a)).ok()?;
                 let venue = Address::from_slice(pw.get(12..32)?);

@@ -99243,9 +99243,7 @@ what it is. **Do not read the O(1) repay win without this number beside it.**
 ## 📋 L4 — WHAT REMAINS, unstarted, in priority order
 1. ✅ **DONE — see §CROSS-SUBSIDY-MEASURED above.**
 2. **§SILENT-SKIP part (2)** — `LevCascade.t.sol:491`, the stuck-LP fixture producing an unstuck LP.
-3. **Keeper vs contract on where liquidation is** — `LevManager.sol:51-58`: the band reads
-   `liqThresholdBps()` on-chain while the keeper carries a hardcoded `QUID_LEV_VENUE_LIQ_BPS`
-   (`quid-bridge/src/daemon.rs`). Make the keeper read it, or prove they cannot diverge.
+3. ✅ **DONE — see §KEEPER-LIQ-FALLBACK below.**
 
 ## §T9-STEP-3-SHAPE-2026-09-08 — the delivery-output bound: where it must live, and the lookup that decides it
 
@@ -99973,3 +99971,33 @@ ETH premium, which is path-dependent by construction — the same trades in a di
 gross` — which requires the retained ETH premium to be a readable quantity. It is not one today
 (`recordSkewPremium` takes only the USD figure), and that is the same gap §PREMIUM-DENOM-ROOT names from
 the other side. **This is now one problem, not two.**
+
+## 🔴 §KEEPER-LIQ-FALLBACK — the row asked the wrong question; the defect was the FALLBACK'S VALUE
+`LevManager.sol:51-58` warned that *"the keeper still carries `QUID_LEV_VENUE_LIQ_BPS` … so a market
+whose LLTV differs makes the contract and the keeper disagree about where liquidation is"*, and L4
+booked it as *"make the keeper read it, or prove they cannot diverge."*
+✅ **THE KEEPER ALREADY READS IT LIVE — that half of the warning was STALE.** `lev_keeper.rs:527-533`
+does `pos(lp).venue → liqThresholdBps()` per LP, and `lev_keeper_btc.rs:318` mirrors it. The env var
+is a FALLBACK for a failed read, not the keeper's belief.
+🔴 **BUT THE FALLBACK WAS OPTIMISTIC, WHICH IS THE ONE DIRECTION THAT FAILS SILENTLY.** It defaulted
+to **9000** while `DeployL1_s.sol:91` pins `MORPHO_LLTV_86 = 0.86e18` as *"the Morpho-whitelisted LLTV
+every lev market uses"* and builds both lev markets with it (`:666`, `:670`).
+`decide()` computes `urgent_threshold = venue_liq_ltv_bps − safety_margin_bps` (`lev_keeper.rs:199`),
+so a **HIGHER** value makes the keeper wait **LONGER**. ⇒ on any RPC failure the keeper believed it
+had **400 bps more room than it had**, on the exact quantity that decides whether it acts before
+Morpho does — and only on the failure path, where nothing else would catch it.
+⛔ **AND THE COMMENT ASSERTED THE OPPOSITE OF WHAT SHIPPED:** *"Falls back to the configured constant
+on any read failure (never widens the safety margin silently)."* It widens it precisely when the
+constant exceeds the true threshold, which was the shipped default. Both that line and
+`LevManager.sol`'s stale warning are corrected.
+▶️ **FIXED to 8600, with the invariant a constant needs:** the fallback must stay **≤ the LOWEST**
+`liqThresholdBps()` any venue can report. **Raising it is unsafe; lowering it only costs earlier
+de-levers.** If a lower-LLTV market is ever whitelisted, LOWER this — do not average.
+✅ **VERIFIED, and the baseline was measured rather than assumed:** `cargo test -p quid-bridge --lib`
+gives **162 passed / 5 failed BOTH WITH AND WITHOUT the change** — the same five (`best_plan_*`,
+`coverage_*`, `depth_gate`, `venue_cache`) are pre-existing routing tests, and `QUID_LEV_VENUE_LIQ_BPS`
+appears exactly ONCE in the crate, so it is unreachable from unit tests that build their own config.
+The `LevManager.sol` edit is comment-only (`tools/comment-only.sh` → OK), i.e. byte-identical bytecode.
+📌 **THE SHAPE, since this is the second row today whose DIAGNOSIS was stale while its SUBJECT was
+real:** the warning named the right file and the wrong defect. `0g` did the same. **A row that names
+a mechanism deserves the same re-measurement as a row that names a line number.**

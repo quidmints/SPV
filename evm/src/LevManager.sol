@@ -51,12 +51,21 @@ contract LevManager is LevBase {
     // The book-wide LTV ceiling is `LevBase.TARGET_LTV_CAP_BPS` = 7500 bps ≈ 4×. 50% = 2× is the
     // IL-NEUTRAL point (delta-1); the headroom above it is directional exposure the protocol takes on
     // behalf of the book, isolated at the venue (buffer USD ≤ debt, deliverable excludes gross).
-    // ⚠️ THE VENUE'S LIQUIDATION THRESHOLD IS READ ON-CHAIN AND HARDCODED OFF IT. `_bandBps` sizes the
-    // no-trade band off `ILevVenue.liqThresholdBps()` (Morpho converts its immutable `LLTV`, Aave
-    // returns its own), so nothing in `evm/src` assumes 0.86 any more — but the keeper still carries
-    // `QUID_LEV_VENUE_LIQ_BPS` (`quid-bridge/src/daemon.rs`), so a market whose LLTV differs makes the
-    // contract and the keeper disagree about where liquidation is. Read it there too before trusting
-    // a keeper margin.
+    // ⚠️ THE VENUE'S LIQUIDATION THRESHOLD IS READ ON-CHAIN. `_bandBps` sizes the no-trade band off
+    // `ILevVenue.liqThresholdBps()` (Morpho converts its immutable `LLTV`, Aave returns its own), so
+    // nothing in `evm/src` assumes 0.86.
+    // ✅ AND THE KEEPER NO LONGER DISAGREES — this note used to say it did, and that half is STALE.
+    // `lev_keeper.rs:527-533` reads `pos(lp).venue -> liqThresholdBps()` LIVE per LP, and
+    // `lev_keeper_btc.rs:318` mirrors it, so `QUID_LEV_VENUE_LIQ_BPS` is a FALLBACK for a failed
+    // read rather than the keeper's belief about the venue.
+    // 🔴 WHAT WAS ACTUALLY WRONG IS THE FALLBACK'S VALUE, NOT ITS EXISTENCE: it defaulted to 9000
+    // against the 8600 every deployed lev market uses (`DeployL1_s.sol:91` pins `MORPHO_LLTV_86` and
+    // builds both markets with it). `decide()` computes
+    // `urgent_threshold = venue_liq_ltv_bps - safety_margin_bps`, so a HIGHER value DELAYS the
+    // de-lever — the keeper believed it had 400 bps more room than it had, on the RPC-failure path
+    // where nothing else would catch it. Fixed to 8600 (§KEEPER-LIQ-FALLBACK).
+    // ⇒ THE INVARIANT TO PRESERVE: that fallback must stay <= the LOWEST `liqThresholdBps()` any
+    // venue can report. Raising it is the unsafe direction; lowering it only costs earlier de-levers.
 
     /// @dev §E358 — NO LP CARRIES A DEBT-TO-COLLATERAL RATIO OF ITS OWN. IL-protect is a
     ///      protocol-wide liability, so there is no per-LP cap and no per-LP directional opt-in;
