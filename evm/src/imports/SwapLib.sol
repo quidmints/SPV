@@ -2663,8 +2663,11 @@ library SwapLib {
         // ONLY the sell leg holds a NATIVE amount. The two drain legs hold the BUY-DRIVING USD, already
         // 6-dec — converting those (attempt 2) collapsed the recorded premium to 0. `r.px` cannot serve as
         // the discriminator: it is non-zero on BOTH swapToBody legs, so the caller states the unit.
+        // §PREMIUM-READABLE — hand Core the USD figure it books AND, on the sell leg only, the premium
+        // as actually retained in wei. The second argument feeds a COUNTER; no mirror changes.
         ICore(core).recordSkewPremium(
-            nativeAmount ? SoladyMath.fullMulDiv(premium, r.px, 1e30) : premium);
+            nativeAmount ? SoladyMath.fullMulDiv(premium, r.px, 1e30) : premium,
+            nativeAmount ? premium : 0);
         r.amount -= premium;
     }
 

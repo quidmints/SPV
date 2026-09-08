@@ -591,7 +591,18 @@ contract Core {
     ///         `SwapLib.retainSkewPremium` — which is the whole LP fee lane, reached from
     ///         `swapToBody` (Aux) and `creditSwapOutBody` (Vault). Same onlyUs seam as `Core.swap`.
     ///         No-op on a flush pool (premium == 0).
-    function recordSkewPremium(uint256 premiumUsd) external onlyUs {
+    /// @notice §PREMIUM-READABLE — cumulative skew premium retained in VOLATILE units (wei), i.e. the
+    ///         part of a sell-leg swapper's ether that `SwapLib.retainSkewPremium` deducted before Core
+    ///         ever booked it. Zero on the drain legs, whose premium is dollars.
+    /// ⛔ **A COUNTER, NOT A BOOKING.** It moves no value and changes no mirror. §E42-DENOM tried to make
+    ///    `POOLED` count this and it was measured WRONG — `rangeETH` already counts the WETH at Aux, so
+    ///    adding it to `POOLED` double-counts (GAP grew by exactly the premium and three tests broke).
+    ///    This exists because the quantity was UNREADABLE, which is what stopped the real identity being
+    ///    assertable: `POOLED` is low by exactly this, and nothing exposed by how much.
+    uint256 public retainedEthPremium;
+
+    function recordSkewPremium(uint256 premiumUsd, uint256 premiumNative) external onlyUs {
+        retainedEthPremium += premiumNative;   // counter only — see above; no mirror is touched
         if (premiumUsd == 0) return;
         uint256 cum;
         // §E5 — the counters below are an AUDIT RECORD (asserted by

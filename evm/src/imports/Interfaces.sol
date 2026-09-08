@@ -660,7 +660,8 @@ interface ICore {
     function skewTargetUsd() external view returns (uint);
     function realizedVarianceWad() external view returns (uint);
     function riskParams() external view returns (uint confFracWad, uint spliceFloor);
-    function recordSkewPremium(uint256 premiumUsd) external;
+    function recordSkewPremium(uint256 premiumUsd, uint256 premiumNative) external;
+    function retainedEthPremium() external view returns (uint256);
     function refundUnfilled(address token, uint amount, address to) external;
     function repack(uint anchorPrice) external returns (uint price);   // §ONE-ANCHOR: bounds derive from this
     

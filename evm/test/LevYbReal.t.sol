@@ -472,6 +472,36 @@ contract LevYbRealProbe is AllesFixture {
     function _res() internal returns (int256) {
         return int256(CORE.POOLED()) - int256(AUX.rangeETH()) - int256(ETH.levBuf(LP));
     }
+    /// 🔬 §PREMIUM-READABLE — **THE CANDIDATE IDENTITY, MEASURED BEFORE IT IS ASSERTED.** The claim is
+    ///    `POOLED + retainedEthPremium == rangeETH + levBuf` (= tokens + gross), i.e. the residual is
+    ///    exactly minus the retained ETH premium. ⚠️ It may be FALSE: a cumulative premium can only be
+    ///    ≥ 0, so it can only ever explain a NEGATIVE residual, and `_calmVol` produced a POSITIVE one.
+    ///    Printing both rather than asserting, because asserting a sign I have not checked is how two
+    ///    wrong mechanisms already reached this row.
+    function _identity(string memory label) internal {
+        int256 res = _res();
+        uint256 prem = CORE.retainedEthPremium();
+        emit log_named_string("IDENTITY at", label);
+        emit log_named_int ("   residual              ", res);
+        emit log_named_uint("   retainedEthPremium    ", prem);
+        emit log_named_int ("   residual + premium (0?)", res + int256(prem));
+    }
+    /// The two paths that produced opposite-signed residuals, now with the premium visible.
+    function testReal_Identity_A_SellsWithWarps() public {
+        _setupToRebalanced(); vm.deal(address(this), 20 ether);
+        _identity("before");
+        for (uint i; i < 8; i++) {
+            vm.warp(block.timestamp + 12 minutes); vm.roll(block.number + 1);
+            try AUX.swap{value: 0.015 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch {}
+        }
+        _identity("after 8 sells + warps");
+    }
+    function testReal_Identity_B_Interleaved() public {
+        _setupToRebalanced();
+        _identity("before");
+        _calmVol();
+        _identity("after _calmVol (interleaved)");
+    }
     function testReal_CalmLeg_A_DrainsOnly() public {
         _setupToRebalanced();
         deal(address(USDC), address(this), 20_000 * USDC_PRECISION);
