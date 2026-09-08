@@ -48,6 +48,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
     MarketParams mp;
     address constant PASSIVE = address(0xBEEF5);   // passive regular range LP (the potential victim)
     address constant LEVR    = address(0xBEEF7);   // leveraged LP
+    address constant LATE    = address(0xBEEF8);   // joins the SAME pooled venue after the rally, at zero leverage
 
     function _setupLev() internal {
         _seedBasket();
@@ -152,6 +153,25 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
         _realignRangeToReal();
     }
 
+    /// §POOL-VENUE seize, sized off the AGGREGATE the way Morpho's health check actually is.
+    /// `_seizeReal` above sizes the crash from a single LP's ratio, which under-crashes a pool that
+    /// holds other LPs' collateral. Same mechanics otherwise: repay by SHARES, never seizedAssets.
+    function _seizeRealPooled(uint numer, uint denom) internal {
+        _realignRangeToReal();
+        uint collValue = venue.totalCollateral() * IMorphoOraclePrice(mOracle).price() / 1e36;
+        uint pdebt = venue.totalDebt();
+        (uint80 rid, int256 p,, uint256 ut, uint80 ar) = IChainlinkFeedT(CL_ETH_USD).latestRoundData();
+        uint crashed = uint256(p) * pdebt * 100 / (collValue * 92);
+        vm.mockCall(CL_ETH_USD, abi.encodeWithSelector(IChainlinkFeedT.latestRoundData.selector),
+            abi.encode(rid, int256(crashed), ut, ut, ar));
+        (, uint128 borrowShares,) = IMorphoTest(MORPHO).position(venue.MARKET_ID(), address(venue));
+        deal(address(USDC), address(this), 5_000_000 * USDC_PRECISION);
+        IERC20R(address(USDC)).approve(MORPHO, type(uint).max);
+        IMorphoTest(MORPHO).liquidate(mp, address(venue), 0, uint256(borrowShares) * numer / denom, "");
+        vm.clearMockedCalls();
+        _realignRangeToReal();
+    }
+
     /// The passive LP's redeemable value (USD 1e18) at the CURRENT (real, post-realign) price — redeem in a
     /// snapshot, value the ETH + QUID it receives, then revert. Matched-price so the measurement strips the
     /// lever's rally price move and isolates any cross-subsidy transfer.
@@ -168,6 +188,65 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
     /// BOTH arms (it is NOT cross-subsidy — the range sells the passive LP's ETH on any move); differencing it
     /// out, the cross-subsidy is (treatment − control). If the leverage is isolated, they're equal: the levered
     /// LP's external ops + isolated slice add NOTHING onto the passive LP beyond the shared price path.
+    // ═══════════════════════════════════════════════════════════════════════════════════════════
+    // §POOL-VENUE'S PRICE, MEASURED. `LevVenueBase.sol:196-206` names the cost the pooling
+    // introduced and names THIS FILE as the place to measure it:
+    //   "⚠️ AND IT INTRODUCES A CROSS-LP SUBSIDY ON THAT AXIS: each LP's LTV differs by its pinned
+    //    `ilBasisPx`, so pooling averages them and a late high-LTV entrant is carried by an early
+    //    one. `LeverageCrossSubsidyProbe` is the test that should be taught to measure it."
+    // It never was — the only test here measures a PASSIVE range LP, which is a different party.
+    //
+    // THE SHARPEST FORM OF THE SUBSIDY, and the one this measures: **a late LP that borrowed
+    // NOTHING loses collateral in a liquidation caused entirely by an earlier LP's debt.** Under
+    // §POOL-VENUE there is ONE Morpho position, Morpho liquidates on the AGGREGATE, and both sides
+    // of the pool are UNITS — so a seizure reduces every LP's collateral pro-rata regardless of who
+    // owed the debt. `LevVenueBase.sol:200` states it: *"a liquidation hits EVERY LP pro-rata and
+    // the position is protocol-side, so isolation is PROTOCOL-ENFORCED rather than MORPHO-ENFORCED."*
+    // ═══════════════════════════════════════════════════════════════════════════════════════════
+    function test_LateZeroDebtLp_PaysForTheEarlyLpsLiquidation() public {
+        _setupLev();
+
+        // EARLY LP: opens low, rallies, levers up. Its debt becomes the pool's entire debt.
+        _rangeE0(LEVR, 5 ether);
+        _openLevOnly(LEVR, 5 ether);
+        _rallyRange(_entryPrice(LEVR), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        lm.rebalance(LEVR, 0, DEX_WETH_USDC, 0, "");
+
+        // LATE LP: opens AFTER the rally, so `ilBasisPx == spot` ⇒ target 0 ⇒ it never borrows.
+        _rangeE0(LATE, 5 ether);
+        _openLevOnly(LATE, 5 ether);
+
+        // ── PREMISE (rule 21): the asymmetry under test must actually EXIST in this fixture ──────
+        assertGt(venue.debtOf(LEVR), 0, "premise: the early LP carries the pool's debt");
+        assertEq(venue.debtOf(LATE), 0, "premise: the late LP borrowed NOTHING (target 0 at entry)");
+        assertEq(lm.ilTargetLtvBps(LATE), 0, "premise: and its IL target is 0, so it never will");
+        uint lateColl0 = venue.collateralOf(LATE);
+        assertGt(lateColl0, 0, "premise: but it HOLDS collateral in the shared position");
+        assertGt(_entryPrice(LATE), _entryPrice(LEVR), "premise: the two entries really do differ");
+
+        // ── THE SEIZURE: caused by the EARLY LP's debt, executed on the POOLED position ─────────
+        // ⚠️ `_seizeReal` sizes its crash off ONE LP's collateral/debt ratio, and Morpho checks the
+        //    POOL's. With LATE's 5 ETH of ZERO-DEBT collateral in the same position the aggregate is
+        //    far healthier than LEVR alone, so that crash is not deep enough and Morpho answers
+        //    `position is healthy` — measured. That refusal is itself the mirror of the subsidy being
+        //    measured here (the late LP's collateral is protecting the early LP), which is why this
+        //    needs a POOL-sized crash rather than a per-LP one.
+        _seizeRealPooled(1, 2);
+
+        uint lateColl1 = venue.collateralOf(LATE);
+        assertEq(venue.debtOf(LATE), 0, "the late LP STILL owes nothing - it never borrowed at all");
+        emit log_named_uint("late LP collateral before liquidation", lateColl0);
+        emit log_named_uint("late LP collateral after  liquidation", lateColl1);
+        if (lateColl1 < lateColl0) {
+            uint lostBps = (lateColl0 - lateColl1) * 10_000 / lateColl0;
+            emit log_named_uint("CROSS-SUBSIDY paid by the 0-debt LP (bps of its own collateral)", lostBps);
+        }
+        // The measurement IS the point. §E338 priced this convexity at ~13-15 bp typical and ~147 bp
+        // across a cycle, but never on THIS axis; the number above is the first on it.
+        assertLt(lateColl1, lateColl0,
+            "SUBSIDY: a 0-debt LP lost collateral to a liquidation it did not cause (pooled, pro-rata)");
+    }
+
     function test_PassiveLp_NotExpensedByLeveredLpLifecycle() public {
         _setupLev();
 

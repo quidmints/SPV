@@ -99177,11 +99177,39 @@ suites move price with `vm.mockCall` on the oracle rather than by trading, so no
 E0 never diverges from netEquity. **The suite cannot distinguish a pinned E0 from a re-based one**,
 which is precisely what L4 item 1 below would fix.
 
+## 🔴🔴 §CROSS-SUBSIDY-MEASURED — **4,801 bps. A ZERO-DEBT LP LOSES 48% OF ITS COLLATERAL.**
+`LevVenueBase.sol:196-206` named the cost §POOL-VENUE introduced and named the test that should
+measure it. **Now measured** — `LeverageCrossSubsidyProbe.test_LateZeroDebtLp_PaysForTheEarlyLpsLiquidation`,
+real Morpho market, green:
+```
+late LP collateral before liquidation: 5.000000 ETH
+late LP collateral after  liquidation: 2.599165 ETH
+CROSS-SUBSIDY paid by the 0-debt LP  : 4801 bps of its own collateral
+```
+**SETUP.** An EARLY LP opens low, the range rallies, it levers to its IL target — its debt becomes the
+pool's entire debt. A LATE LP then opens at the post-rally price, so `ilBasisPx == spot`, its
+`ilTargetLtvBps` is **0**, and it **never borrows**. Asserted before and after: `debtOf(LATE) == 0`.
+The seizure is caused wholly by the early LP; both sides of the pool are UNITS, so it reduces every
+LP's collateral pro-rata regardless of who owed.
+⇒ **The late LP borrowed nothing, targeted nothing, and lost 48% of its position.**
+📌 §E338 priced this convexity at **~13-15 bp typical, ~147 bp across a cycle** — that is a DIFFERENT
+axis (hedge convexity across entry prices). On the LIQUIDATION axis the figure is **4,801 bps, ~32x
+§E338's worst case.** `LevVenueBase.sol:200`'s own words are the mechanism: *"a liquidation hits EVERY
+LP pro-rata and the position is protocol-side, so isolation is PROTOCOL-ENFORCED rather than
+MORPHO-ENFORCED"* — `cascadeDelever` plus the derived band are all that stand between the book and
+this, and neither is a guarantee.
+⚠️ **A SECOND, OPPOSITE FINDING FELL OUT OF THE INSTRUMENT AND IS THE SAME MECHANISM.** The first
+version used the file's existing `_seizeReal`, which sizes its crash off ONE LP's ratio — Morpho
+answered **`position is healthy`**, because the late LP's zero-debt collateral had made the AGGREGATE
+far healthier than the early LP alone. **The subsidy runs both ways: the late LP's capital is
+silently collateralising the early LP's leverage.** That is why the test needs `_seizeRealPooled`,
+added here, which sizes the crash off `totalCollateral`/`totalDebt` the way Morpho's check actually is.
+▶️ **OWNER DECISION, not a patch.** Either per-LP liquidation isolation comes back (reversing
+§POOL-VENUE's O(1) aggregate repay, §E342) or joining the pooled venue must be priced/disclosed as
+what it is. **Do not read the O(1) repay win without this number beside it.**
+
 ## 📋 L4 — WHAT REMAINS, unstarted, in priority order
-1. **Teach `LeverageCrossSubsidyProbe` to measure the cross-LP subsidy.** `LevVenueBase.sol:196-206`
-   names that test by name as *"the test that should be taught to measure it"* — pooling averages LPs'
-   pinned `ilBasisPx`, so a late high-LTV entrant is carried by an early one. §E338 guesses ~13-15 bp
-   typical and ~147 bp across a cycle; **never measured on this axis.**
+1. ✅ **DONE — see §CROSS-SUBSIDY-MEASURED above.**
 2. **§SILENT-SKIP part (2)** — `LevCascade.t.sol:491`, the stuck-LP fixture producing an unstuck LP.
 3. **Keeper vs contract on where liquidation is** — `LevManager.sol:51-58`: the band reads
    `liqThresholdBps()` on-chain while the keeper carries a hardcoded `QUID_LEV_VENUE_LIQ_BPS`
