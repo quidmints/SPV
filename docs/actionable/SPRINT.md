@@ -7237,11 +7237,6 @@ the message says**, not whether the bound is one-sided.
 
 ---
 ## 0c. 🔴 **§E352 IS NOT NEW — IT IS §E278's SECOND HALF, AND ITS GUARD TEST PASSES *BECAUSE OF* THE
-*"`UNKNOWN_VARIANCE_SKEW` has exactly one consumption site in the tree"* is false: there are **two**,
-and the second is the leg this row says has no guard. `SwapLib.sol:1443` is the drain leg;
-**`SwapLib.sol:2047-2049`** is `sellSkew`, reading `sigmaSqWad == 0 ? UNKNOWN_VARIANCE_SKEW : …`.
-The σ²=0 disagreement between the two legs is RESOLVED. What the code itself still calls open is the
-FLUSH half (`SwapLib.sol:2037-2039`, §E352) — rewrite the heading to that and nothing else.
 DEFECT** (verified 2026-08-23; corrects my own booking from earlier today)
 
 I booked §E352 this morning as a fresh finding: *"`skewWad`'s sentinel says unmeasured ⇒ charge the
@@ -17854,11 +17849,6 @@ does NOT fix the sentinel (§E278 stands — a stale or failed read still yields
 does NOT touch §E283's magnitude question. Three rows, one symptom, and none of them subsumes another.
 
 ## ✅ §E278-partialfill — **SHIPPED. CLOSED BY MEASUREMENT 2026-08-23: its whole premise is `revert QuoteUnfillable`, which has **ZERO references in `evm/src`** — deleted by `94d94899` (*"§E300: the skew path never reverts — bound the quantity, not the price, so an RFQ…"*). `SwapLib._fillableDrain` IS the price-bounded solve this row asks for. ⚠️ The row below is kept as the DERIVATION, not as work.**  **THE CAP DELETION REGRESSED THE PARTIAL FILL. MY FIX WAS A NO-OP; THE REAL FIX IS A DESIGN CALL.**
-*"`UNKNOWN_VARIANCE_SKEW` has exactly one consumption site in the tree"* is false: there are **two**,
-and the second is the leg this row says has no guard. `SwapLib.sol:1443` is the drain leg;
-**`SwapLib.sol:2047-2049`** is `sellSkew`, reading `sigmaSqWad == 0 ? UNKNOWN_VARIANCE_SKEW : …`.
-The σ²=0 disagreement between the two legs is RESOLVED. What the code itself still calls open is the
-FLUSH half (`SwapLib.sol:2037-2039`, §E352) — rewrite the heading to that and nothing else.
 ⚠️ **SUFFIXED 2026-08-21 — `§E278` NAMED TWO ROWS.** Two threads booked against the same id within the
 hour: the other is the σ²-sentinel row above (`:5328`). Per `CLAUDE.md`/§E124 the fix is a **suffix on
 the NEWER row, never a renumber** — this one is newer, and no code cites either (the `§E278` comment in
@@ -17904,11 +17894,6 @@ manage a boundary that the correct object does not have.**
 ---
 
 ## ✅ §E285 — **SHIPPED, SAME COMMIT (`94d94899`). CLOSED 2026-08-23: the inventory-residual bound it specifies is built as `_fillableDrain`. Kept below as the derivation.**  **§E278-partialfill IS NOT BLOCKED ON §E276. THE BOUND THE PDFs SPECIFY IS AN INVENTORY RESIDUAL, AND IT IS INVARIANT TO SPREAD-vs-SHIFT.**
-*"`UNKNOWN_VARIANCE_SKEW` has exactly one consumption site in the tree"* is false: there are **two**,
-and the second is the leg this row says has no guard. `SwapLib.sol:1443` is the drain leg;
-**`SwapLib.sol:2047-2049`** is `sellSkew`, reading `sigmaSqWad == 0 ? UNKNOWN_VARIANCE_SKEW : …`.
-The σ²=0 disagreement between the two legs is RESOLVED. What the code itself still calls open is the
-FLUSH half (`SwapLib.sol:2037-2039`, §E352) — rewrite the heading to that and nothing else.
 
 **Owner asked whether the refill trigger the other thread wired matches the design in `plan.pdf` /
 `plan2.pdf` (2026-08-21). Three of its four steps do; the prescription and the blocker do not.**
@@ -18328,11 +18313,6 @@ measured quantity, not an asserted constraint — and it is **finite everywhere 
 | **`sellSkew` as a separate function** | see below |
 
 ### ⭐ ONE KERNEL, SIGNED `q` — WHICH FIXES §E278 BY CONSTRUCTION RATHER THAN BY A SECOND GUARD
-*"`UNKNOWN_VARIANCE_SKEW` has exactly one consumption site in the tree"* is false: there are **two**,
-and the second is the leg this row says has no guard. `SwapLib.sol:1443` is the drain leg;
-**`SwapLib.sol:2047-2049`** is `sellSkew`, reading `sigmaSqWad == 0 ? UNKNOWN_VARIANCE_SKEW : …`.
-The σ²=0 disagreement between the two legs is RESOLVED. What the code itself still calls open is the
-FLUSH half (`SwapLib.sol:2037-2039`, §E352) — rewrite the heading to that and nothing else.
 `q` is the same quantity on both legs: **the normalised deviation from `target`**, scarce on one side,
 overshoot on the other. §E54 kept them apart only because the POLE had no meaning on the abundant side
 (*"you cannot run out of surplus"*). **With no pole that objection dissolves**, and `Γσ²q²` is even in
@@ -18786,11 +18766,6 @@ inflation at ±0.5%/block since the ring takes one write per timestamp.
 ---
 
 ## ⛔ §E290-CORRECTED — **THE SOURCE FLIPPED A THIRD TIME. MY TABLE WAS STALE WITHIN THE HOUR, AND SO WAS §E278's SCOPE NOTE.**
-*"`UNKNOWN_VARIANCE_SKEW` has exactly one consumption site in the tree"* is false: there are **two**,
-and the second is the leg this row says has no guard. `SwapLib.sol:1443` is the drain leg;
-**`SwapLib.sol:2047-2049`** is `sellSkew`, reading `sigmaSqWad == 0 ? UNKNOWN_VARIANCE_SKEW : …`.
-The σ²=0 disagreement between the two legs is RESOLVED. What the code itself still calls open is the
-FLUSH half (`SwapLib.sol:2037-2039`, §E352) — rewrite the heading to that and nothing else.
 
 **Measured 2026-08-21, minutes after §E290 landed.** `grep -n setObservationSource evm/script/DeployLib.sol`
 returns **NOTHING**. The pin's history today:
