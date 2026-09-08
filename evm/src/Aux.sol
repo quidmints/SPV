@@ -211,9 +211,15 @@ contract Aux is // Auxiliary
 
     // Per-asset EXTERNAL price feed (Chainlink ETH/USD, WBTC/USD) that
     // anchors the internal observation-ring TWAP. The internal TWAP feeds
-    // mint/redeem/arb/swap valuation; a multi-block grind moves the pool's spot
-    // AND its own TWAP together, so a spot-vs-own-TWAP guard can't see it — but it
-    // CAN'T move Chainlink. `resolvedTwap` cross-checks the two and, past
+    // mint/redeem/arb/swap valuation, and a spot-vs-own-TWAP guard cannot police it
+    // because both legs come out of the SAME ring: anything that moves the spot moves
+    // its own average with it — but it CAN'T move Chainlink.
+    // ⚠️ **THE GRIND IS NOT A SWAPPER'S ANY MORE, AND THE OLD WORDING SAID IT WAS** (*"a
+    // multi-block grind moves the pool's spot"*). Fills settle AT ORACLE against inventory
+    // (§V4-CUT), so a swap does not move `poolStats()` at all — `Core.poolStats` returns
+    // `obsState.lastPrice`, and the ring's ONLY writer is `Core._observeIfSourced` behind
+    // `onlyUs`. The residual this feed defends is therefore the OBSERVATION SOURCE, not
+    // trade flow. The defence is unchanged and still load-bearing; only the attacker is. `resolvedTwap` cross-checks the two and, past
     // TWAP_MAX_DEVIATION_BPS of divergence, RETURNS THE CHAINLINK PRICE with `stale = true`
     // — it does NOT revert, so a dislocation degrades to the anchor instead of bricking
     // every quote (`SwapLib.twapResolve`). OPT-IN per asset (unset → no
@@ -762,10 +768,17 @@ contract Aux is // Auxiliary
 
     /// @notice The live inventory-skew (WAD) the well applies to `asset`'s swap-OUT — the
     ///         pool's reservation-price / RFQ taker-limit offset. Exposed on the SAME unified
-    ///         seam as getTWAPforAsset/resolvedTwap so Bebop's RFQ engine AND Khalani's
-    ///         Arcadia solver read the same curve settlement uses. `base·(1 − wellSkew(asset, size))`
-    ///         is the fill. 0 = flush (range price stands); rises to the cap as deliverable inventory
-    ///         becomes scarce. Read-only.
+    ///         seam as getTWAPforAsset/resolvedTwap so that ANY RFQ maker or solver integrating
+    ///         against us reads the same number settlement uses.
+    ///         ⚠️ **NO SOLVER IS INTEGRATED TODAY** — this line named Bebop's RFQ engine and
+    ///         Khalani's Arcadia solver as live readers; that is the seam's PURPOSE, not a wiring
+    ///         that exists. Nothing in the tree routes to either, and `wellSkew` is read by the LP
+    ///         dashboard and tests. Keep the seam unified anyway (that is why it is here); do not
+    ///         cite named integrations as evidence that the surface is load-bearing.
+    ///         ⛔ AND SEE §V4-CUT BELOW BEFORE USING `base·(1 − wellSkew(asset, size))` AS THE FILL:
+    ///         settlement is AT ORACLE and the skew does NOT appear in it — the skew is the
+    ///         attribution key for the restoration cost. 0 = flush (range price stands); rises as
+    ///         deliverable inventory becomes scarce. Read-only.
     ///
     ///         🔴 THE SIZE ARGUMENT IS MANDATORY BY DESIGN — THE ZERO-SIZE FORM WAS RETIRED, NOT KEPT
     ///         ALONGSIDE. There used to be a `wellSkew(address)` that passed `drainUsd6 = 0` and

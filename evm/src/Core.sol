@@ -309,8 +309,11 @@ contract Core {
         return _levDebtUsd18() / 1e12;
     }
 
-    /// @notice This range's risk profile for the skew cap: the settlement-window fraction of a year
-    ///         and the on-chain splice floor. Returned as a PAIR so `SwapLib` needs no asset flag.
+    /// @notice This range's risk profile for the skew's ADVERSE-SELECTION BASE: the settlement-window
+    ///         fraction of a year and the on-chain splice floor. Returned as a PAIR so `SwapLib` needs
+    ///         no asset flag. ⚠️ NOT "the skew cap" — §E79 inverted `SwapLib._maxWellSkew` from a
+    ///         CEILING to an ADDITIVE BASE, and nothing in the tree compares a skew against it. The
+    ///         only bound on the skew is `_boundToFullHaircut`'s `SKEW_UNFILLABLE`.
     function riskParams() external view returns (uint confFracWad, uint spliceFloor) {
         return (CONF_FRAC, SPLICE);
     }
@@ -339,8 +342,12 @@ contract Core {
     ///         wall-clock grid, and that grid was the bug — `observe` INTERPOLATES between stored
     ///         points and linear interpolation has zero second derivative, so any stretch quieter
     ///         than the sample interval measured EXACTLY 0 however far price moved.
-    ///         **0 means UNKNOWN, NEVER "calm"** — `SwapLib._maxWellSkew` charges the ceiling on it
-    ///         and theta fails open, and both readers agree on that. ⚠️ 0 requires BOTH legs to be
+    ///         **0 means UNKNOWN, NEVER "calm"** — `SwapLib.skewWad`'s σ² sentinel charges the
+    ///         `UNKNOWN_VARIANCE_SKEW` ceiling on it and theta fails open, and both readers agree on
+    ///         that. ⚠️ IT IS THE SENTINEL, NOT `_maxWellSkew`, THAT CHARGES THE CEILING — and the two
+    ///         DISAGREE, which is §E352: `_maxWellSkew` is an additive BASE that reads σ² == 0 as
+    ///         `spliceFloor` (0 on ETH), and the two flush arms resolve AHEAD of the sentinel, so on
+    ///         those branches the permissive answer wins. See the §E352 block in `SwapLib.skewWad`. ⚠️ 0 requires BOTH legs to be
     ///         unmeasured, and they reach it differently: the ring by having too little history, the
     ///         anchor by `_varDt.vol == 0` (never sampled). Do not gloss it as "too few ring
     ///         updates" — see the enumeration in the body.
@@ -1432,9 +1439,14 @@ contract Core {
         // rather than a direction flag that only means something against a lex-ordered token pair.
         out = BasketLib.convert(amount, px, inputIsUsd);
         // 🔴 FIRM QUOTE (owner) — THE IMBALANCE CHARGE IS IN THE PRICE, NOT TRUED UP AFTERWARDS.
-        // We feed 1inch / Khalani, so the counterparty is a SOLVER that has ALREADY committed a
-        // price to its end user. There is nobody to bill later and no relationship to bill through,
-        // so a quote adjustable after the fact is unusable in a route. ⛔ Do not reach for an
+        // The seam is BUILT FOR a solver counterparty (1inch / Khalani), one that has ALREADY
+        // committed a price to its end user: there is nobody to bill later and no relationship to
+        // bill through, so a quote adjustable after the fact is unusable in a route.
+        // ⚠️ THIS LINE USED TO READ *"We feed 1inch / Khalani"* AS A LIVE FACT. **No solver is
+        // integrated today** — nothing in the tree routes to either. The requirement is a DESIGN
+        // CONSTRAINT held open on purpose (an aggregator must be able to arrive without us changing
+        // the settlement model), not an integration to point at. It is still binding; do not weaken
+        // it on the ground that nobody is routing yet, and do not cite it as evidence of traffic. ⛔ Do not reach for an
         // estimate-plus-true-up design, or for a ledger to true up against: the quote we hand a
         // solver is the price, and there is no second settlement in which to correct it.
         // ⚠️ THIS IS NOT THE SPREAD THAT WAS REMOVED. The skew was rejected as compensation paid to
@@ -1451,12 +1463,17 @@ contract Core {
         // where `s'` is the skew RE-EVALUATED on the reduced amount — strictly below `(1−s)²`, and
         // equal to it only in the Δ→0 limit. Only `s` was ever credited to LPs, so the excess sat
         // in the pool as UNATTRIBUTED backing.
-        // ⚠️ **ITS LIVE MAGNITUDE ON THIS PATH IS ZERO TODAY, AND §E279 SAYS 5.91% — THE ROW IS
-        // WRONG.** That figure assumes `s` is the flat `UNKNOWN_VARIANCE_SKEW` (3e16) sentinel, but
-        // `wellSkew` CAPS at `_maxWellSkew = σ²·confFrac/8 + spliceFloor`, and at σ² = 0 with ETH's
-        // `spliceFloor == 0` that cap is **0** — the §E278 hole. Zero charged twice is still zero.
-        // It bites where the cap is non-zero: BTC (`SPLICE_FLOOR = 2e15` ⇒ 0.2% realised as 0.3996%)
-        // and EVERY asset the moment a source is pinned and σ² goes positive (§E222).
+        // ⚠️ **ITS LIVE MAGNITUDE ON THIS PATH WAS ZERO WHEN §E279 SAID 5.91% — THE ROW'S FIGURE IS
+        // WRONG.** That figure assumes `s` is the flat `UNKNOWN_VARIANCE_SKEW` (3e16) sentinel, but on
+        // a flush range `wellSkew` returns `_maxWellSkew = σ²·confFrac/8 + spliceFloor` — an ADDITIVE
+        // BASE, not a cap (§E79; nothing is compared against it) — and at σ² = 0 with ETH's
+        // `spliceFloor == 0` that base is **0**, the §E278 hole. Zero charged twice is still zero.
+        // ⚠️ **AND THAT ZERO IS NO LONGER THE WHOLE FLUSH STORY.** §ZERO-REVENUE and §E352-DEPLETION
+        // added the σ²-FREE `_depletion(inv0, inv1)` (≤ 2.1 bps, scaled by the fraction drained) to
+        // BOTH flush arms, so on ETH the flush charge is 0 only for a swap that removes NO inventory.
+        // The double-charge would therefore have bitten on any real drain, not merely on BTC.
+        // It bites hardest where the base is non-zero: BTC (`SPLICE_FLOOR = 2e15` ⇒ 0.2% realised as
+        // 0.3996%) and EVERY asset the moment a source is pinned and σ² goes positive (§E222).
         // ⇒ **So this was a live defect ARMED BY A FUTURE FIX**: closing §E222 would have silently
         // doubled the ETH drain charge. Measured, not argued — the seven `DrainAtomicity` controls
         // that read `0 <= 0` are the same zero, and they fail identically without this change.

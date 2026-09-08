@@ -832,11 +832,13 @@ library SwapLib {
     // rather than fitted. The tunable that DID survive is `KAPPA_WAD`, the pole's LOCATION (§E289).
     // Volatile range half-width, in bps of price. `updateBounds(price, delta)` reads it as
     // `price·(10000∓delta)/10000` — the ONLY consumer, and it works in absolute PRICES.
-    // THIN range (±0.2%). Quid SERVES swaps and RESEATS, so it cannot sit at a degenerate half-width
-    // like a static position: at delta = 0 the reseat re-add collapses `lower == upper`. 0.2% is the
-    // thinnest that keeps the re-add non-degenerate while staying maximally thin (near-zero natural
-    // slippage, whale-friendly). Frequent repacks are covered by repack-first (swapper-paid) + the
-    // self-funded reseat keeper — no separate gas budget needed.
+    // Quid SERVES swaps and RESEATS, so it cannot sit at a degenerate half-width like a static
+    // position: at delta = 0 the reseat re-add collapses `lower == upper`. ⚠️ **THE ±0.2% THAT USED
+    // TO BE ASSERTED HERE AS THE LIVE WIDTH IS HISTORY — see the §WIDENED block below: the constant
+    // is 200 (±2%) since 2026-09-08.** The "thinnest non-degenerate half-width" argument is why 20
+    // was CHOSEN, not a property of the value in force; the degeneracy bound it appeals to is δ = 0
+    // and binds at neither width. Frequent repacks are covered by repack-first (swapper-paid) + the
+    // self-funded reseat crank — no separate gas budget needed.
     // ⛔ CORRECTED — THIS NAMED TWO DEAD SYMBOLS AND A DEAD ENGINE. It read *"paddedSqrtPrice reads
     // it as …"* and *"at delta=10 the reseat re-add (updateTicks(targetSqrt,10)) collapses
     // lower==upper and V4 reverts"*. `paddedSqrtPrice` is deleted (§E347/§E347b); `updateTicks` and
@@ -905,8 +907,9 @@ library SwapLib {
     ///         vol ⇒ larger base; no ceiling of any kind. See the §E62 note in the body.
     /// ⛔ **THE NAME SAYS "MAX" AND THE FUNCTION IS NOT A MAXIMUM. §E79 INVERTED IT FROM CEILING TO
     ///     BASE** and the name did not follow. Every caller ADDS it (`skew += _maxWellSkew(…)` at the
-    ///     kernel's tail, `kernel + _maxWellSkew(…)` in `_composePrice`) or RETURNS it as the whole
-    ///     charge (`skewWad`'s `target == 0` and flush branches). Nothing is ever compared against it.
+    ///     kernel's tail, `kernel + _maxWellSkew(…)` in `_composePrice`) or ADDS it to depletion
+    ///     (`skewWad`'s `target == 0` and flush branches, both `_maxWellSkew(…) + _depletion(…)` since
+    ///     §ZERO-REVENUE and §E352-DEPLETION). Nothing is ever compared against it.
     /// ⛔ **THE BODY TAKES NO SQUARE ROOT — IT IS LINEAR IN σ².** That linearity is the whole
     ///     reason the clock-stretching vector is linear too (see the kernel's §E68/§E289 notes),
     ///     so do not re-describe this as `√(σ²·T)` or reintroduce a policy ceiling: the only
@@ -1112,16 +1115,16 @@ library SwapLib {
     ///       • **DIFFERENT REACHABILITY.** `_fillableDrain` is `private`. No daemon, keeper or
     ///         off-chain consumer can call it, which is precisely what a restoration trigger must be.
     ///       • **AND `wellSkew`'S OUTPUT CANNOT SUBSTITUTE FOR IT.** On the flush branch `skewWad`
-    ///         returns `_maxWellSkew(…)`, the BASE — so a caller reading the skew cannot tell
+    ///         returns the BASE plus depletion, never the kernel — so a caller reading the skew cannot tell
     ///         "flush" from "scarce". After §E79's cap→base inversion there is no output value that
     ///         encodes this predicate. It has to be asked directly.
     ///         ⚠️ **AND THE ONE CELL WHERE THAT ARGUMENT IS STRONGEST IS THE ONE THIS BULLET FIRST
     ///         GOT WRONG: it said the base is "not 0".** At σ² == 0 on ETH (`spliceFloor == 0`) the
     ///         base IS 0 — see §E352 at the flush branch. ⚠️ **BUT "the skew reads 0 for a flush
-    ///         range" IS NO LONGER TRUE OF BOTH FLUSH ARMS.** §ZERO-REVENUE added `+ _depletion(inv0,
-    ///         inv1)` — which carries no σ² term — to `:1386` only, so that arm now reads 0 only when
-    ///         `inv1 >= inv0`, i.e. a swap that removes no inventory. The `target == 0` twin at
-    ///         `:1321` did NOT get the depletion term and still reads 0 at every drain size. On the
+    ///         range" IS NO LONGER TRUE OF EITHER FLUSH ARM.** §ZERO-REVENUE added `+ _depletion(inv0,
+    ///         inv1)` — which carries no σ² term — to the `inv1 >= target` arm, and §E352-DEPLETION
+    ///         added it to the `target == 0` twin, so BOTH now read 0 only when `inv1 >= inv0`, i.e. a
+    ///         swap that removes no inventory. On the
     ///         drain leg it is 3e16 for a scarce one. The predicate is *accidentally*
     ///         recoverable there and nowhere else, which is worse than never: a consumer that derived
     ///         it from the skew would work in exactly the configuration §E278 wants changed, and
@@ -1320,12 +1323,6 @@ library SwapLib {
         //   changes how hard it is to sell the range's ETH.
         //   What remains IS the E54 derivation: scarcity is inventory against the flow we shed into.
         uint target = flowUsd;
-        // §UNIT-A — RETURN THE BASE, NOT ZERO. This sat ABOVE `_maxWellSkew`, so a fresh OR idle
-        // range charged NOTHING: not the kernel, not `σ²·confFrac/8`, not `SPLICE_FLOOR`. §E98
-        // measured BTC's floor never applying on a fresh range; §E99 measured a 30-day-old imbalance
-        // pricing at 0; and `wellSkew` read 0 at σ² = 4.09 on a violent tape, proving the base is
-        // unreachable INDEPENDENT of variance.
-        if (target == 0) return _maxWellSkew(sigmaSqWad, rk);
         // §E68 — THE DRAIN IS NOW SIZE-AWARE, AND THIS IS WHERE THE LEAK WAS.
         //
         // `inv` used to be read PRE-swap and the flush test used to be `inv >= target ⇒ 0`. Two
@@ -1342,6 +1339,31 @@ library SwapLib {
         // charge the average rate along the path from where it started to where it ends.
         uint inv0 = poolVolUsd;                           // pre-swap deliverable inventory
         uint inv1 = drainUsd6 >= inv0 ? 0 : inv0 - drainUsd6;   // what the drain LEAVES
+        // §UNIT-A — RETURN THE BASE, NOT ZERO. This sat ABOVE `_maxWellSkew`, so a fresh OR idle
+        // range charged NOTHING: not the kernel, not `σ²·confFrac/8`, not `SPLICE_FLOOR`. §E98
+        // measured BTC's floor never applying on a fresh range; §E99 measured a 30-day-old imbalance
+        // pricing at 0; and `wellSkew` read 0 at σ² = 4.09 on a violent tape, proving the base is
+        // unreachable INDEPENDENT of variance.
+        // ✅ §E352-DEPLETION — THE `target == 0` ARM OWES DEPLETION TOO, for §ZERO-REVENUE's OWN
+        // REASON. §ZERO-REVENUE added `+ _depletion(inv0, inv1)` to the flush arm below and left this
+        // twin without it, and the argument transfers verbatim: `target == 0` IS the flush condition
+        // (no shed target ⇒ no scarcity to price), and `_depletion` reads no `target` at all. Left
+        // asymmetric, this arm returned `_maxWellSkew(0, ethRisk())` — EXACTLY 0 on ETH, whose profile
+        // is `(ETH_CONF_FRAC_WAD, 0)` and so has no splice floor — i.e. **0 for a drain of any size**:
+        // no kernel, no base, no depletion. Reachable at genesis and only there, but not the empty
+        // set: `target` is `Core.skewTargetUsd()` = `flowEwmaUsd() + redeemEwmaUsd()`, two decayed
+        // EWMAs that are 0 before any flow, and σ² == 0 needs a thin ring AND an unsampled anchor —
+        // the two co-occur at launch.
+        // ⚠️ WHAT THIS DOES **NOT** DECIDE. It does not touch the σ² SENTINEL, and it does not
+        // pre-empt the owner's open call on BRANCH ORDER: the prohibition in the §E352 block below
+        // — the arithmetic must not move ahead of the sentinel — still holds, and this arm still sits
+        // ahead of it exactly where it always did. The declarations above it are pure locals with no
+        // observable ordering; only the two flush arms were made to AGREE.
+        // ℹ️ Consequence worth knowing: with both arms now returning the same expression, and
+        // `inv1 >= target` being vacuously true whenever `target == 0`, this branch is a SHORTCUT and
+        // no longer a distinct price. It is kept explicit because §UNIT-A/§E98/§E99 are anchored here
+        // and because the owner's branch-order call may yet give the two arms different bodies.
+        if (target == 0) return _maxWellSkew(sigmaSqWad, rk) + _depletion(inv0, inv1);
         // Flush now means flush AFTER the drain. A swap that ends at/above target created no
         // scarcity and is genuinely free; a swap that ENDS below it is charged for the crossing,
         // however flush the range looked before it. Size-blindness cannot survive this test.
@@ -1353,18 +1375,20 @@ library SwapLib {
         //    Two consumers of ONE input disagree about what "unmeasured" costs: the guard below says
         //    σ² == 0 ⇒ charge the ceiling, `_maxWellSkew` says σ² == 0 ⇒ charge `rk.spliceFloor`, and
         //    branch ORDER — not a decision — picks the second.
-        //    ⚠️ **§ZERO-REVENUE HAS SINCE SPLIT THE TWO ARMS AND ONLY ONE STILL RETURNS ZERO.** `:1386`
-        //    adds `_depletion(inv0, inv1)`, which is σ²-free, so at σ² == 0 on ETH (profile
-        //    `(ETH_CONF_FRAC_WAD, 0)`) it returns 0 only for `inv1 >= inv0` — a swap that removes no
-        //    inventory, which is the exact cell `SkewUnmeasuredVariance.t.sol:75` pins with
-        //    `drainUsd6 == 0`. The `target == 0` twin at `:1321` got NO depletion term and DOES still
-        //    return 0 at every drain size, on ETH. **That asymmetry is the live residual** — it reads
-        //    as an oversight rather than a decision, because §ZERO-REVENUE's own argument (no shed
-        //    target ⇒ no scarcity, and `_depletion` needs no `target`) transfers to it verbatim.
-        //    On BTC both arms return `SPLICE_FLOOR` plus, at `:1386`, depletion.
-        //    ⇒ §UNIT-A's *"RETURN THE BASE, NOT ZERO"* is NEUTRALISED exactly when variance is
-        //    unmeasured, because at σ² == 0 **the base IS zero** — the §E59 free-drain hole arriving
-        //    through a door §E59 did not close.
+        //    ✅ **THE ARM ASYMMETRY IS CLOSED (§E352-DEPLETION, above).** §ZERO-REVENUE had split the
+        //    two arms and left only this one carrying `+ _depletion(inv0, inv1)`; the `target == 0`
+        //    twin above now carries it too, so both arms return the SAME expression and neither is
+        //    zero at every drain size any more. ⛔ Do NOT read that as closing §E352 — **the residual
+        //    booked here is the BRANCH-ORDER one, and it is untouched**: both arms still resolve
+        //    ahead of the σ² sentinel, so "unmeasured" still costs whatever the first resolver says.
+        //    What the depletion term does is bound the damage, not remove it: it is σ²-FREE, so at
+        //    σ² == 0 on ETH (profile `(ETH_CONF_FRAC_WAD, 0)`, no splice floor) each arm now returns
+        //    0 only when `inv1 >= inv0` — a swap that removes NO inventory — instead of for a drain of
+        //    any size. That zero-drain cell is the one `SkewUnmeasuredVariance.t.sol` pins with
+        //    `drainUsd6 == 0`, and it is still zero. On BTC both arms return `SPLICE_FLOOR` + depletion.
+        //    ⇒ §UNIT-A's *"RETURN THE BASE, NOT ZERO"* is STILL NEUTRALISED when variance is
+        //    unmeasured, because at σ² == 0 **the base IS zero** — depletion now stands in its place
+        //    on any real drain, but a zero-drain flush on ETH is priced by nothing at all.
         //    ⚠️ **THIS IS NOT A NEW FINDING. §E278 BOOKED IT ON 2026-08-21** as the second of its two
         //    halves, alongside `sellSkew`'s missing guard (see the §E278 block there): *"the flush
         //    branch is a separate half — do not fix one and call it done."* Recorded at the site
@@ -1383,9 +1407,13 @@ library SwapLib {
         //    cell and not "the base" — separates them, passes today, and turns red the moment the
         //    arithmetic is decided either way. That is the instrument to add BEFORE the owner call,
         //    not after: an inequality that a fix cannot fail is not coverage of the fix.**
-        //    ⛔ **THE ARITHMETIC IS UNCHANGED AND MUST STAY SO PENDING THE OWNER CALL** (rule 10: this
+        //    ⛔ **THE BRANCH ORDER IS UNCHANGED AND MUST STAY SO PENDING THE OWNER CALL** (rule 10: this
         //    and `sellSkew` are two money-path changes, not one; and §E278 records the flush half as
         //    additionally gated on §C1, since a live source stops this branch being zero on its own).
+        //    §E352-DEPLETION did NOT move arithmetic ahead of the sentinel and did not decide §E278:
+        //    it only made the two arms agree with each other, which is the half §ZERO-REVENUE had
+        //    already decided for one of them. The sentinel-vs-`_maxWellSkew` disagreement above is
+        //    the part still waiting on the owner.
         // ✅ §ZERO-REVENUE (owner, 2026-08-24) — THE FLUSH BRANCH OWES DEPLETION. §UNIT-A's rule
         // ("only the DEPLETION term flushes away, never the adverse-selection floor") is sound on
         // BTC, where ~20 bps of `SPLICE_FLOOR` survives a flush, and VACUOUS on ETH, where the floor
@@ -2257,28 +2285,31 @@ library SwapLib {
     function _sourceRepayFree(address core, address aux, address mgr, address lp, uint want, uint wantUsd6, uint exactUsd6)
         private returns (uint deLeverUsd6) {
         (address venue, address stable, uint amtNative) =
-            // 🔴 §UNCLAMPED-AMTNATIVE — THIS SAID *"amtNative clamped to LIVE debt"* AND IT IS NOT.
-            //    `LevBase.swapOutDeleverAmt` reads `pos[lp]`, takes the venue's stable, and returns
-            //    `_fromUsd(AUX, stable, maxUsd18)`. **It contains ZERO references to debt** — no
-            //    `totalDebt`, no `debtOf`, no clamp. The value returned is the FULL requested size
-            //    converted to native units, whatever the position actually owes.
-            //    ⇒ The two clamps that DO exist are `held` (what the basket has) and `exactUsd6`
-            //      (the delivery's own proceeds). NEITHER is the debt.
-            //    ✅ THE OVER-DRAW THIS COULD HAVE CAUSED WAS MEASURED AND IS **NOT THERE.** I booked
-            //      it as an open question (an over-draw of POOLED_USD at low LTV, where the slice's
-            //      proceeds share exceeds what it owes) and then measured it against a control that
-            //      changed ONE variable, the LTV:
+            // ✅ §UNCLAMPED-AMTNATIVE — **THE DEBT CLAMP HAS LANDED.** `LevBase.swapOutDeleverAmt`
+            //    now reads `p.venue.debtOf(lp)` and caps `amtNative` at it, in the SAME native units,
+            //    so the quote and `swapOutDelever`'s own re-clamp at execution agree by construction.
+            //    For a long time the docblock claimed that clamp and the code did not have it: the
+            //    quote returned `_fromUsd(AUX, stable, maxUsd18)` — the FULL requested size, whatever
+            //    the position owed — with the only real clamps being `held` (what the basket has) and
+            //    `exactUsd6` (the delivery's own proceeds), NEITHER of which is the debt.
+            //    ⛔ **KEEP THE MEASUREMENT BELOW. IT REFUTED A SCARIER READING AND MUST NOT BE LOST.**
+            //      The open question was an over-draw of POOLED_USD at LOW LTV, where a slice's
+            //      proceeds share exceeds what it owes. Measured against a control changing ONE
+            //      variable, the LTV:
             //        10% LTV  DRAWN 4,989,994,049  RETIRED 4,196,608,646
             //        50% LTV  DRAWN 9,989,999,999  RETIRED 4,196,608,646   ← identical retirement
-            //      ⇒ RETIRED IS BYTE-IDENTICAL ACROSS BOTH: the retirement is bounded by the
-            //        DELIVERY SIZE (`want` sats), not by the debt, so the missing clamp does not
-            //        produce an LTV-dependent shortfall. And the gap is LARGER at HIGH LTV — the
-            //        opposite direction from the hypothesis. `DRAWN` tracks delivery size.
+            //      ⇒ RETIRED IS BYTE-IDENTICAL ACROSS BOTH: retirement is bounded by the DELIVERY
+            //        SIZE (`want` sats), not by the debt, so the missing clamp never produced an
+            //        LTV-dependent retirement shortfall. And the gap is LARGER at HIGH LTV — the
+            //        OPPOSITE direction from the over-draw hypothesis. `DRAWN` tracks delivery size.
             //      ⇒ The ~793,39x,xxx that looked like an over-draw is the DEBT-BUFFER RESIZE, and
             //        `syncLev` restores it (+793,391,943 measured in the 50% control). The async
             //        reconcile promised below is REAL.
-            //    ⛔ SO THE MISSING CLAMP IS A FALSE COMMENT, NOT A MONEY BUG. Do not re-derive the
-            //      over-draw from the absent clamp; it has been measured and refuted.
+            //    ⇒ WHAT THE MISSING CLAMP ACTUALLY COST was not retirement and not an over-draw: it
+            //      was **STRANDED STABLE AT THE VENUE** — the gap between the quoted take and what
+            //      `repay` would approve sat on the adapter, off the basket's books. That is the leak
+            //      the clamp closes. Do NOT re-derive an over-draw from this history; it was measured
+            //      and refuted, and the clamp was landed for the stranding, not for the over-draw.
             ILevManagerDeliver(mgr).swapOutDeleverAmt(lp, wantUsd6 * 1e12);
         if (venue == address(0)) return 0;
         uint takeUsd18 = LevMath._toUsd18(aux,stable, amtNative);

@@ -1103,10 +1103,13 @@ contract Quid is Shares,
     // only shrink LVR, so dropping them yields a SMALLER, safer θ.)
     // K = the LVR coefficient (annual LVR_rate = K·σ²). NO HARDCODE: K is NOT a free constant — for a
     // concentrated-liquidity range it is a CLOSED-FORM function of the range's own geometry, computed LIVE
-    // from the on-chain ticks by `kLvrWad()` below (body in `QuidLib.kLvrWad`).
+    // from the live range BOUNDS by `kLvrWad()` below. ⚠️ NOT TICKS — §DE-TICK made the bounds PRICES;
+    // and the formula BODY is `QuidLib.kLvrAt(price, lo, up)` (internal pure), with
+    // `QuidLib.kLvrWad(core, lo, up)` being only the `poolStats()` read in front of it. K = 1/(4δ),
+    // so at the live `RANGE_DELTA = 200` (±2%) it is ≈`12.56e18` — NOT the ~`125e18` of the old ±0.2%.
     /// @notice The LIVE LVR coefficient K (WAD) for the pool's current range — read the real, dynamic
     ///         number (front-end / probe / monitoring). 0 ⇒ range unset/degenerate (caller fails open).
-    ///         Body in QuidLib (EIP-170 headroom); range ticks passed in.
+    ///         Body in QuidLib (EIP-170 headroom); range bounds passed in as PRICES.
     function kLvrWad() external view returns (uint) {
         return QuidLib.kLvrWad(address(CORE), _lo(), _hi());
     }
@@ -1639,8 +1642,10 @@ contract Quid is Shares,
     function totalSupply() external view returns (uint) { return lpShares; }
 
     /// @notice ERC-20 balance = LP's principal in pool. This is the already-compounded
-    ///         value; pending rewards (not yet credited) are revealed via previewRedeem /
-    ///         pendingRewards.
+    ///         value; pending rewards (not yet credited) are revealed via `pendingRewards`.
+    ///         ⚠️ THIS ALSO NAMED `previewRedeem`, WHICH DOES NOT EXIST AND MUST NOT — see the §E295
+    ///         block below: the redemption side is ASYNC, so a `preview*` there would describe a flow
+    ///         that may defer as if it settled. `pendingRewards` is the whole disclosure surface.
     function balanceOf(address user) public view returns (uint) {
         return autoManaged[user].pooled;
     }
