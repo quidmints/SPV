@@ -62,6 +62,15 @@ contract ConvertToRoutedTest is Test {
     ///   route genuinely did not execute, which is the defect this suite exists to catch.
     /// 📌 `tools/forge-test.sh` avoids the staleness rather than skipping it, and is the better answer
     ///   when you actually need this suite's verdict in a full run.
+    /// ✅ **VERIFIED ON A FRESH FORK, and the number that matters is the SKIP COUNT.** `2 passed, 0
+    ///    failed, 0 SKIPPED`, `ONE route USDC->WETH: 99.717763234778229871`. A guard like this fails
+    ///    silently in one direction — by skipping when it should not — and a green suite would look
+    ///    identical. **`0 skipped` is what says the guard let the tests actually run**, so quote that
+    ///    and not the pass count when re-checking it.
+    /// ⚠️ **THE SKIP BRANCH ITSELF IS STILL UNEXERCISED**, and is stated rather than implied: reaching
+    ///    it needs a fork >300s behind, which is the condition this suite now avoids. It is five
+    ///    `emit`s and a `vm.skip`, and the arithmetic above it saturates, so the residual risk is that
+    ///    the branch is never taken — not that it misbehaves when it is.
     uint256 constant MAX_FORK_LAG = 300;
 
     function _requireFreshForkOrExplain() internal returns (bool ok) {
