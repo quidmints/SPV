@@ -1,3 +1,43 @@
+# 🧭 NAVIGATION — READ THIS BEFORE GREPPING. THE ORDERING DOCUMENTS ARE AT THE BOTTOM.
+
+**MEASURED 2026-09-08: this file is 98,544 lines and 2,072 `##` sections — 460 marked OPEN
+(🔴/🟡/🟠/⏸️) and 447 marked CLOSED (✅).** Nobody reads it; everybody greps it. **So the failure mode
+is not "the answer is missing", it is "the grep found A row and there were four."** This header exists
+because the three documents that tell you WHAT ORDER to work in are buried at the very end:
+
+| what it answers | where | why you need it FIRST |
+|---|---|---|
+| **What order across the whole file** | **`§MASTER-ORDER-2026-09-05`, line ~92,710** — GATES 0–9 | 94% of the way down. Its three rules — *evidence before inference · decision before construction · immutable before mutable* — are why GATE 3 (`BTCChannels`) cannot be resequenced later |
+| **Who owns which files** | **`§LANES-2026-09-06`, line ~95,517** — L1 prose · L2 rust · L3 btc · L4 lever · L5 range/swap · L6 tests · L7 reads | The collision partition. `LevManager` and `SwapLib` are single-lane BY PHYSICS (EIP-170 margin), not preference |
+| **Bitcoin, in dependency order** | **`D2`, line ~12,932** | The only scope with a finished dependency ordering. Most of its 22 rows are ✅ — read the state column, not the number |
+| **83 rows are OWNER-BLOCKED** | `grep -n "blocked on a person\|owner decision"` | Do not start these. They move risk and the decision is not an engineer's |
+
+## ⛔ FIVE TRAPS SPECIFIC TO NAVIGATING **THIS** FILE — each cost a session
+1. **STATUS MARKERS IN THE FOLDED ARCHIVES ARE NOT STATUS.** `§FROM-QUEUE` (:23,564), `§BUILD-QUEUE-FOLD`
+   (:23,872) and `§FROM-QUEUE-SECTIONS` (:33,389) are **append-only archives**: their EVIDENCE is
+   authoritative, their markers are not. Current status lives in the section that owns the topic.
+2. **SECTIONS ARE FOLDED IN VERBATIM, SO COUNTS DOUBLE.** A census that counted marker instances
+   returned **390 against 220 distinct** — a 77% overcount — because the same text appears twice.
+   **Dedup before quoting any total from this file.**
+3. **A ROW CAN CONTRADICT ITSELF, AND BOTH HALVES ARE CITABLE.** `§SPLICE-ROTATES-BOTH-FUNDING-KEYS`
+   read *"THE RUST HALF IS STILL OPEN"* in its header while its own body said *"RUST HALF LANDED TOO
+   (same day)"*. **Read the body, then the code — never the header alone.**
+4. **LINE NUMBERS ROT FASTEST OF ALL** (every edit above moves them) and this file is edited by
+   several lanes at once. **Grep a distinctive 30–50 character QUOTE, never a line number** — 25 of 26
+   invented tags once failed to match at all, and 48 rows were lost that way.
+5. 🔴 **A STALE ⛔ COSTS MORE THAN A STALE ✅, AND IS HARDER TO SEE.** Measured 2026-09-08: a live
+   session was **declining to wire three tests** to preserve a "deliberately red" guard that §E327 had
+   turned green weeks earlier. A stale ✅ hides work; **a stale ⛔ SUPPRESSES it, and nothing fails to
+   tell you.** When a row forbids something, re-run its evidence before obeying it.
+
+## ▶️ HOW TO FIND WHAT IS ACTUALLY OPEN
+`grep -nE "^#+ .*(🔴|🟡|🟠|⏸️)" docs/actionable/SPRINT.md` → the open section headers.
+**Then discharge each against CODE, never prose (standing rule 20)** — in one four-row table, three
+rows closable-looking from prose were wrong. **And cross rows off as you find them done (rule 22):**
+an item that is done but still open sends the next thread to re-derive settled work.
+
+---
+
 > ## 🛤️ OPENING A NEW THREAD ON THIS FILE? READ `CLAUDE.md` §MANY-THREADS-IN-ONE-TREE FIRST.
 >
 > **This file is a ~54,000-line append target that EVERY lane wants, and that is the whole problem.**

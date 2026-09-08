@@ -975,6 +975,13 @@ a green targeted run says nothing about the suites it did not execute.
   Prefer the second whenever the question can be made mechanical.
   ⛔ Its allowlist `tools/orphans-allow.txt` REQUIRES a reason per entry. A CLASS 3 entry is a KNOWN
   DEFECT held open, not an exemption — removing one must mean fixing it, never silencing it.
+- **`tools/check-dead-internals.py`** — the zero-caller scan, valid for `internal`/`private` ONLY
+  (the precision figure below is why). It carries its own ACCEPTANCE TEST in its docstring and you
+  should run it: **`plainNet` must NOT appear in the output.** The first version excluded
+  library-qualified calls, so `SwapLib.plainNet(` did not count and it reported every function as
+  dead — inverted, on a tree where almost every call is `Lib.fn()`. ⚠️ A hit is a QUESTION: measured
+  2026-09-08, all four were documented keeps (a LayerZero override, two deliberately-unwired
+  functions, one carrying an open design question).
 - **After any Solidity change, run `tools/check-client-abis.py`** — and let its result GATE the commit.
   `forge` + `tsc` both green does **not** mean the TypeScript clients still work. ⚠️ **In this tree
   `tsc` cannot run at all: `spa/` has NO `node_modules`, so the ABI checker is the ONLY client-side
