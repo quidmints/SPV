@@ -93023,7 +93023,38 @@ lazily. It costs a wider `h` and a larger `C·K·σ²·h/2` term, and **no new m
 1. two enumerated SPK forms, P2MR behind a one-way k-of-n flag, default OFF (§BTC-4.6g);
 2. the five derive-a-script-from-a-key sites pinned as **opaque bytes** (§BTC-4.6g-bis);
 3. `verifyDeadManExit` verifies an **enumerated signature scheme** (§BTC-4.6n);
-4. every economically-tunable constant **governance-settable, not `constant`**;
+4. 🔴 **BLOCKED ON A DECISION, NOT ON WORK — MEASURED 2026-09-08: THERE IS NO GOVERNANCE TO SET THEM.**
+   ⛔ **`BTCChannels is Ownable` AND HAS ZERO `onlyOwner` FUNCTIONS.** Measured: 0 owner-gated
+   entrypoints, nothing anywhere reads `owner()`/`transferOwnership()`/`renounceOwnership()` on it,
+   and **the deploy never renounces or transfers it.** `DeployL1_s:290` states the design outright —
+   *"Every BTCChannels fn is permissionless (sigs gate them)"* — and CLAUDE.md records the same
+   conclusion tree-wide: **THIS SYSTEM HAS NO GOVERNANCE KNOBS.**
+   ⇒ **Item 4 as written cannot be satisfied without CREATING an authority this contract deliberately
+   does not have, on the one contract that can never be changed afterwards.** That is a product
+   decision, and it belongs to the owner.
+   ▶️ **WHICH CONSTANTS ARE ACTUALLY ECONOMIC (the enumeration item 4 needs before any decision):**
+   | constant | where | economic? |
+   |---|---|---|
+   | `MIN_CONFIRMATIONS = 6` | `ChannelLib:355` | ✅ **YES** — reorg risk vs settlement latency, the classic dial |
+   | `SWAPOUT_REFUND_BLOCKS = 7200` | `BTCChannels:575` | ✅ **YES** — how long a swapper waits before self-refunding; it prices patience |
+   | `MAX_FRESHNESS_JUMP = 1_000_000` | `BTCChannels:1605` | ❌ a sanity bound on a counter — no one is priced by it |
+   | `MAX_LADDER_RUNGS = 16` | `BTCChannels:510` | ❌ a GAS bound (see item 6) — a setter would be an authority able to raise it back into the §BTC-2.5a-bis divergence |
+   ⇒ **TWO constants, not "every".** Both are latency/risk trade-offs an operator might genuinely want
+   to move after launch; neither can move today.
+
+   ### 🔴 AND A SEPARATE, UNAMBIGUOUS DEFECT FOUND WHILE MEASURING IT
+   **The inert `Ownable` is not free and is not harmless.** MEASURED by building both ways:
+   **278 bytes** (21,519 → 21,241; margin 3,057 → 3,335). ⛔ **And it leaves a LIVE OWNER on a contract
+   whose deploy comment says every function is permissionless** — `owner()` returns the deployer
+   forever and `transferOwnership` is callable, granting nothing today and contradicting the stated
+   posture to anyone who reads the chain rather than the comment. **`docs/FAQ.md`'s trust-model
+   section is argued from that posture.**
+   ▶️ **Two ways to close it, and the choice is the owner's because it is about authority:**
+   **(a) DELETE `is Ownable`** — makes "no governance" structural rather than incidental, frees 278 B,
+   and forecloses item 4's "add a setter" answer; or **(b) RENOUNCE at deploy** — keeps the hook if
+   item 4 resolves toward governance, costs the 278 B, and makes the chain agree with the comment.
+   ⚠️ **NOT LANDED EITHER WAY.** Both are authority decisions on an immutable contract, and GATE 3's
+   own framing is *"there is one attempt"*.
 5. the `immutable` external addresses — decide which must be settable;
 6. ✅ **DONE 2026-09-08 — `LadderTooDeep` LANDED, AND THE CEILING IS DERIVED FROM A MEASUREMENT.**
    ⭐ **MEASURED** (`DeadManExitVerify.test_ladderRungGasIsMeasured_forTheMissingCeiling`):
