@@ -99820,7 +99820,17 @@ them is byte-identical.** Every commit in that window is documentation (`SPRINT.
 Of the three later commits that DO touch `evm/`, `f3a9fcf1` is comment-only in `QuidLib.sol`
 (byte-identical under `bytecode_hash = "none"`), `221a4237` is a different suite, and `34946dba`
 (`ForkPin`) was tested directly — **`34946dba^` PASSES at 25934141, so it is not the cause either.**
-⇒ **SAME CODE, SAME BLOCK, OPPOSITE VERDICTS. The only variable left is UNCOMMITTED PEER STATE in the
+✅ **AND THE REPRODUCTION ATTEMPT CLOSES IT — MEASURED, NOT INFERRED.** A CLEAN detached worktree at
+`4007a5e9` itself (the commit that failed), `git status` empty, run at all three blocks that had
+produced `2 != 1`:
+```
+CLEAN 4007a5e9 @ 25934141  PASS
+CLEAN 4007a5e9 @ 25934158  PASS
+CLEAN 4007a5e9 @ 25932178  PASS      3/3
+```
+**The exact commit at the exact blocks passes when nothing else is in the tree.** So the failure was
+never in the commit at all.
+⇒ **SAME CODE, SAME BLOCK, OPPOSITE VERDICTS. The variable was UNCOMMITTED PEER STATE in the
 shared checkout during the failing runs** — and the three-pin sweep ran in that same contaminated
 tree, so it cannot separate block-dependence from tree-dirt. **My "market state" claim is therefore
 unsupported, not merely incomplete.**
@@ -99832,8 +99842,14 @@ a stale answers the question. `assertEq(failed, 1)` is back to the original, unw
 OWN self-describing message about the auto-de-lever not clearing the oracle floor at a block. **That
 is real evidence the sell leg is block-fragile in general — it just does not license my attribution
 for THIS test.**
-▶️ **TO FINISH IT:** reproduce `2 != 1` in a **clean** tree at a pinned block. Until someone does, the
-condition is uncharacterised.
+✅ **THAT WAS THE FINISHING STEP AND IT IS DONE: `2 != 1` DOES NOT REPRODUCE IN A CLEAN TREE.** There
+is no condition left to characterise on this test, and no guard is warranted. ⛔ Do not re-open it
+from `0g`'s row, which still records the refuted `0 != 1`.
+📎 **NULL RESULT WORTH STATING, since an unrecorded null gets re-run:** `34946dba` (ForkPin sending
+~half of suites to the second Ankr key) was A/B'd against its parent at a pinned block. `34946dba^`
+PASSES; the second arm was voided when I removed its worktree mid-run. **The question is moot anyway
+— `evm/` is byte-identical across the whole window — but nothing observed suggests the two Ankr keys
+disagree at a pinned block, which is the assumption every cross-suite comparison here rests on.**
 📌 **AND THIS IS THE FOURTH TIME ONE INVESTIGATION HAS BEEN CORRUPTED BY THE SHARED CHECKOUT** — after
 the Γ bisect's two bad eliminations and the `lane.sh` ref trap. **A measurement taken in a tree with
 uncommitted peer edits is not a measurement of a commit.** See §THE-HABIT.
