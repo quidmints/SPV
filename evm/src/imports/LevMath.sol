@@ -805,7 +805,20 @@ library LevMath {
             mstore(add(route, 0x64), tokenOut)                 // w2 dstToken
             mstore(add(route, 0xA4), address())                // w4 dstReceiver — diversion made impossible
             mstore(add(route, 0xC4), amountIn)                 // w5 amount
-            mstore(add(route, 0xE4), 0)                        // w6 minReturnAmount — the delta floor decides
+            // 🔴 §SESS-99 — **ONE, NOT ZERO, AND THIS IS WHY THE WHOLE `swap()` ARM NEVER EXECUTED.**
+            //    1inch's AggregationRouterV6 reverts **`ZeroMinReturn()`** on a zero `minReturnAmount`.
+            //    We zeroed it on purpose — *"the aggregate delta floor is the bound"* — which is the
+            //    right SECURITY design and an impossible CALL. ⇒ every generic-descriptor route
+            //    reverted at the router, `convertTo` skipped the leg, and the conversion returned 0.
+            // ⛔ **SO THE ARM I HAVE CALLED "THE ONLY DOOR TO v4, BALANCER, FLUID AND SPLITS" ALL
+            //    SESSION HAS NEVER FILLED ONCE.** §SESS-88's A/B measured their QUOTES and never
+            //    executed one; `ConvertToRouted`'s two reds have been in every baseline all day and
+            //    were diagnosed as a stale pin, then a dead API key, then a bad `from` — three wrong
+            //    causes for a revert that names itself.
+            // 🔑 `1` keeps the design intact: it satisfies the router's sanity check while leaving the
+            //    real bound where it belongs — on the MEASURED balance delta across the whole
+            //    conversion, which a per-leg minReturn cannot express anyway.
+            mstore(add(route, 0xE4), 1)                        // w6 minReturnAmount — 1, see above
         }
         // ⚠️ **`flags` (w7) IS DELIBERATELY LEFT ALONE, AND IT IS A BOOKED GAP, NOT AN OVERSIGHT.**
         //    1inch's flag word carries a PARTIAL-FILL bit, and the owner's rule is *"no partial fill

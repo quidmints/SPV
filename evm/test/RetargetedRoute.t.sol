@@ -179,7 +179,16 @@ contract RetargetedRouteTest is AllesFixture {
         assertEq(_w(f, 4), uint256(uint160(address(r))),    "dstReceiver must be US - the diversion is the whole risk");
         assertNotEq(_w(f, 4), uint256(uint160(attacker)),   "the attacker's receiver survived the patch");
         assertEq(_w(f, 5), 50_000e6,                        "amount must be OURS - the staleness fix");
-        assertEq(_w(f, 6), 0,                               "minReturn zeroed; the delta floor is the bound");
+        // 🔴 §SESS-99 — **ONE, NOT ZERO, AND THE CHANGE IS A BUG FIX RATHER THAN A WEAKENING.**
+        //    1inch's router reverts `ZeroMinReturn()` on a zero here, so the whole generic-descriptor
+        //    arm had NEVER filled — `ConvertToRouted`'s two reds were that, misdiagnosed three times.
+        // ⚠️ The property this line guards is UNCHANGED: `minReturn` is ours, never the caller's. The
+        //    route arrived carrying `type(uint256).max` — a value that would make every fill revert —
+        //    and what matters is that it does not survive. `1` is the smallest value the router
+        //    accepts; the REAL bound is the measured balance delta across the whole conversion.
+        assertEq(_w(f, 6), 1,                               "minReturn must be OURS - 1, the router's "
+                                                            "minimum, with the delta floor as the real bound");
+        assertNotEq(_w(f, 6), type(uint256).max,            "the caller's minReturn survived the patch");
         assertEq(_w(f, 3), uint256(uint160(address(0xBBB1))), "srcReceiver is 1inch plumbing and must survive");
         assertEq(_w(f, 7), 0xF1A65,                         "flags must survive untouched - see the booked gap");
     }
