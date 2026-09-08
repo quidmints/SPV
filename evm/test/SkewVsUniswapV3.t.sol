@@ -37,6 +37,12 @@ contract SkewVsUniswapV3Test is AllesFixture {
         px = AUX.getTWAPforAsset(address(WETH), 1800);
         _setEthFeed(px / 1e10);
         _auxSetAssetFeed(address(WETH), ETH_FEED);
+        // ⭐ §SKEW-COVERAGE-HOLE — WARM σ² FROM REAL MAINNET ROUNDS, AFTER THE FIXTURE'S OWN FEED PIN.
+        //    Without it `realizedVarianceWad()` is 0 (this suite runs its swaps at ONE pinned block,
+        //    and `_sampleAnchorVariance` advances only on a MOVE with `dt > 0`), so the kernel returns
+        //    the flat `UNKNOWN_VARIANCE_SKEW` sentinel and never evaluates `qBar`.
+        emit log_named_uint("sigma^2 after real-round warm-up (0 == SENTINEL, result is arithmetic)",
+                            warmVarianceFromRealRounds(12));
         // (§E294) ONE LOOP: the anchor moves, then a real swap records it. Both sigma^2 legs are fed
         // only from `swap()` (Core:1031/1039), so the old push-only loop built variance through a
         // path production does not use — and the swaps it needed for `flowEwmaUsd` were already here.

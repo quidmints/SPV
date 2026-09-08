@@ -111,6 +111,13 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         // not move Chainlink. Without this the drain loop below prices against a drifting oracle.
         _setEthFeed(px / 1e10);
         _auxSetAssetFeed(address(WETH), ETH_FEED);
+        // ⭐ AFTER THIS TEST'S OWN FEED PIN — `_setAssetFeed` is PIN-ONCE (`FeedPinned()`), so a
+        //    warm-up placed above it steals the pin and the test dies. Its own note at the settle
+        //    log is why warming matters here: at the E88-r sentinel "the premium was quoted for a
+        //    market that will NOT move, and comparing it to a 10% move is ARITHMETIC, NOT A
+        //    MEASUREMENT".
+        emit log_named_uint("sigma^2 after real-round warm-up (0 == SENTINEL, result is arithmetic)",
+                            warmVarianceFromRealRounds(12));
         uint snap = vm.snapshotState();
 
         // ---- ARM 1: NEVER DRAINED. The range keeps its full volatile inventory.
