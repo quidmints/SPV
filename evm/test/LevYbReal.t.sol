@@ -495,6 +495,38 @@ contract LevYbRealProbe is AllesFixture {
         emit log_named_int("SELLS ONLY   residual after ", _res());
         emit log_named_int("SELLS ONLY   DELTA          ", _res() - r0);
     }
+    /// ⭐ §CALMVOL-LEG-SPLIT ROUND 3 — **THE LAST UNTESTED COMBINATION, and by elimination it must
+    ///   carry the whole positive offset.** Measured so far: drains −9 wei, sells −450e12, feed 0,
+    ///   sells+warps −6,211,973,167,828,659 — **every isolated arm is ≤ 0**, while `_calmVol`
+    ///   interleaved is **+5,357,529,343,317,595**. Only DRAINS + warps/feed resets remains.
+    /// ⛔ ARM D ALSO REFUTED THE ACCRUAL HYPOTHESIS OUTRIGHT: debt was 559,362,971 BEFORE and AFTER
+    ///   96 minutes of warps. Morpho accrues lazily and nothing here touches it, so time alone moves
+    ///   no debt. Do not re-derive "the residual is interest accrual" — it is measured false.
+    /// 🔎 What is left is the FEED RESET READING A PRICE THE DRAINS MOVED. `_setEthFeed(px/1e10)`
+    ///   copies the pool's TWAP into the oracle; `rangeETH` adds `totalNetEquity = collateral −
+    ///   debt`, and the debt is dollars valued at that oracle. So a drain moves the price, the reset
+    ///   propagates it, `netEquity` re-values, and `rangeETH` moves **with zero custody change** —
+    ///   while `POOLED`, a raw token count, cannot follow. Arm C read 0 because with no trades the
+    ///   TWAP never moved, so the reset was a no-op. This arm supplies the trades.
+    function testReal_CalmLeg_E_DrainsWithWarps() public {
+        _setupToRebalanced();
+        deal(address(USDC), address(this), 20_000 * USDC_PRECISION);
+        USDC.approve(address(AUX), 20_000 * USDC_PRECISION);
+        int256 r0 = _res();
+        uint px0 = AUX.getTWAPforAsset(address(WETH), 1800);
+        for (uint i; i < 8; i++) {
+            vm.warp(block.timestamp + 12 minutes); vm.roll(block.number + 1);
+            uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px != 0) _setEthFeed(px / 1e10);
+            try AUX.swap(address(USDC), address(WETH), true, 30 * USDC_PRECISION, 0, true) {} catch {}
+        }
+        emit log_named_int ("DRAINS+WARP  residual before", r0);
+        emit log_named_int ("DRAINS+WARP  residual after ", _res());
+        emit log_named_int ("DRAINS+WARP  DELTA          ", _res() - r0);
+        emit log_named_uint("DRAINS+WARP  oracle px start", px0);
+        emit log_named_uint("DRAINS+WARP  oracle px end  ", AUX.getTWAPforAsset(address(WETH), 1800));
+        emit log_named_uint("DRAINS+WARP  netEquity      ", rlm.totalNetEquity());
+    }
+
     /// ⭐ §CALMVOL-LEG-SPLIT ROUND 2 — **NO SINGLE LEG PRODUCES THE OFFSET.** Measured: drains −9 wei,
     ///   sells −450,000,000,000,000 (NEGATIVE, the premium direction, which independently confirms
     ///   §PREMIUM-DENOM-ROOT's sign prediction), feed resets EXACTLY 0. They sum to −0.00045 ETH while
