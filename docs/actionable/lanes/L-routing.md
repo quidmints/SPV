@@ -951,3 +951,34 @@ simulation against live state, not a pinned fork.
   The guard belongs per keeper entrypoint, not in `routedSwap`.
 · Coverage is **11/14** (basket is 14, `STABLECOINS`, BOLD last). Holes: GHO, FRXUSD (v4-only) and
   cUSD (no liquidity anywhere — 1inch's own best is −96.8% at $100k, saturating near $3.2k of depth).
+
+---
+
+## §SESS-108 — TWO OWNER QUESTIONS, ANSWERED BY READING THE TREE RATHER THAN BY DEFENDING IT
+
+### ✅ "REDEEM FROM THE 4626 BEFORE CONVERTING" — **ALREADY THE ARCHITECTURE. NOTHING TO BUILD.**
+Verified, not assumed: **`LevMath` never reads `vaults`.** `convertShortfall` takes `getStables()` and
+`IERC20Min(st[k]).balanceOf(...)`; `_consolidateTo` reads `IERC20Min(s).balanceOf(...)`. Both are the
+UNDERLYING. The only `IERC4626.redeem` sites are `FeeLib:316/372` (fee payout) and `BasketLib:1361`
+(a BLOCKED vault being drained and re-spread across healthy ones) — none of them hand shares to a
+route. ⇒ the routing layer cannot see a staked token, so there is no staked token to find liquidity
+for. cUSD/crvUSD/frxUSD are quoted and routed as the underlying throughout, which is why the coverage
+matrix tests `0xf939E0A0…` (crvUSD) and not scrvUSD.
+📌 The instruction was right and the tree already implements it; recorded so it is not re-opened.
+
+### 🔑 "DELETE THE TABLE" — **AND THE ELEGANCE TEST SAYS KEEP IT, FOR A REASON I HAD NOT GIVEN**
+The owner asked for `_hubRowOf` to go once consolidate had hop words. I have twice defended it on the
+narrow ground that `protectFromQuid` is permissionless. That is true and it is the WEAKER half.
+⭐ **THE TABLE IS THREE THINGS AT ONCE, AND ONLY ONE OF THEM IS AN EXECUTOR:**
+  1. the keyless stable↔USDC **executor** for `consolidate` and for `_startsAt`'s hop (§SESS-92);
+  2. the keyless **quote** — `_curveQuote` → `_selfServableQuote`;
+  3. 🔴 **the FLOOR's only keeper-independent price reference.** `_selfServableQuote` is *"what this
+     contract could get for itself, without a keeper"*, and `_consolidateTo` takes
+     `max(swapFloor, _selfServableQuote·(1−20bps))`. Delete the table and the floor collapses to a
+     pure TWAP read with no second opinion — on the one path an anonymous caller can invoke per slice.
+⇒ six compile-time rows serving all three is the ELEGANT shape; deleting them needs three
+  replacements, one of which is a price source the contract can vouch for itself. **A single constant
+  doing three jobs is not duplication — it is the absence of it.**
+⚠️ And the owner's caution was right: the pool word went because it was a SECOND, CALLER-SUPPLIED
+venue channel that duplicated `Plan::route_bytes`. The table is neither caller-supplied nor
+duplicated. Removing the word and keeping the table is one decision, not two in tension.
