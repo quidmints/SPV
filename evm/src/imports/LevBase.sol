@@ -102,7 +102,25 @@ abstract contract LevBase {
         // Unanswered ⇒ zero headroom ⇒ band 0 ⇒ rebalance always, the fail-safe direction.
         try venue.liqThresholdBps() returns (uint256 t) { lltv = t; } catch { return 0; }
         // §E358 — the headroom is the PROTOCOL's, not a position's: one cap for the whole book.
-        uint256 headroom = lltv > TARGET_LTV_CAP_BPS ? lltv - TARGET_LTV_CAP_BPS : 0;
+        // 🔴 THE TWO NUMBERS ARE ON DIFFERENT BASES AND THIS SUBTRACTED THEM RAW.
+        //    · `lltv` is the VENUE's liquidation threshold, i.e. debt/COLLATERAL — the same basis as
+        //      `getCurrentLtvBps` below.
+        //    · `TARGET_LTV_CAP_BPS` bounds `LevMath.ilTargetBps(...)`, which is measured against the
+        //      FIXED IL base `entryEquity` — the E0 basis. `ilLtvBps`'s own docblock says so.
+        //    Borrowed dollars BUY collateral, so `C = E0 + D` and an E0-LTV of `t` is `t/(1+t)` on the
+        //    venue basis: 7500 E0 == 4285 venue. `8600 − 7500 = 1100` was therefore not the headroom;
+        //    the headroom is `8600 − 4285 = 4315`.
+        // ⚠️ THE OLD NUMBER WAS TOO SMALL, SO THE BAND WAS TOO TIGHT — the system rebalanced MORE
+        //    often than it needed to, never less, which is why this never surfaced as a failure.
+        //    ⛔ AND THAT SAFETY WAS CONTINGENT, NOT STRUCTURAL: the series `h·H/(h+H)` only barely
+        //    binds while `K` is large. MEASURED at g=$5 / C=$100k — at the shipped K≈125 this fix
+        //    moves the band 69.0 → 72.4 bps; at a K of 0.71 the same fix moves it 300 → 377 bps.
+        //    A future change to `K` would have made a latent basis error suddenly load-bearing.
+        // ⭐ The conversion is constant-folded (both operands are `constant`), so it costs no gas and
+        //    no bytecode — and it is written as the algebra rather than as `4285` so the next reader
+        //    can check it instead of trusting it.
+        uint256 capVenueBasis = (TARGET_LTV_CAP_BPS * 10_000) / (10_000 + TARGET_LTV_CAP_BPS);
+        uint256 headroom = lltv > capVenueBasis ? lltv - capVenueBasis : 0;
         return LevMath.bandBpsFor(address(AUX), RANGE, TWAP_WINDOW, GAS_REBALANCE, collUsdWad, headroom);
     }
 

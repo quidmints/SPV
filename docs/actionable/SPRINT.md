@@ -98340,3 +98340,51 @@ figures above are physical.**
 📌 ⇒ **§K-AND-HEADROOM's two halves plus this make ONE item with an order:** fix `K`, and the
 LevBase:102 basis error stops being fail-safe the moment you do — so the basis must move in the same
 change. **Neither is started.**
+
+## §BASIS-FIXED-K-NOT-2026-09-08 — the basis error is fixed; `K` is NOT, and the formula is right
+
+Owner asked for both together. **One landed, one is declined on evidence, and the ordering claim that
+tied them turns out to be the thing that makes declining safe.**
+
+### ✅ FIXED — `LevBase.sol:102` mixed two LTV bases
+`lltv` is the venue's debt/**collateral**; `TARGET_LTV_CAP_BPS` bounds `LevMath.ilTargetBps`, measured
+against `entryEquity` (**E0**). Borrowed dollars buy collateral ⇒ `C = E0 + D` ⇒ an E0-LTV of `t` is
+`t/(1+t)` on the venue basis, so **7500 E0 == 4285 venue** and the headroom is `8600 − 4285 = 4315`,
+not `1100`. Now converted before subtracting, written as the algebra rather than as `4285`, and
+constant-folded (**LevManager +1 byte**, 24,159 → 24,160). **175/175 green** across Alles, VBtcLevFeeLane,
+LevCascade, LevYbReal, UnificationControls, BtcBandTheta.
+
+### ⛔ NOT CHANGED — `kLvrWad` IS CORRECT, AND I DERIVED IT FROM SCRATCH RATHER THAN ASSUMING EITHER SIDE
+For a v3 position `V(P) = L(2√P − √Pa − P/√Pb)`, so `V'' = −L/(2P^1.5)` and the standard
+`LVR = (σ²P²/2)·(−V'')` gives `LVR = σ²·L·√P/4`. Dividing by `V`:
+```
+LVR/V = σ² / (4·(2 − √(Pa/P) − √(P/Pb)))
+```
+**That is `kLvrWad` character for character.** ⇒ `K ≈ 1/(4δ)` — 125.06 at ±0.2%, 12.56 at ±2% — is
+**exactly right as the instantaneous LVR-to-VALUE ratio.** It is large because the DENOMINATOR `V` is
+small for a concentrated position, not because the loss is large. A ±0.2% LP really does bleed a large
+multiple of its (tiny) position value per year to arbitrage; that is the known cost of concentration,
+not a bug.
+
+🔴 **WHY THE `K_eff ≈ 0.4–5.1` MEASUREMENT DOES NOT OVERTURN IT — the premise fails at one grep.**
+Backing `K` out of an observed rebalance frequency requires the observed band to BE the derived band
+`h = ∛(g/(C·K))`. **It is not: `SwapLib.RANGE_DELTA = 20` is a hardcoded `internal constant` and the
+repack fires on drift past it (`RangeLib.sol:243`). `K` does not enter the repack trigger at all.**
+⇒ repacks/day measures **σ against a fixed 20 bps band**, which is why the two windows differ by 12.6×
+in `K_eff` (0.40 vs 5.06) while differing by 2.6× in volatility — a coefficient should not move with
+the sample if it is a coefficient. **The number is real; it is not this K.**
+⚠️ **AND THE DIRECTION OF THE ERROR IS WHY THIS IS NOT A JUDGEMENT CALL.** θ = `yield/(K·σ²)` is a
+Merton RISK BUDGET and `applyTheta` caps deployed depth at `θ·backing`. **A K that is too SMALL makes θ
+too LARGE and the range over-deploys into the IL bet** — capital at risk against a hazard the budget
+exists to bound. Under-deploying is inert; over-deploying is not. ⛔ **Do not lower K to make a
+backtest's edge improve; that is optimising the budget against the thing it constrains.**
+
+### ▶️ WHAT THE MEASUREMENT DOES LEGITIMATELY POINT AT, AND IT IS A BETTER QUESTION
+θ divides an **annual** fee yield by `K·σ²`, an **instantaneous** rate that applies only while the
+position is in range — and at ±0.2% and 80% vol the price crosses the band in **~3 minutes**
+(`0.002/0.042`² of a day at 4.2% daily vol). ⇒ **the suspect term is the REGIME MISMATCH in θ's ratio,
+not the geometry in its denominator.** Either the numerator must be an in-range-time-weighted yield, or
+the denominator must be scaled by expected time-in-range. **Neither is established; this is the open
+question and it should be settled analytically before any constant moves.**
+📌 ⇒ §K-AND-HEADROOM's basis half is CLOSED; its K half is re-scoped to the θ regime question above.
+The peer's backtest is kept as evidence FOR that question and against nothing else.
