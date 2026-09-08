@@ -477,6 +477,29 @@ contract LevYbRealProbe is AllesFixture {
         //    the CURVE bound (`balances(0) * 9/10`) sits near 1,986 ETH against positions of ~5.
         // ⚠️ THE ASSERTION IS NOT WEAKENED — it is stated in the units it always meant. Dropping the
         //    buffer term would have been the clamp; adding it is the identity.
+        // 🔬 §GAMMA-BREAKS-HONEST-LP-MARGIN — **THE THREE TERMS, EMITTED, BECAUSE THE VERDICT ALONE
+        //    SENT ME TO THE WRONG MECHANISM.** This assertion went red on `a4787689` (Γ moved onto its
+        //    derivation, 3e16 → 5.48e15). From the failure line alone I concluded *"a smaller Γ prices
+        //    drains cheaper, so more ETH leaves the range"* and published it. **That was wrong.**
+        //    Reading the three terms in each Γ arm of THIS fixture showed:
+        //        rangeETH + levBuf   4,925,305,260,073,929,011 → 4,925,368,211,597,702,940  (+0.0013%)
+        //        POOLED  (capacity)  4,918,038,192,545,221,464 → 4,930,283,601,835,221,980  (+0.012245 ETH)
+        //        levBuf                                    IDENTICAL, to the wei
+        //    ⇒ **THE ETH NEVER LEFT.** `levBuf` did not move at all, the backing is flat, and the whole
+        //      margin loss is `POOLED` — the range's CLAIMED CAPACITY — rising while its backing stays
+        //      put. A book-versus-backing divergence, not an outflow. The attribution closes exactly:
+        //      `ΔPOOLED − Δ(rangeETH+levBuf)` equals the margin loss to the wei.
+        //    ⛔ `levBuf` BEING IDENTICAL IS WHY "re-size the debt-funded buffer" IS A DEAD END — it is
+        //      not the quantity that moved. Anyone reaching this red should read the three numbers
+        //      before forming a mechanism, which is the step I skipped.
+        //    📌 KEPT rather than deleted after the diagnosis (project-bc's argument, and it is right):
+        //      a future reader re-deriving this wants to RE-RUN the instrument, not rebuild it. Three
+        //      emits cost nothing and turn a bare pass/fail into a diagnosis.
+        //    ⚠️ The direction is still UNTRACED — a smaller retained premium should make the book grow
+        //      LESS, not more. Do not close that gap with a plausible story; one has already been wrong.
+        emit log_named_uint("rangeETH + levBuf (backing)", AUX.rangeETH() + ETH.levBuf(LP));
+        emit log_named_uint("POOLED            (claim)  ", CORE.POOLED());
+        emit log_named_uint("levBuf       (debt-funded) ", ETH.levBuf(LP));
         assertGe(AUX.rangeETH() + ETH.levBuf(LP), CORE.POOLED(),
             "real venue ETH + the debt-funded buffer must cover the range (honest LPs whole)");
     }
