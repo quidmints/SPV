@@ -902,6 +902,36 @@ a green targeted run says nothing about the suites it did not execute.
 
 
 
+- 🔴 **A NAME IS NOT THE THING — AND A DRAFT LABEL IS THE WORST NEEDLE OF ALL. THREE INSTANCES IN
+  ONE SESSION, 2026-09-08, all by one author, all from searching for a NAME instead of reading the
+  STRUCTURE:**
+  · `_maxWellSkew` was read as a CEILING because of its `max` prefix. §E79 had performed a documented
+    *"cap→base inversion"* and it is ADDED (`return _maxWellSkew(...) + _depletion(...)`), never
+    `min`'d. A whole finding, an owner decision and two peer messages rested on the prefix.
+  · *"the LP-side is ibiza's implementation"* — inherited from a row, while the wallet is in THIS
+    repo at `app/features/identity/chain/`. A stale boundary repeated because it was written down.
+  · **A colleague's uncommitted work was declared LOST on three clean searches for the string
+    `PROBE`** — a working label its author improved before committing. `git log -S "<literal>"`
+    returned empty, `grep` returned 0, and a full `git fsck --lost-found` blob walk found nothing.
+    **Every search was competent and every one was the wrong needle.** The work was committed and
+    pushed the whole time.
+  ⇒ **THE STRUCTURAL CHECK IS `git show <commit> -- <path>` OR `git log --diff-filter=M -- <path>`,
+  NEVER A LITERAL FROM A DRAFT.** Search for the QUANTITIES a thing computes, the call it makes, the
+  path it lives on — things an author cannot rename without changing behaviour.
+  ⚠️ **AND THE FAILURE IS SYMMETRIC, WHICH IS WHY IT KEEPS WORKING:** the same empty grep that
+  "proves" work was lost also "proves" a symbol is dead. Two readers ran the same grep here and
+  reached OPPOSITE conclusions, one of them holding the commit that settled it.
+- 🔴 **"LEAVE IT, IT'S PROBABLY THEIRS" IS A MECHANISM, NOT A COURTESY — AND IT COST A TEST ON
+  2026-09-08.** In a shared checkout, three sessions each left an uncommitted file alone because each
+  assumed another owned it. **That default protects a file from being EDITED and does nothing to
+  protect it from being ERASED, because erasure comes from an unrelated operation — a checkout, a
+  reset, a branch switch — not from an editor.** project-91's `DrainAtomicity.t.sol` test was
+  destroyed mid-run with no stash and no reachable object.
+  ▶️ **THE FIX COSTS ONE COMMAND AND DOES NOT REQUIRE KNOWING WHOSE IT IS: `git stash create` mints a
+  commit object WITHOUT touching the index or working tree.** Record the SHA before any branch
+  operation. That converts an unrecoverable loss into a recoverable one regardless of attribution —
+  and attribution is exactly what nobody can establish in the moment (measured: three sessions, three
+  wrong guesses about ownership in one day, in both directions).
 - **An empty grep proves nothing.** Never assert absence from a search. **Run the CONTROL before
   concluding: would this measurement look the same if I were wrong?** On 2026-08-02, "35 verifiers
   are unreferenced, therefore dead" collapsed when the LIVE verifiers scored identically — they are
