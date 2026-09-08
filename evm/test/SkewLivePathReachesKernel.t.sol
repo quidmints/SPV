@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
+import {SwapLib} from "../src/imports/SwapLib.sol";
 import {AllesFixture} from "./Alles.t.sol";
 
 /// @title  §E306 — **THE MISSING INSTRUMENT: ENTER THROUGH THE PRODUCTION CALLER**
@@ -100,13 +101,20 @@ contract SkewLivePathReachesKernelTest is AllesFixture {
         vm.prank(User02);
         ETH.deposit{value: 400 ether}(0, User02);
         assertEq(CORE.realizedVarianceWad(), 0, "PREMISE: the bare fixture should have no variance");
-        // ⛔ **§E306 SAYS THIS RETURNS "THE FLAT SENTINEL". IT DOES NOT — IT RETURNS 0.** With no
-        //    flow, `target == 0` short-circuits to `_maxWellSkew(0, ethRisk())`, and ETH's profile is
-        //    `(ETH_CONF_FRAC_WAD, 0)` — `spliceFloor == 0` — so the whole expression is ZERO. The
-        //    `UNKNOWN_VARIANCE_SKEW` sentinel sits BELOW that short-circuit and is never reached.
-        //    ⇒ On a flush ETH range the production skew is 0, not 3e16, which is
-        //    §ZERO-REVENUE-ON-A-FLUSH-ETH-RANGE seen from the production entry point.
-        assertEq(AUX.wellSkew(address(WETH), 10_000e6), 0,
+        // ⛔ **§E306 SAYS THIS RETURNS "THE FLAT SENTINEL". IT DOES NOT.** With no flow,
+        //    `target == 0` short-circuits to `_maxWellSkew(0, ethRisk())`, and ETH's profile is
+        //    `(ETH_CONF_FRAC_WAD, 0)` — `spliceFloor == 0` — so that expression is ZERO. The
+        //    `UNKNOWN_VARIANCE_SKEW` sentinel sits BELOW the short-circuit and is never reached.
+        // ✅ **AND IT IS NO LONGER ZERO EITHER — THIS TEST WAS PINNING THE DEFECT AS THE ANSWER.**
+        //    Its own line above named what it was measuring: *"on a flush ETH range the production
+        //    skew is 0 ... which is §ZERO-REVENUE-ON-A-FLUSH-ETH-RANGE seen from the production
+        //    entry point."* That IS the defect, asserted as expected behaviour, which is why nothing
+        //    caught it: a quote of ZERO means an unseeded range hands out inventory for free.
+        //    §MIN-SWAP-FEE now floors every quote at 420 ppm (owner, 2026-09-08: *"all swaps even
+        //    balance restoring must pay at least the minimum"*), so the short-circuit still fires —
+        //    the sentinel is still unreachable, which is what this control exists to prove — but the
+        //    floor is what comes out.
+        assertEq(AUX.wellSkew(address(WETH), 10_000e6), SwapLib.MIN_SWAP_SKEW_WAD,
             "an unseeded ETH range must quote ZERO (target==0 -> _maxWellSkew, and ETH's spliceFloor "
             "is 0). If this is now the 3e16 sentinel, the short-circuit order changed.");
     }

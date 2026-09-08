@@ -136,14 +136,22 @@ contract RestoreProfitability is AllesFixture {
             //    asserted NOTHING — so it could not fail, and a regression that started charging
             //    restoring trades would have printed different numbers under a green tick.
             //    A test whose output only a human reads is a script, not a gate.
+            // §MIN-SWAP-FEE — "FREE" MEANS FREE OF THE *EXTRA*, NOT FREE. Owner, 2026-09-08:
+            //   *"the minimum swap fee was just the fact that all swaps even balance restoring must
+            //   pay at least the minimum"*, and on the exemption: *"by that free meaning it just
+            //   means without encumbering extra beyond the minimum."*
+            // ⇒ At or below the deficit the restorer pays the FLOOR and not one bp more. Asserting
+            //   `== minBps` rather than `<= minBps` is the point: it fails BOTH ways, catching a
+            //   premium wrongly charged on a restore AND the floor going missing again.
+            uint minBps = SwapLib.MIN_SWAP_SKEW_WAD * 10_000 / 1e18;   // 420 ppm ⇒ 4 bps
             if (pct[i] <= 100) {
-                assertEq(bps, 0,
-                    "RESTORING MUST BE FREE: at or below the deficit the mirror/flush exemption "
-                    "must zero the premium (SwapLib:430)");
+                assertEq(bps, minBps,
+                    "RESTORING PAYS THE MINIMUM AND NOTHING MORE: at or below the deficit the "
+                    "mirror/flush exemption must remove the PREMIUM, leaving exactly the floor");
             } else {
-                assertGt(bps, 0,
-                    "OVERSHOOT MUST BE CHARGED: past target the trade is inventory-INCREASING and "
-                    "pays the A-S premium");
+                assertGt(bps, minBps,
+                    "OVERSHOOT MUST BE CHARGED ABOVE THE FLOOR: past target the trade is "
+                    "inventory-INCREASING and pays the A-S premium ON TOP of the minimum");
             }
             vm.revertToState(snap);
         }
