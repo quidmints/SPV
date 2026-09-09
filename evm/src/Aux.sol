@@ -1171,7 +1171,8 @@ contract Aux is // Auxiliary
         // its accounting slot is `nStables` under the `i + 1` convention `BasketLib.get_deposits`
         // writes (`stables[i]` -> `amounts[i + 1]`, and BOLD is `stables[nStables - 1]`).
         // 🔴 **THIS WAS HARDCODED TO 13 AND THAT IS THE DISEASE, NOT A TYPO.** 13 is BOLD's slot only
-        // when `nStables == 13`, and NOTHING RUNS 13: every fixture runs 11, the deploy asserts 14.
+        // when `nStables == 13`, and NOTHING RUNS 13: the deploy asserts 14 and, since §ROSTER-ALIGN,
+        // so does `test/Alles.t.sol` — before that every fixture ran 11, so nothing ever ran the deploy.
         //   · at 14 the hardcode CLOBBERED `stables[12]` and the pro-rata loop then read the TOTAL
         //     slot as a token slot, so `slotDep == totalDep` and a redeem drew the whole basket —
         //     a ~2x over-delivery;

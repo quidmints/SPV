@@ -1369,7 +1369,7 @@ contract Quid is Shares,
         //    to exist: a pro-rata bundle is multi-source BY CONSTRUCTION, so the aggregator splits
         //    across venues that do not compete for the same liquidity without anyone choosing it.
         //    ⚠️ UNITS, EACH ESTABLISHED RATHER THAN ASSUMED: the pro-rata draw takes **USD18**
-        //    (`takeBody` clamps it against `amounts[14]`, the 18-dec basket total); `convertTo`
+        //    (`takeBody` clamps it against `amounts[15]`, the 18-dec basket total); `convertTo`
         //    returns the payout token's **NATIVE** units (a measured balance delta); and `proceeds6`
         //    is 6-dec USD. Getting any of these wrong is the 1e12 class that already cost a full
         //    position debit on this very function.

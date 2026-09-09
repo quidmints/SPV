@@ -74,10 +74,15 @@ contract CurveTableResearch is ForkPin {
         _probe("AUSD",   0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a);
         _probe("CRVUSD", 0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E);
         _probe("BOLD",   0x6440f144b7e50D6a8439336510312d2F54beB01D);
-        // §SESS-120 — the two uncovered basket stables this artifact never probed. FRAX is frxUSD
-        // (Frax RENAMED the token at the same address; the deploy comment records it), and cUSD is the
+        // §SESS-120 — the two uncovered basket stables this artifact never probed. cUSD is the
         // BASE token — `stcUSD` (0x8888…) is its 4626 vault, not a basket stable.
-        _probe("FRAX",   0x853d955aCEf822Db058eb8505911ED77F175b99e);
+        // 🔴 §ROSTER-ALIGN — THIS PROBED THE WRONG TOKEN AND ITS OWN COMMENT SAID SO WITHOUT
+        //    NOTICING. It read *"FRAX is frxUSD (Frax RENAMED the token at the same address)"* and
+        //    then probed **0x853d955a…**, legacy FRAX — while the basket's frxUSD, taken from
+        //    `DeployL1_s.sol:180` and on-chain verified there as `symbol()=="frxUSD"`, is
+        //    **0xCAcd6fd2…**. Different addresses, so the route table this artifact produced had a
+        //    row for a token the protocol does not hold and NO row for one it does.
+        _probe("FRXUSD", 0xCAcd6fd266aF91b8AeD52aCCc382b4e165586E29);
         _probe("CUSD",   0xcCcc62962d17b8914c62D74FfB843d73B2a3cccC);
     }
 }

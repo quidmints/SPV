@@ -213,7 +213,9 @@ contract Deploy is Script {
 
         // NOTE: BOLD MUST be the LAST entry — Aux pins `stables[length-1]` as the
         // Liquity-SP-routed stable (get_deposits/calcSPValue, take/redeem at
-        // Aux.sol:967/1119/1426). AUSD at 9, cUSD at 10, BOLD LAST at 11.
+        // Aux.sol:967/1119/1426). AUSD at 9, cUSD at 10, crvUSD at 11, frxUSD at 12,
+        // BOLD LAST at 13. (This said "BOLD LAST at 11" — left over from the 12-stable
+        // roster and contradicted by the array three lines below it.)
         STABLECOINS = [
             address(USDC), address(USDT),
             address(PYUSD), address(GHO),

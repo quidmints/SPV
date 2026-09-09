@@ -43,9 +43,16 @@ contract VaultDonationClassify is ForkPin {
     address constant SDAI           = 0x83F20F44975D03b1b09e64809B757c47f942BEeA; // Maker DSR
     address constant SUSDE          = 0x9D39A5DE30e57443BfF2A8307A4256c8797A3497; // Ethena
     address constant STCUSD         = 0x88887bE419578051FF9F4eb6C858A951921D8888; // Cap USD
+    // §ROSTER-ALIGN — TWO LIVE BASKET 4626 LEGS THIS SWEEP NEVER CLASSIFIED. `DeployL1_s.sol:252-253`
+    // wires scrvUSD and sfrxUSD as the venues for crvUSD and frxUSD, on the SAME native-4626 rails as
+    // sDAI/sUSDe/stcUSD. The list above stopped at stcUSD, so `test_ClassifyAllVenues` asserted
+    // "every basket 4626 leg" over 15 of the 17 that exist — and an unclassified leg is exactly the
+    // exposure PREMISE 3 below says it is: donation behaviour unknown, same risk as known-bad.
+    address constant SCRVUSD        = 0x0655977FEb2f289A4aB78af67BAB0d17aAb84367; // Curve (asset()==crvUSD)
+    address constant SFRXUSD        = 0xcf62F905562626CfcDD2261162a51fd02Fc9c5b6; // Frax  (asset()==frxUSD)
     address constant MORPHO_BLUE    = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb; // aUSD donation source
 
-    uint constant N = 15;
+    uint constant N = 17;
 
     struct Probe {
         uint a0;         // convertToAssets(1e18) before the donation
@@ -64,12 +71,14 @@ contract VaultDonationClassify is ForkPin {
             "galaxyUsdc (MetaMorpho)","skyUsdc","wintermuteUsdc","rockawayUsdc",
             "gauntletUsdc (MetaMorpho)","galaxyUsdt (MetaMorpho)","skyUsdt","gauntletUsdt",
             "morphoPyusd (MetaMorpho)","morphoRlusd (MetaMorpho)","morphoUsds (MetaMorpho)",
-            "morphoAusd (MetaMorpho)","sDAI (Maker DSR)","sUSDe (Ethena)","stcUSD (Cap)"
+            "morphoAusd (MetaMorpho)","sDAI (Maker DSR)","sUSDe (Ethena)","stcUSD (Cap)",
+            "scrvUSD (Curve)","sfrxUSD (Frax)"
         ];
         address[N] memory vs = [
             galaxyUsdc, skyUsdc, wintermuteUsdc, rockawayUsdc,
             gauntletUsdc, galaxyUsdt, skyUsdt, gauntletUsdt,
-            morphoPyusd, morphoRlusd, morphoUsds, morphoAusd, SDAI, SUSDE, STCUSD
+            morphoPyusd, morphoRlusd, morphoUsds, morphoAusd, SDAI, SUSDE, STCUSD,
+            SCRVUSD, SFRXUSD
         ];
         // Where the donated assets come from. address(0) = `deal` (works for every token whose
         // balance lives in a plain mapping). aUSD is namespaced-storage (ERC-7201) and `deal`

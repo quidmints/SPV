@@ -64,10 +64,18 @@ contract Deploy is Script {
     address constant RLUSD = 0x8292Bb45bf1Ee4d140127049757C2E0fF06317eD;
     address constant AUSD  = 0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a;
     address constant BOLD  = 0x6440f144b7e50D6a8439336510312d2F54beB01D;
+    // §ROSTER-ALIGN — the three the deploy carries that this driver did not (indices 10/11/12).
+    address constant CUSD   = 0xcCcc62962d17b8914c62D74FfB843d73B2a3cccC;
+    address constant CRVUSD = 0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E;
+    address constant FRXUSD = 0xCAcd6fd266aF91b8AeD52aCCc382b4e165586E29;
 
     address constant SDAI  = 0x83F20F44975D03b1b09e64809B757c47f942BEeA;
     address constant SUSDE = 0x9D39A5DE30e57443BfF2A8307A4256c8797A3497;
-    address constant morphoUsdcVault  = 0xA2EAaD0D586cF9FD73bb2c09cF6A7E3e187D68cd;
+    address constant STCUSD  = 0x88887bE419578051FF9F4eb6C858A951921D8888;   // asset() == cUSD
+    address constant SCRVUSD = 0x0655977FEb2f289A4aB78af67BAB0d17aAb84367;   // asset() == crvUSD
+    address constant SFRXUSD = 0xcf62F905562626CfcDD2261162a51fd02Fc9c5b6;   // asset() == frxUSD
+    // Galaxy USDC is the PRIMARY in `DeployL1_s.sol:49`; this pinned a different curator vault.
+    address constant morphoUsdcVault  = 0x91600E31fBeDc72433d4a57F16639cfe661Be7d8;
     address constant morphoUsdtVault  = 0x71ffB6a81786eC285D429d531Cf655107B9D878d;
     address constant pyusdMorpho      = 0xb576765fB15505433aF24FEe2c0325895C559FB2;
     address constant morphoRlusdVault = 0x6dC58a0FdfC8D694e571DC59B9A52EEEa780E6bf;
@@ -82,15 +90,23 @@ contract Deploy is Script {
         address hop = vm.addr(pk);
 
         // BOLD MUST stay last (Aux pins stables[length-1] as the SP-routed stable).
-        address[] memory stables = new address[](11);
+        // §ROSTER-ALIGN — THIS DRIVER RAN 11 WHILE THE DEPLOY ASSERTS 14, so the "same shared
+        // deploy" claim in the header above was false in the one dimension that decides every
+        // pro-rata denominator. Now verbatim from `DeployL1_s.sol:217-255`, same order, BOLD last.
+        // 🔴 `stables[i]` and `vaults[i]` are POSITIONALLY PAIRED and nothing else enforces it.
+        address[] memory stables = new address[](14);
         stables[0]=USDC; stables[1]=USDT; stables[2]=PYUSD; stables[3]=GHO;
         stables[4]=RLUSD; stables[5]=USDG; stables[6]=DAI; stables[7]=USDS;
-        stables[8]=USDE; stables[9]=AUSD; stables[10]=BOLD;
-        address[] memory vaults = new address[](11);
+        stables[8]=USDE; stables[9]=AUSD; stables[10]=CUSD; stables[11]=CRVUSD;
+        stables[12]=FRXUSD; stables[13]=BOLD;
+        address[] memory vaults = new address[](14);
         vaults[0]=morphoUsdcVault; vaults[1]=morphoUsdtVault; vaults[2]=pyusdMorpho;
         vaults[3]=address(0);      vaults[4]=morphoRlusdVault; vaults[5]=address(0);
         vaults[6]=SDAI;            vaults[7]=morphoUsdsVault;   vaults[8]=SUSDE;
-        vaults[9]=morphoAusdVault; vaults[10]=stabilityPool;
+        vaults[9]=morphoAusdVault; vaults[10]=STCUSD;           vaults[11]=SCRVUSD;
+        vaults[12]=SFRXUSD;        vaults[13]=stabilityPool;
+        require(stables.length == vaults.length, "stables/vaults: positional pairing broken");
+        require(stables.length == 14, "stables: 14 is the uint[16] layout maximum");
 
         vm.startBroadcast(pk);
 

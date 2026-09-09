@@ -106,7 +106,8 @@ export const CONTRACTS: Contracts = {
 // (the BTC range's pricing leg), even though delivery is native BTC via the hop.
 export const WBTC_DECIMALS = 8
 
-// 12 stables in DeployL1_s.sol order (verified 2026-07-22), **BOLD LAST** —
+// 14 stables in DeployL1_s.sol order, **BOLD LAST** — §ROSTER-ALIGN: this listed 12,
+// missing crvUSD and frxUSD (deploy indices 11 and 12), while the deploy asserts 14. —
 // the Aux runtime treats stables[length-1] as the Liquity stability pool
 // route (BOLD/SP special-case). USDT0 was REMOVED from the deploy (no L1
 // ERC20 exists — Ethereum uses canonical USDT behind the LayerZero adapter).
@@ -122,6 +123,8 @@ export const STABLES: StableToken[] = [
   { symbol: 'USDE',  address: '0x4c9EDD5852cd905f086C759E8383e09bff1E68B3', decimals: 18 },
   { symbol: 'AUSD',  address: '0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a', decimals: 6 },  // verify decimals on-chain
   { symbol: 'cUSD',  address: '0xcCcc62962d17b8914c62D74FfB843d73B2a3cccC', decimals: 18 }, // Cap USD (18-dec, verified on-chain)
+  { symbol: 'crvUSD',address: '0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E', decimals: 18 }, // native scrvUSD 4626
+  { symbol: 'frxUSD',address: '0xCAcd6fd266aF91b8AeD52aCCc382b4e165586E29', decimals: 18 }, // Frax renamed FRAX -> frxUSD, same address
   { symbol: 'BOLD',  address: '0x6440f144b7e50D6a8439336510312d2F54beB01D', decimals: 18 }, // MUST be last
 ]
 

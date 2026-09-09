@@ -2447,14 +2447,22 @@ library SwapLib {
     }
 
     /// @dev Held USD (18-dec) of a single basket stable = its get_deposits slot. In the uint[16] vector,
-    ///   `amounts[i+1] = balance` is the depeg-adjusted per-stable hold (BasketLib:247; BOLD → [11]), while
-    ///   `amounts[0]` is the yield-weighted aggregate and `amounts[15]` the TVL total. So a real stable's
-    ///   `toIndex` is in [1,11] (11 stables, BOLD last — `DriverE2E.s.sol:85-88`); the guard rejects the
-    ///   aggregate (0), everything from slot 12 up (12-13 unused, 14 the TVL total), and unknown
-    ///   stables (toIndex 0).
+    ///   `amounts[i+1] = balance` is the depeg-adjusted per-stable hold (BasketLib:173), `amounts[0]` is
+    ///   the yield-weighted aggregate and `amounts[15]` the TVL total. BOLD is `stables[nStables-1]` and
+    ///   Aux writes its SP leg to `amounts[nStables]`, so a real stable's `toIndex` is in `[1, nStables]`.
+    /// 🔴 §ROSTER-ALIGN — THE BOUND IS DERIVED, AND THE LITERAL IT REPLACES WAS A LIVE FAIL-CLOSED DoS.
+    ///   This read `idx >= 12` and its docblock justified the 12 by citing the **11**-stable
+    ///   `DriverE2E.s.sol` roster. The SHIPPED roster is 14 (`DeployL1_s.sol` asserts it), so on
+    ///   mainnet crvUSD (12), frxUSD (13) and BOLD (14) all tripped the guard and returned 0 held —
+    ///   not "no holdings", but "this stable does not exist". The caller reads that as nothing to
+    ///   draw and refuses the delivery, so a levered swap-out denominated in any of the three was
+    ///   dead on arrival while the basket held them. A NEW literal would re-arm the same trap on the
+    ///   next roster change, so the roster answers for itself.
+    /// ⚠️ Slots above `nStables` (up to 14) and slot 15 are still rejected: unused slots read 0 and
+    ///   the total is not a per-stable hold.
     function _heldUsd18(address aux, address stable) private returns (uint) {
         uint idx = IAux(aux).toIndex(stable);
-        if (idx == 0 || idx >= 12) return 0;
+        if (idx == 0 || idx > IAux(aux).getStables().length) return 0;
         (uint[16] memory amts,,,) = IAux(aux).get_deposits();
         return amts[idx];
     }

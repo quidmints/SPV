@@ -44,10 +44,13 @@ contract ProRataConvertGas is ForkPin {
     address constant PYUSD = 0x6c3ea9036406852006290770BEdFcAbA0e23A0e8;
     address constant CRVUSD= 0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E;
     address constant USDS  = 0xdC035D45d973E3EC169d2276DDab16f1e407384F;
-    address constant FRAX  = 0x853d955aCEf822Db058eb8505911ED77F175b99e;
+    // §ROSTER-ALIGN — this was legacy FRAX (0x853d955a…), which is NOT a basket stable. The
+    // basket's frxUSD is 0xCAcd6fd2… (`DeployL1_s.sol:180`), so the "realistic basket slice"
+    // above priced a token the protocol never holds.
+    address constant FRXUSD = 0xCAcd6fd266aF91b8AeD52aCCc382b4e165586E29;
     address constant WETH  = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
 
-    address[8] tokens = [USDC, USDT, DAI, GHO, PYUSD, CRVUSD, USDS, FRAX];
+    address[8] tokens = [USDC, USDT, DAI, GHO, PYUSD, CRVUSD, USDS, FRXUSD];
 
     function setUp() public { vm.selectFork(_forkMainnet()); }
 

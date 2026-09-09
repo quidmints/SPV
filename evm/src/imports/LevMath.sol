@@ -1098,7 +1098,7 @@ library LevMath {
     /// @dev ⭐ `public`, NOT `internal` — an internal library function is INLINED into its caller, and
     ///      inlining this put `Quid` 124 bytes over EIP-170. `public` makes it a delegatecall.
     ///      ⚠️ UNITS, EACH ESTABLISHED RATHER THAN ASSUMED: `short18` is USD **18-dec**, the unit
-    ///      `BasketLib.takeBody` expects on the pro-rata path (it clamps against `amounts[14]`, the
+    ///      `BasketLib.takeBody` expects on the pro-rata path (it clamps against `amounts[15]`, the
     ///      18-dec basket total); `convertTo` returns the payout token's **NATIVE** units, being a
     ///      measured balance delta; the return is **6-dec USD**. A slip between these is the 1e12
     ///      class that already cost a full position debit on this rail.

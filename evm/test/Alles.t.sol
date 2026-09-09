@@ -591,9 +591,11 @@ contract AllesFixture is ForkPin, ExitFixture {
     IERC20 public USDS = IERC20(0xdC035D45d973E3EC169d2276DDab16f1e407384F);
     IERC20 public USDE = IERC20(0x4c9EDD5852cd905f086C759E8383e09bff1E68B3);
     IERC20 public CRVUSD = IERC20(0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E);
-    /// @notice frxUSD — Frax RENAMED the token to frxUSD at the SAME address the legacy repo
-    ///         calls FRAX, so this used to be declared here as `FRAX`. Renamed to match
-    ///         `DeployL1_s.sol`, which is now the fixture's source of truth for the roster.
+    /// @notice frxUSD — deploy slot 12, native sfrxUSD 4626 (`asset() == frxUSD`). This was
+    ///         declared here as `FRAX`, which invited confusion with LEGACY FRAX
+    ///         (0x853d955a…, NOT a basket stable); renamed to the symbol
+    ///         `DeployL1_s.sol:180` verified on-chain, since the deploy is this fixture's
+    ///         source of truth for the roster.
     IERC20 public FRXUSD = IERC20(0xCAcd6fd266aF91b8AeD52aCCc382b4e165586E29);
     /// @notice cUSD — Cap USD, deploy slot 10. Native stcUSD 4626 (asset() == cUSD).
     IERC20 public CUSD = IERC20(0xcCcc62962d17b8914c62D74FfB843d73B2a3cccC);
@@ -3022,6 +3024,29 @@ contract Alles is AllesFixture {
     }
 
     function testVaultBalanceDistribution() public {
+        // §ROSTER-ALIGN — FUND A THIRD AND FOURTH STABLE, BECAUSE THE ASSERTION BELOW WAS BEING
+        // MET BY A SLOT THAT IS NOT A VAULT. `setUp` mints from USDC and DAI only, so exactly TWO
+        // per-token slots are ever funded; the old loop started at `i = 0`, and slot 0 is the
+        // yield-weighted AGGREGATE, so the third "vault with deposits" was the aggregate itself.
+        // The bound `>= 3` was therefore satisfied by an accounting cell, not by a third venue —
+        // vacuous in exactly the §VACUOUS-BOUNDS sense the comment below complains about.
+        // ⇒ Fund two more real stables so the claim is TESTED rather than arithmetically true.
+        //   Depegs are healed first: the fixture wires no stable feeds, so an unfed stable reads
+        //   max severity on this fork and the mint gate would reject it (see `_healDepeg`).
+        {
+            address[] memory st_ = AUX.getStables();
+            for (uint i; i < st_.length; i++) _healDepeg(st_[i]);
+            // USDS and USDe, NOT USDT: USDT's `approve`/`transfer` return NO data, so a typed
+            // `IERC20` call against it reverts on the ABI decode (the same quirk
+            // `VaultDonationClassify.probeExt` documents and works around with a raw call).
+            // Both of these are standard bool-returning 18-dec ERC20s with a wired 4626 venue.
+            deal(address(USDS), address(this), 5_000e18);
+            USDS.approve(address(AUX), 5_000e18);
+            QUID.mint(address(this), 5_000e18, address(USDS), 0);
+            deal(address(USDE), address(this), 5_000e18);
+            USDE.approve(address(AUX), 5_000e18);
+            QUID.mint(address(this), 5_000e18, address(USDE), 0);
+        }
         (uint[16] memory deposits, ,,) = AUX.get_deposits();
 
         // 🔴 THREE DEFECTS, AND THE FIRST TWO MADE THIS TEST MEASURE HALF THE BASKET AND SAY SO
