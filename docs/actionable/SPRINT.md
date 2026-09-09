@@ -63384,3 +63384,76 @@ F-series numbers it was holding up are admissible.** ⚠️ The general caution 
 keeping: **a capacity number is only meaningful against the PATH that draws it** — reading a redeem-side
 capacity as swap-side depth is what produced this, and it is the same class as reading `rangeETH` as
 `deliverableETH`, which `LevMath:232` already records as a real prior error.
+
+---
+
+# 🔐 §BLOB-IS-BOUNDED-NOT-SAFE — *"how do we know there is never a malicious blob vulnerability"*
+
+**We do not know "never". It is BOUNDED, and the bound degrades exactly where quote coverage is
+missing.** Verified in `LevMath._retarget` / `convertTo`.
+
+## ✅ WHAT IS ACTUALLY DEFENDED (six layers, all measured in code)
+1. **SELECTOR ALLOWLIST.** After the two unoswap arms, `if (sel != SWAP_SELECTOR) revert BadRoute()`.
+   Exactly three selectors execute; a blob naming any other router function is refused.
+2. **ARITY / OFFSET CHECKS.** `len != 4 + words*32` reverts for unoswap; the generic arm requires
+   `len >= 4 + 10*32` **and `dataOff == 9*32`** — so a crafted blob cannot shift the head and make our
+   writes land somewhere that is not the amount field.
+3. **FIELDS OVERWRITTEN, NOT VALIDATED** — `srcToken`, `dstToken`, `amount`, `minReturn`, and
+   **`dstReceiver ← address()`**, which makes the pay-itself diversion UNCONSTRUCTIBLE (rule 17)
+   rather than merely caught by `RouteTookAndGaveNothing`.
+4. **PINNED ROUTER** (`ONEINCH_ROUTER` constant) — the blob cannot choose the callee.
+5. **EXACT-AMOUNT `forceApprove(amt)`, ZEROED ON BOTH PATHS** — no standing allowance survives a leg.
+6. **`ROUTE_GAS_CAP`** — a security bound, not a tuning knob: measured **931,857,691 gas** on a route
+   that reverts deep inside 1inch's executor, which EIP-150 makes fatal to the whole tx.
+
+## 🔴 WHAT THE CALLER STILL CONTROLS, AND WHERE THE NUMBER GOES SOFT
+On the generic `swap()` arm the writes are **w1, w2, w4, w5, w6** — so **w0 `executor` and w3
+`srcReceiver` are NEVER overwritten.** A caller can therefore direct our tokens to an address it
+chooses; what stops that being theft is `minReturnAmount` (w6) and the aggregate `minOut`.
+And **`swapMin = minLeg == 0 ? 1 : minLeg`**, where `minLeg` comes from `_selfServableQuote` — which is
+**STABLE-ONLY** (`_curveQuote` hops). **For a volatile leg it returns 0, so the router's own bound is
+1 wei.**
+- ✅ **BTC/ETH legs are SAFE anyway** — they are SINGLE-leg conversions, and `_volToStable` /
+  `_stableToWbtc` pass an ORACLE-FLOORED `minOut`, enforced by `convertTo` on a measured balance
+  delta. A 1-wei fill reverts `Slippage()`. **For a single leg, the aggregate floor IS the per-leg floor.**
+- 🔴 **THE EXPOSURE IS MULTI-LEG.** `convertShortfall` runs **one leg per stable**; a leg whose
+  `_curveQuote` coverage is missing gets `minLeg == 0` ⇒ w6 = 1, and its diversion is covered by the
+  other legs' surplus **up to the aggregate floor's slack**. ⚠️ **GHO HAS NO `_hubRowOf` ROW**, so it
+  is exactly that leg today — the same coverage hole CLAUDE.md already names (*"a stable with no row
+  silently contributes a floor of zero, which reads identically to a floor that passed"*).
+⇒ **This is the *verified mechanism ≠ verified number* rule: the mechanism is sound and the NUMBER
+protecting one class of leg is `1`.**
+
+## ⏸️ THE FIX, AND WHY IT IS NOT LANDED — **BYTE-BLOCKED, MEASURED**
+The lever is **w6**, not our per-leg guard. ⛔ **Do NOT make `RouteTookAndGaveNothing` proportional** —
+that is `> 0` deliberately, and §SESS-20 already ruled a per-leg SIZE bound out (*"a keeper would pass
+the aggregate by over-delivering one leg"*). The fix is to give `_retarget` an oracle-derived floor
+for volatile legs, which needs `aux` threaded into `_retarget` ← `convertTo` ← `routedSwap`.
+🔴 **`LevMath` HAS 71 BYTES.** The comparable threading in this same function (hop-bit chaining) was
+measured at **+425 bytes and put LevMath 203 OVER EIP-170**. ⇒ **it does not fit today**, and the
+sequencing is: free bytes in `LevMath` (or move `_retarget` to its own library) FIRST. **Booked as a
+known bound, not as a defect to patch around.**
+▶️ **CHEAPER INTERIM, if the owner wants one before the bytes exist:** refuse an UNCOVERED leg
+(`minLeg == 0`) inside a MULTI-leg conversion — an uncovered leg then cannot hide behind other legs'
+surplus, and single-leg volatile paths (the BTC ones) are unaffected because their aggregate floor is
+already the oracle. Costs a comparison, not an oracle read. **Trade-off: a GHO leg would be refused in
+a multi-leg redeem until GHO gets a row — a liveness cost the owner must price.**
+
+---
+
+# 🔴 §SINGLE-LP-IS-THE-LEDGER-NOT-THE-POSITION — the docblock is misleading post-§POOL-VENUE
+
+*(owner: **"'PERMISSIONLESS single-LP rebalance toward the IL target' — how is this relevant if there
+is a protocol-wide borrow for all LPs?"**)* — **It is not, and the phrase is wrong.**
+`rebalance(lp)` → `_leverUpBuy(venue, lp, …)` → `venue.borrow(lp, …)` →
+`MORPHO.borrow(…, address(this), address(this))` **on the ONE pooled position**, minting
+`debtUnits[lp]`. ⇒ **"single-LP" describes the LEDGER, not the POSITION.** Every permissionless
+per-LP rebalance moves the **shared** Morpho position.
+⚠️ **MY EARLIER ANSWER IS TRUE PER CALL AND ANSWERS THE WRONG QUESTION.** The target really is
+price-derived and not caller-chosen, so no single call over-levers. **But the surface is the
+COMPOSITION:** anyone may walk many LPs to their targets in sequence, and the aggregate lands on one
+position with **one health factor and one liquidation**. 🔗 Same root as
+§LEVER-UP-SUPPLY-ON-DEMAND and §NO-KEEPER-TO-HACK — which is why those three keep converging: they are
+all *"a per-LP operation against a pooled position, with no per-LP unit of consequence"*.
+📌 **The docblock at `LevManager:317` should say so**; left unedited only because that file is in
+another session's collision domain today.
