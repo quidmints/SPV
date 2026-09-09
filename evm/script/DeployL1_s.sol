@@ -171,10 +171,19 @@ contract Deploy is Script {
     /// ⚠️ ADDRESSES AND VAULT LINKAGE VERIFIED ON-CHAIN 2026-08-16, not copied from the legacy repo:
     ///   crvUSD `symbol()=="crvUSD"`, scrvUSD `asset()==crvUSD`;  frxUSD `symbol()=="frxUSD"`,
     ///   sfrxUSD `asset()==frxUSD`.
-    /// ⚠️ The legacy repo names these FRAX/SFRAX. Frax RENAMED the token to frxUSD at the SAME
-    /// address, so symbol and legacy constant disagree by design — and its Chainlink feed is still
-    /// described "FRAX / USD". Same asset, not a stale wiring. (A guessed sfrxUSD address cost a
-    /// wrong conclusion earlier this session: it had `codesize == 0`.)
+    /// ⛔ **THE SENTENCE THAT USED TO BE HERE WAS FALSE, AND IT COST TWO TEST FILES.** It read:
+    /// *"Frax RENAMED the token to frxUSD at the SAME address."* **They are two different contracts** —
+    /// legacy FRAX is `0x853d955a…`, frxUSD is `0xCAcd6fd2…`. The wiring below was always the correct
+    /// one; the PROSE was wrong, and `CurveTableResearch` and `ProRataConvertGas` both trusted it and
+    /// priced a token this basket does not hold, producing a route row for the wrong asset and none
+    /// for the right one.
+    /// ⚠️ What IS true and is the reason the confusion is durable: **frxUSD's Chainlink feed still
+    /// reports `description() == "FRAX / USD"`.** The NAME mismatch at the feed is expected; the
+    /// ADDRESS mismatch at the token is not. Do not reconcile them by assuming one address.
+    /// ⭐ **AND THE LINE ABOVE — "VERIFIED ON-CHAIN" — WAS PROSE, WHICH CANNOT FAIL.** It is now an
+    /// executable `require` in `_wireStables` (§NO-LEGACY-FRAX). A claim that cannot fail certifies
+    /// nothing, which is the same lesson as a gate that has never fired.
+    /// (A guessed sfrxUSD address cost a wrong conclusion earlier: it had `codesize == 0`.)
     IERC20   public CRVUSD  = IERC20(0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E);
     IERC4626 public SCRVUSD = IERC4626(0x0655977FEb2f289A4aB78af67BAB0d17aAb84367);
     IERC20   public FRXUSD  = IERC20(0xCAcd6fd266aF91b8AeD52aCCc382b4e165586E29);
@@ -261,10 +270,26 @@ contract Deploy is Script {
         //    records the same shape breaking a fixture (`funders[13]` onto a shifted `vs`) and the only
         //    reason THAT was caught is that a count assertion happened to exist.
         require(STABLECOINS.length == VAULTS.length, "stables/vaults: positional pairing broken");
-        // §14-STABLES — the `uint[16]` layout is EXACTLY full at 14 stables (slot 0 = yield-weighted sum,
-        // 1..13 per-token, 14 = TVL total). A 15th writes slot 14 and silently overwrites the total that
-        // `BasketLib.computeMetrics` divides by, so this is the one place the ceiling can be made loud.
+        // §14-STABLES — the `uint[16]` layout is EXACTLY full at 14 stables: slot 0 = yield-weighted sum,
+        // **1..14 per-token**, **15 = TVL total**. A 15th stable would write slot 15 and silently
+        // overwrite the total `BasketLib.computeMetrics` divides by, so this is the one place the
+        // ceiling can be made loud.
+        // 📌 §BASKET-SLOTS (2026-09-09): this read "1..13 per-token, 14 = TVL total", which was the
+        //    `uint[15]` layout — and under it BOLD's slot collided with the total at exactly 14, the
+        //    number this very line asserts. The array was widened; the comment had not caught up.
         require(STABLECOINS.length == 14, "stables: 14 is the uint[16] layout maximum");
+        // §NO-LEGACY-FRAX — MAKE THE "VERIFIED ON-CHAIN" CLAIM EXECUTABLE. It lived only as a comment
+        // above `FRXUSD`, and a comment cannot fail: two test files wired legacy FRAX because a
+        // neighbouring sentence said Frax renamed the token "at the same address". It did not.
+        // These three lines cost nothing at deploy and make the confusion structurally unrepeatable —
+        // any future edit that pastes a legacy address, or swaps two similar symbols, reverts here
+        // instead of shipping a basket whose slot 12 holds a token we do not own.
+        require(address(FRXUSD) != 0x853d955aCEf822Db058eb8505911ED77F175b99e,
+                "frxUSD: legacy FRAX wired -- frxUSD is a DIFFERENT contract");
+        require(keccak256(bytes(IERC20(address(FRXUSD)).symbol())) == keccak256(bytes("frxUSD")),
+                "frxUSD: symbol mismatch");
+        require(keccak256(bytes(IERC20(address(CRVUSD)).symbol())) == keccak256(bytes("crvUSD")),
+                "crvUSD: symbol mismatch");
         // GHO and USDG route through AAVE v4 (their native venue), not
         // Morpho 4626 vaults — their slots above are address(0)
         // intentionally and Aux.setVault rejects a re-wiring attempt
