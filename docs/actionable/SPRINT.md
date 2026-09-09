@@ -1292,9 +1292,14 @@ no-fork test could only re-declare the literal and would keep passing after a ch
 ⇒ **Correct as it stands; the coupling stays comment-enforced, and that is now a known, reasoned
 acceptance rather than an unreviewed number.**
 
-⚪ **`E227-calcfeel1` — ALREADY ANSWERED IN THE CODE.** `FeeLib.sol:120` records that every
-`calcFeeL1` occurrence in `src`/`script` is a **comment**, and `:130` carries the plan for the ABI-gate
-owner. Nothing to derive; it is a delete-when-convenient with its owner named.
+✅ **`E227-calcfeel1` — EXECUTED 2026-09-09, NOT MERELY ANSWERED.** The plan `FeeLib.sol` carried for
+its own deletion has been run: `calcFeeL1`, `BASE` and `MAX_FEE` are gone from
+`evm/src/imports/FeeLib.sol` and the `Alles.t.sol` unit test with them. ⚠️ **The plan was WRONG on one
+point and it is worth recording, because it is the shape rule 20 warns about — a docblock is prose:**
+it said *"`BASE`/`MAX_FEE` stay (read by `grossUpForDepeg`'s neighbours)"*. **Measured: neither is read
+anywhere outside the deleted body**, so both went. `DEPEG_DEADZONE_BPS` is the one that stays — read by
+`liveDepegBps` — and it is still `public constant` (narrowing it to `internal` drops a dispatch entry
+but is an ABI change needing `tools/check-client-abis.py`, so it is left noted at the declaration).
 
 ⚪ **`UNIT-SKEW-STATUS` — the live path is intact:** `skewWad` is called at `SwapLib.sol:1778` on the
 pricing path (`:1300` is a test-describing comment). With `§E294` landed and `§E345`'s anchor leg
@@ -10500,8 +10505,15 @@ at extraction; schedule it as a follow-up pass, because the survivors read as lo
   double-charge through `_applySkew` — the exact twin of what `f5499659` deleted yesterday.** ⇒ **Settle
   which layer owns the skew charge BEFORE wiring any quoter**, or the deletion is undone by the next
   feature. Not a paper risk: the same mechanism, in a second call path.
-- 🟢 **`FeeLib.calcFeeL1` has ZERO production callers and is `public`, so it is DEPLOYED** — paid-for
-  bytecode with no caller. ⛔ `git log -S` before deleting (the `create_sweep_tx` rule).
+- ✅ **DONE 2026-09-09 — `FeeLib.calcFeeL1` IS DELETED**, with `BASE`/`MAX_FEE` (read only inside its
+  body) and its three `Alles.t.sol` call sites. The `git log -S` this row demanded was run and
+  recorded in the file before the cut: its last production consumer was the concentration SHED-RANK,
+  removed on purpose by `4583a21e`, and `09fedf18` then deleted the SOR — **a caller removed
+  deliberately is a tombstone, not a `create_sweep_tx` marker**, so the keep rule did not apply.
+  ⚠️ **THE BYTES DO NOT GO WHERE THIS ROW IMPLIES.** `FeeLib` is an EXTERNALLY LINKED library
+  (`Aux`, `Core`, `BasketLib`, `ChannelLib`, `SwapLib` carry a 20-byte placeholder, not the code, and
+  **`LevManager` does not link it at all**), so the saving lands on `FeeLib`'s own deployment —
+  which had ~18.8 KB spare and binds nothing. Freeing it relieves no margin anywhere.
 - 🟢 **`FeeLib.calcNeeded` retains THREE unused parameters for the deleted `SOR` seam.** A tombstone in
   a signature: every caller passes arguments that go nowhere. Cheap to fix, and it is ABI surface.
 
@@ -12906,17 +12918,52 @@ symbol that now lives elsewhere, the check reads as resolved when it is not.
 - **The read must not halt the range:** raw `staticcall`, any failure skips the write. Degrade to
   unmeasured, never revert — the source sits on the swap path.
 
-## C2. 🟠 `calcFeeL1` — TWO changes or neither (§E209, §E227)
+## C2. ⚪ `calcFeeL1`'s NUMERATOR DECISION — DISSOLVED BY DELETION (§E209, §E227)
 
-🟡 **ONE SENTENCE STRUCK 2026-09-08, THE ROW SURVIVES.** *"`swapFeePpm() = 420` is now OUR
-policy"* has no subject left: `swapFeePpm` has **zero declarations and zero callers**, surviving only
-as a historical note at `SwapLib.sol:801`. ⚠️ **The main claim is unaffected** — `FeeLib.calcFeeL1`
-is still declared (`FeeLib.sol:130`) and still reached only from tests (`Alles.t.sol:2624`, `:2625`,
-`:2639`). The "two changes or neither" decision is unmade.
-Weight-blind numerator vs weight-aware baseline (a \$1k and a \$1M leg at the same rate score
-identically) — **but it saturates at a 0.30pp spread**, so the dimensional fix alone returns the same
-number on nearly every real input. Fix the dimension **and** recalibrate `MAX_FEE`/scaling together.
-Related and never justified: **`swapFeePpm() = 420` is now OUR policy**, not v4's inherited tier.
+✅ **CLOSED 2026-09-09 BY DELETION, WHICH IS RULE 16's THIRD GROUND: *the code it described no
+longer exists*.** `FeeLib.calcFeeL1` and its two constants (`BASE = 3`, `MAX_FEE = 30`) are removed
+from `evm/src/imports/FeeLib.sol`, together with the only executable callers in the tree
+(`Alles.t.sol`'s `testYieldBaselineFee_AboveBaselineTaxedMore`). **Reference enumeration before the
+cut — this is the evidence, not the assertion:** every `calcFeeL1` occurrence in `evm/src` and
+`evm/script` was a COMMENT (`BasketLib.sol:180`, `Aux.sol:907`, `DeployL1_s.sol:232`/`:261`); the
+three executable references were the deleted unit test; and **zero client encodes it** — `spa/`,
+`app/`, `svm/`, `indexer/`, `quid-ln/`, `scripts/`, `sims/`, `analysis/` and `deploy/` return 0 hits
+for `calcFeeL1` in source, and the built SPA bundle (`spa/.next/…/page.js`) returns 0 too. `BASE` and
+`MAX_FEE` had ZERO reads outside the deleted body (`FeeLib.BASE` / `FeeLib.MAX_FEE` appear nowhere in
+`src`/`test`/`script`; the test asserted the literals `3` and `30`).
+⛔ **THE DECISION THIS ROW HELD IS THEREFORE UNMAKEABLE, NOT UNMADE.** "Weight-blind numerator vs
+weight-aware baseline, and it saturates at a 0.30pp spread, so fix the dimension **and** recalibrate
+`MAX_FEE`/scaling together" was a choice about the internals of one function. There is no function and
+no `MAX_FEE`. **Do not carry it forward as an owner decision on deleted code** — that is the exact
+failure two `OWNER-DECISIONS.md` strikes were overturned for: *the deletion killed the CITATION, not
+the design question*. The citation is dead here; the design question is below, and it is NOT this one.
+🟡 The struck sentence stays struck: *"`swapFeePpm() = 420` is now OUR policy"* has no subject
+(`swapFeePpm` has zero declarations and zero callers, surviving as a note at `SwapLib.sol:801`).
+
+## C2b. 🟠 SHOULD A DRAIN TAX EXIST AT ALL? — the question C2 was standing in front of (OPEN)
+
+**This is not C2 renamed. C2 asked *how to calibrate a fee*; this asks *whether there should be
+one*, and deleting the calibration target does not answer it.** It was already booked once, from the
+other side — the `⏳ Cherry-pick vs concentration-fee removal` row further down this file
+(*"removing the concentration fee opens cherry-picking during a depeg — a redeemer preferentially
+drains the **healthy** stable and concentrates the depeg loss on remaining holders"*) — and that row
+is now the LIVE one.
+🔴 **THE STATE OF THE TREE, MEASURED 2026-09-09, IS THE STRONGEST FORM OF THE PROBLEM:**
+**there is no outflow charge on ANY leg.** `FeeLib.allocate` (pro-rata) charges nothing and correctly
+so — a pro-rata draw takes the same fraction of every stable, so the mix is unchanged and there is no
+externality. But the **single-stable** leg (`FeeLib.calcNeeded` → `BasketLib._takePreferred`,
+`FeeLib.applyFeeAndHaircut`) is the draw that CAN move the mix, and it is uncharged too. The only
+live charge on a redemption is the **depeg haircut**, which is uncapped and reactive: it prices a loss
+that has already happened, it does not brake the drain that concentrates the next one.
+⚠️ **AND THE FUNCTION NAMES NOW LIE ABOUT THIS, WHICH IS HOW IT STAYS INVISIBLE.**
+`applyFeeAndHaircut` applies no fee; `FeeLib` charges none. Both are noted in-file, and neither can be
+renamed without an ABI change on an `external` library member (`tools/check-client-abis.py` gates it).
+▶️ **What answering this needs, and none of it is the deleted numerator:** (1) does the
+cherry-pick advantage actually exist at live basket weights — `EconAttackProbe.testDD_RedeemCherryPick`
+(`evm/test/EconAttackProbe.t.sol:230`) logged it once and that measurement predates 14 stables; (2) if it does, is the answer a charge on the single-stable
+leg, a forced pro-rata during depeg, or a basket-wide haircut; (3) if a charge, it must be
+**DIRECTIONAL** (the `§A.64 step 2` requirement) — a symmetric fee taxes the deposit that heals the
+basket as hard as the drain that hurts it.
 
 ## C3. 🟠 vBTC IS the 7540's asset — its 4626 face contradicts that (§E221/E223/E224)
 `VBtc.asset()` returns **WBTC** while vBTC **is** the ERC-20 the async vault points at. `Vault` has
@@ -59440,3 +59487,59 @@ from `fc8d6294` ("the refill's core arithmetic: placement, not acquisition"), so
 lost, only unlanded. ⚠️ §E301's message also claims it deleted `proRataShortfall`; that is STALE —
 `ed530bd2` restored it the same day ("I deleted a rule-17 root fix"), and it sits at `SwapLib:1053` with
 zero src callers.
+
+---
+
+# 📐 §REFILL-DESIGN-PRE-IMPL — the design, shaped by the evidence we have AND the evidence we lack
+
+Owner: *"shape your pre-implementation design around the assemblage of the results we have and all the
+ones we lack."* **Nothing is built here.** Every clause below names the measurement it rests on, or the
+missing measurement that would change it.
+
+## A. WHAT IS ESTABLISHED — eleven results, each with its number
+
+| # | result | measurement |
+|---|---|---|
+| 1 | **The refill is value-neutral on the delivery path** | liquid consumed 4,198,227,704.328228 usd6 vs debt retired 4,198,227,703 — gap **$0.00000133** |
+| 2 | **A paused venue vault no longer denies service** | before: retired ZERO, 1,377,974,721,301,924,123,210 DAI stranded. after: $1,380.82 consumed / **$1,380.60 retired**, 1.57 bps. LANDED `19bc517b` |
+| 3 | **Overshoot pricing is LINEAR, not a cliff** | 1.00× / 4.99× / 9.97× / 49.85× / **199.4×** at +1/+5/+10/+50/+200%. The 0.3% shortfall is §E68's midpoint `q0` term |
+| 4 | **The exemption is NOT farmable** | farmer ends **59,731.15** from 60,000 in — ~45 bps lost per cycle, stable over 5 cycles |
+| 5 | **Deficit manipulation is economically dead** | victim extra loss **$0.131**, attacker cost **$0.0006** — real, gas-swamped |
+| 6 | **Restoration costs nothing extra at this block** | 20,000 BOLD → 7.936594163747890016 ETH out; 20,000 USDC → **7.961692285063152052** back. Shortfall **0** |
+| 7 | **All premium reaches LPs on the drain path** | charged 3,000,000 usd6, credited 3,000,000, shortfall **0** |
+| 8 | **The book conserves across sells** | `POOLED − rangeETH − levBuf + retainedEthPremium` invariant **to the wei** |
+| 9 | **σ² is live in production** | anchor pinned at deploy; "σ²=0 in prod" refuted |
+| 10 | **Γ is a derivation, not a dial** | four symptoms traced to it, every one a defect it was masking |
+| 11 | **1inch is an optimisation, not a dependency** | restoration clears on the protocol's OWN default venue (empty route, §SESS-92) |
+
+## B. WHAT THE DESIGN THEREFORE IS
+**Bundled into the swap that caused the depletion. No keeper, no aggregator dependency.**
+· **Funding** — the swapper. Their trade is a DIRECT, self-funding quantity; a keeper's is DERIVED and
+  needs a margin that value-neutrality does not produce (§E301 settled it 2026-08-22: the swapper pays
+  the routing spread on top of their skew premium). Results 1, 4, 5 and 6 all point the same way.
+· **Trigger** — `refillNeeded` (built, tested, **zero src callers**), evaluated inside the swap.
+· **Sizing** — `refillPlacement`, recoverable from `fc8d6294`. Deleted by §E301 on *"we never source
+  inventory"*, **a premise the owner superseded 2026-09-08**, so the deletion rationale is void.
+· **Execution** — the default venue first (result 11), 1inch only as an improvement on a path that
+  already clears. **Never a hard dependency on a solver being up.**
+· **Not blocked** — §E285's *"a reverting quote tells a solver nothing"* is stale: `_declineIfUnfillable`
+  has zero references and §E300 bounds QUANTITY not price, so a solver can still size down or split.
+
+## C. 🔴 WHAT WE LACK, AND EXACTLY WHAT EACH GAP WOULD CHANGE
+| gap | what is unknown | what it would change |
+|---|---|---|
+| **G1 · premium-vs-basis control** | result 6's surplus is **0.0251 ETH ≈ $62**, far more than the $8.40 premium explains. `Core.swap` settles at ORACLE, buy-back executes at POOL, and §E294 puts that basis at **23 bps** | **DECISIVE.** If the basis carries it, the premium does NOT fund restoration and the whole funding claim collapses to "the market happened to be kind". One run: identical round trip, premium forced to zero |
+| **G2 · basis distribution** | one draw at one block | A favourable basis is a market STATE and can invert — precisely when a refill is most needed. Design must survive an inverted basis, so the trigger needs a floor that does not assume G1's sign |
+| **G3 · §M0 toll table** | measured 0 bps to 25% drain, then `ca8aaa60` fixed its own named root cause THE SAME DAY and it was never re-run. Also pre-Γ | Sets whether the skew deters the marginal drain at all. If still ~0, the refill is the ONLY restoring force and its trigger must not rely on price deterrence |
+| **G4 · manipulation blindspots** | repeated attacks, attacker-who-is-also-an-LP capturing the premium they induce, sizing past `_fillableDrain`'s bound | Result 5 is single-shot. An attacker-as-LP changes the sign of the payoff, and that is the one shape that would make bundling exploitable |
+| **G5 · `totalShares == 0`** | premium withheld, counter increments, **nothing credited** — it stays as basket backing | Breaks result 7's "all premium reaches LPs" in exactly the state the refill fires in. Untested, not cleared |
+| **G6 · interleaved discrepancy** | arm B says the invariant breaks by +0.00808 ETH; per-swap says every swap conserves. **They disagree** | Until resolved, result 8 covers sells only. Blocked: probe is landed, tree does not compile |
+| **G7 · Curve table coverage** | (project-45) `_hubRowOf` reaches **7 of ~14** stables. AUSD, BOLD, cUSD, FRAX, GHO, USDe have **no row** | ⚠️ **DIRECTLY WEAKENS THE REFILL'S EXECUTION FLOOR.** For those six `_selfServableQuote` returns 0, so the *"no worse than we could serve ourselves"* arm of `max(oracle, selfServable)` is **EMPTY** and only the oracle bound remains. Result 11's conservatism does not extend to them |
+
+## D. THE ORDER, AND WHY
+**G1 first** — it is one run and it decides whether the funding argument is real or an artefact. Building
+before it is building on an unattributed $62. **Then G3** (the toll table gates whether the refill is the
+only restoring force). **Then G7** (it sets the execution floor the design leans on). **Then G4/G5.**
+G2 and G6 can run in parallel; G6 is blocked on the tree compiling.
+⛔ **NOTHING IS WIRED AND NOTHING SHOULD BE UNTIL G1 RETURNS.** Owner: *"dont build until we have full
+confidence about all of it."* `refillNeeded` still has zero call sites, and that is the correct state.
