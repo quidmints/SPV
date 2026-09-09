@@ -62600,3 +62600,126 @@ and that check is `§LEVER-UP-HAS-NO-AGGREGATE-GATE`, whose fairness ruling (*wh
 the line*) is GATE 2 and still owner-blocked.
 📌 **BOTH SOLUTIONS ARE DESIGNS WITH ARITHMETIC, NOT LANDED CODE** (rule 15: money path). Solution A is
 blocked on a top-up path existing; Solution B on the GATE 2 fairness ruling.
+
+---
+
+# 🗺️ §SESS-A1-SKEW-SWEEP — 2026-09-09. **The twelve open skew/refill items, worked. Three are now measured, two are owner questions with the numbers attached, one was already retracted, and the rest are stated with what unblocks them.**
+
+📌 **§SEQ-AUDIT: GATE 2 (the decisions) · lane L5.** ⛔ **AND THE SESSION BEFORE THIS ONE ALREADY WROTE THE WARNING: *"I spent the session doing GATE 6 work — building κ(σ), then ρ(σ) — while its GATE 2 decision was never made."*** This block deliberately lands **no pricing change**. Two of the twelve items are questions for the owner and the rest are measurements; the one thing it does not do is pick a shape.
+
+## ⭐ THE UNIFYING RESULT, AND IT SUBSUMES THREE SEPARATE ROWS
+**§M0's *"~0 bps to 75% depletion"*, trap 1's *"the floor binds below ~55%"*, and §SIGMA-COUNT-BROKEN's *"the doubling ratio is 1.57–1.86"* are all FIXTURE-SPECIFIC SAMPLES of quantities that move strongly with σ² and with where the swap starts. Each is quoted in the record as a constant. None is one.**
+Measured out of the real `skewWad` — `evm/test/SkewFloorAndSigmaFreeShare.t.sol`, 3 passed:
+
+| σ² (annualized vol) | floor binds below q = |
+|---|---|
+| 30% | **0.6324** |
+| 80% | **0.1891** |
+| 200% | **0.0367** |
+
+⇒ **a 17× spread.** The published "~55%" is one sample, at roughly 33–35% vol. On a violent tape the floor governs 3.7% of the range; on a calm one it governs 63%.
+⚠️ **THIS IS NOT A DEFECT IN THE CODE.** It is a defect in how three numbers are quoted, and it is the same species of error as trap 1 itself — which warns against reading a flat number off the floor band and then states a floor-band figure as a constant.
+
+## 1️⃣ §FLOOR-IS-NOT-A-CONSTANT + 2️⃣ §SIGMA-FREE-SHARE — **the two owner questions, with the numbers now attached**
+The σ²-free share of the charge (`DEPLETION_RATE_WAD`, the *"risk charge with no risk term in it"*), at 80% vol, flush start:
+
+| q | charge | σ²-free part | σ²-free share |
+|---|---|---|---|
+| 0.10 | 209.0 ppm | 21.0 ppm | **10.04%** |
+| 0.25 | 581.1 ppm | 52.5 ppm | 9.03% |
+| 0.50 | 1459.7 ppm | 105.0 ppm | 7.19% |
+| 0.75 | 3132.7 ppm | 157.5 ppm | 5.02% |
+| 0.95 | 7751.2 ppm | 199.5 ppm | **2.57%** |
+
+⇒ **depletion is 2.6–10% of the charge here, giving doubling ratios of 1.90–1.97 — NOT the 1.57–1.86 §SIGMA-COUNT-BROKEN measured.** Both are right about their own fixture. That row's fixture starts at `q0 = 0.5` (`POOL 1e6` against `TARGET 2e6`); this one starts flush. **The share is a function of the starting point, so "the doubling ratio is 1.57–1.86" is not a property of the kernel.**
+📐 **THE DECOMPOSITION IS EXACT, NOT A FIT.** On the ETH profile `skew(σ²) = σ²·(Γ·qBar + confFrac/8) + depletion`, one term linear in σ² and one free of it, so `depletion = 2·skew(σ²) − skew(2σ²)` recovers it exactly — asserted in the test, not assumed. ⛔ **It does NOT transfer to BTC**, whose `SPLICE_FLOOR` is a *second* σ²-free term: measured ETH intercept 1.05e14 vs BTC 2.105e15, and the two cannot be separated by this method. Asserted so nobody runs the ETH method on BTC and reports `SPLICE_FLOOR` as depletion.
+
+⏸️ **THE TWO QUESTIONS, UNCHANGED BY ANY OF THIS AND STILL THE OWNER'S (rule 16):**
+- **Is the floor meant to be the whole price below the crossing?** On a calm tape that is most of the operating range, and there the skew does not price scarcity — it charges a constant.
+- **Should the depletion term carry σ²?** It is 2.6–10% of the charge and is the one term a patient drainer cannot suppress by stretching the clock (§UNIT-B-PATIENCE). **Making it σ²-sensitive would remove the only vol-independent floor under a clock-stretch attack** — which is an argument for leaving it alone that the question as posed does not contain.
+
+## 3️⃣ ⭐⭐ §LINK-2-MEASURED — **the chain's second link, and it FAILS over exactly the band the floor governs**
+`sims/refill_incentive.js`, controls reproduce the Solidity readings above to ±3 bps (§HARNESS-RETRACTIONS: the controls are *measured code output*, not prose).
+
+**THE PART THE PROSE OMITS: an entrant is not paid the yield they see on arrival.** Entry is doubly dilutive — it adds inventory (lowering q, lowering the charge *everyone* pays) and adds depth (raising the `lpShares + totalBuffer` denominator `feeIncrements` divides by). So the question is not *"is the charge higher when scarce"* (link 1, verified) but **"is the POST-ENTRY yield higher when you enter scarcer"**. Entrant supplying 10% of target, 80% vol:
+
+| arrival q | rate before | rate after entry | entrant's yield | vs q=0.05 |
+|---|---|---|---|---|
+| 0.05 | 4.20 bps | 4.20 bps | 3.818 bps | **1.00×** |
+| 0.15 | 4.20 bps | 4.20 bps | 3.818 bps | **1.00×** |
+| 0.25 | 5.81 bps | 4.20 bps | 3.818 bps | **1.00×** |
+| 0.55 | 17.00 bps | 12.47 bps | 11.333 bps | 2.97× |
+| 0.95 | 77.51 bps | 44.99 bps | 40.897 bps | 10.71× |
+
+✅ **LINK 2 HOLDS IN SIGN, AND HOLDS WELL, ABOVE THE CROSSING — 10.71× is a real gradient.**
+🔴 **AND IT IS EXACTLY FLAT BELOW IT.** Three different arrival scarcities, one identical yield, because entry pushes the post-entry rate back onto the floor every time. ⇒ **Over the floor band the mechanism that is supposed to summon the refill is not weak — it is ABSENT.** That is §5's worry in its exact quantitative form, and it is the SAME finding as item 1: the floor's reach and the dead band are one thing seen twice.
+
+**THE PARTIAL-FILL INVERSION §5 NAMES — IT IS REAL, AND IT SPLITS IN TWO:**
+- **REGION 1, the floor band — unconditional, needs no assumption about trade size.** Rate is constant, so revenue tracks served flow, which only falls. ⚠️ **BUT READ THE MAGNITUDE: ~0.3% across the whole band.** The finding is *not* a strong inversion; it is that **the gradient is ~zero and what little there is points the wrong way.**
+- **REGION 2, beyond the global revenue peak — a genuine inversion, and distribution-dependent.** Peak at q = 0.9291 / 0.8582 / 0.7822 for mean trade sizes of 5% / 15% / 40% of target; at q = 0.99 revenue is 53% / 71% / 78% below peak.
+⚠️ **REGION 2 IS A CONDITIONAL, NOT A VERDICT.** The turning point is a property of the size distribution, which this system does not observe. What the sweep establishes is that the inversion is **not hypothetical** — it exists for every size in the plausible range — and that **where it sits is an empirical question about flow nobody has measured.** Region 1 carries no such caveat, which is why it is the load-bearing half: it follows from the floor being a constant *by declaration*, not by calibration.
+▶️ **THIS DOES NOT REVIVE THE BUY-BACK.** §REFILL-G2-VERDICT is untouched. It sharpens the *replacement*: the half-verified link is now measured, and it is verified above the crossing and void below it.
+
+## 4️⃣ §NO-LP-PREMIUM — **leak surface 1 is closed, and the asymmetry it exposes is NOT the one the docblock describes**
+`SkewPremiumReachesLPs.t.sol` NAMED this surface and then asserted it away — its own opening line is `assertGt(sharesDenom, 0, "PREMISE: LP shares must exist, else feeIncrements credits nobody")`. Two tests added, both pass.
+🔑 **THE CREDIT AND THE BACKING ARE TWO MOVEMENTS AND ONLY THE FIRST IS GATED ON SHARES.** `recordSkewPremium` does `RANGE.creditSkewPremium(p)` (the CLAIM — `(0,0)` at a zero denominator) *and* `POOLED_USD += p` (the BACKING — unconditional).
+🔴 **`Quid.creditSkewPremium`'s *"the premium simply STAYS as basket backing"* PREDATES §E42-NETTING AND IS NOW ASSET-DEPENDENT.** MEASURED, identical 10,000e6 premium on the same basket:
+- **ETH range** → redeemable `151999999998999999999999` → **unchanged**. The docblock is TRUE here.
+- **BTC range** → `141999999998999999999999` → **−10,000e18, one-for-one.** `redeemableBody` subtracts the BTC mirror and only the BTC mirror (§REDEEM-WRONG-RANGE is *why*).
+⇒ Correct when shares exist — the backing follows the claim, which is the point of §E42-netting. **With no shares it is a pure removal: no claim was created and the dollars back nothing anyone can draw.**
+⚠️ **Reachability is NOT asserted** — a premium needs inventory and inventory normally implies shares. The test measures the *netting*, which is unconditional, and the zero-denominator credit separately as pure arithmetic. **Nobody should read this as a live loss; read it as the surface being measured instead of assumed shut.**
+
+## 5️⃣–9️⃣ THE REST, WITH WHAT ACTUALLY UNBLOCKS EACH
+| # | item | status |
+|---|---|---|
+| 1 | target is gross flow | ⏸️ **unchanged and the gate is still correct.** Signed measure cumulative vs decayed gross; its own declaration forbids money-path reads. **Next MEASUREMENT.** ⭐ But §LINK-2-MEASURED narrows what it must deliver: a safety margin that only bites above the crossing changes nothing, because the dead band is *below* it |
+| 2 | κ constant where A–S puts the pole under vol | ⏸️ built, measured, reverted (+403 bytes, re-introduces a ceiling). **Blocked on GATE 2: which A–S section are we implementing?** §2.2 is linear in σ² and the test encodes it faithfully; §2.3 is not |
+| 7 | `redeemableAmount` over-reports | 🔎 **the §REDEEM-WRONG-RANGE half is FIXED** (`Aux:1162` passes `BTC_CORE`). The residual is different and smaller: it is an **AGGREGATE capacity quote**, while the per-QD `min(par, share)` cap lives in the money path — so it can still over-promise an *individual* redeemer. Tightening means taking a `who`, i.e. an external ABI change (`check-client-abis`). **Not landed; it is a scope question, not a bug** |
+| 8 | σ² advances only on swaps | ✅ **already booked as §UNIT-B-PATIENCE and MEASURED** (4h gaps → σ² 24× down, charge 93.3% down). §E345's `max(ring, anchor)` shut the route to the *sentinel*; it did not make σ² path-independent. **Not a new finding — do not re-measure it** |
+| 9 | the closed-form integral, solved and unused | ⭐ **AND THERE IS AN OPENING IN IT NOBODY HAS NAMED.** `F(q) = u^(1−ρ)·[u/(2−ρ) − 1/(1−ρ)]`, one `powWad` per endpoint, verified to 6.7e-11. It was shelved because **ρ(σ)** breaks the linearity test — but **a CONSTANT ρ ≠ 1 does not**: the test forbids σ-*dependence*, not a steeper barrier. A constant ρ > 1 is a live, untested dial that the solved integral already prices. ⛔ **Cost it in bytes BEFORE writing it** — that is what killed κ(σ), and `SwapLib` is the binding contract |
+
+## 🔟 THE THREE UNCOSTED, COSTED
+- **Pay redeemers in volatile once dollars are exhausted.** ⛔ **It contradicts a verified premise, and that is the cost.** REFILL-START-HERE §1 rests on *"a redeemer is paid in dollars from the basket and never touches range inventory"* — one of the three legs of *nothing breaks when the range runs short*. Paying redeemers in volatile **couples redemption to range inventory**, so a depleted range becomes a redemption problem as well as a service one. ⇒ Not a small feature: it removes a leg from the argument that there is nothing to fund.
+- **Route the unfillable remainder to 1inch instead of refunding.** 🔎 **Cheaper than it looks and it fits the stated design.** §E272 already says an unfillable quote is the honest answer *"under solver routing — the solver routes that leg elsewhere"*, so this moves the routing decision from the solver into us. The blocker is not routing (`unoswap2`/`unoswap3`/generic `swap()` all work) but **that we would be choosing a venue on the user's behalf on the swap path, where today the user is never routed**. Same shape as the IL-protect stable-chooser: **the mechanism is expressible and the choice has no home.**
+- **Does the skew amortise, or fall entirely on the next swapper?** ✅ **ANSWERED BY THE INTEGRAL, and it is neither.** §E68/§E68b bill each unit at the scarcity **it itself sees**, and §E71-PASS measured path-independence to 2.2e-8 relative. ⇒ It falls on **the swapper who creates the displacement**, in proportion to what they create — not on the next one (that was the pre-§E68 level-vs-marginal defect, fixed) and not amortised across later flow. **The question is already closed; it just was not written where someone asking it would look.**
+
+## ⛔ AND ONE ITEM THAT ARRIVED RE-RAISED AND IS ALREADY RETRACTED
+**The over-hedge** — *"a range swap doesn't touch venue collateral, so draining does not resize the hedge"* — was **retracted five hours ago in `3af6b901`, on the owner's own correction.** `QuidLib.sendEth:453` is a CASCADE: native balance → WETH → `IEthVenue.rangeOp` (pulls **from the venue**) → `SwapLib.deleverEthOnDelivery` (withdraws collateral, repays debt). **The short shrinks alongside the long.** Verified again against current code today.
+⚠️ **THE BOUNDED RESIDUAL, stated so the retraction is not over-read:** a drain served *entirely* out of idle native/WETH (`alreadyInETH >= howMuch`, or `needed <= inWETH`) touches no collateral and repays no debt, so within the idle band the hedge genuinely is not resized. **That band is small and shrinking** — §AUXIDLE closed the supply that used to park idle WETH at Aux. ⇒ Bounded by idle balances, not structural. **Do not revive the finding; do not delete the residual either.**
+📌 **The error's shape is the reusable part and `3af6b901` already named it:** *"reading one side of a coupling and inferring the other."* It arrived again in the same words, which is what a retraction that lives only in a commit message gets you.
+
+---
+
+# 📥 §SESS-A1-FOLDED — two designs with verified arithmetic, and three threads that arrived mid-session
+
+⚠️ **NEITHER DESIGN IS LANDED CODE.** Both are blocked, each on a different thing, and both are booked here because the alternative is what rule 12 exists to prevent — **A is a CORRECTION to a prescription this file already carries, so leaving it unwritten means the next thread implements the biased version.**
+
+## Ⓐ §IL-BASIS-√-BLEND — **store an effective entry. `ilTargetBps` does not change at all.**
+The exact aggregate target over a set of entries is `1 − (Σwᵢ√eᵢ)/(√p·Σwᵢ)`. So let `ilBasisPx` hold
+```
+Ẽ = (Σwᵢ√eᵢ / Σwᵢ)²        ⇒  target = 1 − √(Ẽ/p),  the formula already in the code
+```
+**A single entry gives Ẽ = e exactly, so it is a drop-in: no new storage, no extra live-path cost.**
+🔴 **AND IT BEATS §E339's OWN PRESCRIPTION, WHICH IS WHY THIS IS A CORRECTION AND NOT AN ALTERNATIVE.** `RangeLib.openPos:214`'s note prescribes blending the basis **size-weighted**. ⛔ **That is biased low every time, by Jensen** — `f(e) = 1 − √(e/p)` has `f''(e) = +¼p^(−½)e^(−3/2) > 0`, so it is CONVEX in `e`, and the true aggregate `Σwf(e)/Σw` therefore *exceeds* `f(ē)`. **It systematically UNDER-HEDGES.** Measured: **−7.9e-3, −6.6e-3, −5.3e-3 across three prices**, against the √-blend's **exact to 1e-17**. ✅ *(Convexity and exactness both re-derived independently here before booking; the √-blend is algebraically exact, not an approximation — `1 − √(Ẽ/p)` expands to `Σw(1−√(e/p))/Σw` term by term.)*
+✅ **AND THE DUST ATTACK DIES WITH IT.** 100 units @ 2,000 then 0.01 @ 1,000 moves Ẽ to **1999.883** (re-derived: 1999.88 ✓), against **1000.000** for today's wholesale overwrite — the attack §IL-BASIS-ON-A-SECOND-ENTRY names, where a dust top-up at a low re-anchors the whole position's basis downward and the protocol pays protection nobody bought.
+⏸️ **BLOCKED ON A TOP-UP PATH EXISTING (rule 1: no branch to hold it yet).** `LevManager.openLev` reverts `AlreadyOpen`, so `pos[lp] = p` is unreachable for an existing LP. **Land it in the SAME commit that opens the path**, which is what §E339 already prescribes — only the blend changes.
+
+## Ⓑ §LEVER-UP-SUPPLY-ON-DEMAND — **the cross-subsidy's root, and it REFRAMES §LEVER-UP-HAS-NO-AGGREGATE-GATE**
+🔴 **THAT ROW'S HEADLINE CLAIM IS WRONG AND THIS IS THE CORRECTION.** It says *"N LPs each individually in-target can compose a pooled LTV that is not."* **They cannot.** Pool LTV is `Σd/Σc = Σ(cᵢ·LTVᵢ)/Σcᵢ` — a **collateral-weighted mean** of individual LTVs — so if every position is under the cap the pool is too. ✅ *(Re-derived here; the identity is exact.)* **Individually-safe positions cannot compose an unsafe pool.**
+⭐ **THE REAL MECHANISM, WHICH IS THE OPPOSITE OF THE ROW'S FRAMING.** `LevManager.openLev:283` calls `_supplyCollFrom(venue, msg.sender, collWeeth)` **unconditionally**, while §E357 at `:285` records that an open is at **ZERO leverage** (`_openPos` pins `ilBasisPx = entryPx` ⇒ `ilTargetBps` 0 ⇒ `debtDelta` `(false, 0)`). ✅ *(Both verified against current code.)* ⇒ **the zero-debt LP's collateral is pooled and seized, and they were never a risk — they were PADDING: 0.4348 pool LTV with them, 0.6667 without.** They improve the pool's health and get liquidated for it. **That is the 4,801 bps `LeverageCrossSubsidyProbe` measured, as a mechanism rather than as a number.**
+▶️ **FIX: supply-on-demand** — supply when `debtDeltaToTarget` first says lever up. **Per rule 17 that makes the bad state UNCONSTRUCTIBLE rather than detectable**, which is what the standing rule asks for over an aggregate guard bolted on top.
+✅ **AND IT CLOSES THE ORPHAN, so the two open items are ONE item.** `swapOutDeliverUnlevered` exists for exactly the zero-debt position and has **zero production callers** (`SwapLib:2578`). §LEVER-UP-HAS-NO-AGGREGATE-GATE already suspected they shared a root; this is the root. **Fixing either alone re-opens the other.**
+⏸️ **THE HONEST COST, WHICH IS WHY IT IS NOT FREE: removing that collateral RAISES pool LTV, 0.4348 → 0.6667.** The padding was doing real work — it just was not the zero-debt LPs' job to provide it. ⇒ **It must ship with a real aggregate check, and that is the GATE 2 fairness ruling still waiting on the owner** (*whose* borrow is refused when the pool is at the line — first-come? pro-rata? highest-LTV-first?).
+
+## 🧭 §WHERE-THE-VENUE-CHOICE-LIVES — one shape, three cases, and only the third is open
+| path | routing freedom | why |
+|---|---|---|
+| **swap out a dollar** | **needs none** | `Aux.swapTo` → `SwapLib` → `BasketLib.routeSwap` → `ICore.swap` fills from range inventory at ONE oracle price and refunds the remainder (`_refundExcess`, #105). **The user is never routed, so there is no venue to choose.** |
+| **redeem basket shares** | **full** | pro-rata draw → `convertShortfall` → `convertTo`, M→1, an independent 1inch route per leg, `_hubRowOf` as keyless fallback, router-enforced `minLeg` per leg |
+| **IL-protect: borrow cheapest stable, then hop** | **expressible, but homeless** | the hop is expressible and routing is not the blocker. **The blocker is that the keeper never opens positions, so a stable-chooser has no call site.** |
+⇒ **The third is a decision about WHERE THE CHOICE LIVES — at open, on the user's path — not more keeper machinery.** 📌 **Same shape as *route the unfillable remainder to 1inch* in §SESS-A1-SKEW-SWEEP:** in both, the mechanism is expressible and what is missing is a call site with the authority to choose.
+▶️ **Keeper batching, booked as asked:** one path taking all 15 balances rather than 15 separate transactions — each stable may still split across venues and hops internally — Flashbots-routed **immediately after the pro-rata is received from swap-out**. Not costed here.
+
+## 🔓 §PROJECT-45-UNBLOCK — the answer they are waiting on, written down because I could not deliver it
+**project-45 is NOT reachable from this machine** — the only live peers are `project-91` and `project-c5`, both idle; everything else is an offline Remote Control session. So this is booked where they will find it instead.
+**THE ANSWER: the EIP-170 fold is fine to commit, and the one thing that mattered was checked.** The fold collapses two `retainSkewPremium` call sites into one, and **`!r.forVolatile` correctly preserves the native/USD unit discriminator that §PREMIUM-READABLE depends on.** ⚠️ Attribution: the fold is **not** the owner's work — that was verified.
