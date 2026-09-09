@@ -162,7 +162,28 @@ repay` under a neutered flash (F14) · `healthy − broken == 0` wei, was `== to
 risk** — if its run-happened gate fires that is a fixture-sizing result, not a regression.
 📌 Per §MEASUREMENT-SCOPE this block is the honest status: **green build ≠ green suite.**
 
-### 🔴🔴 §EIP-170-2026-09-09 — **THE TREE DOES NOT DEPLOY.** `python3 tools/check-contract-sizes.py`:
+### ✅ §EIP-170-2026-09-09 — **CLEARED IN `751b8597`. BOTH CONTRACTS HAVE MORE MARGIN THAN THEY STARTED WITH.**
+`LevManager` **25,006 (−430) → 24,064 (+512)**, −942 bytes · `SwapLib` **24,852 (−276) → 24,140
+(+436)**, −712 bytes · `LevMath` **24,505 (+71) unchanged**. Pre-session baselines were 133 and 102,
+so the tree is in better shape than before the F-series landed. **No F2/F13/F14 behaviour was touched
+— the bytes came from folds, a custom error replacing the file's only two revert strings, a
+`public`→`external`, and three de-duplicated call sequences.**
+⭐ **THE MEASURED OPTIMIZER FACT, worth more than the fix:** wrapping a bare `immutable` read in a
+`private view` accessor **saves nothing** — the legacy (non-`via_ir`) optimizer inlines `return
+<immutable>` straight back, confirmed by an unchanged `immutableReferences` count across 15 call sites
+at identical contract size. **Folding a repeated CALL SEQUENCE is where the bytes are, not a repeated
+read.** `LevBase:195` hints at the first half; this is the confirmation plus the discriminator.
+📌 **The named recovery (moving F13's split into `LevMath.extractToVaultBody`) was NOT taken, and that
+is a measurement rather than a skip:** at today's sizes it is a pure relocation, and **LevMath has 71
+bytes to receive it.** If it is ever wanted for readability, LevMath needs headroom first.
+🔍 **NEXT LEVERS IF MARGIN IS EVER NEEDED AGAIN:** `LevManager.swapOutDeliverUnlevered` is **~850
+bytes with ZERO Solidity callers and ZERO tests** — but its own docblock forbids deletion pending the
+§M.1 fork test, because deleting it silently reopens a money path. **It needs that test written, not a
+deletion.** And `LevBase` contributes **7,225 bytes** to `LevManager`.
+
+<details><summary>The blocker as originally recorded</summary>
+
+### 🔴🔴 (WAS) §EIP-170-2026-09-09 — **THE TREE DOES NOT DEPLOY.** `python3 tools/check-contract-sizes.py`:
 **`LevManager` 25,006 (430 OVER)** · **`SwapLib` 24,852 (276 OVER)**. Baselines were `SwapLib` 24,474
 (+102 — the binding contract in the whole tree) and `LevManager` 24,443 (+133). F2 spent ~378 of
 SwapLib's 102; F13/F14 spent LevManager's 133. ⛔ **`forge build --sizes` shows NEITHER contract's true
@@ -171,6 +192,8 @@ are about to quote a margin from it, you are about to be wrong.** Two recoveries
 lanes that spent the bytes: move F13's cap-and-refund split into `LevMath.extractToVaultBody` (⚠️
 LevMath has only **71** bytes itself), and give `LevManager` a pooled `consolidateForRepay` (below),
 which collapses F2's body and deletes the new SwapLib→LevMath link edge.
+
+</details>
 
 ### 📋 §F-HANDOFFS — hunks the lanes were forbidden to apply, i.e. UNLANDED WORK
 1. **`LevManager` has NO pooled `consolidateForRepay`** — only `BtcLevManager:361` has the LP-shaped
