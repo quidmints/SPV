@@ -820,13 +820,39 @@ contract Aux is // Auxiliary
     ///         impossible to quote without seeing the constraint — a second, separate getter is one
     ///         a caller can simply not call.
     ///
-    /// ⚠️ **NOT `view`, AND THAT IS DELIBERATE — DO NOT "FIX" IT INTO ONE.** `redeemableBody`
-    ///         refreshes the cached per-venue holdings; a `view` variant would report whatever was
-    ///         last cached, and CLAUDE.md records exactly that failure: *"`get_metrics`/`get_deposits`
-    ///         are NOT `view`. Without refreshing first it reports a collapse to **0**
-    ///         indistinguishable from a real defect."* A stale zero here would read as "the basket is
-    ///         empty" to every caller. **Quote it with `eth_call`** — the refresh is discarded, and
-    ///         the number is live.
+    /// ⚠️ **NOT `view` — BUT NOT FOR THE REASON THIS DOCBLOCK USED TO GIVE, AND THE OLD REASON WAS
+    ///         ARMED IN THE §A.5e DIRECTION.** It said *"`redeemableBody` refreshes the cached
+    ///         per-venue holdings"*. **IT DOES NOT.** `BasketLib.redeemableBody` opens with
+    ///         `get_metrics(false)`, which returns the `metrics` cache untouched unless it is older
+    ///         than **10 minutes**, and even the recompute arm calls `get_deposits()` — which since
+    ///         the step-5 read-flip SERVES the per-venue vault sum out of `storedHoldings` rather
+    ///         than looping `convertToAssets` (see the cache note at the `storedHoldings`
+    ///         declaration). The only things that refresh that cache are `_refreshHoldings` /
+    ///         `_refreshAllHoldings`, and **no quote path calls either**.
+    ///         🔴 THE CITED CLAUDE.md NOTE SAYS THE OPPOSITE OF WHAT IT WAS QUOTED FOR: *"Without
+    ///         refreshing first it reports a collapse to **0**"* is an instruction to the CALLER —
+    ///         it is why a test that reads `redeemableAmount()` before any mutator populates
+    ///         `storedHoldings` sees 0. Reading it as "so the function refreshes" inverted it.
+    ///
+    ///         **WHY IT IS STILL NOT `view`, FOR REAL:** `get_metrics` WRITES the `metrics` struct on
+    ///         its refresh arm, and `_illiquidLoss`'s verdict is forwarded to `flagIlliquidSelf`,
+    ///         which writes `vaultHealth` (§E197 — the health clock starts off organic traffic).
+    ///         Both are state writes. ⇒ The "do not turn it into a `view`" conclusion STANDS; only
+    ///         its justification was false. **Quote it with `eth_call`**: the writes are discarded.
+    ///
+    /// 🔑 **WHAT IS ACTUALLY LIVE HERE, AND WHAT IS NOT — the split matters more than the modifier.**
+    ///         • **LIVE:** the deliverability haircut `_illiquidLoss` walks every stable's every
+    ///           vault on this call (`convertToAssets` + `QuidLib._withdrawableOf`, and the Aave leg
+    ///           through `_aaveAvail` → `getAssetLiquidity`). So §PLP-R2's fifth shortfall — the one
+    ///           this function exists to surface — IS read live. The paragraph above is honoured.
+    ///         • **LIVE:** depeg severity, read per-stable off the pinned feeds inside `get_deposits`.
+    ///         • **CACHED:** the PAR backing total (`amounts[14]`) it haircuts, bounded by the
+    ///           `metrics` 10-minute window over a `storedHoldings` cache whose own freshness bound
+    ///           (`HOLDINGS_MAX_STALE`) is enforced only on the MONEY path, in `_redeemAs`.
+    ///         ⇒ The cached term is stale-HIGH after a venue loss, i.e. this quote can OVER-report —
+    ///         the same direction §REDEEM-WRONG-RANGE calls "the dangerous direction" for a
+    ///         holder-facing capacity number. It is tolerable ONLY because of the next paragraph:
+    ///         nothing settles off this value, and `_redeemAs` refreshes before it values anything.
     ///
     /// ⚠️ **IT IS A CAPACITY READ, NOT A RESERVATION.** Nothing is held between this call and the
     ///         fill, so a large flow in between can still leave a swapper short. `redeemableAmount`'s
@@ -846,7 +872,9 @@ contract Aux is // Auxiliary
     /// @param  asset      volatile side (WETH/WBTC), as `wellSkew`
     /// @param  drainUsd6  the swap's volatile-side draw, 6-dec USD; 0 gives the indicative rate
     /// @return skewWad    the scarcity premium `wellSkew` would charge
-    /// @return redeemable 18-dec USD the basket can ACTUALLY pay out right now, across every venue
+    /// @return redeemable 18-dec USD the basket can pay out across every venue — deliverability and
+    ///                    depeg read LIVE, the par total they haircut read from the ≤10-minute
+    ///                    `metrics` cache (see above). An UPPER bound, not a reservation.
     function quoteSwapOut(address asset, uint drainUsd6)
         external returns (uint skewWad, uint redeemable) {
         skewWad = wellSkew(asset, drainUsd6);

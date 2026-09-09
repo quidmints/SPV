@@ -417,12 +417,54 @@ library BasketLib {
     /// over the period. This deletes the tick→sqrt→price round trip that was the single largest
     /// `TickMath` consumer, AND the `token0isUSD` argument: orientation is resolved once at write
     /// time rather than on every read, so it can no longer disagree between writer and reader.
-    /// ⚠️ The mean is now ARITHMETIC in price where it was geometric in log-price. The gap is
-    /// O(σ²) in the RELATIVE excursion, so it scales with the SQUARE of the band width, and the
-    /// band is `SwapLib.RANGE_DELTA = 200` (±2%) — widened from 20 on 2026-09-08, i.e. 100× on
-    /// this term. ⛔ The old claim *"≈ 1e-6 relative, inside the rounding already here"* was
-    /// derived at ±0.2% and DOES NOT SURVIVE THE WIDENING: the same estimate is order 1e-4 at
-    /// ±2%, and nobody has re-measured it against the rounding. Treat the bound as UNVERIFIED.
+    /// ⚠️ **THE MEAN IS NOW ARITHMETIC IN PRICE WHERE IT WAS GEOMETRIC IN LOG-PRICE. HERE IS THE
+    /// GAP, DERIVED — the two previous versions of this note were both wrong, in different ways.**
+    ///
+    /// DERIVATION. Write the sampled series as `P(t) = A·(1 + x(t))`, where `A` is exactly what this
+    /// function returns — the time-weighted ARITHMETIC mean `(1/T)∫P dt` — so the time-average of
+    /// `x` is 0 BY CONSTRUCTION. Let `s2` be the time-average of `x²`. The tick accumulator this
+    /// replaced returned the GEOMETRIC mean `G = exp((1/T)∫ln P dt)`. Expanding
+    /// `ln(1+x) = x − x²/2 + x³/3 − …` and time-averaging term by term:
+    ///
+    ///     (1/T)∫ln(1+x) dt  =  0  −  s2/2  +  O(avg x³)      ⇒  G = A·exp(−s2/2 + …)
+    ///     (A − G)/G         =  exp(s2/2) − 1  =  s2/2 + s2²/8 + …
+    ///
+    /// ⇒ **THE GAP IS `s2/2`, AND `s2` IS A VARIANCE — hence the square, and hence a 10× widening
+    /// of anything that sets it is 100× here.** Closed form for the worst symmetric case (half the
+    /// window at `A(1−a)`, half at `A(1+a)`, which maximises `s2` for a given excursion `a`):
+    /// `G = A·sqrt(1−a²)`, so the gap is `(1−a²)^(−1/2) − 1 = a²/2 + 3a⁴/8 + …`. The quartic
+    /// residual is 6e-8 at a = 2%, i.e. negligible against the `a²/2` term itself — the leading
+    /// term is the whole answer at any excursion this oracle can see.
+    ///
+    /// 🔴 **AND `a` IS NOT THE BAND. THE PREVIOUS NOTE'S PREMISE — *"it scales with the square of
+    /// the band width, and the band is `SwapLib.RANGE_DELTA = 200`"* — IS FALSE, so its alarming
+    /// 100× conclusion is about a quantity that never entered this function.** `RANGE_DELTA` sets
+    /// the LP band and appears nowhere on the write path: `Core._observeIfSourced` feeds
+    /// `OracleLib.writeObservation` either the pinned external source's price or, with
+    /// `observationSource` UNSET (the deployed state), the raw Chainlink anchor. Worse for the old
+    /// premise, `SwapLib.updateBounds` rebuilds the band AROUND spot at every repack — a band that
+    /// FOLLOWS the price cannot bound that price's variance. `a` is the realised relative excursion
+    /// of ETH/USD (or BTC/USD) over the TWAP window, and the window is `period`, which every call
+    /// site in `src` passes as **1800 s**.
+    ///
+    /// MEASURED SCALE, T = 1800 s (5.70e-5 of a year):
+    ///   • ORDINARY. At 70% annualised vol the terminal excursion is 0.70·sqrt(5.70e-5) = 5.3e-3.
+    ///     For a driftless walk the time-averaged variance ABOUT THE WINDOW'S OWN MEAN is one sixth
+    ///     of the terminal variance, so s2 ≈ 4.7e-6 and the gap ≈ **2.3e-6**.
+    ///   • A HARD ±1% STEP AT THE WINDOW MIDPOINT (the two-point form above, a = 0.01): **5.0e-5**.
+    ///   • A 10% DISLOCATION INSIDE ONE WINDOW: s2 ≈ 1.7e-3, gap ≈ **8.3e-4**, i.e. 8.3 bps.
+    ///
+    /// ✅ **THE RESTORED CLAIM, STATED SO IT CAN BE FALSIFIED: the gap is bounded by `a²/2` in the
+    /// window's realised excursion, is ~2e-6 in the ordinary regime, and stays under ~1e-3 even
+    /// through a 10% half-hour dislocation — three orders inside `Aux.TWAP_MAX_DEVIATION_BPS = 500`
+    /// (5e-2), the tightest tolerance any consumer applies to this number** (`twapResolve`'s
+    /// deviation test and `BasketLib.isManipulated`, both in bps).
+    ///
+    /// ⛔ **DO NOT RESTORE *"inside the rounding already here"* IN ANY FORM. THAT PHRASE WAS NEVER
+    /// TRUE, INCLUDING AT ±0.2%.** The rounding here is the single truncated wei of the integer
+    /// divide below; against a WAD price of ETH (~3e21) that is 3e-22 relative — SIXTEEN orders
+    /// below even the old 1e-6 estimate it was offered as cover for. The gap is inside the
+    /// CONSUMERS' tolerance, which is a different and much weaker statement; say that one.
     function cumsToPrice(uint192 cum0, uint192 cum1, uint32 period)
         external pure returns (uint price) {
         price = uint256(cum1 - cum0) / period;
