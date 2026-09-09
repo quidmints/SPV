@@ -633,10 +633,25 @@ impl ValidatingChannelSigner {
             .public_key(&secp)
             .serialize();
         let theirs = ctx.counterparty_funding_pubkey.serialize();
-        let (lp, hop) = match role {
-            FundingRole::Lp => (&ours, &theirs),
-            FundingRole::Hop => (&theirs, &ours),
-        };
+        // 🔴 §T9-SORT-NOT-ROLE — **THE PAIR IS BYTE-SORTED ON CHAIN, NOT ROLE-ORDERED, AND ORDERING
+        // IT BY ROLE HERE FAILED CLOSED ON ~HALF OF ALL CHANNELS.** `keysHash` is
+        // `keccak256(abi.encode(lpPubkey, hopPubkey))` over whatever the SUBMITTER put in those two
+        // fields, and the only submitter is the hop (`openChannel` is `_onlyHop()`), which sorts:
+        // `evm_codec.rs` does `let (k0, k1) = sort_funding_pubkeys(a, b); … lp_pubkey: k0,
+        // hop_pubkey: k1`. So the fields NAMED for roles carry the SORTED pair. Whenever the LP's key
+        // sorts above the hop's, role order != sorted order, `verify` returns `Mismatch`, and this
+        // check fails closed — the signer refuses a channel that is perfectly valid.
+        // ⚠️ **AND ITS TEST COULD NOT SEE IT.** `funding_role_ordering_is_significant` asserts
+        // against a `FakeTruth` built from the SAME role ordering, so it was two copies of one
+        // assumption agreeing rather than a comparison against the chain's convention.
+        // ⇒ Sort here, exactly as the submitter does. The standing warning that ordering is
+        // SIGNIFICANT still holds — this is still ONE deterministic order, and trying both would pin
+        // only the SET; only the prescribed order was wrong.
+        // 📌 `role` is now unused BY THIS CHECK and deliberately not deleted: it is public API
+        // (`with_truth_factory(factory, role)`) and the fields it selects are still the right ones to
+        // hold, so removing it is a separate call, not a side effect of a correctness fix.
+        let (lp, hop) = if ours <= theirs { (&ours, &theirs) } else { (&theirs, &ours) };
+        let _ = role;
         // `Err` = unreadable chain ⇒ fail closed (propagated, poisons at the call site).
         match truth.verify(lp, hop, ctx.funding_value_sat)? {
             TruthVerdict::Match => {
@@ -2201,25 +2216,52 @@ mod tests {
                 "an unreadable comparand must refuse, never wave the context through");
     }
 
-    /// Role ordering is significant: `keysHash` is `abi.encode(lpPubkey, hopPubkey)`, so a
-    /// signer that mis-declares its side must NOT accidentally validate.
+    /// 🔴 §T9-SORT-NOT-ROLE — ORDERING IS SIGNIFICANT, AND THE SIGNIFICANT ORDER IS **BYTE-SORTED**.
+    ///
+    /// ⚠️ **THIS REPLACES `funding_role_ordering_is_significant`, WHICH COULD NOT SEE THE BUG IT WAS
+    /// WRITTEN FOR.** That test built its `FakeTruth` from the same role ordering the signer used and
+    /// then flipped the DECLARED role, so it compared two copies of one assumption. Meanwhile the
+    /// chain's convention is set by the only submitter — `openChannel` is `_onlyHop()`, and
+    /// `evm_codec.rs` byte-sorts before filling the fields named `lpPubkey`/`hopPubkey`. Role
+    /// ordering therefore disagreed with the chain on ~half of all channels and failed CLOSED.
+    ///
+    /// Two halves, because either alone is satisfiable by a defect:
+    ///   1. a comparand in SORTED order validates under EITHER declared role — the role is not the
+    ///      discriminator, so mis-declaring it can no longer refuse a valid channel;
+    ///   2. a comparand in the REVERSED order still REFUSES — the order is still part of the check,
+    ///      so this is not "try both", which would pin only the SET.
     #[test]
-    fn funding_role_ordering_is_significant() {
+    fn funding_pair_is_byte_sorted_not_role_ordered() {
         let secp = Secp256k1::new();
         let inner = make_signer(1);
         let cp = make_signer(2);
-        let truth = std::sync::Arc::new(FakeTruth {
-            lp: base_funding_pk(&inner, &secp),
-            hop: base_funding_pk(&cp, &secp),
-            sats: FUNDING_SATS,
-            readable: true,
+        let a = base_funding_pk(&inner, &secp);
+        let b = base_funding_pk(&cp, &secp);
+        assert_ne!(a, b, "PREMISE: the two funding keys must differ for order to mean anything");
+        let (k0, k1) = if a <= b { (a, b) } else { (b, a) };
+
+        for role in [FundingRole::Lp, FundingRole::Hop] {
+            let truth = std::sync::Arc::new(FakeTruth {
+                lp: k0, hop: k1, sats: FUNDING_SATS, readable: true,
+                not_recorded: std::sync::atomic::AtomicBool::new(false),
+            });
+            let signer = ValidatingChannelSigner::new(inner.clone(), committed_script())
+                .with_truth_source(truth, role);
+            give_ctx_round(&signer, &cp, None, 0, &secp);
+            assert!(!signer.ctx_poisoned(),
+                    "a BYTE-SORTED comparand is what the chain holds and must validate under \
+                     either declared role -- role ordering refused half of all channels");
+        }
+
+        let reversed = std::sync::Arc::new(FakeTruth {
+            lp: k1, hop: k0, sats: FUNDING_SATS, readable: true,
             not_recorded: std::sync::atomic::AtomicBool::new(false),
         });
-        // Same keys, wrong declared side ⇒ the pair hashes in the other order.
         let signer = ValidatingChannelSigner::new(inner, committed_script())
-            .with_truth_source(truth, FundingRole::Hop);
+            .with_truth_source(reversed, FundingRole::Lp);
         give_ctx_round(&signer, &cp, None, 0, &secp);
-        assert!(signer.ctx_poisoned(), "the (lp, hop) order must be part of the check");
+        assert!(signer.ctx_poisoned(),
+                "the ORDER is still part of the check -- an unsorted pair must not validate");
     }
 
     /// Without a truth source the signer behaves exactly as §E176-C left it — additive,
