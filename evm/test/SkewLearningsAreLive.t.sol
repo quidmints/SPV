@@ -33,24 +33,20 @@ contract SkewLearningsAreLiveTest is Test {
         uint b = SwapLib.skewWad(POOL, TARGET, SIGMA, SwapLib.ethRisk(), POOL * 60 / 100);
         uint c = SwapLib.skewWad(POOL, TARGET, SIGMA, SwapLib.ethRisk(), POOL * 90 / 100);
         assertTrue(a < b && b < c, "skew must rise with scarcity, not saturate at a constant");
-        // 🔴 §E274-LAND — **`assertTrue(c > 3e16)` WAS A CEILING TEST WRITTEN IN THE CEILING'S OWN
-        //    UNITS, AND THAT IS WHY IT BROKE.** 3e16 was `MAX_WELL_SKEW`, and Γ was the same number
-        //    (§E275), so "above the old ceiling" silently meant "above Γ". With Γ derived from
-        //    `FLOW_HALFLIFE` it is 5.475x smaller and c is 2.2747e16 — BELOW 3e16 while being just as
-        //    unclamped. The number moved; the intent did not.
-        // ⇒ ASSERT THE INTENT SCALE-FREE INSTEAD. A clamp is exactly a loss of linearity, and the
-        //   whole quantity is linear in σ² — `skew = σ²·(Γ·qBar + ETH_CONF_FRAC/8)`, kernel AND base.
-        //   So doubling σ² must double the reading. A ceiling anywhere in the range flattens this and
-        //   the assertion fails, at ANY Γ, with no constant of the mechanism's own written into it.
-        //   ⚠️ TOLERANCE IS MEASURED, NOT GUESSED. At 1e12 (1e-4 %) this FAILED at 0.4%: the reading
-        //     is very nearly but not exactly linear (45,305,322,531,057,424 vs 2c =
-        //     45,494,322,531,057,424), so something in the composition — most likely §E89b's
-        //     risk-vs-fee amplifier — carries a second-order σ² term. That residual is NOT what this
-        //     test is about, and pinning it would make this a test of the amplifier by accident.
-        //   ⇒ 2% DISCRIMINATES WHAT IT IS FOR. A ceiling at the old 3e16 would hold c2 to 3e16 while
-        //     2c is 4.55e16 — a 34% shortfall, two orders above both the residual and this bound.
-        uint c2 = SwapLib.skewWad(POOL, TARGET, 2 * SIGMA, SwapLib.ethRisk(), POOL * 90 / 100);
-        assertApproxEqRel(c2, 2 * c, 2e16, "linear in sigma^2 => no ceiling anywhere in the range");
+        // 🔻 §SIGMA-COUNT-BROKEN — **I REPLACED `assertTrue(c > 3e16)` WITH A LINEARITY ASSERTION
+        //    AND THE PREMISE WAS FALSE. Removed rather than repaired.**
+        //    The original pinned the curve above `MAX_WELL_SKEW`; that broke when Γ moved onto its
+        //    derivation, because 3e16 was Γ under a second name. I strengthened it to "the reading is
+        //    linear in σ², and a ceiling is exactly a loss of linearity".
+        //    ⛔ **MEASURED, `skewWad` IS NOT LINEAR IN σ².** It carries `DEPLETION_RATE_WAD`, a
+        //      σ²-FREE term worth exactly 210 per unit of drain, so doubling σ² gives a ratio of
+        //      **1.57–1.86, never 2.00**. My assertion passed only because THIS fixture's drain makes
+        //      that term small — it asserted a false general property and passed for the wrong reason.
+        //    ⇒ The monotonicity check above is TRUE and is what the test was always for: a curve pinned
+        //      to a constant cannot rise across three scarcity levels. That is the whole claim, and
+        //      adding a second one that only holds locally made the test worse, not stronger.
+        //    📌 Do NOT re-add a proportionality check here, and do not treat this file as a
+        //      double-count detector — see §SIGMA-COUNT-BROKEN for why that reading is unsupported.
     }
 
     /// §E274 — **THE POLE IS REACHED AT FINITE SCARCITY, SO NO COEFFICIENT TAMES IT.** Measured: at

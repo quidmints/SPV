@@ -115,83 +115,6 @@ contract DrainAtomicity is AllesFixture {
     ///   never to measure the TRADER's cost with it, because our ledger and their receipt diverge —
     ///   that warning is about the TAX. This asks what WE RETAINED to spend on repair, which is our
     ///   ledger by definition. The ETH leg is still a balance delta, never our own books.
-    function test_REFILL_AFFORDABILITY_PremiumVsRestorationSpread() public {
-        // ⛔ `_setupRange()`, NOT `_seedBasket()` — AND THE DIFFERENCE IS WHY THE FIRST TWO ATTEMPTS
-        //    REVERTED `SlippageMaxS()`. `_seedBasket` funds the BASKET; it puts NO volatile in the
-        //    RANGE, so there was nothing to drain and any size tripped slippage. The tell was gas
-        //    IDENTICAL to the wei (2,625,949) across a 12.5x size change — a revert that does not
-        //    move with size is not a sizing problem. `_setupRange` adds the 400 ETH deposit and the
-        //    pre-drain that lands in the SCARCE region, which is also the only region where a premium
-        //    is charged at all — so it is what CONTROL 2 below needs to be non-vacuous.
-        _setupRange();
-        uint boldAmt = 20_000e18;
-
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
-        uint p0 = CORE.skewPremiumCum();
-        uint ethGot = _drain(boldAmt);
-        uint premium6 = CORE.skewPremiumCum() - p0;
-
-        // CONTROL 1 — the drain must have MOVED something. A zero makes every number below arithmetic
-        // on nothing, which is exactly how §E69's fixture produced an invalid result.
-        assertGt(ethGot, 0, "CONTROL: the drain must actually deliver volatile");
-        emit log_named_uint("drain: bold spent (18d)      ", boldAmt);
-        emit log_named_uint("drain: volatile out (18d)    ", ethGot);
-        emit log_named_uint("oracle px (USD18/ETH)        ", px);
-        emit log_named_uint("premium retained, cum delta 6d", premium6);
-
-        // The restoration spread at the oracle: what the SAME dollars can no longer buy back.
-        // ⚠️ SIGNED, AND THE FIRST VERSION WAS NOT — it read `usdOut18 > boldAmt ? usdOut18 - boldAmt
-        //    : 0`, which is 0 on EVERY premium-charging drain (the swapper always pays more than the
-        //    volatile is worth at oracle, that being the premium). A metric that is structurally zero
-        //    measures nothing, and it reported exactly that. Both directions are emitted now.
-        uint usdOut18 = ethGot * px / 1e18;
-        emit log_named_uint("drained volatile @oracle 18d ", usdOut18);
-        emit log_named_uint("ENTRY: range gain @oracle 18d", boldAmt > usdOut18 ? boldAmt - usdOut18 : 0);
-        emit log_named_uint("ENTRY: range loss @oracle 18d", usdOut18 > boldAmt ? usdOut18 - boldAmt : 0);
-        // ⛔ THIS IS THE ENTRY LEG ONLY. The RESTORATION spread — what it costs to buy `ethGot` back
-        //    through a real venue — is NOT measured here and needs the live 1inch route. Do not read
-        //    the entry gain as "the refill is affordable": it is one side of the inequality.
-        emit log_named_uint("premium scaled to 18d        ", premium6 * 1e12);
-
-        // CONTROL 2 — the premium leg must be REACHABLE, or the inequality is vacuous from the other
-        // side: a zero premium satisfies "spread >= premium" trivially and says nothing.
-        emit log_named_uint("premium non-zero (1) or leg never fired (0)", premium6 > 0 ? 1 : 0);
-
-        // ═══ THE RESTORATION LEG — the half §E65 has called UNMEASURED since it was booked ═══
-        // ⭐ **THE PROTOCOL'S OWN DEFAULT VENUE, NOT A MODEL AND NOT AN API KEY.** `routedSwap` with an
-        //    EMPTY route means exactly that (§SESS-92), so this measures what restoration would really
-        //    cost on the path the code would really take, with no keeper in it.
-        // ⇒ THE ROUND TRIP IS THE MEASUREMENT. The drain took `ethGot` out and put `boldAmt` dollars in.
-        //   To restore, those SAME dollars must buy `ethGot` back. Whatever they cannot buy is the
-        //   restoration spread — no exact-output quote and no modelled fee, just what the venue did.
-        // ⚠️ PRICED IN USDC, NOT BOLD. The dollars actually received are BOLD; converting them is a
-        //   stable hop the tree measures at ~1 bps (`Interfaces.sol:244`), so it is a known, small,
-        //   SEPARATE cost and folding it in here would blur the venue's own spread. Stated, not hidden.
-        uint usdcIn = boldAmt / 1e12;                       // 18-dec BOLD → 6-dec USDC, same dollars
-        deal(address(USDC), address(this), usdcIn);
-        uint wethBefore = WETH.balanceOf(address(this));
-        IERC20(address(USDC)).approve(address(AUX), type(uint).max);
-        uint ethBack;
-        try this.buyBack(usdcIn) returns (uint got) { ethBack = got; } catch { ethBack = 0; }
-        ethBack = WETH.balanceOf(address(this)) - wethBefore;
-
-        emit log_named_uint("RESTORE: dollars available   ", usdcIn);
-        emit log_named_uint("RESTORE: volatile bought back", ethBack);
-        emit log_named_uint("RESTORE: volatile owed       ", ethGot);
-        // CONTROL 3 — the venue must actually have filled, or the shortfall below is 100% by default
-        // and measures our own failure to route rather than the market's price.
-        assertGt(ethBack, 0, "CONTROL: the default venue must actually fill the buy-back");
-        uint shortEth = ethGot > ethBack ? ethGot - ethBack : 0;
-        uint spreadUsd18 = shortEth * px / 1e18;
-        emit log_named_uint("RESTORE: shortfall (wei)     ", shortEth);
-        emit log_named_uint("RESTORE: SPREAD @oracle (18d)", spreadUsd18);
-        emit log_named_uint("PREMIUM collected      (18d) ", premium6 * 1e12);
-        emit log_named_int ("PREMIUM - SPREAD (>0 = COVERS)", int256(premium6 * 1e12) - int256(spreadUsd18));
-        emit log_named_uint("spread as bps of the drain   ", boldAmt == 0 ? 0 : spreadUsd18 * 10_000 / boldAmt);
-        emit log_named_uint("premium as bps of the drain  ", boldAmt == 0 ? 0 : premium6 * 1e12 * 10_000 / boldAmt);
-        // ⛔ STILL NO INEQUALITY ASSERTED. The SIGN is the result being established; asserting it now
-        //    would encode the conclusion this test exists to find (§VACUOUS-BOUNDS).
-    }
 
     /// @notice 🔬 §REFILL-G2 — **THE FEASIBILITY SWEEP: does the swapper's own premium cover their own
     ///   restoration ACROSS SIZES, end to end, on the real path?** G1 settled attribution at ONE size on
@@ -225,46 +148,6 @@ contract DrainAtomicity is AllesFixture {
     ///      price.** No AMM does that, so the instrument, not the market, had to be wrong.
     /// ⇒ EACH SIZE NOW GETS A FRESH FIXTURE. `forge` re-runs `setUp` per test function, so four
     ///   functions is the only way to make the sizes independent. One measurement per test, no loop.
-    function _coverageAtSize(uint boldAmt) internal {
-        _setupRange();
-        // 🔴 §SENTINEL-GUARD — **WITHOUT THIS THE REGIME SWEEP SILENTLY MEASURES NOTHING.** The first
-        //    regime run reported +297 and +264 bps of "coverage" at two older blocks. Both were the
-        //    σ² sentinel: `premium == 3.00%` EXACTLY is `UNKNOWN_VARIANCE_SKEW` (3e16), i.e. σ² was
-        //    never measured there, so the premium is a constant and the row describes the fallback
-        //    rather than the market. It is the same vacuous reading that made §REFILL-SIZE look like
-        //    a cliff, and it PASSED as a green test both times.
-        //    ⇒ Warm from REAL Chainlink history, then REFUSE to measure if σ² is still unmeasured.
-        //      A contaminated sample must fail loudly, never report a number.
-        warmVarianceFromRealRounds(12);
-        assertGt(CORE.realizedVarianceWad(), 0,
-            "CONTROL: sigma^2 must be LIVE - at zero the premium is the sentinel, not a price");
-        uint px    = AUX.getTWAPforAsset(address(WETH), 1800);
-        uint p0    = CORE.skewPremiumCum();
-        uint ethGot = _drain(boldAmt);
-        uint prem6 = CORE.skewPremiumCum() - p0;
-        assertGt(ethGot, 0, "CONTROL: the drain must deliver, or the row below is arithmetic on nothing");
-        // The sentinel is exactly 3% of the drain. Catch it directly as well as via σ², because σ²
-        // could be non-zero while some other path still returns the constant.
-        assertTrue(prem6 * 1e12 != boldAmt * 3 / 100,
-            "CONTROL: premium is EXACTLY 3% - that is UNKNOWN_VARIANCE_SKEW, not a measured price");
-
-        uint usdcIn = boldAmt / 1e12;
-        deal(address(USDC), address(this), usdcIn);
-        IERC20(address(USDC)).approve(address(AUX), type(uint).max);
-        uint b0 = WETH.balanceOf(address(this));
-        try this.buyBack(usdcIn) returns (uint) {} catch {}
-        uint ethBack = WETH.balanceOf(address(this)) - b0;
-        assertGt(ethBack, 0, "CONTROL: the venue must fill, or 'shortfall' is our own routing failure");
-
-        int256 net = int256(ethBack) - int256(ethGot);
-        emit log_named_uint("drain size (BOLD 18d) ", boldAmt);
-        emit log_named_uint("  volatile out        ", ethGot);
-        emit log_named_uint("  volatile bought back", ethBack);
-        emit log_named_uint("  premium usd6        ", prem6);
-        emit log_named_uint("  buy-back USD per ETH", ethBack == 0 ? 0 : usdcIn * 1e12 * 1e18 / ethBack);
-        emit log_named_int ("  NET (+ = covers)    ", net);
-        emit log_named_int ("  NET bps of the drain", net * 10_000 / int256(ethGot));
-    }
     /// @notice 🔴🔴 §REFILL-G3 — **RE-MEASURE AT DRAIN SIZES WHERE THE KERNEL ACTUALLY BINDS.**
     ///   §REFILL-FEASIBILITY-SETTLED's 18 samples all reported a premium of EXACTLY 4.2 bps, flat at
     ///   every size and every block. **That is not the skew. `SwapLib:841` defines
@@ -280,46 +163,7 @@ contract DrainAtomicity is AllesFixture {
     /// @dev Sizes the drain as a FRACTION OF TARGET rather than in dollars, so q is the controlled
     ///      variable. Emits the realised premium in bps so the floor is visible when it binds: a row
     ///      reading exactly 4.2 is the floor, not a price.
-    function _coverageAtQ(uint pctOfTarget) internal {
-        _setupRange();
-        warmVarianceFromRealRounds(12);
-        assertGt(CORE.realizedVarianceWad(), 0, "CONTROL: sigma^2 must be LIVE");
-        uint target = CORE.flowEwmaUsd();
-        assertGt(target, 0, "CONTROL: target must be non-zero or q is undefined");
-        uint boldAmt = target * pctOfTarget / 100 * 1e12;      // usd6 target -> 18-dec BOLD
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
-        uint p0 = CORE.skewPremiumCum();
-        uint ethGot = _drain(boldAmt);
-        uint prem6 = CORE.skewPremiumCum() - p0;
-        assertGt(ethGot, 0, "CONTROL: the drain must deliver");
 
-        uint usdcIn = boldAmt / 1e12;
-        deal(address(USDC), address(this), usdcIn);
-        IERC20(address(USDC)).approve(address(AUX), type(uint).max);
-        uint b0 = WETH.balanceOf(address(this));
-        try this.buyBack(usdcIn) returns (uint) {} catch {}
-        uint ethBack = WETH.balanceOf(address(this)) - b0;
-        assertGt(ethBack, 0, "CONTROL: the venue must fill");
-
-        uint premBps = boldAmt == 0 ? 0 : prem6 * 1e12 * 10_000 / boldAmt;
-        int256 net = int256(ethBack) - int256(ethGot);
-        emit log_named_uint("q as % of target      ", pctOfTarget);
-        emit log_named_uint("  target (usd6)       ", target);
-        emit log_named_uint("  drain (BOLD 18d)    ", boldAmt);
-        emit log_named_uint("  premium bps         ", premBps);
-        emit log_named_uint("  FLOOR-BOUND? (1=yes, premium==4.2bps)", premBps == 4 ? 1 : 0);
-        emit log_named_int ("  NET bps (+ = covers)", net * 10_000 / int256(ethGot));
-        emit log_named_uint("  px                  ", px);
-    }
-    function test_REFILL_G3_q10()  public { _coverageAtQ(10);  }
-    function test_REFILL_G3_q40()  public { _coverageAtQ(40);  }
-    function test_REFILL_G3_q70()  public { _coverageAtQ(70);  }
-    function test_REFILL_G3_q90()  public { _coverageAtQ(90);  }
-
-    function test_REFILL_G2_Size_A_2k()   public { _coverageAtSize(2_000e18);   }
-    function test_REFILL_G2_Size_B_10k()  public { _coverageAtSize(10_000e18);  }
-    function test_REFILL_G2_Size_C_50k()  public { _coverageAtSize(50_000e18);  }
-    function test_REFILL_G2_Size_D_200k() public { _coverageAtSize(200_000e18); }
 
     /// @notice 🔴 §REFILL-BASIS — **G1, THE CONTROL THAT DECIDES WHETHER THE PREMIUM FUNDS THE REFILL.**
     ///   `test_REFILL_AFFORDABILITY` measured a round-trip surplus of 0.0251 ETH (~$62) against a

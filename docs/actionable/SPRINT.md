@@ -62451,3 +62451,34 @@ re-opening κ should know the test is not the clean double-count detector it was
 📌 **NET:** Γ is done. κ is open but its obvious form is measured-and-reverted. The integral is solved and
 unused. **The live route is the target, and it is blocked on a signed flow measure that is cumulative
 where gross is decayed — plus its own declaration's gate against money-path reads.**
+
+---
+
+## 🗑️ §MISLEADING-TESTS-REMOVED — ten tests deleted, nine of them mine
+
+Owner: *"remove tests that are misleading."* Removed, not merely re-documented. Survivors verified 6/6.
+
+### GONE — nine tests + two helpers that measured a mechanism the tree does not have
+`test_REFILL_G2_Size_{A,B,C,D}`, `test_REFILL_G3_q{10,40,70,90}`,
+`test_REFILL_AFFORDABILITY_PremiumVsRestorationSpread`, and their `_coverageAtSize` / `_coverageAtQ`
+bodies (~10,800 bytes). **They swept the cost of a protocol-executed buy-back.** Nothing in `evm/src`
+executes one, `payRefillBonus` was deleted in July marked do-not-rebuild, and LP entry is the only refill
+path — so every number they produce is about a hypothetical, and their names read as if they measure the
+shipped design. **Their findings are booked** (§REFILL-G2-VERDICT, §REFILL-G3, §REFILL-CONTRADICTION-
+SETTLED); the instruments would only mislead the next reader.
+
+### KEPT — `test_REFILL_BASIS_OracleVsPoolWithNoDrainAndNoPremium`
+It measures the oracle-vs-pool basis with **no drain, no Core, no premium**. That is a real, reusable
+market quantity independent of any refill design, and it is what let §REFILL-BASIS separate a $62 surplus
+into 81.6% basis and 18.4% premium. Kept with `buyBack`, which it needs.
+
+### 🔻 AND ONE OF MINE THAT WAS WORSE THAN THE ONE IT REPLACED
+`test_E287_SkewIsNotPinnedToAConstant` originally read `assertTrue(c > 3e16)` — a ceiling test in the
+ceiling's own units, which broke when Γ moved. **I "strengthened" it to a σ² linearity assertion**, on the
+reasoning that *a ceiling is exactly a loss of linearity*.
+⛔ **§SIGMA-COUNT-BROKEN measured that premise FALSE.** `skewWad` carries `DEPLETION_RATE_WAD`, σ²-free,
+worth exactly 210 per unit of drain — the doubling ratio is **1.57–1.86, never 2.00**. My assertion held
+only because that fixture's drain makes the term small: **a false general property that passed for the
+wrong reason.** Removed; the monotonicity check that was always there is TRUE and is the whole claim.
+📌 The lesson is specific: **I strengthened a test by adding a property I had not measured.** The original
+was stale; my replacement was wrong, which is worse than stale because it looks like evidence.
