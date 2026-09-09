@@ -1078,152 +1078,7 @@ library SwapLib {
         return SoladyMath.fullMulDiv(sigmaSqWad, confFrac, 8e18) + rk.spliceFloor;
     }
 
-    /// ⚠️ §E313 — RESTORED. Deleted by §E301 as "restoration sizing"; it is not. This is the rule-17
-    /// root fix for the ROUND-TRIP EXIT ATTACK — an attacker enters as an LP and EXITS FIRST, escaping a
-    /// shortfall the incumbent eats. Sharing it removes the PRIZE rather than pricing it, so the attack
-    /// has nothing to extract. §E301's argument ("we never source inventory") is about VENUE restoration
-    /// and says nothing about EXIT ORDERING. It was deleted for sitting in the same file and tests as
-    /// `refillPlacement`, which is proximity, not a reason.
-    /// @notice §UNIT-ROUNDTRIP-LIVE — PRO-RATA SHORTFALL. Decided on evidence 2026-08-16 after the
-    ///         owner could not pick between this and the forella brake.
-    ///         **THE MECHANISM IS THE EXIT RACE, NOT THE PATH.** An entrant buys volatile out, redeposits
-    ///         as an LP, and EXITS FIRST — escaping a shortfall the incumbent then eats. MEASURED:
-    ///         incumbent seeds 500 ETH and withdraws 499.2385, i.e. **15.2 bps of principal** taken.
-    ///         ⛔ THE FORELLA BRAKE IS REFUTED BY ITS OWN FRAME-CHECK (§UNIT-FORELLA-FRAMECHECK: *"the
-    ///         coincide-on-monotone premise is refuted"*) — a total-variation charge does NOT leave
-    ///         honest monotone flow untouched, so it taxes everyone to stop one attack, and it prices
-    ///         a symptom.
-    ///         ⭐ SHARING THE SHORTFALL REMOVES THE PRIZE INSTEAD OF PRICING IT (rule 17: make the bad
-    ///         state UNCONSTRUCTIBLE, not merely costly). With no first-out advantage the round trip
-    ///         has nothing to extract, and the brake becomes unnecessary rather than tuned.
-    /// @param shortfallUsd6  the whole shortfall to be shared, 6-dec USD
-    /// @param exitShares     the shares this exiter is redeeming
-    /// @param totalShares    total shares outstanding BEFORE this exit
-    function proRataShortfall(uint shortfallUsd6, uint exitShares, uint totalShares)
-        internal pure returns (uint bornUsd6)
-    {
-        if (totalShares == 0 || exitShares == 0 || shortfallUsd6 == 0) return 0;
-        // Cap at the full shortfall: an exiter redeeming everything bears all of it, never more.
-        if (exitShares >= totalShares) return shortfallUsd6;
-        bornUsd6 = SoladyMath.mulDiv(shortfallUsd6, exitShares, totalShares);
-    }
 
-    /// @notice The convex inventory-skew CURVE — returns a WAD skew FRACTION, not a price.
-    ///         ⚠️ The bound is `SKEW_UNFILLABLE` (1e18 = a full haircut), applied by
-    ///         `_boundToFullHaircut`. There is no policy ceiling — a 3% cap would be 33×
-    ///         tighter than what actually binds. Applied as an effective-rate scalar on the
-    ///         swap-OUT (drain) leg: a scarce pool hands out less volatile per unit input, so
-    ///         the imbalance-causer pays a scarcity premium and the withheld input stays as
-    ///         basket backing (funding the pool's ability to pay a refill). Re-admits the
-    ///         benign inventory-rebalancing arber WITHOUT the toxic LVR one: the swap itself
-    ///         still executes at the honest oracle through routeSwap (the manip-guard sees an
-    ///         UNSKEWED price ⇒ no exemption needed) — the skew is a separate output scalar,
-    ///         which is precisely what lets it exceed what the range band itself can express in a
-    ///         genuine drought (the range + in-window benign arb own the near-target regime; the
-    ///         skew is a TAIL layer that only bites past that). ⚠️ THE BAND IS `RANGE_DELTA = 200`,
-    ///         i.e. **±200 bps / ±2%** (widened 20 → 200 on 2026-09-08; the live LVR coefficient is
-    ///         ≈`12.56e18`, NOT the ~`125e18` the ±0.2% geometry gave).
-    ///         ⛔ **THIS SENTENCE HAS NOW BEEN WRONG TWICE, AND BOTH TIMES IT READ AS A CORRECTION.**
-    ///         It first said "±50-bps" — that is `RESEAT_MIN_BPS`, the RESEAT threshold, a different
-    ///         quantity. It was fixed to `20`, and then the range widened underneath it. **Read the
-    ///         constant at `:870`; never this sentence.**
-    ///
-    ///         Inputs (all 6-dec USD except σ²), asset-agnostic — the signature is
-    ///         `skewWad(poolVolUsd, flowUsd, sigmaSqWad, rk, drainUsd6)`:
-    ///           inv0   = poolVolUsd   (pre-swap deliverable volatile)
-    ///           inv1   = inv0 − drainUsd6, floored at 0   (what THIS swap leaves behind)
-    ///           target = flowUsd      (the shed target, `Core.skewTargetUsd()`)
-    ///         ⛔ NEITHER LEVERAGE TERM IS IN THIS FUNCTION. `lockedUsd` is NOT subtracted from `inv`
-    ///         and `committedUsd` is NOT added to `target` — §E58 removed both from the arithmetic
-    ///         (owner: *"whether levered or not, in the range is in the range alike"*) and §E68
-    ///         removed them from the signature. Do not reintroduce either: the block at `skewWad`'s
-    ///         head records why both inflated scarcity in proportion to the lev book.
-    ///
-    ///         AVELLANEDA–STOIKOV reservation skew: the optimal MM inventory shift is q·γ·σ²·(T−t).
-    ///           q  = scarcity   (WAD inventory imbalance, (target−inv)/target, the A-S q)
-    ///           σ² = sigmaSqWad  (WAD annualized realized variance, realizedVarianceWad)
-    ///           Γ  = GAMMA_WAD  = γ·(T−t) folded into ONE coefficient (the horizon T−t is
-    ///                already carried by the FLOW_DECAY EWMA smoothing of flow/scarcity).
-    ///         ⚠️ **σ² ENTERS LINEARLY; q DOES NOT.** The drain kernel is `Γ·σ²·qBar`, and `qBar` is
-    ///         the path-AVERAGE of the pole `κ·q/(κ−q)` over the displacement this swap itself causes
-    ///         (§E68's integral, §E289's κ) — convex, which is what the first line of this docblock
-    ///         means by CURVE. Linear-in-q is the SELL leg (`sellSkew`, §E54: you cannot run out of
-    ///         surplus, so there is no barrier to integrate against).
-    ///         The flush arm (`inv1 >= target`) does NOT return 0: it returns
-    ///         `_maxWellSkew(σ²,rk) + _depletion(inv0,inv1)` — §UNIT-A put the base back, §ZERO-REVENUE
-    ///         added depletion, and the test is on the POST-swap inventory so size-blindness cannot
-    ///         survive it. ⚠️ **There is NO hard percentage cap** — the only bound is
-    ///         `_boundToFullHaircut`'s `SKEW_UNFILLABLE`.
-    /// @notice §UNIT-C — THE REFILL TRIGGER, AND IT IS THE SKEW'S OWN PREDICATE (owner, 2026-08-16:
-    ///         *"the threshold that fires a refill swap [is] the same threshold that triggers a skew
-    ///         price — if it's an imbalance to be balanced profitably it must trigger."*)
-    ///         ⭐ **NO NEW CONSTANT AND NO SECOND DEFINITION OF "IMBALANCED".** This is `skewWad`'s
-    ///         own flush test, character for character (`inv1 >= target ⇒ no scarcity`), so the thing
-    ///         we CHARGE for and the thing we FIX cannot drift apart. A separate threshold would be
-    ///         two definitions of one condition, and the one that drifts is always the one nobody
-    ///         tests.
-    ///         `shortfallUsd6` is what must be sourced to clear the imbalance — the input to the
-    ///         profitability half (fire when the retained premium covers the cost of sourcing).
-    ///
-    /// ✅ **VERDICT 2026-08-23 — KEEP. IT IS NOT SUPERSEDED BY `_fillableDrain`, AND THE TWO ARE NOT
-    ///     TWO OPINIONS ON ONE QUESTION.** The `STARTED, NOT FINISHED` row asked to *"wire it, or
-    ///     delete it as superseded"*, and a later row concluded *"superseded, not unwired"* on the
-    ///     strength of §E300 building the fillable bound inside `wellSkew`. **That conclusion is true
-    ///     of the ETH pricing path and false as a statement about the tree.** Measured, not argued:
-    ///       • **DIFFERENT THRESHOLD.** This fires at `inv1 < target`. `_fillableDrain` bounds at
-    ///         `invFloor = target/(1+R)`, `R = SKEW_UNFILLABLE/(Γ·σ²)` — strictly BELOW `target` for
-    ///         any positive `Γ·σ²`. A range between the two is imbalanced (this fires) and perfectly
-    ///         fillable (that clamps nothing). They coincide nowhere.
-    ///       • **DIFFERENT TYPE AND DIFFERENT JOB.** This returns `(bool fire, uint shortfallUsd6)` —
-    ///         a TRIGGER plus the size to source. `_fillableDrain` returns a clamped DRAIN SIZE: it
-    ///         decides what we can serve inside a quote, never whether anything should be restored.
-    ///       • **DIFFERENT REACHABILITY.** `_fillableDrain` is `private`. No daemon, keeper or
-    ///         off-chain consumer can call it, which is precisely what a restoration trigger must be.
-    ///       • **AND `wellSkew`'S OUTPUT CANNOT SUBSTITUTE FOR IT.** On the flush branch `skewWad`
-    ///         returns the BASE plus depletion, never the kernel — so a caller reading the skew cannot tell
-    ///         "flush" from "scarce". After §E79's cap→base inversion there is no output value that
-    ///         encodes this predicate. It has to be asked directly.
-    ///         ⚠️ **AND THE ONE CELL WHERE THAT ARGUMENT IS STRONGEST IS THE ONE THIS BULLET FIRST
-    ///         GOT WRONG: it said the base is "not 0".** At σ² == 0 on ETH (`spliceFloor == 0`) the
-    ///         base IS 0 — see §E352 at the flush branch. ⚠️ **BUT "the skew reads 0 for a flush
-    ///         range" IS NO LONGER TRUE OF EITHER FLUSH ARM.** §ZERO-REVENUE added `+ _depletion(inv0,
-    ///         inv1)` — which carries no σ² term — to the `inv1 >= target` arm, and §E352-DEPLETION
-    ///         added it to the `target == 0` twin, so BOTH now read 0 only when `inv1 >= inv0`, i.e. a
-    ///         swap that removes no inventory. On the
-    ///         drain leg it is 3e16 for a scarce one. The predicate is *accidentally*
-    ///         recoverable there and nowhere else, which is worse than never: a consumer that derived
-    ///         it from the skew would work in exactly the configuration §E278 wants changed, and
-    ///         silently invert the day a variance source lands. **Ask this function.**
-    /// ⭐ **WHAT IT IS FOR, AND WHY §E301 DOES NOT REACH IT.** §E301 retired `refillPlacement` because
-    ///     *"there is no restoration we perform"* — the swapper carries the unfilled remainder to
-    ///     another venue. **That argument is explicitly scoped to the ETH side.** The BTC side has a
-    ///     REAL, WIRED restoration rail, and it is not prose: THREE `BTCChannels` sites call
-    ///     `btc.creditSwapIn(…)` — `settleSwapInProven`, `reverseSwapOut` and `refundExpiredSwapOut`
-    ///     — → `Vault.creditSwapIn` → `SwapLib.creditSwapInBody`, driven off-chain by the hop daemon
-    ///     (§E18) — the exact consumer this predicate was built for.
-    /// ⛔ **DO NOT DELETE IT WITH ITS TEST FILE.** `git log -S "refillNeeded"` shows one landing
-    ///     commit, `0be4dc21` *"UNIT-C … the decided logic lands as pure arithmetic"* — parked
-    ///     awaiting wiring, on an owner instruction quoted verbatim above. That is the `create_sweep_tx`
-    ///     shape: a maintained, TESTED function whose caller is a feature not yet built. Standing
-    ///     rule 1 removes UNREACHABLE code; this is reachable, correct, and covered by
-    ///     `RefillTriggerAndProRata.t.sol`, which treats it as the refill trigger.
-    /// ⚠️ **THE ONE REAL COST OF KEEPING IT, NAMED SO IT IS NOT DISCOVERED AS A SURPRISE:** the
-    ///     predicate `inv1 < target` is now written TWICE — here and in `skewWad`'s flush branch.
-    ///     That duplication is DELIBERATE (the owner's *"no second definition of imbalanced"*), but
-    ///     deliberate is not self-enforcing: nothing makes them fail together if one is edited. **If
-    ///     `skewWad`'s flush test ever changes, this line changes in the same commit** — the drift
-    ///     they were made identical to prevent is a silent one, which is exactly when it matters.
-    /// @param poolVolUsd  pre-swap deliverable inventory, 6-dec USD (`inv0`)
-    /// @param flowUsd     the shed target the range is measured against (`target`)
-    /// @param drainUsd6   the swap's volatile-side draw, 6-dec USD
-    function refillNeeded(uint poolVolUsd, uint flowUsd, uint drainUsd6)
-        internal pure returns (bool fire, uint shortfallUsd6)
-    {
-        if (flowUsd == 0) return (false, 0);          // no target ⇒ no scarcity to measure
-        uint inv1 = drainUsd6 >= poolVolUsd ? 0 : poolVolUsd - drainUsd6;
-        fire = inv1 < flowUsd;                        // IDENTICAL to skewWad's flush test
-        shortfallUsd6 = fire ? flowUsd - inv1 : 0;
-    }
 
     // ═══ §OOR-AS-INTENT — THE OUT-OF-RANGE BOOK, REPLACED BY A SIGNATURE ═══
     // ⭐ **IT LIVES HERE BECAUSE IT IS SWAP LOGIC AND BECAUSE THIS LIBRARY IS ALREADY LINKED.**
@@ -1810,10 +1665,12 @@ library SwapLib {
     /// 2026-08-21). Guarding each consumer would be N bounds for one class of thing; refusing to
     /// PRODUCE an unfillable rate is the state fix, and every consumer inherits it including any
     /// added later — which is why the count below can fall without weakening the argument.
-    /// ⛔ **RE-ENUMERATED 2026-08-23 — EXACTLY ONE LIVE SKEW CONSUMER.** `retainSkewPremium`
-    /// (`amount -= premium`; also the ONLY caller of `Core.recordSkewPremium`, i.e. the whole LP fee
-    /// lane) is live; `_applySkew` (`base ± base·skew/1e18`) has ZERO callers — the parked quote
-    /// surface. `Core._fillDelta`'s `out -= out·skew/1e18` was the third and `f5499659` (§E279)
+    /// ⛔ **RE-ENUMERATED 2026-08-23, RE-CUT 2026-09-09 — NOW EXACTLY ONE SKEW CONSUMER, FULL STOP.**
+    /// `retainSkewPremium` (`amount -= premium`; also the ONLY caller of `Core.recordSkewPremium`,
+    /// i.e. the whole LP fee lane) is live and is the only one. The parked quote surface that used to
+    /// stand beside it is **DELETED** — it had zero callers and its open question (*"decide before
+    /// wiring it into a live path"*) is moot under a flat fee, which has no skew to apply.
+    /// `Core._fillDelta`'s `out -= out·skew/1e18` was the third and `f5499659` (§E279)
     /// deleted it as a DUPLICATE: its input had already been scaled by `(1−s)`, so swappers paid
     /// `s + s'(1−s)` while LPs were credited only `s`.
     /// ⇒ **The producer-side decline still earns its place** — it makes the count irrelevant, and
@@ -3162,104 +3019,6 @@ library SwapLib {
     }
 
 
-    // ═══ §E310 — `FixedRateFill` FOLDED IN HERE; its own file is deleted ═══
-    // 🔴 THE SKEW CHARGE HAS EXACTLY ONE OWNER, AND A SECOND OWNER IS A DOUBLE-CHARGE. `_applySkew`
-    //    folds the skew INTO a rate (`base ± base·skew/1e18`). The settlement path already charges it
-    //    by a DIFFERENT mechanism: `retainSkewPremium` subtracts the premium from the INPUT before
-    //    `routeSwap` derives `pooled` from it. Wiring `_applySkew` into a live path that also settles
-    //    through `retainSkewPremium` re-creates §E279 exactly — `f5499659` deleted that twin from
-    //    `Core._fillDelta` on 2026-08-23, where the realised rate was `s + s'(1−s)`, only `s` reached
-    //    LPs, and the excess sat in the pool as unattributed backing.
-    //    ⇒ **DECIDE WHICH LAYER OWNS THE CHARGE — the rate or the retained premium — BEFORE
-    //    `_applySkew` GETS A CALLER.** Nothing in the code prevents the second way in.
-    //    ⚠️ This is NOT the *"DECIDE BEFORE WIRING `_applySkew` INTO A LIVE PATH"* note below: that
-    //    one is about final price vs estimate-plus-true-up. This one is arithmetic, and it has a
-    //    measured precedent.
-    /// @notice The design rationale below is for the CURRENT swap path — how our fill differs from an
-    ///         AMM (the skew, the no-traversal quote, why √P and the tick grid left).
-    /// @notice ONE PRICE, NO TRAVERSAL. The swapper is quoted a SINGLE rate for a SINGLE size, bounded by
-    ///         inventory, and that rate is what settles. There is no curve to walk, no tick to cross, and
-    ///         no average-execution-across-a-range — which is precisely why √P and the tick grid leave in
-    ///         the same cut (owner, 2026-08-15: "work around geometric means").
-    ///
-    ///         WHY THIS IS NOT AN AMM. An AMM DISCOVERS the price by moving along a curve as the trade
-    ///         executes, so the marginal price at the end differs from the start and the average is a
-    ///         geometric mean of the two. Here the price is COMMITTED BEFORE EXECUTION and does not move
-    ///         during it. The imbalance the trade creates is priced INTO the quote via the skew, rather
-    ///         than being expressed as slippage discovered on the way through.
-    ///
-    ///         ⇒ THE SKEW IS NOT A SPREAD PAID TO ARBERS. IT IS THE ATTRIBUTION KEY FOR A REBALANCE WE
-    ///         PERFORM OURSELVES (owner, 2026-08-15). An AMM's spread exists to PAY EXTERNAL
-    ///         ARBITRAGEURS to push the pool back to target — that is the entire economic function of
-    ///         the curve. We restore 1:1 from the INSIDE via Curve, so there are no arbers to
-    ///         compensate and nothing the spread would be funding.
-    ///
-    ///         WHAT REMAINS IS A REAL COST, AND IT IS NOT FREE: curving back to target pays Curve's fee
-    ///         plus slippage, and it is incurred BECAUSE someone pushed the range off target.
-    ///         ⇒ **THE COST SPLITS ACROSS ALL THREE** (owner, 2026-08-15, correcting an earlier
-    ///         causer-pays-only reading). A range trade has **TWO SUPPLIERS, NOT ONE**: the volatile leg
-    ///         is LP INVENTORY, the USD leg is BASKET CAPITAL (at rest ~246k of basket dollars against a
-    ///         739k ETH deposit). The rebalance cost is therefore incurred against capital supplied by
-    ///         both, and CAUSATION IS ONLY ONE AXIS. Each pure answer is a corner solution:
-    ///           • swapper-only — ignores that LPs earn the fee lane *precisely for* carrying inventory
-    ///             risk, so they are being paid for a cost they are not bearing;
-    ///           • LP-only — socialises a large swapper's imbalance onto LPs who did not create it;
-    ///           • basket-only — makes the basket fund a rebalance of depth it ALREADY supplied, paying
-    ///             twice for one trade.
-    ///         The split must be weighted by WHO TOOK THE RISK ON EACH LEG, which is the same test that
-    ///         resolves the corner solutions.
-    ///
-    /// 🔴 THIS IS THE SAME QUESTION AS #12 (count-once) AND MUST BE SETTLED WITH IT.
-    ///         #12 cannot be evaluated without stating who owns the PROCEEDS of a range→basket sale —
-    ///         two suppliers, both corners wrong, the survivor being "credit the LP its inventory's
-    ///         proceeds MINUS a depth fee". That is this split seen from the other side: one asks who
-    ///         pays a cost, the other who receives a proceed, and both answer "apportion between the
-    ///         two suppliers". Settle them together or they WILL drift apart.
-    ///
-    /// 🔴 OUT-OF-RANGE IS A FOURTH STATE AND IT BREAKS THE TWO-SUPPLIER SYMMETRY.
-    ///         When the range is OOR it holds a SINGLE asset — the two legs have collapsed into one, so
-    ///         "who supplied what" has a different answer entirely. The operation is also different: not
-    ///         *restore 1:1* but *RE-ENTER RANGE*, a different cost with a different beneficiary. **A
-    ///         split calibrated on an in-range range is simply WRONG when applied out of range**, and it
-    ///         will not announce itself — it produces a plausible apportionment against the wrong basis.
-    ///         ⚠️ NOT SOLVED HERE. Any split rule must state its OOR behaviour explicitly rather than
-    ///         inheriting the in-range weights by default.
-    ///
-    ///         SO THE SKEW SURVIVES, WITH A DIFFERENT JOB. `wellSkew` measures the SCARCE side
-    ///         (volatile-OUT drain — A&S's reservation price with the `q/(1−q)` pole, because you CAN
-    ///         run out and the last unit is priceless); `sellSkew` measures the ABUNDANT side
-    ///         (volatile-IN, LINEAR `Γσ²·q`, no pole, because YOU CANNOT RUN OUT OF SURPLUS — §E54).
-    ///         ⚠️ THEY NO LONGER SHARE A VISIBILITY, AND THIS LINE SAID THEY DID (*"Both are
-    ///         `public view`, so both directions are readable before settlement"*). §EIP-170:
-    ///         `wellSkew` is still `public` because `Aux.wellSkewFor` delegatecalls it; `sellSkew`
-    ///         had ZERO callers outside this file, so its dispatcher entry was dead weight on the
-    ///         binding contract and it is `internal`. **Both are still readable before settlement** —
-    ///         an internal library function is callable as `SwapLib.sellSkew(…)` by any importer,
-    ///         which is how every test in `evm/test` reads it.
-    ///
-    /// 🔴 THE OPEN PIECE — BATCHING MAKES THE COST JOINT, SO ATTRIBUTION NEEDS A RULE.
-    ///         The keeper rebalances in BATCHES so gas is amortised (#28). That means the actual Curve
-    ///         cost is incurred PER BATCH and is not known at any individual swap's settlement time.
-    ///         The shape that follows from "the causer pays": charge the measured skew at settlement
-    ///         into a pot, pay the keeper's rebalance OUT of that pot, and let surplus/deficit accrue
-    ///         to the fee lane — with each swapper's share of a batch's joint cost being PRO-RATA BY
-    ///         THE SKEW THEY CONTRIBUTED. That reuses the skew for what it is actually good at: a
-    ///         relative measure of who created how much imbalance.
-    ///         ⚠️ NOT YET DECIDED, AND IT MATTERS: whether the settlement charge is a FINAL price or an
-    ///         ESTIMATE trued up against realised cost. A final charge is a model (A-S) standing in for
-    ///         a measurable fact (what Curve actually cost), which is the kind of substitution this repo
-    ///         has been burned by. An estimate-plus-true-up is honest but needs somewhere to hold the
-    ///         difference. DECIDE BEFORE WIRING `_applySkew` INTO A LIVE PATH.
-    ///
-    /// @dev The skew moves the rate AGAINST the swapper in both directions — it is a spread, not a
-    ///      directional view. On a drain the range parts with scarce inventory and charges MORE per
-    ///      unit; on a fill the range absorbs unwanted inventory and pays LESS per unit. Symmetric by
-    ///      construction, which is what makes it a spread rather than a fee with a sign bug.
-    function _applySkew(uint base, uint skewAmt, bool draining) private pure returns (uint) {
-        return draining
-            ? base + (base * skewAmt) / 1e18
-            : base - (base * skewAmt) / 1e18;
-    }
 
 
 

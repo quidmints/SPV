@@ -7,7 +7,9 @@ check this list first: three separate threads have re-derived the same result.**
 
 ## 1. ⛔ THE ONE THING THAT MAKES MOST REFILL WORK MOOT
 **Nothing in `evm/src` executes a buy-back, and that is deliberate.** `refillNeeded` and
-`proRataShortfall` have ZERO non-declaration references. `SwapLib`'s reservoir docblock states that
+`proRataShortfall` had ZERO non-declaration references and were **DELETED 2026-09-09**, with
+`RefillTriggerAndProRata.t.sol`, on the owner's direction that the target design has no refill
+mechanism at all (`docs/actionable/TARGET-DESIGN.md`). `SwapLib`'s reservoir docblock states that
 **LP entry is the ONLY refill path**, and `payRefillBonus` — which paid a trader to restore balance —
 was **deleted 2026-07-22 with an explicit instruction not to rebuild it.**
 ⇒ **The pool never buys its own inventory back.** Any analysis of "can the premium fund the buy-back"

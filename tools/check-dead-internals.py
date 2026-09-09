@@ -22,7 +22,8 @@ A detector that cannot fail certifies. Run the KNOWN POSITIVE, never a clean run
 ⚠️ AND A ZERO-CALLER HIT IS A QUESTION, NOT A VERDICT. Measured 2026-09-08 on a green tree, all four
 hits were documented KEEPS: `Basket._lzReceive` (a LayerZero override whose caller is in the vendored
 base, which `.graphifyignore` excludes), `OracleLib.curvePriceWad` x2 (unwired ON PURPOSE, §V-DOLLARS)
-and `SwapLib._applySkew` (carries an open design question). Read what is written at the site before
+(`SwapLib._applySkew` was on this list and was DELETED 2026-09-09: its open design question
+was moot once the charge became a flat fee.) Read what is written at the site before
 deleting anything — an undecided design question is not a revival hypothetical.
 
 Usage:  python3 tools/check-dead-internals.py     (from the repo root)
