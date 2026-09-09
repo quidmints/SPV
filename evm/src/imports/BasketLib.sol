@@ -910,7 +910,7 @@ library BasketLib {
 
     /// @notice §S12 — **HOW MUCH OF OUR AAVE-v4 POSITION IS ACTUALLY WITHDRAWABLE.**
     ///
-    /// \U0001f534 **THIS REPLACES `avail = rs − rd`, WHICH WAS WRONG IN BOTH DIRECTIONS.** That form read
+    /// 🔴 **THIS REPLACES `avail = rs − rd`, WHICH WAS WRONG IN BOTH DIRECTIONS.** That form read
     ///    `getReserveSuppliedAssets(rid) − getReserveTotalDebt(rid)` and called the difference "reserve
     ///    cash". MEASURED 2026-09-05 at `FORK_BLOCK=25800000`, **neither operand is a reserve-wide
     ///    quantity and their difference is not cash.** Both are OUR SPOKE's own book against the hub,
@@ -930,7 +930,7 @@ library BasketLib {
     ///    leg was haircut in full and flagged maximally illiquid, when $543,837 was in fact drawable.
     ///    A spoke owing more than it added is NORMAL here, not distress: it is a credit line from the hub.
     ///
-    /// \U0001f511 **WHAT IS CORRECT INSTEAD.** In v4's hub-and-spoke shape the HUB custodies the asset and the
+    /// 🔑 **WHAT IS CORRECT INSTEAD.** In v4's hub-and-spoke shape the HUB custodies the asset and the
     ///    spokes are frontends, so the ceiling on any withdrawal is the hub's cash for that asset. We
     ///    cannot take out more than we put in either, hence the `min`. The spoke's OWN token balance is
     ///    deliberately NOT added: measured, it is 0 for USDC/USDG/GHO and $1,001 for USDT against $2.87M

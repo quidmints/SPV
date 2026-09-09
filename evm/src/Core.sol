@@ -243,7 +243,7 @@ contract Core {
     ///    ⇒ draining dearer AND refilling free for longer, from one number — no new mechanism, no
     ///    third party paid, nothing borrowed, no inventory held.
     ///
-    /// \U0001f534 **AND IT GETS ITS OWN REGISTER RATHER THAN BUMPING `_flow`, WHICH IS THE WHOLE POINT.**
+    /// 🔴 **AND IT GETS ITS OWN REGISTER RATHER THAN BUMPING `_flow`, WHICH IS THE WHOLE POINT.**
     ///    `flowEwmaUsd` (GROSS, fed a magnitude) and `netFlowUsd` (SIGNED) are a **matched pair, and the
     ///    pair IS the wash-trading discriminator** — §E326 measured it: over a round trip `flowEwmaUsd`
     ///    went `0 → 49,999,999,999 → 99,994,054,053` while the position netted to ~$6, so *"a
