@@ -265,6 +265,57 @@ contract DrainAtomicity is AllesFixture {
         emit log_named_int ("  NET (+ = covers)    ", net);
         emit log_named_int ("  NET bps of the drain", net * 10_000 / int256(ethGot));
     }
+    /// @notice 🔴🔴 §REFILL-G3 — **RE-MEASURE AT DRAIN SIZES WHERE THE KERNEL ACTUALLY BINDS.**
+    ///   §REFILL-FEASIBILITY-SETTLED's 18 samples all reported a premium of EXACTLY 4.2 bps, flat at
+    ///   every size and every block. **That is not the skew. `SwapLib:841` defines
+    ///   `MIN_SWAP_SKEW_WAD = 4.2e14` — 420 ppm — and `:1953` applies it as
+    ///   `max(_amplify(...), MIN_SWAP_SKEW_WAD)`.** Every drain I tested sat below the floor, so all
+    ///   18 samples measured a CONSTANT, size-blind floor and none of them measured the A-S kernel.
+    ///   ⇒ MEASURED where the crossover is (σ²=1e17): kernel is 0.010 bps at q=0.2% of target and
+    ///     only passes 4.2 bps somewhere between q=40% (2.36) and q=70% (5.42). Below that the floor
+    ///     IS the charge.
+    /// ⭐ **SO THE FUNDING QUESTION WAS ASKED IN THE WRONG REGIME.** A refill matters when a drain
+    ///   DEPLETES the range — that is high q, exactly where the kernel takes over — and every sample
+    ///   I drew was from the region where it cannot respond to scarcity at all.
+    /// @dev Sizes the drain as a FRACTION OF TARGET rather than in dollars, so q is the controlled
+    ///      variable. Emits the realised premium in bps so the floor is visible when it binds: a row
+    ///      reading exactly 4.2 is the floor, not a price.
+    function _coverageAtQ(uint pctOfTarget) internal {
+        _setupRange();
+        warmVarianceFromRealRounds(12);
+        assertGt(CORE.realizedVarianceWad(), 0, "CONTROL: sigma^2 must be LIVE");
+        uint target = CORE.flowEwmaUsd();
+        assertGt(target, 0, "CONTROL: target must be non-zero or q is undefined");
+        uint boldAmt = target * pctOfTarget / 100 * 1e12;      // usd6 target -> 18-dec BOLD
+        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint p0 = CORE.skewPremiumCum();
+        uint ethGot = _drain(boldAmt);
+        uint prem6 = CORE.skewPremiumCum() - p0;
+        assertGt(ethGot, 0, "CONTROL: the drain must deliver");
+
+        uint usdcIn = boldAmt / 1e12;
+        deal(address(USDC), address(this), usdcIn);
+        IERC20(address(USDC)).approve(address(AUX), type(uint).max);
+        uint b0 = WETH.balanceOf(address(this));
+        try this.buyBack(usdcIn) returns (uint) {} catch {}
+        uint ethBack = WETH.balanceOf(address(this)) - b0;
+        assertGt(ethBack, 0, "CONTROL: the venue must fill");
+
+        uint premBps = boldAmt == 0 ? 0 : prem6 * 1e12 * 10_000 / boldAmt;
+        int256 net = int256(ethBack) - int256(ethGot);
+        emit log_named_uint("q as % of target      ", pctOfTarget);
+        emit log_named_uint("  target (usd6)       ", target);
+        emit log_named_uint("  drain (BOLD 18d)    ", boldAmt);
+        emit log_named_uint("  premium bps         ", premBps);
+        emit log_named_uint("  FLOOR-BOUND? (1=yes, premium==4.2bps)", premBps == 4 ? 1 : 0);
+        emit log_named_int ("  NET bps (+ = covers)", net * 10_000 / int256(ethGot));
+        emit log_named_uint("  px                  ", px);
+    }
+    function test_REFILL_G3_q10()  public { _coverageAtQ(10);  }
+    function test_REFILL_G3_q40()  public { _coverageAtQ(40);  }
+    function test_REFILL_G3_q70()  public { _coverageAtQ(70);  }
+    function test_REFILL_G3_q90()  public { _coverageAtQ(90);  }
+
     function test_REFILL_G2_Size_A_2k()   public { _coverageAtSize(2_000e18);   }
     function test_REFILL_G2_Size_B_10k()  public { _coverageAtSize(10_000e18);  }
     function test_REFILL_G2_Size_C_50k()  public { _coverageAtSize(50_000e18);  }
