@@ -133,6 +133,87 @@ sibling `_deleverOne:464` does — and under §POOL-VENUE an LP can exit with al
 stays socialised. **F9** `_pricingBacking` leaves `total += totalLevPooled` INSIDE the `try`, so a
 reverting `totalNetEquity` understates by the whole levered book.
 
+### ✅ §F-LANDED-2026-09-09 — **F2 · F3 · F9 · F12 · F13 · F14 · F15 ARE ALL FIXED AND COMMITTED (`b842fd22`).**
+Build green, zero errors. ⛔ **NOT VERIFIED BY EXECUTION — see §F-TESTS-UNRUN below. Do not read
+"landed" as "proven".** What each fix actually was:
+- **F3** — one argument, exactly as predicted: `_sourceRepayFree` passes `aux`, not `address(this)`.
+  ⚠️ **The brief's "GHO and BOLD are on no `_hubRowOf` row" is now HALF-FALSE** — §SESS-121 added a
+  BOLD/USDC row. GHO still has none. And that same lane's `q >= floor` arm converts thin-pool reverts
+  into refunds, so refunds got MORE frequent, not less: **F3 is more load-bearing than this block said.**
+- **F2** — the ETH reroute now measures what ARRIVED at the venue instead of paying what was QUOTED,
+  and the `ask` unit-flip moved BELOW that measurement. ⭐ **That second half was not in the brief and
+  is the bigger bug:** `ask` was scaled off the REQUESTED size while the venue was repaid the MEASURED
+  (smaller) one, inflating collateral-freed-per-dollar-retired. A silent over-withdraw.
+- **F15** — `MORPHO.accrueInterest(_params())` before the `totalDebt()` read, as specified.
+- **F12** — `_toUsd18` at the `deleverToVault` boundary. **F13** — the buffer is split where the sized
+  cap is in scope, LP gets it back. **F14** — `debtOf < debtBefore` post-condition **plus** a `d + 1`
+  ceil, because the `_fromUsd(_toUsd18(debtOf))` round trip floors one unit short at any non-par price
+  and drops the repay out of its by-shares branch.
+- **F9** — `total += totalLevPooled` hoisted out of the `try`. ⭐ **It is an IDENTITY, not a fallback:**
+  `_rangeETH`'s own try calls the same selector on the same address in the same tx, so the live term is
+  in `total` exactly when the second call succeeds. Both arms now equal the §A.16b number.
+
+### 🔴 §F-TESTS-UNRUN — **THE ONE THING THAT IS NOT DONE, AND IT IS THE MEASUREMENT**
+All three lanes wrote tests with falsifiable numeric predictions. **NONE HAVE BEEN EXECUTED** — builds
+were serialized and the EIP-170 blocker below took the slot. Predictions awaiting a run:
+`freed == sinkΔ · 1e12` (F12) · `sinkGot <= cap+1 && lpGot > 0` (F13) · `closeLev` reverts `close: no
+repay` under a neutered flash (F14) · `healthy − broken == 0` wei, was `== totalLevPooled` (F9) ·
+`foreignAtVenue == 0` (F2) · `RepayNotApplied` gone (F15). ⚠️ **F2's probe carries stated CALIBRATION
+risk** — if its run-happened gate fires that is a fixture-sizing result, not a regression.
+📌 Per §MEASUREMENT-SCOPE this block is the honest status: **green build ≠ green suite.**
+
+### 🔴🔴 §EIP-170-2026-09-09 — **THE TREE DOES NOT DEPLOY.** `python3 tools/check-contract-sizes.py`:
+**`LevManager` 25,006 (430 OVER)** · **`SwapLib` 24,852 (276 OVER)**. Baselines were `SwapLib` 24,474
+(+102 — the binding contract in the whole tree) and `LevManager` 24,443 (+133). F2 spent ~378 of
+SwapLib's 102; F13/F14 spent LevManager's 133. ⛔ **`forge build --sizes` shows NEITHER contract's true
+state — both are library-linked, the exact case CLAUDE.md:1929 records that tool getting wrong. If you
+are about to quote a margin from it, you are about to be wrong.** Two recoveries already named by the
+lanes that spent the bytes: move F13's cap-and-refund split into `LevMath.extractToVaultBody` (⚠️
+LevMath has only **71** bytes itself), and give `LevManager` a pooled `consolidateForRepay` (below),
+which collapses F2's body and deletes the new SwapLib→LevMath link edge.
+
+### 📋 §F-HANDOFFS — hunks the lanes were forbidden to apply, i.e. UNLANDED WORK
+1. **`LevManager` has NO pooled `consolidateForRepay`** — only `BtcLevManager:361` has the LP-shaped
+   one. The pooled analogue is `(address venue, address refundTo)`: **same `(address,address)` ABI,
+   different meaning**, which `Interfaces.sol` explicitly warns about (*"MERGE ON WHAT THINGS ARE,
+   never on what type they share"*). This is F2's root-fix form.
+2. **`LevVenueBase._repayCreditingLp`** — on the by-shares branch the LP is repaid in full by
+   construction, so it should set `debtUnits[lp] = 0` rather than re-floor through `_burnUnits`, whose
+   floor-inverse-of-a-floor round trip can return `debtUnits[lp] − 1`. **That residual is why F14's
+   post-condition is `< debtBefore` and not `== 0`** — with a second LP's shares still in the pool,
+   `== 0` would revert every legitimate multi-LP close. Land this and F14 tightens to `== 0`.
+3. **`LevMath.sol:~375`** — *"init refuses a zero flashProvider"* is **false**; `LevManager.init`
+   accepts `address(0)` and its own docblock documents it as the disable switch. Delete (rule 19).
+4. **`LevMath.extractToVaultBody`** — `@return freed` and the `vault` param name are stale now that the
+   manager passes `address(this)`; rename to `recipient`. Cosmetic, but see the EIP-170 recovery above.
+5. **`LevManager.deleverToVault` uses raw `transfer`, not `safeTransfer`**, on a stable that may be USDT.
+
+### 🔴 §CATCH-SWALLOWS-AN-ACCUMULATOR — **F9 IS ONE INSTANCE OF FIVE. This is the next lane.**
+The F9 lane swept for its own shape and found the family. Ordered by damage:
+1. ⭐ **`Quid._payUsdLeg:709` — WORSE THAN F9 AND NOT FIXED.** Its last statement is `uint px =
+   _wethTwap(); if (px > 0) ethEquiv = …`. **A zero TWAP is a DOCUMENTED reachable state here**
+   (`LevCascade.t.sol:~185`: *"once a crash walks the pool to its tick boundary `getTWAPforAsset`
+   returns 0"*). By then the function has ALREADY minted QU!D and called `absorbPaidUsd`. At
+   `Quid.sol:864` the caller does `if (usdEq > 0) { _burnInRange; _debitShares; amount -= usdEq; }` —
+   so at `px == 0` **the LP is paid AND keeps the full `pooled` claim**: no burn, no debit, no
+   decrement. That is verbatim the failure `Quid.sol:663-670` says must never happen (*"measured:
+   12.887 phantom `pooled`, un-recoverable by a second exit, inflating `lpShares` and diluting every
+   other LP"*). ⚠️ **No third valuation exists to fall back on** — the range-leg ratio was measured
+   wrong by 2.2× — so the honest fix is a **revert** on `px == 0`, and it needs its own rule-10 run.
+   The same `px > 0` shape sits in `_pricingBacking` itself (~:1854), where a zero TWAP silently drops
+   the whole LP-owned USD leg from the share price.
+2. **`QuidLib._venueBalanceLib:306`** — `try { total = total > n ? total - n : 0 } catch {}`. On catch
+   the plain venue balance is OVERSTATED by the levered net equity, and `rebalanceBody` feeds it
+   straight into `venueFeesPerShareInc = (current − bookmark)/plainDepth`. **A manager outage
+   manufactures a one-shot venue-yield distribution roughly the size of the lev book.**
+3. **`QuidLib._rangeETH:597`** — accumulator inside the try. F9's correctness now RELIES on this arm
+   being the mirror, which it is for `_pricingBacking` — but `Quid.totalAssets():1715` reads
+   `_auxRangeETH()` raw, so 4626 `totalAssets` still under-reports by `live` on that catch, silently.
+4. **`FeeLib.sol:294` / `ChannelLib.sol:241`** — `try convertToAssets … catch {}` leaves the array slot
+   at 0, so **a paused vault reads as a zero balance inside a fee-accounting sum.**
+5. `QuidLib.deliverableETH:713` and `Shares.levGrossNative:149` / `Vault.totalNetEquity:240` — same
+   shape, but each is fail-open **with the argument written down**. Left alone deliberately.
+
 ### ⚠️ DOWNGRADED BY THE LANE ITSELF — do not spend a build on these without a second read
 **F4** — the harm is seniority DESTRUCTION, not value leaving (a `Math.min` clamp means nothing
 transfers); "1e12 tranche wipe" overstated it. **F5** — inert unless a stable is ACTIVELY depegged.
