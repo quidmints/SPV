@@ -20,7 +20,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 
 import {IAaveV4Spoke, IAaveV4Hub, ICollection, IEthVenue, ICore, IBTCChannels} from "./imports/Interfaces.sol";
-import {Types, BadAsset, BtcChannelsPinned, GHOIsAaveWired, GHONotOnAAVE, Unauthorized} from "./imports/Types.sol";  // §E299: file-level errors
+import {Types, BadAsset, BtcChannelsPinned, GHOIsAaveWired, GHONotOnAAVE, InvalidParam, Unauthorized} from "./imports/Types.sol";  // §E299: file-level errors
 
 
 /// AAVE-v4 GHO/USDG spoke. Aux supplies on its own behalf: supply(reserveId, amount, address(this)).
@@ -707,6 +707,30 @@ contract Aux is // Auxiliary
     ///         Basket's constructor, so a Safe that didn't own it could never have produced a live Basket.
     function finalize() external onlyOwner {
         BasketLib.assertFullyWired(address(QUID), ethVenue, _btcChannels, address(CORE), address(RANGE));
+        // 🔴 §ALWAYS-VALUABLE — **THE MONEY PATH MUST NEVER BE ABLE TO ASK FOR A PRICE AND GET NOTHING**
+        //    (owner, 2026-09-09: *"the system should always be able to value things"*).
+        //    `resolvedTwap` falls a zero internal TWAP through to the Chainlink anchor by design
+        //    (`SwapLib.twapResolve:109` — *"the Chainlink feed exists exactly for an unusable internal
+        //    TWAP, and price==0 is the MOST unusable state"*), so a crash CANNOT produce a zero price.
+        //    **What can is an asset with NO FEED PINNED** — `twapResolve` opens
+        //    `if (feed == address(0)) return (price, false)`, handing the raw internal TWAP straight
+        //    back, zero and all. `LevCascade.t.sol:186` measured exactly that state and says so:
+        //    *"**With no anchor**, once a crash walks the pool to its tick boundary `getTWAPforAsset`
+        //    returns 0"* — that fixture had built `ETH_FEED` and never registered it.
+        // ⇒ THIS IS THE ROOT FIX FOR THE `px == 0` FAMILY (`Quid._payUsdLeg`, `_pricingBacking`, and
+        //    the §CATCH-SWALLOWS siblings): rather than each site inventing a fallback for a price it
+        //    cannot get, **the deploy cannot COMPLETE without both anchors**, so the state those
+        //    branches guard is unreachable by MISCONFIGURATION. Standing rule 17 — unconstructible
+        //    beats detectable — and it is why this belongs here rather than in a setter: `_setAssetFeed`
+        //    is pin-once and ORDER-FREE, so no individual call can know the set is complete. `finalize`
+        //    is the only moment that knows, and it is the moment ownership is renounced, i.e. the last
+        //    moment a missing feed can still be added.
+        // ⚠️ WHAT THIS DOES **NOT** BUY, so the guards are not now deleted as dead: a feed can still go
+        //    STALE (`ASSET_FEED_MAX_AGE` = 4h) or start reverting. That is an ORACLE OUTAGE, not a
+        //    misconfiguration, and it stays reachable — which is why `_payUsdLeg` keeps its
+        //    `revert ZeroTwap()`. This removes the cause we control; it cannot remove Chainlink's.
+        if (assetPriceFeed[address(WETH)] == address(0)
+         || assetPriceFeed[address(WBTC)] == address(0)) revert InvalidParam();
         // Burn the committed ANGEL seed NFT: the deploy approved THIS Aux for it (and the msig/owner() still
         // holds it — only approved, never moved), so we transfer the msig's ANGEL straight to DEAD via that
         // approval. Runs BEFORE renounce (uses owner()); one-shot (ANGEL gone ⇒ a re-call reverts on transfer).
