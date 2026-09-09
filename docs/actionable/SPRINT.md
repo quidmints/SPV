@@ -60349,3 +60349,59 @@ measuring. That was speculation stated as a measurement requirement — it only 
 I had no evidence for it. Dropped. And `unwindForRedeem` matters ONLY because a *bundled* trigger misses
 it (`Core:218` — redemption sheds inventory exactly as a swap does, but it is a burn); under a keeper
 trigger it is a non-issue. I presented it as a general hole and it is specific to bundling.
+
+---
+
+# ⛔⛔ §REFILL-CONTRADICTION-SETTLED — **I measured the cost of a mechanism that does not exist and that the shipped design rejects.**
+
+The peer named the question that decides it: *"what executes the buy-back today, and who pays its gas?"*
+**ANSWER: NOTHING, AND NOBODY.** Verified — `refillNeeded` and `proRataShortfall` have **zero
+non-declaration references in `evm/src`**, and the `buyBack` in my affordability tests is a helper **I
+wrote in the test contract**. There is no protocol-executed buy-back anywhere in the tree.
+
+## THE SHIPPED DESIGN, `SwapLib:1697-1718`
+> *"PRIMARY REFILL — LPs stake, pulled in when the pool is scarce because scarcity ⇒ more fee capture.
+> This mechanism already exists; the reservoir self-refills through ordinary LP entry — **no bespoke
+> machinery, no keeper, no RFQ.** … **LP entry is the ONLY refill path.** … `payRefillBonus` DELETED on
+> 2026-07-22 … **Paying a swapper a bonus is precisely what the removal stopped — do NOT rebuild it.** …
+> The refill is a PERMISSIONLESS response to a public on-chain price: the skew is our reservation price,
+> captured by whoever refills first."*
+
+## ⇒ RESCOPING §REFILL-G2-VERDICT (not retracting it — the measurements are sound, their SUBJECT was wrong)
+It concluded *"the premium is not sized to fund the refill"*. **That is a true statement about a
+protocol-executed buy-back, which is a mechanism this tree does not have and explicitly rejected fourteen
+months of commits ago.** It is **NOT** evidence about the shipped design, and it must not be cited as
+such. What the 18 samples DO establish, and it keeps its value: **if anyone ever builds a
+protocol-executed buy-back, it loses money in 56% of regimes.** That is a strong argument against
+building one — i.e. it CONFIRMS the shipped design's choice rather than indicting it.
+
+## 🔑 WHAT THE SHIPPED DESIGN ACTUALLY RESTS ON — and it is UNMEASURED
+The whole mechanism is one causal claim: **scarcity ⇒ more fee capture ⇒ LP entry ⇒ inventory restored.**
+Every link after the first is unverified in this tree:
+1. **Does scarcity raise realised fee capture for an entrant?** The skew is a charge on the DRAINER; the
+   claim is that it reaches an ENTRANT as yield via `USD_FEES`. §E5 proved the premium reaches LPs; **no
+   test shows an entrant's expected yield RISES with scarcity**, which is the actual incentive.
+2. **Is that rise large enough to attract entry against the entrant's own risk?** They are buying into a
+   range that is short volatile in a market that just moved against it. **Unmeasured.**
+3. **How fast?** Restoration by LP entry is asynchronous and unbounded in time. §M0 measured the toll at
+   ~0 bps through 75% depletion, so for most of the operating range **the price signal that is supposed
+   to summon them is nearly flat.**
+⇒ **THAT is the gap, and it is a different gap from the one I spent the day on.** Not "how do we fund a
+buy-back" (there is none) but **"does the priced-scarcity signal actually pull inventory back, and how
+fast"**. §M0 already suggests the signal is weak through most of the range.
+
+## 📌 A DISTINCTION THE OWNER'S CONSTRAINT TURNS ON
+The owner ruled out *"arbitragers that bring external capital"*. **An LP staking is external capital
+too — but it is not an arbitrageur.** An arbitrageur extracts a spread and leaves; an LP joins the pool
+and bears its risk. The shipped design depends on the second. **Whether that satisfies the owner's
+constraint is the owner's call, not an inference I should make** — and every option I weighed yesterday
+assumed it did not.
+
+## WHAT THIS CLOSES AND WHAT IT OPENS
+· ✅ **CLOSED:** the funding question. There is nothing to fund. Options A/B/C/E/F were all answers to a
+  question the tree does not ask. **`payRefillBonus` is the exact thing option F would rebuild.**
+· 🔴 **OPEN:** whether the shipped design's incentive chain works. One measurement decides link 1 —
+  sweep an entrant's realised yield against inventory scarcity — and it has never been run.
+· ⚠️ **AND THE OWNER'S TRANSPORT POINT MAKES THE KEEPER QUESTION MOOT:** *"swapper already sent in their
+  tx with flashbots through our app so we dont need a separate keeper flow."* Correct — and with no
+  buy-back to execute, there is no keeper flow to need.
