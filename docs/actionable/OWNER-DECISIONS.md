@@ -60,6 +60,99 @@ annualised σ = 95.5%** — and `realizedVarianceWad` is `max(ringVariance, anch
 
 ---
 
+# ✅ RESOLVED 2026-09-09 — EIGHT RULINGS, TAKEN DIRECTLY FROM THE OWNER
+
+⚠️ **These are ANSWERS, not proposals. Do not re-open them as questions; the ruling text is the spec.**
+Where a ruling contradicts my recommendation it is marked ⭐ — **I was wrong, and the reason is worth
+reading, because in three of these the owner's answer dissolved the question instead of picking a side.**
+
+## ✅ R-7 (was #7) — **THE FLEET IS PRINCIPAL ON THE LN LEG. RATIFIED.**
+Nothing to build; `§FLEET-FRONTS-THE-WINDOW` (`32168f74`) stands. The fleet fronts USD sized to
+in-flight LN volume, carries the price move to reconciliation, and is explicitly the LN seller's
+counterparty. §HOP-BOND stays deleted. ⇒ §RESERVE-HAS-NO-RETURN-PATH, §LN-SWAPIN-RAIL-BROKEN and
+§HOP-RCE-3's buffered half stay CLOSED.
+
+## ⭐ R-17 (was #17) — **THE POOL ACCEPTS ANY DEPOSIT. THE REMAINDER IS NOT A REMAINDER.**
+Owner: *"the pool should be able to accept any deposit even if the deposit doesnt earn in range
+immediately."*
+🔑 **THIS DISSOLVES THE QUESTION RATHER THAN ANSWERING IT, AND IT IS THE BEST OUTCOME AVAILABLE.** All
+four options I offered — fleet's problem, fleet's problem bounded, an on-chain owed ledger, pre-empt at
+quote time — presupposed that `sats − consumed` is BTC *the protocol holds and delivered no USD for*,
+i.e. a stranded balance needing an owner. **Under this ruling there is no stranded balance:** the
+depositor is credited for the WHOLE deposit, and the part the pool cannot convert in range simply sits
+as out-of-range position that is not yet earning. **Nothing to refund, so nothing to strand.**
+⇒ **CONSEQUENCES, and they are deletions:** the CLTV-refund sentence at `BTCChannels.sol:2098-2100` is
+not merely unreachable (the hop key-path-claims the deposit immediately) — **it is describing a
+mechanism the design no longer wants.** The three sub-policies decided in Rust by nobody
+(`quid-bridge/src/swap_in_onchain.rs:331` dust is kept · `client.rs:880` a failed read takes
+everything · silent omission of the refund output) **become dead policy**, because the hop is no longer
+choosing whether to refund. **`§NO-REJECT` is answered by its own name: never reject.**
+⛔ **WHAT MUST STILL BE TRUE, and it is the real work:** the credited position must account for the
+out-of-range part HONESTLY — it earns nothing until it comes into range, and `deliverableBTC` must not
+count it as available. **A deposit that is credited but not deliverable is exactly the shape that
+produced phantom `pooled` on the ETH side.**
+
+## ⭐ R-9 + R-vBTC (was #9 + the `redeemVBtc` ⛔) — **ALL CHANNEL-LOCKED BTC IS vBTC. IT IS TRANSFERABLE. THE TOKEN IS THE SHARES.**
+Owner, and this is the load-bearing sentence for the whole 7540 question:
+> *"claim is fungible but the amount is the amount… how could it ever possibly overclaim? as an lp you
+> have lp shares as well, that is a share of fees. so as long as the btc is locked its earning fees. if
+> you transfer the vbtc to someone else, the share of fees transfers with it. **this is a strange 7540
+> where there really is no `asset()` and shares dichotomy in the 4626 sense. the token is the shares.**"*
+
+🔴 **THIS IS THE GATE 2.3 POSITION-TOKEN RULING. `B8` WAS BLOCKED ON EXACTLY THIS AND IS NOW UNBLOCKED.**
+`§MASTER-ORDER` 2.3 states the obstruction as *"the vault must BE the share token, and on the BTC leg
+vBTC is minted to `LEV_MANAGER`, never to an LP."* The ruling settles the first half — **vBTC IS the
+share token** — and thereby names the concrete defect in the second: **`Vault.sol:283`'s
+`VBTC.mintTo(msg.sender, sats)` inside `exposeBtcToLev`, gated `msg.sender != LEV_MANAGER`, mints the
+LP's shares to the lev manager.** ⇒ **vBTC must be minted to the LP.**
+⇒ **`redeemVBtc(sats, p2trScript)` IS AUTHORISED. Lift the ⛔ in `VBtc.sol:34` and `CLAUDE.md:1657-1702`.**
+⭐ **WHY THE OLD CROSS-LP-THEFT OBJECTION IS VOID, in the owner's own frame:** it assumed vBTC could
+claim MORE than it represents. **It cannot — "the amount is the amount."** vBTC is a pro-rata claim on
+one pool of channel-locked BTC; redeeming against "any channel's BTC" is the DESIGN, not the leak.
+Theft would require minting vBTC not backed by locked BTC, which is a MINT-side invariant
+(`sats <= plainNet(pooled, levPooled)`), not a redeem-side one. **The objection was aimed at the wrong
+end of the pipe.** The other recorded blocker is independently void: `§NO-VBTC-MORPHO-MARKET-2026-09-07`
+deleted the market (`3440c742`), so there is no liquidator with no exit.
+⚠️ **AND THE DOUBLE-COUNT WORRY I RAISED IS REAL BUT RE-AIMED:** I argued widening needs a second subset
+marker because an LP could be lev-exposed AND lent-out while `plainNet` assumes one. Under "the token
+is the shares" there is only ONE claim instrument, so there is nothing to double-count — **but
+`deliverableBTC` must now subtract outstanding vBTC**, because BTC promised to a vBTC holder is not
+free channel capacity. **That is the `Σ outstanding vBTC ≤ Σ free channel capacity` invariant
+`CLAUDE.md:1657` already names, and it is now load-bearing rather than hypothetical.**
+
+## ✅ R-10 (was #10) — **KEY RECOVERY IS A SECOND REGISTERED BIP-340 KEY.**
+Committed at open, usable ONLY to re-point `btcRecipientOf`. The LP keeps two keys. This preserves the
+property the lock exists to protect: the payout destination is still movable only by the LP's own
+secp256k1 material. **GATE 3 — must land before `BTCChannels` deploys immutable.**
+
+## ⭐ R-P2MR (GATE 3 item 1) — **BUILD THE FLAG. SWITCHED BY THE ENCLAVE-IMAGE MSIG.**
+Owner: *"yes we must prepare for p2mr with the same msig that upgrades enclave images being able to
+make the switch."* ⇒ **I recommended retiring it and was overruled.** Two enumerated SPK forms, P2MR
+default OFF. ⭐ **The ruling's substance is the SWITCH, not the flag:** it is **not** a new k-of-n and
+**not** a fresh governance path — it reuses **the existing enclave-image-upgrade msig**, so the item
+costs the two SPK forms plus a call gated on an authority that already exists and is already trusted
+with more. **My "permanent surface bought against a soft-fork that may never land" objection priced a
+new trust anchor that this ruling does not create.**
+⚠️ §BTC-4.6c's *"nothing to be primed for"* analysis stands as an analysis of P2MR's ACTIVATION status;
+it is not a reason to decline the option, which is the owner's to take and has been taken.
+
+## ✅ R-LPETH (§LPETH-FROM-THE-SORTED-FIELD) — **PROVE POSSESSION OF `lpEth` AT OPEN.**
+`_requireRecipientPoP` proves possession of `auth.btcRecipient` and NOT of `lpEth`, which is why a
+self-consistent hop-controlled triple passes while the honest relay path reverts. **The opener must now
+prove possession of `lpEth` itself.** ⇒ The fail-open closes at the door: when the hop's funding key
+sorts below the LP's and `p.lpPubkey` is the hop's, the open cannot produce a valid `lpEth` proof.
+📌 Still latent-only today — the PoP producer does not exist (`vec![pop_byte; 64]` placeholders,
+`driver_e2e.rs:610`) — **so this must land BEFORE that producer does, or it arms itself.**
+⚠️ Note the ruling does NOT rename the fields, so `BitcoinTx.sol:521`'s degenerate-key argument still
+rests on *"`lpEth` being a FUNCTION of `lpPubkey`"*. **Re-state that argument in terms of the new proof,
+or it remains true by luck.**
+
+## ✅ R-7f — **NARROW THE GUARD TO THE STORED WIDTH.** (`PendingOnchainSwapOut.sats`)
+Reject an over-wide value loudly at the door rather than truncating it on store. No storage change, no
+layout risk on an immutable contract.
+
+---
+
 ## 1. Is an ETH depositor owed ETH, or owed value?
 
 **The question.** When the range holds less ETH than the pro-rata claims imply, does the protocol owe
