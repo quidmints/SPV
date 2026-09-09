@@ -16,6 +16,53 @@
             "if": "Bash(git push *)",
             "statusMessage": "checking whose commits are about to publish",
             "command": "d=$(git log origin/main..HEAD --format='%(trailers:key=Claude-Session,valueonly)' 2>/dev/null | sort -u | grep -c .); if [ \"${d:-0}\" -gt 1 ]; then printf '%s' '{\"systemMessage\":\"GATE: origin/main..HEAD holds commits from MORE THAN ONE session. git push HEAD:main publishes ALL of them, not just yours - a shared checkout lets a peer commit between your fetch and your commit. Run: git log --oneline origin/main..HEAD and confirm every commit is yours.\"}'; fi"
+          },
+          {
+            "type": "command",
+            "if": "Bash(*)",
+            "command": "C=$(cat | jq -r '.tool_input.command // empty'); if echo \"$C\" | grep -qE \"git +add +(-A|--all|\\.( |$))|git +commit +[^|]*-a[a-z]* \"; then printf '%s' '{\"systemMessage\":\"GATE (rule 14): BULK STAGING in a shared checkout. Never git add -A / git add . / commit -a - several sessions edit this one tree and you will sweep their files into your commit. Stage by name.\"}'; fi",
+            "statusMessage": "rule 14"
+          },
+          {
+            "type": "command",
+            "if": "Bash(*)",
+            "command": "C=$(cat | jq -r '.tool_input.command // empty'); if echo \"$C\" | grep -qE \"(^|[^-])forge +(build|test)\" && ps -eo args | grep -qE \"[f]orge (build|test)\"; then printf '%s' '{\"systemMessage\":\"GATE: a forge build/test is ALREADY RUNNING. CLAUDE.md - a second build OOMs the box, and both then fail for a reason that is not the code. Wait for it.\"}'; fi",
+            "statusMessage": "build already running"
+          },
+          {
+            "type": "command",
+            "if": "Bash(*)",
+            "command": "C=$(cat | jq -r '.tool_input.command // empty'); if echo \"$C\" | grep -qE \"forge +test\" && ! echo \"$C\" | grep -q \"forge-test.sh\"; then printf '%s' '{\"systemMessage\":\"GATE: raw forge test. Use tools/forge-test.sh - it pins one head and REUSES it, so Foundry's per-block cache is read instead of writing 771 dirs that never are. Raw runs burn the RPC key.\"}'; fi",
+            "statusMessage": "pinned-fork wrapper"
+          },
+          {
+            "type": "command",
+            "if": "Bash(*)",
+            "command": "C=$(cat | jq -r '.tool_input.command // empty'); if echo \"$C\" | grep -qE \"grep[^|]*\\| *(head|tail)\"; then printf '%s' '{\"systemMessage\":\"GATE: a TRUNCATED grep. If you are about to conclude ABSENCE from this, do not - a truncated grep proves less than an empty one and looks identical. Count with grep -c or read it all. (This is how the duplicate private-relay mechanism got built.)\"}'; fi",
+            "statusMessage": "truncated grep"
+          },
+          {
+            "type": "command",
+            "if": "Bash(*)",
+            "command": "C=$(cat | jq -r '.tool_input.command // empty'); if echo \"$C\" | grep -qE \"git +(push +[^|]*--force|reset +--(hard|soft)|revert +[^|]*-n)\"; then printf '%s' '{\"systemMessage\":\"GATE: history-rewriting git in a SHARED tree. reset --soft staged the reversal of 26 files once; revert -n swept into a peer commit; --force discards work you cannot see. Confirm the effect, not the exit code.\"}'; fi",
+            "statusMessage": "rewriting history"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "statusMessage": "skip-halts check",
+            "command": "F=$(cat | jq -r '.tool_response.filePath // .tool_input.file_path // empty'); case \"$F\" in *.t.sol) if grep -qE 'vm\\.skip\\(true\\)' \"$F\" 2>/dev/null && ! grep -qE 'vm\\.skip\\(true\\); *return' \"$F\" 2>/dev/null; then printf '%s' '{\"systemMessage\":\"GATE: vm.skip(true) with no return. SESS-99 measured that vm.skip DOES NOT HALT - execution falls through into the assertions and a missing precondition reports as 0 <= 0, i.e. a routing defect. Add the return.\"}'; fi;; esac"
+          },
+          {
+            "type": "command",
+            "statusMessage": "natspec at-word check",
+            "command": "F=$(cat | jq -r '.tool_response.filePath // .tool_input.file_path // empty'); case \"$F\" in *.sol) if sed -E 's#^[[:space:]]*///[[:space:]]*@[A-Za-z]+##; s#^[[:space:]]*///##' \"$F\" 2>/dev/null | grep -qE '@[A-Za-z]{2,}'; then printf '%s' '{\"systemMessage\":\"GATE: an at-prefixed word inside docblock PROSE. solc parses it as a NatSpec tag wherever it appears and backticks do not escape it; the error names the FIRST line of the docblock, tens of lines above the word. This broke the build twice - once in the sentence warning about it. Spell the tag out in words.\"}'; fi;; esac"
           }
         ]
       }
