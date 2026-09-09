@@ -63109,3 +63109,93 @@ with my broken grep**, which is how two independent errors confirmed each other.
 📌 **THE REUSABLE LESSON, and it is not about greps:** a truncated search and a stale heading AGREED,
 and agreement between two sources felt like corroboration. **Two instruments sharing one blind spot is
 not a control** — the control was reading the block, which took one `sed`.
+
+---
+
+# 🎯 §VENUE-IS-PROPOSED-NOT-CHOSEN — how to delete `poolVenue`'s pin WITHOUT opening a keeper hole
+
+*(owner, 2026-09-09: **"remove POOL VENUE … we cant hardcode shit like that, but we also cant let it be
+a keeper hacked vulnerability"**)*
+
+## ⭐ THE ANSWER IS ALREADY IN THIS TREE, ONE LAYER OVER — `convertTo` SOLVED THIS SHAPE FOR SWAPS
+`LevMath.convertTo:939` states it: **"RETARGET THE SUPPLIED ROUTE ONTO *OUR* NUMBERS. The caller
+chooses the VENUE; this frame owns what is sold, how much, and the floor."** And `leverUpBuyWbtc`
+restates it for the price bound: **"`minOut` is FLOORED against the oracle HERE, never taken from the
+caller: `rebalanceWbtc` is permissionless, so the caller picks WHEN and the contract picks the PRICE
+BOUND."**
+⇒ **The same split applies to the BORROW venue: the caller PROPOSES, the contract VERIFIES.** The
+contract does not have to SEARCH on-chain (expensive and unnecessary) — it has to REFUSE a bad
+proposal, which is cheap and is what `borrowRateRay` was built for.
+
+## 🔑 AND THE FRAMING THAT DISSOLVES THE §POOL-VENUE TENSION: **MIGRATION, NOT ALLOCATION**
+I earlier booked *"multi-venue trades against §POOL-VENUE's O(1) repay"* (§CHEAPEST-BORROW-IS-HALF-BUILT).
+**That tension is avoidable and I had the wrong shape.** The owner's requirement is *"without scattering
+borrows across multiple venues"* — which is **exactly one active venue at a time**, i.e. §POOL-VENUE's
+property. What must go is not "one venue", it is **"one venue FOREVER, chosen by whoever opened first"**
+(`LevBase:422` — `if (poolVenue == address(0)) poolVenue = venue; else revert VenueNotPooled()`).
+⇒ **Re-choosable single venue keeps EVERY §POOL-VENUE guarantee** — one position, O(1) `repayPool`, no
+per-venue walk, no swap-size ceiling — **and removes the hardcode.** The per-venue walk that
+`orphans-allow` names as the blocker for `borrowRateRay` **is not needed for migration**, only for
+simultaneous multi-venue. **The blocker was on the wrong design.**
+
+## ✅ THE ACCEPTANCE CONDITIONS — every one read ON-CHAIN, FROM THE VENUE, AT OUR SIZE
+A permissionless `migrateVenue(candidate, …)`, gated exactly like `minOut` is:
+1. **`isPoolVenue[candidate]`** — the candidate must be on the allowlist **frozen at `init`**
+   (`venuesFrozen`). ⭐ **This is what makes it not-a-hardcode AND not-a-keeper-hole simultaneously:**
+   the SET is governance's, the CHOICE within it is the contract's, and the caller only proposes.
+2. **`candidate.COLLATERAL() == current.COLLATERAL()`** — same collateral token. **This is the
+   slippage answer, see below.**
+3. **`candidate.borrowRateRay(ourWholeDebt) + HYSTERESIS < current.borrowRateRay(0)`** — the rate the
+   candidate **would** charge once we arrive with the ENTIRE book. This is precisely why that accessor
+   takes a size: *"a spot rate is a rate that stops existing when we arrive"*, measured on Aave v3 at
+   **4.08% → 4.45% at +$25M → 7.49% at +$100M**. **Comparing spot rates would be comparing two
+   counterfactuals**, and a hostile caller proposing a shallow venue is refused by this line alone.
+4. **`candidate.liqThresholdBps() >= current.liqThresholdBps()`** — ⛔ **CHEAPEST IS NOT BEST.** A
+   cheaper rate at a tighter LLTV buys carry and spends liquidation headroom, and because liquidation
+   is POOLED that cost lands on every LP. **Never migrate into less headroom**, at any rate saving.
+⇒ **A hacked keeper's worst available action is to move the book to a venue that is on the allowlist,
+takes the same collateral, is cheaper at our full size, and is no tighter. That is the operation
+working.** Griefing reduces to gas plus churn, which the hysteresis band bounds.
+
+## 💸 THE SLIPPAGE QUESTION — **A SAME-COLLATERAL MIGRATION NEEDS NO SWAP AT ALL**
+The owner's worry: *"we might need to withdraw the whole protocol debt and move it, possibly after
+hopping through 1inch. that might be a lot of slippage."* ⇒ **Condition 2 removes the hop entirely:**
+```
+flash stable (Morpho, ZERO fee) → repay old venue in full → withdraw WBTC/weETH
+  → supply the SAME token to the new venue → borrow the same notional → return the flash
+```
+**The volatile is never sold.** It moves as a token transfer between two lenders. ⇒ **zero price
+impact, zero oracle-floor exposure, no 1inch leg.** Cost is gas + the flash (free on Morpho — the
+owner's own note: *"there is no cost to do this with a morpho flash borrow"*).
+⚠️ **THE ONE CASE THAT DOES COST:** the two venues' LOAN tokens differ (USDC vs USDT). That is **one
+stable→stable hop through the hub table** — basis points, not volatile slippage — and it should be
+**priced INTO condition 3 as an amortised cost**, i.e. the rate saving must clear the switching cost
+over a stated horizon, or a keeper can churn the book between two near-equal venues and bleed it one
+hop at a time. **That horizon is an owner parameter and is the only new number this design needs.**
+
+## 📌 STATUS OF THE 1inch QUESTIONS, ANSWERED FROM CODE (they are not what they looked like)
+- **"We should wire 1inch into the flash repay"** ⇒ ✅ **IT IS ALREADY WIRED.** `flashDeleverWbtcSettle`
+  sells the withdrawn WBTC via `_volToStable` → `routedSwap` → `convertTo`, which executes a 1inch
+  router calldata blob. The lever-up leg is the mirror: `leverUpBuyWbtc` → `_stableToWbtc` →
+  `routedSwap`. **Both BTC legs are 1inch today.**
+- **"Not sure who we route through on the lever up"** ⇒ the caller's `route` bytes, **and if they are
+  EMPTY, `routedSwap:1062` synthesises a ONE-HOP `UNOSWAP` over a hardcoded pool** —
+  `DEFAULT_WBTC_DEX` when either side is WBTC, else `DEFAULT_UNWIND_DEX`. 🔴 **THAT is the hardcode
+  worth the owner's objection, and it is a different one from `poolVenue`:** a single pool address
+  compiled into the library as the fallback venue for every unrouted BTC trade.
+- **"How is 1inch making sure that it's the best venue?"** ⇒ 🔴 **IT IS NOT, AND NOTHING ON-CHAIN
+  CHECKS IT.** 1inch's optimisation happens **off-chain, in whoever fetched the route**; the contract
+  executes the blob it is handed. **The only on-chain bound is the oracle floor** — so "best venue" is
+  a trust-the-caller property, bounded below by the floor's SLACK, not by optimality. 🔗 That is the
+  same unmeasured exposure §NO-KEEPER-TO-HACK item 1 names, arriving from the routing side.
+
+## 🧹 DEAD CODE — **measured, and there is no BTC backlog to harvest**
+`tools/check-dead-internals.py`: **4 hits, all documented keeps** (a LayerZero override, two
+deliberately-unwired, one carrying an open design question). `tools/check-orphans.py`: **1**,
+`retainedEthPremium`, pre-existing. `refillNeeded` / `proRataShortfall` have **0 src callers** but are
+`internal` — **measured in CLAUDE.md at 0 bytes for an unreferenced internal** — and carry an explicit
+owner keep-note against a live rail. ⇒ **nothing to delete here; the honest answer is that the tree is
+already clean on this axis.**
+🔴 **ONE STALE FOUND WHILE LOOKING:** CLAUDE.md's fold table still says *"`SwapLib.quoteFill` still has
+zero callers in `src`, `test` and `script`"*. **`quoteFill`, `quoteDrain` and `enforce` no longer exist
+at all** — grep returns nothing. The row describes a deletion that has since happened.
