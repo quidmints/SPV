@@ -63337,3 +63337,8 @@ allowlist size** — `repayPool` across 3 venues is 3 calls, not thousands. **O(
 ▶️ **NEXT IS A DECISION, NOT CODE (rule 16):** the allocator's objective is *minimise total interest
 subject to a headroom floor* — but *"pro-rata repay"* vs *"cheapest-first repay"* and the width of the
 marginal-rate band are owner rulings, and everything downstream of them is ⏸️.
+
+⏸️ **§MULTI-VENUE-ALLOCATOR — DEFERRED BY THE OWNER, 2026-09-09 (*"book these for later"*).** The
+design above stands and is NOT to be built yet: it is blocked on two owner rulings (pro-rata vs
+cheapest-first repay; the marginal-rate band width) and it sits behind the unfinished items below.
+**Do not open it before §DELIVERABLE-VS-MAX and the §CATCH-SWALLOWS root fix are closed.**
