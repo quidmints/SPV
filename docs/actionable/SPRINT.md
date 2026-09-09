@@ -60852,7 +60852,20 @@ docblock — both are prose. Ask what executes the buy-back today and who pays i
 
 # ⭐ §THE-THIRD-OPTION — **put the vol-sensitivity in the TARGET, not the kernel. And the deeper point: σ² was never the reserve's driver.**
 
-## WHY EVERY SHAPE ATTEMPT COLLIDED WITH ONE TEST
+## ⛔ THIS SECTION'S CENTRAL CLAIM WAS ATTACKED AND **FAILED** — READ §SIGMA-COUNT-BROKEN FIRST
+A peer took the owner's *"try to break them"* to this row within the hour and measured
+(`BaseVsKernel.t.sol::test_IsSkewWadExactlyLinearInSigmaSq`): `skewWad` doubling σ² 1e17→2e17 leaves a
+residual of **exactly 210 × drain at every size, unmoved by σ²** — `DEPLETION_RATE_WAD = 2.1e14`
+(`SwapLib:825`). The real ratio is **1.57 to 1.86, never 2.00**. ⇒ **"σ² appears exactly once,
+linearly" is FALSE**: `skewWad` is σ²-scaled risk terms **PLUS a σ²-FREE depletion term**, and
+`test_E287` passes only because its own fixture makes that term negligible.
+✅ **WHAT SURVIVES:** the κ(σ)/ρ(σ) rejections stand **on their magnitude** (3.70/2.96/2.60, far outside
+anything 210 ppm explains) — **but NOT on the mechanism stated below.** The conclusion is intact and my
+explanation of it is not. 🔴 And §SIGMA-COUNT-BROKEN found worse: **`_fillableDrain` is σ²-dependent and
+is called in `wellSkew` ZERO times in `skewWad`**, so the production charge has a second σ² path
+entirely outside the function `test_E287` exercises. **Read that row before quoting anything below.**
+
+## ~~WHY EVERY SHAPE ATTEMPT COLLIDED WITH ONE TEST~~ (superseded in mechanism, kept for the magnitudes)
 κ(σ) and ρ(σ) both fail `test_E287_SkewIsNotPinnedToAConstant`. I read that as the test over-reaching.
 **It is not.** `skew = Γ·σ²·qBar(q)` already carries σ² **once, linearly** — which is A–S §2.2 exactly.
 Every attempt to make the SHAPE vol-sensitive was a **SECOND appearance of the same σ²**, and the
