@@ -237,7 +237,7 @@ contract DrainAtomicity is AllesFixture {
         //      A contaminated sample must fail loudly, never report a number.
         warmVarianceFromRealRounds(12);
         assertGt(CORE.realizedVarianceWad(), 0,
-            "CONTROL: sigma^2 must be LIVE — at zero the premium is the sentinel, not a price");
+            "CONTROL: sigma^2 must be LIVE - at zero the premium is the sentinel, not a price");
         uint px    = AUX.getTWAPforAsset(address(WETH), 1800);
         uint p0    = CORE.skewPremiumCum();
         uint ethGot = _drain(boldAmt);
@@ -246,7 +246,7 @@ contract DrainAtomicity is AllesFixture {
         // The sentinel is exactly 3% of the drain. Catch it directly as well as via σ², because σ²
         // could be non-zero while some other path still returns the constant.
         assertTrue(prem6 * 1e12 != boldAmt * 3 / 100,
-            "CONTROL: premium is EXACTLY 3% — that is UNKNOWN_VARIANCE_SKEW, not a measured price");
+            "CONTROL: premium is EXACTLY 3% - that is UNKNOWN_VARIANCE_SKEW, not a measured price");
 
         uint usdcIn = boldAmt / 1e12;
         deal(address(USDC), address(this), usdcIn);
