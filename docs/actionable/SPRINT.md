@@ -22,29 +22,6 @@ because the three documents that tell you WHAT ORDER to work in are buried at th
 
 ## 🗺️ SUBJECT MAP — **WHICH GREP, AND WHERE THE CURRENT STATE IS.** Built 2026-09-09 from what each section CITES, not from its title.
 
-⚠️ **THE COUNTS ARE A READING WITH A TIMESTAMP, exactly like the margin table in CLAUDE.md — re-derive, do not quote.**
-⛔ **AND THE 'START' COLUMN IS A HEURISTIC, NOT A CURATION: it is the LAST TWO OPEN sections a domain
-touches, on the assumption that the most recently booked row carries the current state.** That is usually
-true and is sometimes wrong — a row booked today can be narrower than one booked last week. **Read the
-state column of what you find; do not treat these two as the whole domain.**
-📌 Domains OVERLAP by construction (a section citing `SwapLib` and `LevMath` counts in both), so the
-column does not sum to the file's section count, and **113 sections match no domain at all** — mostly
-process and session close-outs. `grep '^## '` is still the only complete enumeration.
-
-| subject | OPEN | grep for | start at (most recent open) | lane |
-|---|---|---|---|---|
-| **range · skew · pricing** | **125** | `SwapLib` `skewWad` `sellSkew` `Γ` `κ` `POOLED` | `§LEVER-UP-HAS-NO-AGGREGATE-GATE` ~60588 · `THIS SECTION'S CENTRAL CLAIM WAS ATTAC` ~60855 | L5 |
-| **leverage · IL-protect** | **69** | `LevManager` `LevMath` `ilBasisPx` `deleverBook` | `§KEEPER-LIQ-FALLBACK` ~59601 · `§LEVER-UP-HAS-NO-AGGREGATE-GATE` ~60588 | L4 |
-| **bitcoin · lightning** | **80** | `BTCChannels` `ChannelLib` `validating_signer` `splice` | `§7540-CONFORMANCE-IS-DISCHARGED-2026-09-07` ~58169 · `§THE-QUOTE-IS-THE-BUG-2026-09-08` ~58519 | L2/L3 |
-| **basket · redeem · shares** | **84** | `BasketLib` `Vault.sol` `VBtc` `committedUsd` | `§SKEW-COVERAGE-HOLE` ~57549 · `§7540-CONFORMANCE-IS-DISCHARGED-2026-09-07` ~58169 | L1/L5 |
-| **oracle · TWAP · variance** | **40** | `OracleLib` `realizedVariance` `Chainlink` | `§GAMMA-IS-NOT-A-DIAL` ~59390 · `7 —  NO USABLE VARIANCE SOURCE EXISTS` ~60225 | L5/L7 |
-| **routing · 1inch · venues** | **46** | `1inch` `unoswap` `_aggSwap` `routedSwap` | `§SOLVER-IS-A-GLOSS` ~58758 · `WHAT THIS MEANS FOR BUILDING` ~59927 | L4/L7 |
-| **size · EIP-170 · folds** | **24** | `EIP-170` `check-contract-sizes` `to spare` | `§J.2c` ~36082 · `C10 FIX BLOCKED BY EIP-170 — MEASURED,` ~36403 | any |
-| **identity · noir** | **22** | `identity` `Honk` `nullifier` — ⛔ DEFERRED, own TODO.md | `§PLP-6a` ~57669 · `THE REAL DEFECT IS THE ASSERTION, AND` ~59979 | — |
-
-
-## 🗺️ SUBJECT MAP — **WHICH GREP, AND WHERE THE CURRENT STATE IS.** Built 2026-09-09 from what each section CITES, not from its title.
-
 ⚠️ **COUNTS ARE A READING WITH A TIMESTAMP** — same discipline as CLAUDE.md's margin table. Re-derive; do not quote.
 ⛔ **THE 'START AT' COLUMN IS A HEURISTIC, NOT A CURATION:** the last two §-NAMED OPEN sections a domain
 touches, on the assumption that the most recently booked row carries current state. Usually true,
@@ -60698,8 +60675,8 @@ so the rows below are not orphaned from it** —
 | **§E274** (Γ re-derived) | Γ is an ASSUMPTION CHAIN, not a derivation — γ=1 is log utility presented as a normalisation. ⚠️ **But the 48h half is VINDICATED**, see §WASH retraction | `§GAMMA-FIRST-PRINCIPLES` + §L5-KAPPA-FOLDED |
 | **§E274**'s unlanded dynamic horizon | ✅ **ANSWERED AND CLOSED AS UNLANDABLE.** τ = q·T_flow is derivable; it gives Γσ²q², which is REFUTED — bounded, so the range is FULLY DRAINABLE above ~48 bps willingness | `§GAMMA-FIRST-PRINCIPLES` §3 |
 | **§E289** (κ, the pole's location) | 🔴 **σ-scaling BUILT, MEASURED, REVERTED.** +403 bytes; re-introduces a ceiling over q=0.60–0.95, the band §E286 measured a ceiling discarding 51.4% of §E68's integral | §L5-KAPPA-FOLDED → §KAPPA-SIGMA |
-| **§GAMMA-IS-NOT-A-DIAL** | stands, and now has a REASON: σ² already appears once linearly (A–S §2.2), so every vol-sensitive SHAPE is a second appearance of the same signal | §L5-KAPPA-FOLDED → §THE-THIRD-OPTION |
-| **§C1** (which σ² source) | ⛔ **CANNOT be closed by adopting a feed.** Measured: Ethereum mainnet 290 Chainlink feeds / **0 volatility**; Polygon 125/0; Avalanche 90/0. Volmex is IMPLIED vol, single provider | `§GAMMA-FIRST-PRINCIPLES` §7 |
+| **§GAMMA-IS-NOT-A-DIAL** | stands. ⛔ **BUT THE REASON I GAVE IT IS REFUTED — see §SIGMA-COUNT-BROKEN.** I wrote *"σ² appears once, linearly, so every vol-sensitive SHAPE is a second appearance"*; measured, `skewWad` carries a σ²-FREE depletion term (210 ppm, `DEPLETION_RATE_WAD`) and the doubling ratio is 1.57–1.86, never 2.00. **The κ(σ)/ρ(σ) rejections stand on their MAGNITUDE, not on that mechanism.** | `§SIGMA-COUNT-BROKEN` |
+| **§SIGMA-COUNT-BROKEN** (peer, `eb0788c4`) | 🔴 **`_fillableDrain` is σ²-dependent and is called in `wellSkew` ZERO times in `skewWad`** ⇒ the PRODUCTION charge has a second σ² path entirely outside the function `test_E287` exercises. **Neither my rows nor the test see it.** | `§SIGMA-COUNT-BROKEN` || **§C1** (which σ² source) | ⛔ **CANNOT be closed by adopting a feed.** Measured: Ethereum mainnet 290 Chainlink feeds / **0 volatility**; Polygon 125/0; Avalanche 90/0. Volmex is IMPLIED vol, single provider | `§GAMMA-FIRST-PRINCIPLES` §7 |
 | **§REFILL-G2-VERDICT** | ✅ already rescoped by its own thread — `SwapLib:1697-1718` says the reservoir self-refills through LP entry, *"no bespoke machinery, no keeper, no RFQ"* | §L5-KAPPA-FOLDED → §REFILL-NEEDS-NO-FUNDING |
 | **§M.1** / `orphans-allow` CLASS 3 | the fork test EXISTS and is green (verdict KEEP); **zero PRODUCTION callers is the whole remaining defect**, and the wire is not one line | `tools/orphans-allow.txt` (destaled) |
 | **§GAMMA-TRACE**'s 0.00827 ETH residual | 🔴 **STILL UNNAMED. Not investigated. The one thing this session opened and did not close.** | `§GAMMA-TRACE` here |
