@@ -449,6 +449,20 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     ///         Taking the standard argument list would advertise a public request path that does
     ///         not exist. The NAME is adopted because it tells the truth about the lifecycle; the
     ///         signature is not, because it would tell a lie about the caller.
+    /// ✅ §7540-CLAIM-IS-IMMEDIATE — **OWNER RULING 2026-09-09, and it settles a question this
+    ///         docblock could not settle about itself.** SPRINT booked *"a 7540 NAME over a
+    ///         `lpShares += …` SYNCHRONOUS credit"* as a defect and then declined to close it on the
+    ///         paragraph above, correctly: **rule 20 forbids discharging a question from prose, and
+    ///         this is the tree arguing in its own favour.** Asked directly, the owner ruled the
+    ///         argument correct: **the REQUEST is the Bitcoin funding transaction and `BTCChannels`
+    ///         is what observes it.** Confirmation completes BEFORE this call, so the credit here is
+    ///         the SETTLEMENT of an already-made request — not a synchronous shortcut.
+    /// ⇒ **The credit stays immediate. There is no deferred-claim ledger and no claim entrypoint,
+    ///         and an LP whose funding confirmed owns shares at this call.** Do not re-open this as
+    ///         a conformance defect; it is a decided lifecycle, not an oversight.
+    /// ⛔ **WHAT WOULD REOPEN IT is a change to WHEN the funding is considered final** — deeper
+    ///         confirmations, or a reorg policy that lets an observed funding be withdrawn. Then the
+    ///         request is no longer complete before this call and the ruling's premise is gone.
     function requestDeposit(address lpEth, uint sats) external nonReentrant onlyBTCChannels {
         // Whole body (checkBacking/TWAP/_rebalance-via-repack + settle + in-range
         // pairing + out-of-range remainder) in BtcLib.requestDeposit (delegatecall):

@@ -58439,7 +58439,26 @@ against the code (rule 20), one is closed and the other is not started.
 exactly the side that does not defer, which is the discriminator §E297 established. **Nothing to build
 here; do not re-commission it.**
 
-### ⏸️ 2. *"`Vault.requestDeposit` is a 7540 NAME over a `lpShares += …` SYNCHRONOUS credit"* — **STILL TRUE, AND NO LONGER OBVIOUSLY A DEFECT**
+### ✅ 2. *"`Vault.requestDeposit` is a 7540 NAME over a `lpShares += …` SYNCHRONOUS credit"* — **CLOSED BY OWNER RULING 2026-09-09. THE CREDIT STAYS IMMEDIATE.**
+🔴 **ASKED AND ANSWERED. Owner ruled the docblock's argument CORRECT: the REQUEST is the Bitcoin
+funding transaction and `BTCChannels` is what observes it — confirmation completes BEFORE this call,
+so the credit is the SETTLEMENT of an already-made request.** ⇒ **No deferred-claim ledger, no claim
+entrypoint, no pending state. An LP whose funding confirmed owns shares at this call.**
+⭐ **WHY THIS NEEDED AN OWNER AND NOT A LANE, and it is the reusable part:** the argument that closes
+it was sitting ON the function, and the section below was right to refuse it — **rule 20 forbids
+discharging a question from prose, and a docblock is the tree arguing in its own favour.** The same
+sentence becomes sufficient the moment its author is the owner rather than the file. ⇒ **When an item
+is blocked on a judgment the code cannot contain, ASK; do not accumulate more evidence.**
+⛔ **WHAT WOULD REOPEN IT — the ruling's premise, not the ruling:** any change to WHEN a funding is
+considered final (deeper confirmations, or a reorg policy under which an observed funding can be
+withdrawn). Then the request is no longer complete before the call and this must be re-decided.
+📌 **`#7` / `#9` / `B8` — the 7540 half of each is now CLOSED. `B8`'s remaining content is the SLOP
+FOLD (§B8-SLOP-FOLD-MEASURED), which is mechanical and unrelated.** The ruling is stamped into
+`Vault.sol`'s docblock as §7540-CLAIM-IS-IMMEDIATE so it cannot be re-derived as a defect.
+
+<details><summary>The open question as it stood before the ruling</summary>
+
+#### (WAS) ⏸️ STILL TRUE, AND NO LONGER OBVIOUSLY A DEFECT
 `Vault.sol:449` is still `lpShares += BtcLib.requestDeposit(...)`. The claim is accurate as code.
 🔴 **BUT THE ROWS THAT BOOKED IT PREDATE THE ARGUMENT NOW SITTING ON THE FUNCTION**, and that argument
 has to be answered rather than ignored: *"The name states the LIFECYCLE rather than the mechanism…
@@ -58453,6 +58472,8 @@ credited). That is a money-path design decision with a test to write, not a rena
 📌 ⇒ **`#7` / `#9` / `B8` remain OPEN and unstarted. What is now known is narrower and worth having:
 the 7540 CONFORMANCE surface is clean, so the only thing left in the 7540 area is the DEFERRED-CLAIM
 semantics.** ⛔ Do not batch that with a comment pass — it changes when an LP owns shares.
+
+</details>
 
 ## §B8-SLOP-FOLD-MEASURED-2026-09-07 — the re-measure B8 asked for, done. The fold is bigger and better than the row says.
 
