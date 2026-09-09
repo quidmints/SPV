@@ -21,7 +21,6 @@ use std::{
 };
 
 use alloy_primitives::{Address, U256};
-use bitcoin::secp256k1::PublicKey;
 use bitcoin::Txid;
 use lightning::events::{Event, ReplayEvent};
 use tokio::sync::mpsc;
@@ -181,11 +180,6 @@ pub enum ChannelLifecycleEvent {
     Ready {
         /// LDK channel id (logging / dedup).
         channel_id: [u8; 32],
-        /// The LP's LN node key. Carried for provenance/logging only (this enum is
-        /// `Debug`); it authorises NOTHING — the open is `_onlyHop()`-gated on-chain
-        /// and the LP's consent is relayed from the vault registry, so
-        /// `run_channel_driver` destructures this as `_`.
-        counterparty_node_pk: PublicKey,
         /// Bitcoin funding outpoint.
         funding_txid: Txid,
         funding_vout: u32,
@@ -207,10 +201,6 @@ pub enum ChannelLifecycleEvent {
     Spliced {
         /// LDK channel id (stable across the splice).
         channel_id: [u8; 32],
-        /// The LP's LN node key. Carried for provenance/logging only (this enum is
-        /// `Debug`); it authorises NOTHING — the splice is `_onlyHop()`-gated on-chain,
-        /// so `run_channel_driver` destructures this as `_`.
-        counterparty_node_pk: PublicKey,
         /// The splice tx's NEW funding outpoint.
         new_funding_txid: Txid,
         new_funding_vout: u32,
@@ -546,7 +536,6 @@ async fn do_handle_event(
         // only omits it for 0-conf paths the hop never uses, so skip+warn if absent.
         Event::ChannelReady {
             channel_id,
-            counterparty_node_id,
             funding_txo,
             ..
         } => {
@@ -557,7 +546,6 @@ async fn do_handle_event(
             info!(%channel_id, funding = %txo.txid, "channel ready → emit Open");
             let _ = ctx.channel_lifecycle_tx.send(ChannelLifecycleEvent::Ready {
                 channel_id: channel_id.0,
-                counterparty_node_pk: counterparty_node_id,
                 funding_txid: txo.txid,
                 funding_vout: txo.vout,
             });
@@ -613,14 +601,12 @@ async fn do_handle_event(
         // channelId and confirmation-gates before submitting.
         Event::SplicePending {
             channel_id,
-            counterparty_node_id,
             new_funding_txo,
             ..
         } => {
             info!(%channel_id, funding = %new_funding_txo.txid, "splice pending → emit Spliced");
             let _ = ctx.channel_lifecycle_tx.send(ChannelLifecycleEvent::Spliced {
                 channel_id: channel_id.0,
-                counterparty_node_pk: counterparty_node_id,
                 new_funding_txid: new_funding_txo.txid,
                 new_funding_vout: new_funding_txo.vout,
             });

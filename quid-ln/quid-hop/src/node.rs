@@ -407,11 +407,19 @@ pub fn initiate_splice_out(
 /// LP delivers its channel BTC straight to the swapper's Bitcoin address and earns
 /// its EXACT proceeds (QUI = the swapper's recorded USD) when the hop settles
 /// `deliverSwapOutOnchain`. As
-/// with splice-in / withdrawal, the LP INITIATES (the vendored LDK acceptor
-/// contributes 0, so the party whose channel balance leaves must drive it); the hop
-/// accepts + co-signs, and the new (smaller) funding outpoint surfaces via
-/// `Event::SplicePending`. No inputs to contribute (the value comes from the channel
-/// balance), so this is synchronous — no wallet/esplora needed.
+/// with splice-in / withdrawal, the LP INITIATES here; the hop accepts + co-signs, and
+/// the new (smaller) funding outpoint surfaces via `Event::SplicePending`. No inputs to
+/// contribute (the value comes from the channel balance), so this is synchronous — no
+/// wallet/esplora needed.
+///
+/// ⚠️ **LP-INITIATED IS THIS FUNCTION'S CHOICE, NOT AN LDK LIMIT ANY MORE.** This used to say
+/// "the vendored LDK acceptor contributes 0, so the party whose channel balance leaves must
+/// drive it". §ACCEPTOR-CONTRIBUTION removed that: the fork's
+/// `ChannelManager::register_acceptor_splice_contribution` lets the ACCEPTOR declare a
+/// `SpliceOut`, so the hop can initiate with an empty contribution and the LP merely co-signs.
+/// Nothing in this workspace calls it yet (see §ACCEPTOR-CONTRIBUTION), which is why this
+/// LP-initiated path is still the only delivery rail — but do not repeat the old claim that the
+/// inversion is impossible.
 pub fn initiate_splice_out_to(
     channel_manager: &HopChannelManager,
     ldk_channel_id: &lightning::ln::types::ChannelId,

@@ -189,10 +189,6 @@ pub async fn run(
     // invoice issuer). `None` ⇒ disabled (swap-ins can't be initiated).
     swap_in_listen: Option<String>,
     swap_in_token: Option<String>,
-    // (§T9) The `channel_keys_id -> on-chain cid` map the truth source resolves through. Passed in
-    // rather than built here because the HOP'S SIGNER holds the same `Arc` (see the daemon binary's
-    // `boot` call) — two instances would leave the signer reading a map nobody writes.
-    cid_registry: Arc<crate::channel_truth::CidRegistry>,
     // (B) The fleet vault node (2nd in-process LP-side LDK node), booted in the binary
     // and peered to `node` (the hop). `vault.registry` (funding_outpoint → lpEth) feeds
     // `drive_open`/the reconciler so they resolve lpEth without an lpAuth round-trip; the
@@ -481,12 +477,6 @@ pub async fn run(
         .and_then(|v| v.parse::<u32>().ok())
         .filter(|&n| n > 0)
         .map(|max_age| Arc::new(quid_hop::liveness::RoutingGate::new(max_age)));
-    // (§T9) The registry is now OWNED BY THE CALLER and passed in — it must be the SAME `Arc` the
-    // hop's `OnChainTruthFactory` holds, or the reconciler would fill one map while the signer reads
-    // an empty one. **That is a silent failure with a healthy face:** `has_truth_source()` returns
-    // true and every check answers `NotRecorded` forever, which is precisely the permanently-
-    // permissive shape §T9-REGISTRY-HAS-NO-WRITER exists to prevent — reached by a second `new()`
-    // instead of by no writer at all.
     match &lp_gate {
         Some(_) => info!("LP liveness: collecting heartbeats (routing NOT yet gated on them)"),
         None => info!(
@@ -510,19 +500,11 @@ pub async fn run(
         // (§LP-LIVENESS) The gate now COLLECTS whenever a threshold is configured, while routing
         // stays ungated until the phone ships. Those are two switches on purpose — see `lp_gate`.
         lp_gate.clone(),
-        // (§T9-REGISTRY-HAS-NO-WRITER) The truth source's comparand map, now WRITTEN. This is the
-        // half that was missing: `CidRegistry` had no writer anywhere, so a truth factory attached
-        // to the signer resolved no cid and returned `NotRecorded` forever — permissive while
-        // LOOKING armed. The reconciler already walks every monitor and derives each channel's
-        // on-chain cid, and `channel_keys_id` sits on the same monitor, so the pairing costs one
-        // read in a loop that exists.
-        // ⛔ STILL NOT §T9 DONE. This is step 1 of three: the signer can now RESOLVE a channel.
-        //    Step 2's HOP half has since landed: `bin/quid-bridge-daemon.rs` builds an
-        //    `OnChainTruthFactory` over `evm.rpc_handle()` and hands it to `quid_hop::node::boot`.
-        //    Its LP half is NOT here and never will be — the LP runs no daemon (§E175), so the
-        //    refusal that MATTERS lives in the react-native wallet. Step 3 is the delivery-output
-        //    bound. Do not mark §T9 done on this commit.
-        Some(cid_registry.clone()),
+        // ⛔ (§BTC-2.1) DO NOT ADD A COMPARAND MAP TO THIS CALL. The truth source COMPUTES each
+        // channel's on-chain cid from its `ChannelMonitor` (`channel_truth::MonitorCids`); a map
+        // written here would make this function the only writer, and every deployment that does
+        // not run this reconciler — `bin/quid-lp-daemon.rs`, the LP-hosted vault — would sign
+        // against a comparand that answers `NotRecorded` forever while looking armed.
         cfg.channel_reconcile_secs,
         channel_active.clone(),
     ));

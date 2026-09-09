@@ -330,7 +330,7 @@ impl RootSeed {
     /// Like every other key here it is derived from the [`RootSeed`] — which under
     /// SGX is *born inside the enclave* and sealed to `EGETKEY` — so the EVM key is
     /// **never supplied in plaintext and never leaves the enclave** (this replaces
-    /// the old operator-held `QUID_HOT_KEY` / `QUID_LP_EVM_KEY` env vars). Its
+    /// the old operator-held `QUID_HOT_KEY` env var). Its
     /// address is therefore enclave-determined: a hop advertises it to the LPs it
     /// serves (the QuidMint fleet, a shared family-plan hop, or a self-hosted hop),
     /// who commit to it in their signed `openChannelDigest`; it is not chosen by

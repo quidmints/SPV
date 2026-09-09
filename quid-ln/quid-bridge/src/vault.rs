@@ -718,10 +718,17 @@ impl VaultNode {
     /// derivation (sorted funding pubkeys + ORIGINAL funding outpoint). `None` if the
     /// monitor is missing or its counterparty funding params aren't populated yet. Used
     /// by the dead-man-exit heartbeat to key `emitDeadManExit` + `read_channel_state`.
+    ///
+    /// (§SPLICE-ROTATES-BOTH-FUNDING-KEYS) ⚠️ `original_funding_pubkeys()`, NOT the live pair.
+    /// This read the LIVE pair while claiming to be "identical" to [`Self::ldk_channel_for`],
+    /// which it was not: LDK rotates the funding pair on every splice, so after the vault's
+    /// FIRST splice this returned a cid no channel on the EVM has — and its two callers are the
+    /// dead-man-exit heartbeat (`emitDeadManExit`) and `read_channel_state`, i.e. the exit path
+    /// went silent on exactly the channels that had been spliced.
     pub fn on_chain_cid(&self, ldk_id: &lightning::ln::types::ChannelId) -> Option<[u8; 32]> {
         let m = self.node.chain_monitor.get_monitor(*ldk_id).ok()?;
         let orig = m.original_funding_txo();
-        let (h, c) = m.funding_pubkeys()?;
+        let (h, c) = m.original_funding_pubkeys()?;
         let (k0, k1) = sort_funding_pubkeys(h.serialize(), c.serialize());
         Some(channel_id(&k0, &k1, txid_internal(&orig.txid), orig.index as u32))
     }

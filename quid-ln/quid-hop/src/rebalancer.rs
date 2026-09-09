@@ -27,7 +27,7 @@
 //!     `max_inbound_htlc_value_in_flight_percent_of_channel` (50%, see
 //!     `node::boot`'s `UserConfig`). That 50%·`channel_value_satoshis` is the
 //!     channel's *own* definition of a full-scale swap-in — the
-//!     [`per_swap_ceiling`]. It is not a knob we picked; it falls out of the
+//!     [`per_swap_ceiling_msat`]. It is not a knob we picked; it falls out of the
 //!     channel config the two nodes already agreed on.
 //!   * The LP can forward a swap-in only up to `next_outbound_htlc_limit_msat`
 //!     (LDK's real, reserve/dust/in-flight-aware limit on the next single

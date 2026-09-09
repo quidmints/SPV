@@ -47,7 +47,7 @@ pub fn hex32(s: &str) -> anyhow::Result<[u8; 32]> {
 /// Fail LOUD at boot on an obviously-broken secret (a misconfigured/placeholder
 /// key must never sign live). Minimal by design — rejects all-zero and all-
 /// identical bytes (e.g. `0x0101…01`); NOT an entropy estimator. `hex32` only
-/// decodes secrets here (QUID_HOT_KEY / QUID_SEED / QUID_LP_EVM_KEY).
+/// decodes secrets here (QUID_HOT_KEY / QUID_SEED).
 fn reject_weak_secret(bytes: &[u8; 32]) -> anyhow::Result<()> {
     if bytes.iter().all(|&b| b == 0) {
         anyhow::bail!("secret is all-zero bytes — refusing to boot with a placeholder key");
@@ -73,7 +73,7 @@ fn reject_weak_secret(bytes: &[u8; 32]) -> anyhow::Result<()> {
 /// enclave and never exists in plaintext outside it.
 ///
 /// In an enclave (SGX) the derived key is the ONLY source: a host-supplied
-/// `env_name` (`QUID_HOT_KEY` / `QUID_LP_EVM_KEY`) is **REFUSED**, exactly like
+/// `env_name` (in production always `QUID_HOT_KEY`) is **REFUSED**, exactly like
 /// [`quid_hop::seed::SeedSource::Import`] — a host-supplied key carries no enclave
 /// binding, so accepting it would let the untrusted host sign with a key IT
 /// controls, defeating custody. Off-SGX (host-trusted self-host / dev / e2e) the

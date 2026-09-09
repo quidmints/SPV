@@ -1032,7 +1032,6 @@ pub async fn run_channel_driver<R: JsonRpc + Send + Sync + 'static>(
         match ev {
             ChannelLifecycleEvent::Ready {
                 channel_id,
-                counterparty_node_pk: _, // (B) lpAuth transport retired; open is `_onlyHop()`-gated on-chain
                 funding_txid,
                 funding_vout,
             } => {
@@ -1190,7 +1189,6 @@ pub async fn run_channel_driver<R: JsonRpc + Send + Sync + 'static>(
             }
             ChannelLifecycleEvent::Spliced {
                 channel_id,
-                counterparty_node_pk: _, // (B) lpAuth transport retired; splice is hop-gated on-chain
                 new_funding_txid,
                 new_funding_vout,
             } => {
@@ -1397,7 +1395,6 @@ async fn maybe_flush_btc_fees<R: JsonRpc + Send + Sync + 'static>(
 /// pass only acts on channels not already in their target on-chain state, so
 /// steady-state cost is one `channels()` read + one esplora call per channel.
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 pub async fn run_channel_reconciler<R: JsonRpc + Send + Sync + 'static>(
     cfg: BridgeConfig,
     evm: Arc<JsonRpcEvmClient<R, LocalSigner>>,
@@ -1418,17 +1415,6 @@ pub async fn run_channel_reconciler<R: JsonRpc + Send + Sync + 'static>(
     // costs one call and keeps the map as fresh as the reconciler itself.
     // `None` = no gate: `invoicer` is then ungated and every channel keeps its route hint.
     gate: Option<Arc<quid_hop::liveness::RoutingGate>>,
-    // (§T9-REGISTRY-HAS-NO-WRITER) The truth source's `channel_keys_id -> on-chain cid` map.
-    // 🔴 THIS IS NOT THE `gate` ABOVE, AND CONFLATING THEM IS THE ONE FAILURE WORSE THAN NO
-    //    COMPARAND: the gate keys on LDK's `ChannelId`, this keys on `channel_keys_id`. Different
-    //    32 bytes, different meaning — binding the comparand to the wrong channel would make the
-    //    signer refuse against a channel it is not signing for.
-    // ⚠️ Until this had a writer, `CidRegistry` had ZERO references outside `channel_truth.rs`, so
-    //    a factory attached anyway resolved nothing and returned `NotRecorded` forever —
-    //    PERMANENTLY PERMISSIVE while `has_truth_source()` reported `true`. A dormant check is
-    //    honest; one that looks armed and answers `Ok(())` is the shape this sprint keeps hitting.
-    // `None` = no truth source wired for this deployment (dev/regtest), exactly like `gate`.
-    cids: Option<Arc<crate::channel_truth::CidRegistry>>,
     period_secs: u64,
     // The SHARED in-flight set (keyed by on-chain cid), also held by
     // `run_channel_driver`. Tracks channels with a drive ALREADY in flight on
@@ -1506,38 +1492,19 @@ pub async fn run_channel_reconciler<R: JsonRpc + Send + Sync + 'static>(
                     // the ORIGINAL pubkeys. `BTCChannels` hashes both originals into `channelId`
                     // (`ChannelLib.sol:617`), and LDK rotates the pair on every splice, so reading the live
                     // `funding_pubkeys()` here yielded a cid no channel on the EVM has.
-                    // (§T9) The signer's key for THIS channel. Both halves of the truth pairing
-                    // are on the monitor together, which is why the binder belongs in this walk and
-                    // not in a second one that would have to re-derive the cid.
-                    let keys_id = m.channel_keys_id();
                     m.original_funding_pubkeys().map(|(h, c)| {
                         let (k0, k1) = sort_funding_pubkeys(h.serialize(), c.serialize());
                         let cid =
                             channel_id(&k0, &k1, txid_internal(&orig.txid), orig.index as u32);
-                        (txo.txid, txo.index as u32, cp, cid, pending_splice_txids, keys_id)
+                        (txo.txid, txo.index as u32, cp, cid, pending_splice_txids)
                     })
                 }
                 Err(_) => None,
             };
-            let Some((funding_txid, funding_vout, cp, cid, pending_splice_txids, keys_id)) =
-                extracted
+            let Some((funding_txid, funding_vout, cp, cid, pending_splice_txids)) = extracted
             else {
                 continue;
             };
-            // (§T9) Bind BEFORE any of the on-chain reads below, so a pass that returns early for
-            // this channel still records the pairing. `bind` is idempotent and REFUSES a conflicting
-            // re-bind rather than overwriting — the cid says which channel the signer is checked
-            // against, so letting it move would let the node choose its own comparand.
-            if let Some(reg) = cids.as_ref() {
-                if !reg.bind(keys_id, cid) {
-                    // Not a race: the map only refuses when the SAME keys_id already points at a
-                    // DIFFERENT cid, which means two on-chain channels claim one signer.
-                    warn!(
-                        cid = %hex::encode(cid),
-                        "§T9: refused a conflicting cid re-bind for this channel_keys_id"
-                    );
-                }
-            }
             let (ldk_value, ldk_usable) = ldk_state.get(&ch_id.0).copied().unwrap_or((0, false));
 
             // On-chain state (authoritative idempotency) — skip if already in the

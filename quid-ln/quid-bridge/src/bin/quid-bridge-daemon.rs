@@ -251,31 +251,31 @@ async fn main() -> anyhow::Result<()> {
     );
 
     tracing::info!(%network, "quid-bridge-daemon: booting hop node");
-    // (§T9) ✅ **ATTACHED 2026-09-08. THIS WAS `None` AND THE REASON IT WAS `None` IS GONE.** The
-    // note here read: *"NOT because the hop needs no comparand, but because `CidRegistry` has no
-    // writer yet — attaching a factory over an unpopulated registry reports `NotRecorded` forever."*
-    // `run_channel_reconciler` now WRITES that registry (`channel_keys_id -> on-chain cid`, bound
-    // from the monitor it already walks), so the comparand resolves.
+    // (§T9) THE HOP'S ON-CHAIN COMPARAND.
     // ⭐ **THE QUORUM TRANSPORT, NOT A SINGLE ENDPOINT, AND THAT IS THE POINT OF A TRUTH SOURCE.**
     //    `evm.rpc_handle()` is the same `QuorumJsonRpc` every other reader shares — a comparand read
     //    from one node the host could pick would be a fact the fleet can author, which is exactly
     //    what this check exists to refuse.
-    // ⚠️ **EMPTY AT BOOT AND THAT IS CORRECT, NOT A GAP.** The registry fills on the first reconciler
-    //    pass, so early channels resolve `NotRecorded` — which `CidRegistry`'s own docblock calls
-    //    permissive ON PURPOSE ("a channel whose cid is not yet known is a channel the EVM has not
-    //    recorded"), and the signer's `truth_recorded` latch makes it ONE-WAY the moment the chain
-    //    first answers. So this cannot be used to downgrade a channel that has already been seen.
-    // ⛔ **AND IT IS THE HOP HALF, WHICH IS THE WEAKER ONE — do not read it as §T9 complete.**
+    // ⭐ (§BTC-2.1) **COMPUTE, NOT CACHE.** `MonitorCids` holds NO map: it derives each channel's
+    //    `channelId` from the `ChannelMonitor` at verify time. The `CidRegistry` this replaced had
+    //    exactly one writer (`run_channel_reconciler`, called only from `daemon::run`), so any
+    //    deployment without that reconciler carried a comparand that answered `NotRecorded`
+    //    forever — armed-looking and permissive. There is nothing left to populate.
+    // ⚠️ **THE ATTACH BELOW IS NOT OPTIONAL.** The keys manager is built BEFORE the `ChainMonitor`
+    //    inside `node::boot`, so the handle can only be supplied afterwards; until it is, every
+    //    check answers `NotRecorded`.
+    // ⛔ **THIS IS THE HOP HALF, WHICH IS THE WEAKER ONE — do not read it as §T9 complete.**
     //    `check_against_chain` "only means anything against a source the fleet does not author", and
     //    `BTCChannels` records arrive through `_onlyHop()`, i.e. the fleet's own submissions. This
-    //    binds the fleet to its own published record; the refusal that MATTERS is the LP's, and the
-    //    LP runs no daemon (§E175) — that half lives in the wallet.
-    let cid_registry = std::sync::Arc::new(quid_bridge::channel_truth::CidRegistry::new());
+    //    binds the fleet to its own published record; the refusal that MATTERS is the LP's. The
+    //    co-hosted vault below now arms it too; `bin/quid-lp-daemon.rs` (the DEFAULT, LP-hosted
+    //    topology) still does not, because it has no EVM read path at all — see its own note.
+    let hop_cids = std::sync::Arc::new(quid_bridge::channel_truth::MonitorCids::new());
     let truth_factory: std::sync::Arc<dyn quid_ln::validating_signer::TruthSourceFactory> =
         std::sync::Arc::new(quid_bridge::channel_truth::OnChainTruthFactory::new(
             std::sync::Arc::new(evm.rpc_handle()),
             cfg.btc_channels,
-            cid_registry.clone(),
+            hop_cids.clone(),
         ));
     let node = quid_hop::node::boot(
         network,
@@ -289,6 +289,11 @@ async fn main() -> anyhow::Result<()> {
     )
     .await
     .context("boot hop node")?;
+    // (§BTC-2.1) Hand the comparand the monitor set it derives cids from. Refused if already set
+    // — the monitor set decides which on-chain channel every signer is checked against.
+    if !hop_cids.attach(&node.chain_monitor) {
+        anyhow::bail!("hop truth source: chain monitor attached twice");
+    }
 
     // (§W1) THE AUTHORIZED TRIGGER FOR A FULL WALLET DRAIN — the thing `create_sweep_tx` was
     // missing, and the reason it was mistaken for dead code and deleted twice. It was never
@@ -393,6 +398,19 @@ async fn main() -> anyhow::Result<()> {
              The multisig is nominal in this deployment (M1#2)."
         );
         let vault_seed = quid_bridge::vault::derive_vault_seed(&root_seed);
+        // (§BTC-2.1) This vault's OWN comparand resolver — a SEPARATE `MonitorCids` from the hop's,
+        // because it is attached to a different node's monitor set. Sharing one would let a vault
+        // signer resolve against a hop monitor (and vice versa) whenever two channels' derived
+        // `channel_keys_id`s collided across the two nodes.
+        let vault_cids = std::sync::Arc::new(quid_bridge::channel_truth::MonitorCids::new());
+        // Bound with the trait type spelled out: an unsized coercion does not reach inside
+        // `Some(..)`, so `Some(Arc::new(concrete))` would not become `Option<Arc<dyn _>>`.
+        let vault_truth: std::sync::Arc<dyn quid_ln::validating_signer::TruthSourceFactory> =
+            std::sync::Arc::new(quid_bridge::channel_truth::OnChainTruthFactory::new(
+                std::sync::Arc::new(evm.rpc_handle()),
+                cfg.btc_channels,
+                vault_cids.clone(),
+            ));
         let mut vault = quid_bridge::vault::boot_vault(
             network,
             env("QUID_ESPLORA_URL")?,
@@ -406,13 +424,22 @@ async fn main() -> anyhow::Result<()> {
             quid_hop::rebalancer::SPLICE_FUNDING_FEERATE_SAT_PER_KW,
             store.clone(), // durable by_funding: reload in-flight opens on restart
             vault_anchor,
-            // (§T9) `None`: see the note at the hop's own `boot` above — an unpopulated
-            // `CidRegistry` would make the check permanently permissive. This branch is also
-            // scheduled for deletion (§COHOST-FLAG-IS-NOT-THE-WORK).
-            None,
+            // (§T9 / §BTC-2.1) ✅ THE LP HALF, ARMED — this was `None` and the reason is gone.
+            // The old note said an unpopulated `CidRegistry` would make the check permanently
+            // permissive; there is no registry now, the cid is COMPUTED from this vault's own
+            // monitors, and everything else the source needs (`evm.rpc_handle()`,
+            // `cfg.btc_channels`) is already in scope here. `boot_vault` pins `FundingRole::Lp`.
+            // ⚠️ This arms the refusal only in the CO-HOSTED topology, where the fleet holds both
+            // halves anyway — so it binds the fleet to its own published record and no more. The
+            // refusal that matters is an LP-hosted vault's, and that binary still has no EVM
+            // client. This branch remains scheduled for deletion (§COHOST-FLAG-IS-NOT-THE-WORK).
+            Some(vault_truth),
         )
         .await
         .context("boot vault node")?;
+        if !vault_cids.attach(&vault.node.chain_monitor) {
+            anyhow::bail!("vault truth source: chain monitor attached twice");
+        }
         // Take the vault's lifecycle stream for the delivery correlator BEFORE sharing the
         // node behind an Arc (the hop mirrors vault opens/closes on the EVM, so the vault's
         // own lifecycle stream is otherwise unconsumed — this is its sole consumer).
@@ -441,9 +468,6 @@ async fn main() -> anyhow::Result<()> {
 
     daemon::run(
         node, cfg, evm, store, start_block, swap_in_listen, swap_in_token,
-        // (§T9) THE SAME `Arc` the hop's truth factory holds. Passing a fresh one here would arm a
-        // check that can never resolve — see `run`'s note on the parameter.
-        cid_registry,
         // (§M1#2) The Option built above: `None` unless this deployment explicitly opted into
         // co-hosting. Phase 1a made `run` accept `None`; this is what finally passes it.
         vault,

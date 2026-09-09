@@ -259,18 +259,25 @@ async fn main() -> anyhow::Result<()> {
         // (§T9) `None` FOR NOW, AND THIS IS THE ONE THAT MATTERS. This vault IS the LP half of
         // every 2-of-2, so this is exactly where the refusal belongs: a compromised fleet asks
         // THIS signer to co-sign a splice, and `check_against_chain` is what says no.
-        // ⛔ TWO THINGS ARE MISSING HERE, NOT ONE — AND NEITHER IS THE OLD "NOBODY WRITES THE
-        // REGISTRY" GAP, WHICH IS CLOSED: `run_channel_reconciler` populates
-        // `channel_keys_id → on-chain channelId` now.
-        //   1. NO MONITOR WALK REACHES THIS VAULT. The reconciler's only caller is
-        //      `daemon::run`, and this binary never calls it — so nothing here fills the
-        //      registry THIS signer would read, whatever the fleet's own daemon writes.
-        //   2. NO EVM READ PATH AT ALL. This binary holds no RPC handle and no `btc_channels`
-        //      address, so it cannot even CONSTRUCT an `OnChainTruthFactory` to attach.
-        // A factory attached without both resolves no cid, reports `NotRecorded` forever, and is
-        // PERMANENTLY PERMISSIVE. A dormant check is honest about providing nothing; a
-        // permanently-permissive one reads as protection while providing none, which is worse
-        // than the gap it appears to close.
+        //
+        // ⛔ **EXACTLY ONE THING IS MISSING, AND IT IS NOT A REGISTRY.** This note used to name
+        // two gaps, the first being that nothing here fills the `channel_keys_id → channelId`
+        // map the signer would read. That gap is GONE BY DELETION, not by wiring
+        // (§BTC-2.1, compute-not-cache): `channel_truth::MonitorCids` derives the cid from this
+        // vault's OWN `ChannelMonitor`s at verify time, so it needs no writer and no reconciler.
+        //
+        // ⛔ **WHAT REMAINS: NO EVM READ PATH AT ALL.** This binary holds no RPC handle and no
+        // `btc_channels` address, so it cannot CONSTRUCT an `OnChainTruthFactory`. Everything
+        // else is now in reach — the shape is a read-only `QuorumJsonRpc` over `QUID_RPC_URLS`
+        // (no signer, no gas, no `LocalSigner`: the LP signs NOTHING on the EVM per §E183, and
+        // `eth_call_raw_agreed` is a read), a `QUID_BTC_CHANNELS` address, and
+        // `cids.attach(&vault.node.chain_monitor)` after this boot returns. That is the whole
+        // change, and it turns two required env vars into the LP's refusal.
+        //
+        // ⚠️ Until then this stays `None` ON PURPOSE. A factory without a read path resolves no
+        // cid, reports `NotRecorded` forever, and is PERMANENTLY PERMISSIVE. A dormant check is
+        // honest about providing nothing; a permanently-permissive one reads as protection while
+        // providing none, which is worse than the gap it appears to close.
         None,
     )
     .await

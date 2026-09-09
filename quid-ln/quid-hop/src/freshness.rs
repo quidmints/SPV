@@ -22,7 +22,7 @@
 //! The anchor is the ONLY new trust-minimised primitive; everything else (the
 //! `Ffs`, the AES-master-key VFS encryption, the `update_id`) is reused. The
 //! production anchor is an on-chain per-channel counter (blockchain immutability =
-//! rollback resistance, no added trusted party — see [`OnChainFreshnessAnchor`]);
+//! rollback resistance, no added trusted party — see [`LedgerFreshnessAnchor`]);
 //! [`InMemoryFreshnessAnchor`] is the dev/test double.
 
 use std::collections::HashMap;
@@ -51,7 +51,7 @@ pub fn hex32(bytes: &[u8; 32]) -> String {
 /// `m`, and MUST NOT regress even if the host destroys/rewinds local storage — i.e.
 /// the anchor lives OUTSIDE the host's rollback-able storage (on-chain, a hardware
 /// monotonic counter, or an independent attested store). An anchor that a host can
-/// rewind provides no protection; see [`OnChainFreshnessAnchor`].
+/// rewind provides no protection; see [`LedgerFreshnessAnchor`].
 pub trait FreshnessAnchor {
     /// Record that `monitor` was durably persisted at `update_id`. Idempotent and
     /// monotonic: committing an `update_id` <= the current highest is a no-op.
@@ -91,7 +91,7 @@ pub fn verify<A: FreshnessAnchor + ?Sized>(
 
 /// In-memory anchor: a dev/test double ONLY. It lives in the enclave's own memory,
 /// so a host restart wipes it — it provides NO real rollback resistance and MUST
-/// NOT be used in staging/prod (use [`OnChainFreshnessAnchor`]). It exists to unit-
+/// NOT be used in staging/prod (use [`LedgerFreshnessAnchor`]). It exists to unit-
 /// test the guard mechanism and to run dev/regtest where the host is trusted.
 #[derive(Default)]
 pub struct InMemoryFreshnessAnchor {

@@ -26,9 +26,10 @@
 //! an unchecked context — otherwise a hostile host disables the entire check by breaking its
 //! own RPC endpoint, which is the cheapest attack available to it.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, Weak};
 
 use alloy_primitives::Address;
+use quid_hop::node::{onchain_cid_from_monitor, HopChainMonitor};
 use quid_ln::validating_signer::{ChannelTruthSource, TruthSourceFactory, TruthVerdict};
 
 use crate::client::eth_call_raw_agreed;
@@ -49,48 +50,84 @@ fn word(bytes: &[u8], i: usize) -> Result<&[u8], ()> {
     bytes.get(i * 32..(i + 1) * 32).ok_or(())
 }
 
-/// (E177) `channel_keys_id → on-chain channelId`.
+/// (§BTC-2.1) Resolves `channel_keys_id → on-chain channelId` by **COMPUTING it, never by
+/// caching it.**
 ///
-/// The signer is derived from a `channel_keys_id`; the EVM knows the channel by
-/// `channelId = keccak(lpPubkey, hopPubkey, fundingTxid, vout)`, which needs a funding
-/// outpoint that does not exist at derive time. The daemon learns the pairing later (it
-/// already derives a cid from a monitor via `onchain_cid_from_monitor`) and records it
-/// here; the comparand resolves through it on every check.
+/// ⛔ **DO NOT REPLACE THIS WITH A `channel_keys_id → channelId` MAP.** `channelId =
+/// keccak256(lpPubkey, hopPubkey, fundingTxId, vout)` (`ChannelLib.sol:640`) is a deterministic
+/// function of four values a `ChannelMonitor` already holds, so a map stores only what can be
+/// recomputed — and it needs a WRITER. A writer lives in one process; the comparand is needed in
+/// every process that signs, including `bin/quid-lp-daemon.rs`, **the side whose refusal actually
+/// matters**. A signer wired to a map nobody fills answers `NotRecorded` forever: permanently
+/// permissive while `has_truth_source()` reports `true`.
 ///
-/// ⚠️ **AN UNRESOLVED ENTRY IS `NotRecorded`, NOT AN ERROR.** That is exactly right and it
-/// is why the three-state check exists: a channel whose cid is not yet known is a channel
-/// the EVM has not recorded, the window is permissive so opening can proceed, and the
-/// signer's `truth_recorded` latch makes it ONE-WAY the moment the chain first answers —
-/// so this map cannot be used to downgrade a channel that has already been seen.
+/// 🔑 **WHY THE MONITOR IS REACHABLE HERE WHEN IT IS NOT AT DERIVE TIME.**
+/// [`TruthSourceFactory::for_channel`] is called from `SignerProvider::derive_channel_signer`,
+/// which is handed a `channel_keys_id` and nothing else. But the source resolves the cid
+/// **LAZILY, AT VERIFY TIME**, and by then the channel's `ChannelMonitor` exists and the
+/// `ChainMonitor` that owns it has been built — so this holds a handle to the `ChainMonitor` and
+/// finds the monitor by its `channel_keys_id` on each check.
+///
+/// ⚠️ **`Weak`, NOT `Arc`, AND THAT IS LOAD-BEARING.** The `ChainMonitor` owns the
+/// `ChannelMonitor`s, which own the signers, which own this source. An `Arc` pointing back at the
+/// `ChainMonitor` closes that cycle and leaks the whole monitor set for the process lifetime.
+///
+/// ⚠️ **SET ONCE, AFTER `node::boot` RETURNS.** The keys manager (which holds the factory) is
+/// constructed BEFORE the `ChainMonitor` inside `quid_hop::node::boot`, so the handle cannot be a
+/// constructor argument. Until [`Self::attach`] runs — and for any channel whose monitor is not
+/// yet watched, which is every channel between `funding_created` and `watch_channel` — this
+/// answers `None`, which the caller reports as [`TruthVerdict::NotRecorded`]. That is the same
+/// permissive-then-latched window the three-state check is built around, not a new hole.
+///
+/// ⚠️ **NO LOCK IS HELD ACROSS THE `eth_call`.** `cid_for` takes and releases the `ChainMonitor`
+/// read lock before [`OnChainChannelTruth::read`] makes its RPC. The check runs inside
+/// `provide_taproot_context`, which LDK calls only from `ln/channel.rs` (never from under the
+/// `ChainMonitor`'s own lock), so this look-up does not re-enter a lock its caller holds.
 #[derive(Default)]
-pub struct CidRegistry {
-    map: std::sync::RwLock<std::collections::HashMap<[u8; 32], [u8; 32]>>,
+pub struct MonitorCids {
+    monitors: OnceLock<Weak<HopChainMonitor>>,
 }
 
-impl CidRegistry {
+impl MonitorCids {
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Record the pairing. Idempotent; a conflicting re-bind is REFUSED and returns `false`
-    /// rather than overwriting — the cid identifies which on-chain channel a signer is
-    /// checked against, so letting it move would let the node pick the comparand.
-    pub fn bind(&self, channel_keys_id: [u8; 32], channel_id: [u8; 32]) -> bool {
-        let mut m = match self.map.write() {
-            Ok(m) => m,
-            Err(_) => return false,
-        };
-        match m.get(&channel_keys_id) {
-            Some(existing) => *existing == channel_id,
-            None => {
-                m.insert(channel_keys_id, channel_id);
-                true
-            }
-        }
+    /// Attach the node's `ChainMonitor`. Call ONCE, immediately after `node::boot`. Returns
+    /// `false` if a handle was already set — a second attach is REFUSED rather than swapped,
+    /// because the monitor set decides which on-chain channel every signer is checked against,
+    /// and letting it move would let the node pick its own referee.
+    pub fn attach(&self, chain_monitor: &Arc<HopChainMonitor>) -> bool {
+        self.monitors.set(Arc::downgrade(chain_monitor)).is_ok()
     }
 
-    pub fn get(&self, channel_keys_id: &[u8; 32]) -> Option<[u8; 32]> {
-        self.map.read().ok().and_then(|m| m.get(channel_keys_id).copied())
+    /// True once [`Self::attach`] has run — so a boot path can ASSERT the comparand is
+    /// resolvable instead of silently running permissive.
+    pub fn is_attached(&self) -> bool {
+        self.monitors.get().is_some()
+    }
+
+    /// The STABLE on-chain `channelId` for the channel this `channel_keys_id` signs, or `None`
+    /// while it cannot be computed (no handle yet, or no monitor watching that channel yet).
+    ///
+    /// ⚠️ (§SPLICE-ROTATES-BOTH-FUNDING-KEYS) The derivation is [`onchain_cid_from_monitor`] —
+    /// the SAME one `select_delivery_channels`, the reconciler, the freshness key and
+    /// `VaultNode::ldk_channel_for` use. It pairs the ORIGINAL outpoint with the ORIGINAL
+    /// pubkey pair, because LDK rotates the live pair on every splice while `BTCChannels`
+    /// hashes both originals into the id. This is IDENTITY, not spend. Do not reimplement it
+    /// here: a pricing/identity term written twice is one that drifts.
+    ///
+    /// The scan is linear in this node's channel count and runs once per check, which is free
+    /// beside the `eth_call` the caller makes immediately afterwards.
+    pub fn cid_for(&self, channel_keys_id: &[u8; 32]) -> Option<[u8; 32]> {
+        let chain_monitor = self.monitors.get()?.upgrade()?;
+        for ch_id in chain_monitor.list_monitors() {
+            let Ok(monitor) = chain_monitor.get_monitor(ch_id) else { continue };
+            if monitor.channel_keys_id() == *channel_keys_id {
+                return onchain_cid_from_monitor(&monitor);
+            }
+        }
+        None
     }
 }
 
@@ -98,7 +135,7 @@ impl CidRegistry {
 pub struct OnChainChannelTruth<R: JsonRpc> {
     rpc: Arc<R>,
     btc_channels: Address,
-    cids: Arc<CidRegistry>,
+    cids: Arc<MonitorCids>,
     channel_keys_id: [u8; 32],
 }
 
@@ -106,7 +143,7 @@ impl<R: JsonRpc> OnChainChannelTruth<R> {
     pub fn new(
         rpc: Arc<R>,
         btc_channels: Address,
-        cids: Arc<CidRegistry>,
+        cids: Arc<MonitorCids>,
         channel_keys_id: [u8; 32],
     ) -> Self {
         Self { rpc, btc_channels, cids, channel_keys_id }
@@ -115,7 +152,7 @@ impl<R: JsonRpc> OnChainChannelTruth<R> {
     /// The raw `channels(channelId)` return. `Ok(None)` = the cid is not known yet, which
     /// the caller reports as `NotRecorded`. Refused unless the return is the full six words.
     fn read(&self) -> Result<Option<Vec<u8>>, ()> {
-        let Some(cid) = self.cids.get(&self.channel_keys_id) else {
+        let Some(cid) = self.cids.cid_for(&self.channel_keys_id) else {
             return Ok(None);
         };
         let bytes = eth_call_raw_agreed(
@@ -136,11 +173,11 @@ impl<R: JsonRpc> OnChainChannelTruth<R> {
 pub struct OnChainTruthFactory<R: JsonRpc> {
     rpc: Arc<R>,
     btc_channels: Address,
-    cids: Arc<CidRegistry>,
+    cids: Arc<MonitorCids>,
 }
 
 impl<R: JsonRpc> OnChainTruthFactory<R> {
-    pub fn new(rpc: Arc<R>, btc_channels: Address, cids: Arc<CidRegistry>) -> Self {
+    pub fn new(rpc: Arc<R>, btc_channels: Address, cids: Arc<MonitorCids>) -> Self {
         Self { rpc, btc_channels, cids }
     }
 }
@@ -202,25 +239,14 @@ impl<R: JsonRpc + Send + Sync> ChannelTruthSource for OnChainChannelTruth<R> {
 mod tests {
     use super::*;
 
-    /// The registry is a comparand SELECTOR: it decides which on-chain channel a signer is
-    /// checked against. Letting a bind move would let the node point the check at a
-    /// different (or empty) record — choosing its own referee.
+    /// An UNATTACHED resolver must read as NOT RECORDED rather than erroring or panicking:
+    /// that is the legitimate pre-record window (the EVM records a channel only once its
+    /// funding is SPV-proven, and a monitor is watched only after the first commitment), and
+    /// erroring would fail closed and deadlock every channel open.
     #[test]
-    fn a_cid_bind_is_idempotent_but_never_rebindable() {
-        let r = CidRegistry::new();
-        let keys = [1u8; 32];
-        assert!(r.bind(keys, [9u8; 32]), "first bind");
-        assert!(r.bind(keys, [9u8; 32]), "identical re-bind is a no-op, not a failure");
-        assert!(!r.bind(keys, [7u8; 32]), "a CONFLICTING re-bind must be refused");
-        assert_eq!(r.get(&keys), Some([9u8; 32]), "the original binding survives");
-    }
-
-    /// An unknown `channel_keys_id` must read as NOT RECORDED rather than erroring: that is
-    /// the legitimate pre-record window (the EVM records a channel only once its funding is
-    /// SPV-proven), and erroring would fail closed and deadlock every channel open.
-    #[test]
-    fn an_unknown_channel_keys_id_is_not_recorded() {
-        let r = CidRegistry::new();
-        assert_eq!(r.get(&[3u8; 32]), None);
+    fn an_unattached_resolver_is_not_recorded() {
+        let r = MonitorCids::new();
+        assert!(!r.is_attached());
+        assert_eq!(r.cid_for(&[3u8; 32]), None);
     }
 }

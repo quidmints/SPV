@@ -32,8 +32,10 @@ use tracing::{error, warn};
 const STORE_SEAL_AAD: &[u8] = b"quid-bridge-store-v1";
 
 /// Serde projection of a [`ClaimedSwapIn`] (alloy types as hex strings), so an
-/// in-flight swap-in (received → settle → claim) survives a crash. Mirrors
-/// [`ReqRec`] for swap-outs.
+/// in-flight swap-in (received → settle → claim) survives a crash. There is no
+/// swap-out counterpart in this store: an on-chain swap-out is re-derived from the
+/// EVM request log on every scan (`swap_out_resolved` is the idempotency check), so
+/// it has nothing to persist.
 ///
 /// PREIMAGE-AT-REST: this record persists the LN `preimage`. It is load-bearing —
 /// this LDK does NOT re-emit `PaymentClaimable` on restart, so the boot re-drive must
