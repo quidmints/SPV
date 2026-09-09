@@ -59755,3 +59755,78 @@ reproducible measurement **of a different regime**, and it would have sent this 
 reaches the same function.** A probe that does not reproduce the failure is not a smaller version of
 it; it is a different experiment, and its agreement with nothing is not evidence. Cf.
 [[measurement-scope-is-not-sentence-scope]] — green proves only what ran.
+
+---
+
+# 🧭 §REFILL-DESIGN-OPEN — the design question, taken from first principles. **No conclusion reached; five options weighed.**
+
+Owner: *"where does it source capital? borrow? how are we sure its safe? what if there is no offsetting
+flow and swaps stop altogether? … does it suggest a gap in our skew design?"* Each answered below, and
+one of them is a correction to my own framing.
+
+## 1. CAPITAL — it is NOT borrowed, and I had been sloppy about this
+**Three different things I have been running together, separated:**
+| | what it is | cost | needs 1inch? |
+|---|---|---|---|
+| **capital** | the drainer's OWN dollars, already resident — a drain moves `POOLED` down by `D` and `POOLED_USD` up by `D·px` | **none** | no |
+| **execution** | turning those dollars back into volatile | the spread — **this is what I measured** | no; the default venue clears (§SESS-92 empty route). 1inch only improves it |
+| **placement** | re-ranging what is held | **none** | no |
+⇒ **Nothing is borrowed and no external capital is needed.** *"1inch is not a dependency"* was a claim
+about EXECUTION only, and saying it unqualified was misleading. The owner's original design stands: a
+drain leaves the range **mis-composed, not poorer**.
+⚠️ **BUT `refillPlacement` IS PLACEMENT, NOT ACQUISITION** — `fc8d6294`: *"No placement can conjure ETH,
+so the band ends 1:1 on a smaller position with USD left over."* So recovering it does NOT give a
+restoration mechanism; it gives a re-ranger. **Acquisition is unbuilt and is the part that costs money.**
+
+## 2. SAFETY — one tested class, one UNTESTED and it is the serious one
+✅ Tested: not farmable (−45 bps/cycle over 5), deficit manipulation gas-swamped ($0.131 victim vs
+$0.0006 attacker), value-neutral to $0.00000133, premium reaches LPs in full on the drain path.
+🔴 **UNTESTED AND STRUCTURAL: THE BUNDLED REFILL IS A SANDWICH TARGET BY CONSTRUCTION.** It is a buy of
+**known size**, at a **known moment** (inside a swap anyone can trigger), in a **known direction**,
+against a venue the attacker can move first. Every other manipulation we tested was an attacker fighting
+a curve; this one is an attacker front-running a forced buy. **No test covers it and it must not be
+built before one does.** ▶️ measure: attacker moves the venue, triggers a drain, refill executes into
+their liquidity, they unwind.
+
+## 3. IF SWAPS STOP — bundling alone is INSUFFICIENT, and the reason is redemption
+· **Pure bundling is lazy restoration:** no swaps ⇒ no refill, but also no one being served badly. That
+  is defensible on its own.
+· ⛔ **EXCEPT REDEMPTION IS NOT A SWAP.** `Core.sol:218` states it: *"REDEMPTION sheds range inventory
+  exactly as a swap does. `unwindForRedeem` is a BURN."* ⇒ **redeemers deplete the range without ever
+  triggering a bundled refill.** That is a hole in bundling that has nothing to do with volume drying up.
+· And LPs who wanted volatile exposure are silently converted into dollar-holders for the duration — an
+  exposure change they did not choose. The range being "not poorer" is true in dollars and false in
+  composition, which is the whole reason the owner wants restoration.
+
+## 4. 🔑 THE GAP IN THE SKEW DESIGN — and it is a CATEGORY ERROR, not a magnitude
+**The A–S skew prices INVENTORY RISK. The refill costs EXECUTION. They are functions of different
+variables and there is no reason the first should fund the second.**
+    skew premium     = Γ·σ²·q̄        → volatility × imbalance    → MEASURED FLAT at 4.2 bps across 100× size
+    restoration cost = slip(size) + basis → trade size × market state → GROWS with size, swings 25 bps/day
+⇒ §REFILL-G2-VERDICT's fingerprint — *premium flat, cost size-growing* — **is exactly what a category
+error looks like.** The premium is not "too small"; it is **the wrong quantity**, and no value of Γ fixes
+a shape mismatch (§GAMMA-IS-NOT-A-DIAL forecloses the magnitude route anyway).
+⭐ **THE UNLOCK IS ALREADY IN THE TREE.** `LevMath._slipBps(usd18) = SLIP_BASE_BPS + (usd18/1e24)·
+SLIP_PER_MM_BPS`, capped at `SELL_SLIP_BPS` — an **oracle-derived, SIZE-AWARE** cost curve already used
+as the floor for every routed conversion in the library. **That is the correct SHAPE to fund restoration**
+because it grows with size exactly as the cost does. The skew and the execution charge should be two
+terms, not one.
+
+## 5. THE FIVE OPTIONS, WEIGHED — nothing chosen
+| option | pro | con |
+|---|---|---|
+| **A · conditional refill** — fire only if quoted cost ≤ premium held | **satisfies "never at a loss to the pool" absolutely**; no new charge; no volume impact | refills LEAST when most needed (adverse basis correlates with depletion); leaves composition broken exactly when it matters |
+| **B · size-aware execution charge** (`_slipBps`-shaped) ON TOP of the skew | funds the actual cost, scales correctly, uses machinery that exists | raises the price of large drains — and the owner's own constraint is *"what maximises revenue is volume and if large swaps can get cheaper execution elsewhere thats where they will go"* |
+| **C · charge an estimate, refill, refund the excess** | swapper pays actual cost, never over-charged | needs a true-up ledger — `4405ed0d` DELETED exactly that (`BatchLedger`) as unjustified complexity |
+| **D · do nothing; let arbitrage restore** | zero mechanism, zero risk | **measured dead**: §M0 says the toll is ~0 bps to 25% drain and the brake engages at 75–90%, so no arbitrageur is paid to come |
+| **E · async keeper funded from accrued premium** | fires on redemption AND when swaps stop — the only option that closes §3 | the economics the owner already rejected (gas + cost of capital from a margin that does not exist), and the premium is measured too small to pay one |
+📌 **A and E are not mutually exclusive and that may be the shape of the answer** — bundled-and-conditional
+for the common case, with something else covering redemption-driven depletion. **Not proposing it as the
+answer; recording it as the combination the constraints do not immediately kill.**
+
+## ⛔ WHAT IS STILL UNKNOWN, so this is not a decision
+1. **The sandwich exposure (§2) is unmeasured** and could invalidate any option that executes a
+   predictable buy. **This is the next measurement, ahead of choosing.**
+2. **How often coverage is negative** — 2 valid regime samples, one negative. Sizes the problem.
+3. Whether a `_slipBps`-shaped charge drives away the volume it is levied on — the owner's elasticity
+   point, and our simulations do not model competing venues.
