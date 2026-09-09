@@ -312,6 +312,62 @@ transfers); "1e12 tranche wipe" overstated it. **F5** — inert unless a stable 
 
 ---
 
+## 🔑 §R-P2MR-NEEDS-AN-AUTHORITY — **RESOLVED 2026-09-09: DERIVE ACTIVATION FROM BITCOIN. AND IT IS FEASIBLE — CHECKED, NOT ASSUMED.**
+
+**THE CONFLICT THAT FORCED THE QUESTION.** Owner ruled (2026-09-09) *"prepare for p2mr with the same
+msig that upgrades enclave images being able to make the switch"* — which needs a settable flag on
+`BTCChannels`. But owner ALSO ruled (2026-09-08) *"delete the ownable, no owner"*, and the contract
+now says so in two places: `:509` *"no authority exists to hang a setter on"*, and `:799` — pinning
+the hops at construction *"takes governance out of the access-control path entirely — it can still
+bless enclave IMAGES, but it can never add an operator"*, because *"a Safe-governed hop set is a Safe
+that can grant itself channels, which is the lever a 4-of-7 compromise pulls."*
+⇒ **A msig-flippable `p2mrEnabled` puts back exactly the handle that argument removed.**
+
+✅ **OWNER CHOSE: DERIVE ACTIVATION FROM BITCOIN ITSELF.** No human authority; the contract decides.
+⭐ **I OFFERED THIS FLAGGED AS UNVERIFIED AND IT CHECKS OUT — the SPV gateway already stores what is
+needed.** `ISPVGateway.BlockInfo` carries **`uint32 version`** — the BIP9 versionbits field — plus
+`blockHeight`, `time`, `bits` and `cumulativeWork`, and exposes `getBlockHeader`, `getBlockInfo`,
+`getBlockHeight`, `getMainchainHead` and `getMainchainHeight`. **The activation signal is already
+on-chain; nothing new has to be relayed.**
+▶️ **THE SHAPE THAT FITS "NO OWNER": a PERMISSIONLESS one-shot latch.** Anyone submits the header
+range proving P2MR locked in / activated; the contract verifies the versionbits over the retarget
+window and latches `p2mrEnabled = true` **forever**. ⇒ **no authority, no setter, no key** — the same
+trust model as every other SPV path here, where anyone may relay and only a valid proof moves state.
+⚠️ **Cost axis, UNMEASURED and the thing to price first:** a BIP9 determination walks a 2016-block
+retarget window, and the gateway must hold those headers contiguously. **If that gas is prohibitive,
+say so and re-ask — do not silently narrow it to "trust the head's version bit", which one miner can
+set.**
+⛔ **UNTIL IT IS BUILT, `_FIRST_TO_V1_OR_V2` MUST STAY UNREACHED.** Witness v2 is anyone-can-spend
+before activation, so an ungated matcher lets a funding be "proven" against an output the hop does not
+control. **Ungated it is a custody hole; unreached it is inert.**
+
+### 📌 §THE-ENCLAVE-MSIG-EXISTS — **and I said it did not. Owner: *"the msig for enclave should be there somewhere. we were using safe but we stopped."* Correct.**
+It is **`quid-hop/src/migration.rs`'s `OPERATOR_OWNERS`** — a `pub const [Address; 3]` with a
+threshold, verified by `verify_migration_auth` as **k-of-n EIP-712 signatures**. ⛔ **NOT a Gnosis
+Safe** — owner's standing decision, *"we are not using a Safe anymore, just a simple msig"*. I looked
+for a governance CONTRACT in `evm/src` and concluded from its absence; **the authority is a key set in
+Rust, not a contract, so absence in Solidity proved nothing.**
+🔴 **CONSEQUENCE FOR R-P2MR, worth stating because it means option 2 was genuinely available:** the
+k-of-n EIP-712 primitive could be verified **inside** `BTCChannels` against an owner set baked at
+construction — an immutable key set, not a mutable authority, exactly like `MAIN_HOP`/`FALLBACK_HOP`.
+That would not have violated "no owner" the way a setter does. **The owner still chose the Bitcoin
+derivation, which needs no keys at all.**
+
+🔴🔴 **TWO FINDINGS FROM THAT FILE, NEITHER OF WHICH IS ABOUT P2MR, BOTH OPERATIONAL:**
+1. **ROTATING AN OPERATOR KEY BRICKS THE ENCLAVE'S SEALED STATE.** `OPERATOR_OWNERS` is a
+   **compile-time const, therefore compiled INTO MRENCLAVE**. The file says so itself, correcting its
+   own earlier claim: *"It claimed the owner set 'lives in SEALED CONFIG, not in MRENCLAVE, so
+   rotating a member does NOT change the measurement'… Changing it changes the measurement, and a new
+   build cannot unseal the old state. **The claimed property is the one the design needs and the one
+   it does not have.**"* ⇒ **losing or rotating one operator key is not a routine operation — it is a
+   measurement change plus a state migration.** The header's own selling point (*"losing one key does
+   not brick upgrades"*) is in tension with this and needs re-deriving.
+2. **`OPERATOR_SAFE` IS `0x…dEaD`, A DEV PLACEHOLDER, AND IT IS THE EIP-712 `verifyingContract` AT TWO
+   LIVE SITES.** A boot guard refuses to run until it is replaced, so this is a launch-blocking
+   config item rather than a latent bug — but it is load-bearing (it scopes the signature domain so an
+   auth cannot be replayed against another deployment) and **must not be deleted for looking unused**;
+   the file warns *"rename, do not delete"*.
+
 ## ✅ §BITCOIN-CENSUS-2026-09-09 — **THE BITCOIN SCOPE, RE-COUNTED AGAINST CODE. SEVEN ROWS THE ROUTER CALLS OPEN ARE DONE.**
 
 ⛔ **RULE 22 — CROSS THESE OFF. Each was verified in the CODE, not the prose (rule 20). Re-opening any
