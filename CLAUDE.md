@@ -543,7 +543,16 @@ real parent, or just push the WIP commits as they stand. A tidy history is not w
 ⚠️ **THE REPAIR THAT WORKS, since `git revert` would also undo your own change:** restore every
 unintended path from the commit BEFORE yours (`git checkout <prev> -- <path>`), re-apply your own
 files from your commit, then verify with `git diff --stat <prev> origin/main` — it must list ONLY
-your files. Stage by name, per rule 14; the bulk-stage flags are refused by a hook here anyway.
+your files. Stage by name, per rule 14.
+⛔ **AND THIS LINE USED TO CLAIM "the bulk-stage flags are refused by a hook here anyway". THERE WAS NO
+HOOK.** `.claude/hooks/` did not exist and `.git/hooks/` was empty — measured 2026-09-09. A rule that
+asserts an enforcement it does not have is worse than one that asks you to remember, because it tells
+you to stop checking. **Same class as the whole `minReturn = 1` family: a mechanism described, never
+verified.** ⇒ `.claude/settings.json` now carries REAL `PreToolUse` gates (a `git commit` that stages
+`src/` with zero test files, and a `git push` whose `origin/main..HEAD` spans more than one session).
+⚠️ **They WARN, they do not block** — and both were proven to fire against the real cases before being
+installed (`FeeLib.sol` staged alone; four distinct sessions in the last 25 commits), because a gate
+that never fires is the vacuous test in another costume.
 
 ⛔ **AND THE TRAP THAT MADE IT INVISIBLE, WHICH IS THE PART WORTH REMEMBERING: `evm/out` OUTLIVES
 `evm/src`.** The size check ran AFTER the reset and still reported the new number, because it reads
@@ -647,26 +656,13 @@ that the value flowing through it BINDS.
 still satisfies it?** If the answer is "anything", the guard is decorative regardless of how correct
 its wiring is.
 
-### ⚠️ **AND A FIFTH INSTANCE, ADDED THE SAME HOUR, AGAINST RULES THAT ALREADY EXISTED — WHICH IS THE
-### POINT.** I searched for a private-relay mechanism in the keeper with
-`grep "flashbots\|protect\|private"`, piped it through `head -8`, saw only `protectFromQuid` hits,
-and concluded *"the keeper had ZERO references to any relay"*. **It has had one all along**:
-`daemon.rs:87` defaults `QUID_PROTECT_RPC_URLS` to Flashbots and wires it via
-`QuorumJsonRpc::with_send_endpoints`, which routes `eth_sendRawTransaction` to relays while reads stay
-on the quorum. I then BUILT A SECOND ONE in `client.rs` that bypassed the transport layer entirely.
-Reverted; only these rules survive from that commit.
-⛔ **THE TWO RULES THAT WOULD HAVE STOPPED IT WERE ALREADY WRITTEN, ~140 LINES APART, AND I WROTE A NEW
-RULE INSTEAD OF READING THEM:**
-· *"BEFORE ADDING AN ACCESSOR OR HELPER, GREP FOR THE BODY YOU ARE ABOUT TO WRAP — NOT FOR THE NAME
-  YOU ARE ABOUT TO CREATE"* (above). I grepped NAMES. One `grep -rn eth_sendRawTransaction` — the
-  CALLEE — found it instantly, and is what I ran only after building the duplicate.
-· *"Check the mechanism before building around it. The fix is usually smaller, or somewhere else."*
-▶️ **AND `head -N` ON A SEARCH IS A SCOPE NARROWING THAT LEAVES NO TRACE.** The hit was there; it was
-below the cut. ⇒ **never `head` a grep you are about to conclude ABSENCE from** — count it (`grep -c`)
-or read it all. An empty grep proves nothing; a TRUNCATED grep proves less and looks the same.
-▶️ **`graphify-out/` AND `evm/slither-out/` EXIST FOR EXACTLY THIS.** The AST cache under
-`quid-ln/graphify-out/` contains `with_send_endpoints`; consulting it costs one grep and is not
-subject to whichever spelling you happened to guess.
+### ⚠️ **A FIFTH INSTANCE OF THE ABOVE, AND THE REASON THIS SECTION IS NOW SHORT.** On 2026-09-09 I
+### concluded the keeper had no private-relay mechanism, built a duplicate, and reverted it — the real
+### one had been wired since `daemon.rs:87`. **The two rules that would have stopped me were already
+### written, ~140 lines apart, and I wrote a NEW rule instead of finding either.** ⇒ the instance and
+### its two genuinely-new lessons (never truncate a grep you conclude absence from; `graphify-out/`
+### and `slither-out/` exist for this) live in the CANONICAL entry — **"An empty grep proves nothing"**
+### — not here. ⛔ Do not restate them; add to the canonical entry.
 
 ---
 
@@ -1079,8 +1075,21 @@ a green targeted run says nothing about the suites it did not execute.
   operation. That converts an unrecoverable loss into a recoverable one regardless of attribution —
   and attribution is exactly what nobody can establish in the moment (measured: three sessions, three
   wrong guesses about ownership in one day, in both directions).
-- **An empty grep proves nothing.** Never assert absence from a search. **Run the CONTROL before
-  concluding: would this measurement look the same if I were wrong?** On 2026-08-02, "35 verifiers
+- **An empty grep proves nothing.** ⭐ **THIS IS THE CANONICAL ENTRY FOR THE WHOLE CLASS — the
+  "grep the BODY not the NAME" rule below, the truncation trap, and the src-with-no-tests tell are all
+  the same failure: THE SCOPE OF THE CHECK WAS NARROWER THAN THE SCOPE OF THE CLAIM. Add instances
+  here; do not open a new section, which is how this rule came to exist SIX times in five spellings
+  (measured 2026-09-09, and I added two of them while violating a third).**
+  Never assert absence from a search. **Run the CONTROL before
+  concluding: would this measurement look the same if I were wrong?**
+  ⛔ **AND NEVER `head`/`tail` A GREP YOU ARE ABOUT TO CONCLUDE ABSENCE FROM.** A TRUNCATED grep proves
+  less than an empty one and looks identical. **Measured 2026-09-09:** `grep flashbots|protect|private
+  | head -8` returned only `protectFromQuid` hits, so I concluded the keeper had no private relay and
+  BUILT A SECOND ONE — `daemon.rs:87` had defaulted to Flashbots all along, below the cut. Count
+  (`grep -c`) or read it all.
+  📌 **`graphify-out/` AND `evm/slither-out/` EXIST FOR EXACTLY THIS.** The AST cache under
+  `quid-ln/graphify-out/` contains `with_send_endpoints`; searching it does not depend on guessing the
+  spelling you happened to try. On 2026-08-02, "35 verifiers
   are unreferenced, therefore dead" collapsed when the LIVE verifiers scored identically — they are
   wired by address, not by symbol, so the metric could not distinguish dead from unwired.
 - **A comment describes past state.** Audit by structure (`^interface`, `^function`), never by a type
