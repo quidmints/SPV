@@ -63489,3 +63489,42 @@ default was chosen WITHOUT the depth measurement the ETH side performed**, and d
 axis that disqualified USDC there. 🔗 This is `borrowRateRay(extraBorrow)`'s whole subject, and it is
 the first concrete thing the deferred allocator would answer: **measure WBTC/USDC Aave idle depth at
 our size before trusting the default.**
+
+---
+
+# 📌 §AAVE-V4-HUB-IS-A-RESTORE-NOT-A-BUILD — parked for the multi-venue optimiser (owner, 2026-09-09)
+
+*"Why don't we borrow from the main Aave v4 hub instead? Is it an option?"* ⇒ **It is more than an
+option: v4 SUPPLY is already live in this tree, and v4 BORROWING was built and then deliberately
+deleted.** Nothing here is greenfield.
+
+**WHAT IS ALREADY WIRED (supply side, production):** `Aux` imports `IAaveV4Spoke, IAaveV4Hub`, pins
+`AAVE_HUB` / `AAVE_SPOKE`, resolves GHO and USDG through `getAssetId` → `getReserveId` (`Aux:365-372`)
+and reads positions via `getUserSuppliedShares/Assets` (`:1520`). **That is the basket's GHO/USDG
+dollar leg.**
+**WHY WE DO NOT BORROW THERE:** `cbbc0993` (2026-08-13) removed `AaveV4Venue.sol` + `EulerEscrowVenue.sol`
+and their tests, on the owner's direction — *"borrowing is Morpho for weETH and Aave V3 for WBTC.
+Everything else was **a venue we do not use**, plus the configuration surface built to choose it."*
+⭐ **THAT REASON IS EXACTLY THE PREMISE THE OPTIMISER OVERTURNS.** It was deleted for being an unused
+alternative *at a time when nothing could choose between alternatives*. Once a cost-minimising
+allocator exists, "a venue we do not use" stops being a reason and becomes the thing being decided.
+✅ **AND THE SPOKE'S BORROW SURFACE STILL EXISTS ON-CHAIN** — `IAaveV4Spoke`'s own note: *"`cbbc0993`
+removed the FEATURE, not the protocol member: `setUsingAsCollateral` / `borrow` / `repay` /
+`getUserDebt` **still exist ON THE SPOKE**. Do not declare them here to reach them"* — i.e. four
+interface declarations plus a `AaveV4Venue is LevVenueBase` class, recoverable from `cbbc0993^`
+**with its tests**. **A restore, not a build.**
+
+## ⭐ AND IT CARRIES THE DEPTH ORACLE THE ALLOCATOR NEEDS, ALREADY MEASURED
+`IAaveV4Hub.getAssetLiquidity(assetId)` — §S12, **MEASURED 2026-09-05 at `FORK_BLOCK=25800000`
+against the live hub `0xCca852Bc`**: it returns the hub's own balance to within dust (USDT/USDG/GHO
+drift **exactly 0**; USDC 315 units). **The spokes hold effectively nothing** — USDT is **$1,001 at the
+spoke against $2.87M at the hub** — so *"in v4's hub-and-spoke shape the hub holds the liquidity and
+this is the only honest 'can we actually get it out' number."*
+⇒ 🔑 **HUB-AND-SPOKE POOLS DEPTH ACROSS SPOKES, WHICH IS THE EXACT AXIS §WHAT-WE-BORROW FLAGGED.** The
+BTC default (WBTC collateral, USDC debt on **Aave v3**) was chosen without a depth measurement, while
+ETH de-allowlisted USDC *for* depth ($0.17M idle, 100 of 100 weeks under $1M). **A v4 hub borrow is
+the candidate most likely to beat both on the axis neither measured.**
+▶️ **FOR THE ALLOCATOR, IN ORDER:** (1) restore `AaveV4Venue` from `cbbc0993^` with its tests;
+(2) implement `borrowRateRay(extraBorrow)` on it against v4's rate view; (3) `getAssetLiquidity` is
+the fundability check that keeps `borrowRateRay`'s *"MAY REVERT when `extraBorrow` exceeds what the
+venue can fund"* honest. ⏸️ **Not now — deferred with the allocator.**
