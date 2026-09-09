@@ -214,6 +214,30 @@ The F9 lane swept for its own shape and found the family. Ordered by damage:
 5. `QuidLib.deliverableETH:713` and `Shares.levGrossNative:149` / `Vault.totalNetEquity:240` — same
    shape, but each is fail-open **with the argument written down**. Left alone deliberately.
 
+### 🟠 §GHO-HAS-NO-CONVERTER — **owner asked 2026-09-09: *"cant gho redeem directly from aave for another stable?"* SHORT ANSWER: NO, AND THE REASON IS WORTH KNOWING.**
+✅ **Verified in code, not assumed.** GHO *is* Aave-wired here — `Aux.GHO_RESERVE_ID` is resolved at
+construction and reverts `GHONotOnAAVE` if absent, and `configure` reverts `GHOIsAaveWired` to stop a
+4626 curator being pinned over it. **But the Aave leg is a YIELD VENUE, not a CONVERTER.**
+`Aux._withdrawAaveUnsafe:1396-1402` → `ChannelLib.aaveWithdrawTo(AAVE_SPOKE, reserveId, reserveId ==
+GHO_RESERVE_ID ? GHO : USDG, amount, to)` — **it transfers back the SAME asset it supplied.** Supply
+GHO, withdraw GHO. A withdraw cannot discharge an unroutable GHO slice, because the slice is already
+GHO; the problem is that nothing turns it into the stable the repay needs.
+⇒ **That is exactly why GHO has no `_hubRowOf` row and why F3's refund path is load-bearing for it.**
+The Aave wiring and the routing gap are answers to two different questions, and the wiring's existence
+is the thing that makes it tempting to assume the gap is closed. It is not.
+🔍 **THE OPEN LEAD, EXPLICITLY UNVERIFIED — DO NOT BUILD ON IT WITHOUT CHECKING:** Aave's **GSM (GHO
+Stability Module)** is the mechanism that does swap GHO ↔ USDC/USDT at a governed price, which is the
+shape this gap wants. ⛔ **I tried to verify two candidate GSM addresses on mainnet and BOTH CALLS
+REVERTED** (`UNDERLYING_ASSET()` and `GHO_TOKEN()` returned nothing; both addresses returned an
+identical 4,325-char codesize, i.e. probably proxies I had misidentified). **So the addresses I had
+were wrong or the selectors were, and NOTHING here is established except that the question is open.**
+Whoever picks this up: start from the Aave address-book, confirm `codesize != 0` AND a successful
+`symbol()`/`UNDERLYING_ASSET()` read before wiring anything — this repo has already paid once for a
+guessed address that turned out to have `codesize == 0` (see the sfrxUSD note in `DeployL1_s.sol`).
+📌 Cost/benefit before anyone spends a build: GSM swaps carry a fee and an exposure cap, so it is a
+BOUNDED converter, not a general route — it may still beat a permanent refund-and-resupply loop, but
+that comparison has not been made.
+
 ### ⚠️ DOWNGRADED BY THE LANE ITSELF — do not spend a build on these without a second read
 **F4** — the harm is seniority DESTRUCTION, not value leaving (a `Math.min` clamp means nothing
 transfers); "1e12 tranche wipe" overstated it. **F5** — inert unless a stable is ACTIVELY depegged.
