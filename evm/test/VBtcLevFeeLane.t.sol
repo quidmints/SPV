@@ -8,7 +8,12 @@ import {LevBase} from "../src/imports/LevBase.sol";
 import {ExitFixture} from "./btc/ExitFixture.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {BtcLevManager} from "../src/BtcLevManager.sol";
-import {ILevVenue} from "../src/imports/Interfaces.sol";
+import {ILevVenue, ILevPooled} from "../src/imports/Interfaces.sol";
+// §LEV-DELEVER-CLUSTER (bottom of this file) — the ETH `LevManager` de-lever legs. `RealRateMorphoOracle`
+// is a FILE-LEVEL contract in LevCascade.t.sol, so this import reuses the proven real-source weETH/USDC
+// Morpho oracle WITHOUT inheriting `LevCascadeProbe` (which is also a suite of 18 fork tests).
+import {LevManager} from "../src/LevManager.sol";
+import {RealRateMorphoOracle} from "./LevCascade.t.sol";
 import {Types, ChannelKeysMismatch} from "../src/imports/Types.sol";
 import {MorphoEscrowVenue} from "../src/imports/LevVenueBase.sol";
 import {AaveV3Venue} from "../src/imports/LevVenueBase.sol";
@@ -1716,5 +1721,226 @@ contract VBtcLevFeeLane is AllesFixture {
         vm.prank(address(0xB0B));
         vm.expectRevert(LevMath.VenueBlocked.selector);
         lm.openBtcLev(1e8, venue);                    // reverts at the health gate, before the MIN_OPEN/expose steps
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+// §LEV-DELEVER-CLUSTER — the ETH `LevManager` de-lever legs, which had ZERO coverage of any kind:
+// `grep -rl 'deleverToVault\|deleverBook' evm/test/` returned NOTHING, and `grep -rn 'closeLev('
+// evm/test/` returned NOTHING. Three money-path defects shipped through that hole, and each of the
+// three is a single assertion away from being caught. They are asserted HERE rather than in the
+// BTC suite above because the paths are ETH-side; the fixture is the minimum LevCascadeProbe stack
+// (real Morpho weETH/USDC market, real flash provider, real range) and is DELIBERATELY NOT reached
+// by inheriting `LevCascadeProbe` — that contract is also a suite of 18 fork tests, and inheriting
+// it re-runs every one of them (its own §POOL-VENUE note records exactly that measurement).
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+contract EthLevDeleverLegs is AllesFixture {
+    address constant WEETH_E        = 0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee;
+    address constant MORPHO_E       = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
+    address constant ADAPTIVE_IRM_E = 0x870aC11D48B15DB9a138Cf899d20F13F79Ba00BC;
+    address constant CL_ETH_USD_E   = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
+
+    // Fields, not deep locals — same non-via_ir stack discipline the sibling fixtures keep.
+    LevManager        elm;
+    MorphoEscrowVenue evenue;
+    MarketParams      emp;
+
+    address constant LP_A = address(0xE7BEEF1);
+    address constant LP_B = address(0xE7BEEF2);
+    address constant SINK = address(0x5117BEEF);   // stands in for the redeem sink (`BasketLib`)
+
+    /// Real Morpho weETH/USDC market + a real `LevManager` pinned to the REAL ETH range and the REAL
+    /// zero-fee Morpho flash provider. Mirrors `LevCascadeProbe._setupLev` minus the parts these tests
+    /// do not exercise.
+    function _setupEthLev() internal {
+        // Real basket depth, so `syncLev` has something to pair the levered slice against.
+        deal(address(USDC), User01, 2_000_000 * USDC_PRECISION);
+        vm.startPrank(User01);
+        USDC.approve(address(AUX), type(uint).max);
+        QUID.mint(User01, 1_000_000 * USDC_PRECISION, address(USDC), 0);
+        vm.stopPrank();
+
+        emp = MarketParams({
+            loanToken: address(USDC), collateralToken: WEETH_E,
+            oracle: address(new RealRateMorphoOracle(WEETH_E, CL_ETH_USD_E)),
+            irm: ADAPTIVE_IRM_E, lltv: 0.86e18});
+        IMorphoTest morpho = IMorphoTest(MORPHO_E);
+        morpho.createMarket(emp);
+        deal(address(USDC), address(this), 5_000_000 * USDC_PRECISION);
+        IERC20V(address(USDC)).approve(MORPHO_E, 5_000_000 * USDC_PRECISION);
+        morpho.supply(emp, 5_000_000 * USDC_PRECISION, 0, address(this), "");
+
+        elm = new LevManager(WEETH_E, address(AUX), address(WETH), address(this), address(QUID));
+        evenue = new MorphoEscrowVenue(MORPHO_E, emp, address(elm));
+        address[] memory vs = new address[](1); vs[0] = address(evenue);
+        elm.init(address(ETH), MORPHO_E, vs);   // RANGE = the ETH range (the only `deleverToVault` caller)
+        EV.setLevManager(address(elm));         // pin the leveraged book into rangeETH
+        // Pin the ETH/USD anchor, or `getTWAPforAsset` can answer 0 and the sizing divides by it.
+        _setEthFeed(AUX.getTWAPforAsset(address(WETH), 1800) / 1e10);
+        _auxSetAssetFeed(address(WETH), ETH_FEED);
+    }
+
+    /// Open a ZERO-leverage position for `lp` (mirrors `LevCascadeProbe._rangeE0` + `_openLevOnly`).
+    function _openEth(address lp, uint sizeEth) internal {
+        vm.deal(lp, sizeEth + 1 ether);
+        vm.prank(lp); ETH.deposit{value: sizeEth}(0, lp);
+        deal(WEETH_E, lp, sizeEth);
+        vm.prank(lp); IMorphoTest(MORPHO_E).setAuthorization(address(evenue), true);
+        vm.startPrank(lp);
+        IERC20V(WEETH_E).approve(address(elm), sizeEth);
+        elm.openLev(ILevVenue(address(evenue)), sizeEth);
+        vm.stopPrank();
+    }
+
+    /// Give `lp` REAL Morpho debt through the venue's own `onlyManager` leg — the same shape the BTC
+    /// fixture above uses, and for the same reason: the keeper's IL-clamped `rebalance` borrows nothing
+    /// at a flat price, and these tests are about the DE-lever, not about how the debt got there.
+    /// The venue pays the MANAGER, so the stable is handed on to `lp` (see `_borrowMorpho`'s note).
+    function _borrowEth(address lp, uint usdc6) internal {
+        vm.prank(address(elm)); evenue.borrow(lp, usdc6);
+        vm.prank(address(elm)); IERC20V(address(USDC)).transfer(lp, usdc6);
+    }
+
+    // ─────────────────────────────────── F12 + F13 ───────────────────────────────────
+
+    /// 🔴 §F12 — **THE UNIT.** `deleverToVault` returned `_lastFreed` raw, and `_lastFreed` is what
+    ///    `LevMath._sellAndPay` handed the sink: `stableOut - assets`, in the venue stable's NATIVE
+    ///    units (6-dec for USDC). `deleverBook` passes it straight on to `BasketLib:1175`'s
+    ///    `if (freed < need) freed += _deleverBookForRedeem(...)`, where `need` and the seeding
+    ///    `unwindForRedeem` are BOTH USD 1e18. A $25,000 extraction therefore reported `2.5e10` —
+    ///    numerically indistinguishable from ZERO against an 18-dec `need`. The LP's levered net equity
+    ///    fell by $25,000 and the book credited ~nothing, so `freed < need` stayed true and the next
+    ///    redeem tore down more of the same LP's leverage, again for no credit. Nothing was stolen (the
+    ///    dollars land in Aux and are sweepable) — it is repeated uncompensated destruction of a
+    ///    position, which is why a unit assertion is the whole defence.
+    ///
+    /// 🔴 §F13 — **THE CAP.** `LevMath._repayAndPull` deliberately over-withdraws the paired collateral
+    ///    by `10_000/(10_000 - maxSlippageBps)` = **+1.0101 %** at `MAX_SLIPPAGE_BPS = 100`, "so the sale
+    ///    covers `assets` at worst execution". `_sellAndPay` then hands the ENTIRE `stableOut - assets` to
+    ///    its recipient. For mode 0 that recipient is the LP and the unused buffer goes home; the WBTC
+    ///    mirror (`LevMath.flashDeleverWbtcSettle`) likewise returns it to the LP. For mode 2 the
+    ///    recipient was `vault`, so the redeem sink was paid the buffer as well — uncapped by the
+    ///    `extractUsd` that sized the withdraw, out of the LP's residual equity, on every call.
+    ///
+    /// ⚠️ THE TWO ARE ASSERTED IN ONE TEST ON PURPOSE: they are the two halves of one sentence, "how
+    ///    much left the LP and how much is reported to the book", and pre-fix each one's error hides in
+    ///    the other's units.
+    function testReal_DeleverToVault_ReportsUsd18_AndNeverPaysTheSinkPastWhatItSized() public {
+        _setupEthLev();
+        _openEth(LP_A, 5 ether);
+        _borrowEth(LP_A, 6_000 * USDC_PRECISION);            // real Morpho debt ⇒ a value-neutral tap exists
+        assertGt(evenue.debtOf(LP_A), 0, "fixture: the position is levered");
+
+        uint want  = 500e18;                                  // $500, in the USD 1e18 the range asks in
+        uint sized = elm.deliverableDollars(LP_A);            // the #67 bound `deleverToVault` clamps to
+        if (want < sized) sized = want;
+        assertGt(sized, 0, "fixture: something is deliverable");
+
+        uint sinkBefore = IERC20V(address(USDC)).balanceOf(SINK);
+        uint lpBefore   = IERC20V(address(USDC)).balanceOf(LP_A);
+        vm.prank(address(ETH));                               // RANGE — the only permitted caller
+        uint freed = elm.deleverToVault(LP_A, want, SINK, 0);
+        uint sinkGot = IERC20V(address(USDC)).balanceOf(SINK) - sinkBefore;
+        uint lpGot   = IERC20V(address(USDC)).balanceOf(LP_A) - lpBefore;
+
+        assertGt(freed, 0, "the tap sourced something (otherwise the rest of this proves nothing)");
+        assertGt(sinkGot, 0, "and the sink was actually paid");
+        // §F12 — the returned figure is the USD VALUE of what the sink received, not its native count.
+        // Pre-fix this held `sinkGot` itself and the two sides differed by exactly 1e12.
+        assertApproxEqRel(freed, sinkGot * 1e12, 0.01e18,
+            "deleverToVault must return USD 1e18, NOT the venue stable's native units");
+        assertGt(freed, sinkGot,
+            "a 6-dec figure handed to an 18-dec comparison IS the bug -- they can never be equal");
+        // §F13 — the sink may not be paid one unit past what `deleverToVault` sized. Pre-fix it was
+        // paid ~1.9% more (the worked case: $190 over a sized $10,000).
+        assertLe(sinkGot, sized / 1e12 + 1,
+            "the redeem sink was paid MORE than the extractUsd that sized the withdraw");
+        // ...and the buffer that the sale did not consume goes back to the LP whose collateral it was.
+        // The buffer is 1.0101% of the withdraw against real-market slippage of a few bps on a $500
+        // sale, so a zero here means the refund leg did not run, not that there was nothing to refund.
+        assertGt(lpGot, 0, "the unconsumed slippage buffer must return to the LP, never to the sink");
+    }
+
+    // ─────────────────────────────────── F14 ───────────────────────────────────
+
+    /// 🔴 §F14 — **`_closeLev` HAD NO POST-CONDITION AND ITS SIBLING DOES.**
+    ///    `LevMath.deleverFlashBody` returns SILENTLY on three conditions (`repayUsd == 0`,
+    ///    `flashProvider == address(0)`, `debt == 0`), leaving the debt untouched and reporting nothing.
+    ///    `_closeLev` then withdrew ALL of the LP's collateral and dropped the slot — it could not tell
+    ///    "repaid" from "did nothing". Under §POOL-VENUE the venue holds ONE shared position, so
+    ///    `venue.withdraw` burns only THIS LP's units while Morpho's health check is against the POOL:
+    ///    **with another LP's collateral present it PASSES, and the closing LP walks with everything
+    ///    while its debt stays socialised across whoever is left.** `_deleverOne` has asserted
+    ///    `debtOf(lp) < debtBefore` all along; the close had nothing.
+    ///
+    /// ⚠️ THE SECOND LP IS THE TEST, NOT SET DRESSING. With one LP the pool's own health check refuses
+    ///    the withdraw and the close reverts on its own — which is exactly why this never surfaced.
+    ///
+    /// The flash is neutered with a `mockCall` rather than by re-`init`ing a manager with a zero
+    /// `flashProvider`, because that reproduces the silent return on the LIVE configuration (`init`
+    /// DOES accept a zero `flashProvider` with no check — `LevMath.sol`'s claim that it "refuses" one is
+    /// false — but `DeployL1_s` pins real Morpho, so the config route is not the live one).
+    function testReal_CloseLev_RefusesToDropTheSlotWhenTheFlashRepaidNothing() public {
+        _setupEthLev();
+        _openEth(LP_A, 5 ether);
+        _openEth(LP_B, 5 ether);                              // §POOL-VENUE: a SECOND LP's collateral in the pool
+        _borrowEth(LP_A, 6_000 * USDC_PRECISION);
+        _borrowEth(LP_B, 6_000 * USDC_PRECISION);
+        uint poolDebt  = ILevPooled(address(evenue)).totalDebt();
+        uint lpDebt    = evenue.debtOf(LP_A);
+        uint lpColl    = evenue.collateralOf(LP_A);
+        uint lpWeeth   = IERC20V(WEETH_E).balanceOf(LP_A);
+        assertGt(lpDebt, 0, "fixture: the closing LP owes the pool");
+        assertGt(evenue.debtOf(LP_B), 0, "fixture: and it is not the only one who does");
+
+        // The flash becomes a NO-OP: `deleverFlashBody` calls it and returns, nothing is repaid, and —
+        // this is the defect — nothing says so.
+        vm.mockCall(MORPHO_E, abi.encodeWithSignature("flashLoan(address,uint256,bytes)"), "");
+        vm.prank(LP_A);
+        vm.expectRevert(bytes("close: no repay"));
+        elm.closeLev(0, DEX_WETH_USDC);
+        vm.clearMockedCalls();
+
+        // NOTHING MOVED, and that is the point. Before the post-condition existed this call SUCCEEDED:
+        // LP_A left with all of its collateral and `pos[LP_A]` was deleted, while `poolDebt` stood.
+        (,,,, bool stillOpen) = elm.pos(LP_A);
+        assertTrue(stillOpen, "the refused close left the position OPEN");
+        assertEq(evenue.debtOf(LP_A), lpDebt, "the debt is exactly where it was");
+        assertEq(evenue.collateralOf(LP_A), lpColl, "so is the collateral");
+        assertEq(IERC20V(WEETH_E).balanceOf(LP_A), lpWeeth, "and none of it reached the LP");
+        assertEq(ILevPooled(address(evenue)).totalDebt(), poolDebt,
+            "the pool's debt was never socialised onto the LPs who stayed");
+    }
+
+    /// The other half of §F14, and the reason the ceil (`d + 1`) exists: a REAL close still clears the
+    /// debt and drops the slot. `deleverFlashBody` sizes the flash as `LevMath._fromUsd(repayUsd)`, which
+    /// FLOORS — at a non-par loan price the `_fromUsd(_toUsd18(debtOf))` round trip lands one unit short,
+    /// which drops `LevVenueBase._repayCreditingLp` out of its by-SHARES branch (the one that "lands on
+    /// ZERO") into the by-ASSETS branch. One wei of USD-1e18 pushes the floor back onto `debtOf`, and
+    /// `deleverFlashBody`'s existing clamp means it can never flash MORE than the debt.
+    /// ⚠️ THIS IS THE FIRST TEST IN THE TREE TO CALL `closeLev` AT ALL (`grep -rn 'closeLev(' evm/test/`
+    ///    was empty), which is the same hole §F14 came through.
+    function testReal_CloseLev_ClearsTheDebtAndDropsTheSlot() public {
+        _setupEthLev();
+        _openEth(LP_A, 5 ether);
+        _openEth(LP_B, 5 ether);
+        _borrowEth(LP_A, 4_000 * USDC_PRECISION);
+        assertGt(evenue.debtOf(LP_A), 0, "fixture: the closing LP owes the pool");
+
+        vm.prank(LP_A);
+        elm.closeLev(0, DEX_WETH_USDC);
+
+        // ⛔ NOT A TOLERANCE — `1` is the EXACT bound the unit ledger admits. The by-SHARES repay clears
+        //    the LP's Morpho shares; `_burnUnits` is the floor inverse of the floor `_unitSlice` that
+        //    produced them, so at most ONE unit can survive the round trip, and one unit prices back
+        //    through `_sharesToAssetsUp` to at most one native unit ($0.000001). A FAILURE HERE IS
+        //    ITSELF THE FINDING: it would mean the unit-burn residue is larger than one unit, which is
+        //    the exact premise on which `_closeLev`'s post-condition is `< debtBefore` and not `== 0`.
+        assertLe(evenue.debtOf(LP_A), 1,
+            "close: the ceiled repay lands ON the debt, leaving at most the one-unit burn residue");
+        assertEq(evenue.collateralOf(LP_A), 0, "close: all collateral withdrawn");
+        assertGt(IERC20V(WEETH_E).balanceOf(LP_A), 0, "close: and returned to the LP");
+        (,,,, bool open) = elm.pos(LP_A);
+        assertTrue(!open, "close: a voluntary close drops the slot");
     }
 }

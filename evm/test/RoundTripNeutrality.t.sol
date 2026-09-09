@@ -118,3 +118,57 @@ contract RoundTripNeutralityLevered is LevYbRealProbe {
             "with the book in sync the price is EXACTLY rangeETH/lpShares (clocks coincide)");
     }
 }
+
+/// @notice 🔴 §F9 — **THE SHARE PRICE MUST NOT DEPEND ON WHETHER THE LEV MANAGER ANSWERS.**
+///
+///         `Quid._pricingBacking` swaps the LIVE `totalNetEquity()` term that `QuidLib._rangeETH`
+///         put into `rangeETH()` for the RECORDED `totalLevPooled` (§A.16b: numerator and
+///         denominator on one clock). Both halves of that swap sat inside ONE `try`, so a manager
+///         that could not answer took the empty `catch` and returned `rangeETH-without-lev` —
+///         a number short by exactly `totalLevPooled`, with no revert and no event. Plausible and
+///         wrong is the worst output a pricing path can produce, because nothing downstream
+///         (`convertToShares`/`convertToAssets`, hence every deposit, withdraw and 4626 preview)
+///         can tell it from the right one.
+///
+///         ⭐ WHY THIS ASSERTS AN EQUALITY RATHER THAN A FORMULA: the two arms are equal BY
+///         CONSTRUCTION. `AUX.rangeETH()` and `_pricingBacking` call the SAME selector on the SAME
+///         address in the SAME tx, so the live term is present exactly when the second call
+///         succeeds. Mocking that one address therefore fails both reads at once — the real outage
+///         shape — and the correct price is unchanged. Anything else is the defect.
+///
+///         ⚠️ INHERITANCE COST, stated because `LevCascade.t.sol` measured it: `is LevYbRealProbe`
+///         re-runs that probe's 20 fork tests as clones. It is here rather than in its own fixture
+///         because `_setupMorpho`/`_openLp` are the only wiring in the tree that leaves
+///         `totalLevPooled` non-zero on the ETH range, and a zero there makes this test vacuous.
+contract PricingBackingSurvivesLevManagerOutage is LevYbRealProbe {
+
+    function testF9_LevManagerOutageMustNotSilentlyDropTheRecordedLevTerm() public {
+        _setupMorpho();
+        EV.setLevManager(address(rlm));
+        _openLp();
+        ETH.syncLev(LP);
+
+        uint recorded = ETH.totalLevPooled();
+        assertGt(recorded, 0,
+            "premise: a levered slice IS recorded, else the term this test drops is 0 and the case is vacuous");
+        assertGt(rlm.totalNetEquity(), 0,
+            "premise: the LIVE term is non-zero, so the try arm genuinely subtracts something");
+
+        // `convertToAssets(lpShares)` IS `_pricingBacking()` to the wei: fullMulDiv(x, total, x) == total.
+        uint shares  = ETH.totalSupply();
+        uint healthy = ETH.convertToAssets(shares);
+        assertGt(healthy, recorded,
+            "premise: backing exceeds the recorded lev term, so neither zero-floor in the body can bind");
+
+        // One address, one selector, one tx — this fails BOTH the `_rangeETH` read inside
+        // `AUX.rangeETH()` and `_pricingBacking`'s own, which is what a broken manager really does.
+        vm.mockCallRevert(address(rlm), abi.encodeWithSignature("totalNetEquity()"), "LEV_MANAGER_DOWN");
+
+        uint broken = ETH.convertToAssets(shares);
+        emit log_named_uint("healthy _pricingBacking", healthy);
+        emit log_named_uint("broken  _pricingBacking", broken);
+        emit log_named_uint("totalLevPooled (the gap pre-fix)", recorded);
+        assertEq(broken, healthy,
+            "a lev manager that cannot answer must not move the share price by one wei");
+    }
+}

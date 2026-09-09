@@ -1840,8 +1840,6 @@ contract Quid is Shares,
         // §#12 — READ BOTH LEGS. `rangeETH` is the ETH leg of a TWO-legged range position; the USD
         // leg beyond what the BASKET supplied (`basketUsd`) is LP-owned and was invisible here,
         // so a range that sold LP ETH for USD priced the LP down by the whole sale.
-        // Valued at the range's OWN in-range ratio — NOT a TWAP — so this stays `view` and carries
-        // no oracle dependency, the same choice `unwindForRedeem` makes deliberately.
         // SIGNED: when the range has BOUGHT ETH with basket dollars the increment is NEGATIVE and
         // must REDUCE the claim (B11) — flooring at zero would gift the LP the basket's capital.
         {
@@ -1863,11 +1861,24 @@ contract Quid is Shares,
         }
         address lm = _levManager();
         if (lm == address(0)) return total;
-        // GUARDED like every other lev read: a broken manager must not brick share pricing.
+        // 🔴 §F9 — ⛔ DO NOT MOVE `total += totalLevPooled` BACK INSIDE THE TRY. It reads as though
+        //    it belongs with the subtraction and it does not: inside, a manager that cannot answer
+        //    prices EVERY share short by exactly `totalLevPooled` — no revert, no event, a
+        //    plausible number nothing downstream can tell apart from the right one.
+        //    ⇒ THE TWO ARMS ARE EQUAL BY CONSTRUCTION, which is what makes this an identity rather
+        //      than a fallback: `_auxRangeETH()` reaches `QuidLib._rangeETH`, whose own try calls
+        //      THE SAME SELECTOR ON THE SAME ADDRESS in the same tx (`_ethCfg().levManager` IS
+        //      `LEV_MANAGER`, and `_levManager()` resolves to it through `AUX.ethVenue()`). So the
+        //      live term is in `total` exactly when this call succeeds — subtract it then, subtract
+        //      nothing otherwise — and both arms leave `rangeETH-without-lev + totalLevPooled`.
+        //    ⛔ AND DO NOT MAKE THE CATCH REVERT. This is the only body behind `convertToAssets`/
+        //      `convertToShares`, hence on the withdraw and 4626 redeem paths: a broken manager
+        //      would brick redemptions. Every sibling lev read degrades the same way
+        //      (`QuidLib._rangeETH`, `QuidLib.deliverableETH`, `Shares.levGrossNative`).
         try ILevEquity(lm).totalNetEquity() returns (uint live) {
-            total = total > live ? total - live : 0;   // drop the LIVE term
-            total += totalLevPooled;                   // restore the RECORDED one (denominator's clock)
+            total = total > live ? total - live : 0;   // drop the LIVE term `_rangeETH` added
         } catch {}
+        total += totalLevPooled;                       // the RECORDED one (denominator's clock)
     }
 
     /// @dev ONE conversion body, both directions. The bootstrap identity (`lpShares == 0

@@ -369,6 +369,22 @@ contract MorphoEscrowVenue is LevVenueBase {
 
     function repayPool(uint256 stableAmount) external onlyManager nonReentrant returns (uint256 repaid) {
         if (stableAmount == 0) return 0;
+        // 🔴 §REPAY-PROVEN-PREACCRUAL — **`d` MUST BE POST-ACCRUAL, AND WITHOUT THIS LINE IT WAS NOT.**
+        //    `MORPHO.repay` ACCRUES INTEREST AS ITS FIRST ACT, so a `d` read before the call is the
+        //    debt at `lastUpdate`, not the debt the repay lands against. The §REPAY-PROVEN check below
+        //    then compares a POST-accrual `totalDebt()` to a PRE-accrual `d` and therefore tests
+        //    `accruedInterest >= repaid` — NOT "the repay failed".
+        //    ⇒ MEASURED SHAPE: $2,000,000 of pool debt at 8% APR, untouched 6h, accrues ~$110. An $80
+        //      repay leaves `totalDebt() == 2,000,030 >= d == 2,000,000` and reverts `RepayNotApplied()`
+        //      on an ORDINARY repay — the de-lever bricks precisely when the market is stalest.
+        //    ⛔ NOT fixed by widening the check: a tolerance there would hide a genuine no-op repay
+        //      (standing rule 3). The two reads simply have to be on the same clock, which is what
+        //      accruing first makes true.
+        //    📌 BOTH TWINS ALREADY DO THIS AND SAY WHY — `repay:~312` (*"`debtOf` below must be
+        //      post-accrual, not stale"*) and `_closeLev`. `repayPool` was the ONE that did not.
+        //    ⇒ The clamp on the next line gets the same correction for free: `r` was capped by a
+        //      stale-LOW `d`, so a full repay could under-repay by the accrued interest.
+        MORPHO.accrueInterest(_params());   // §DUST twin — `totalDebt()` below must be post-accrual, not stale
         uint256 d = totalDebt();
         uint256 r = stableAmount > d ? d : stableAmount;
         if (r == 0) return 0;
@@ -384,6 +400,13 @@ contract MorphoEscrowVenue is LevVenueBase {
         //    Morpho, so an exact equality would revert on ordinary accrual and brick the de-lever —
         //    a tolerance that bricks is as wrong as a tolerance that hides. ANY decrease is proof the
         //    repay landed; no decrease is proof it did not, whatever `repaid` reported.
+        // ⚠️ AND THAT SENTENCE WAS THE COVER STORY FOR §REPAY-PROVEN-PREACCRUAL. It is TRUE that
+        //    accrual happens inside `repay`, and it is exactly why `d` had to be read AFTER an
+        //    explicit `accrueInterest` — which it now is (above). Before that line the comparison was
+        //    not "loose about accrual", it was `accruedInterest >= repaid`, i.e. it FIRED on ordinary
+        //    accrual instead of tolerating it. ⇒ `>=` still stays: it is the fail-safe direction and
+        //    costs nothing now that both sides are on the same clock. Do NOT read this note as
+        //    licence to tighten it to `d - repaid`.
         if (repaid > 0 && totalDebt() >= d) revert RepayNotApplied();
     }
 

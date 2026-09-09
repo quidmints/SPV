@@ -349,9 +349,19 @@ contract BtcLevManager is LevBase {
     ///   `LevVenueBase` only ever moves its own `STABLE` — so by the time the wrong denomination is
     ///   observable it is already somewhere nothing can convert it. The take now lands HERE, where the
     ///   consolidation machinery lives, and the venue is paid afterwards.
-    /// ⚠️ `refundTo` IS THE VAULT, NOT THE LP. These stables are the BASKET's; `_consolidateTo`'s third
+    /// ⚠️ `refundTo` IS `aux`, NOT THE LP. These stables are the BASKET's; `_consolidateTo`'s third
     ///   parameter refunds whatever it could not route, and sending that to the LP — correct for
     ///   `protectFromQuid`, where the input was the LP's own redeemed QU!D — would be a leak here.
+    /// 🔴 §REFUND-TO-AUX — **AND IT USED TO BE THE VAULT, WHICH DELETED THE REMAINDER.** This line
+    ///   read *"`refundTo` IS THE VAULT"* and `SwapLib._sourceRepayFree` passed `address(this)` to
+    ///   match. Under the Vault's delegatecall that IS the Vault, and `Vault.sol` contains ZERO
+    ///   `IERC20`/`safeTransfer` occurrences while `Aux.sweep` only reads `balanceOf(Aux)` — so a
+    ///   balance parked there is unreachable by ANY code in the tree and invisible to
+    ///   `get_deposits`. Refunds are routine, not exotic: `_consolidateTo` refunds every slice with
+    ///   no `_hubRowOf` row (GHO has none at any roster size) and, since §SESS-121's `q >= floor`
+    ///   arm, every slice whose pool is merely THIN at the size being traded.
+    ///   ⇒ The caller now passes `aux`, where the permissionless `Aux.sweep(token)` → `supplySelf`
+    ///     returns the remainder to the basket AND to the books.
     /// 📌 Sends its WHOLE `stable` balance. The manager custodies none in the normal course (the same
     ///   premise `_consolidateTo` and `protectFromQuid` are written on); any residue that did exist
     ///   goes to retiring debt, which cannot be a loss to the pool.

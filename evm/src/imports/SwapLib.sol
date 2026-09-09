@@ -2413,11 +2413,32 @@ library SwapLib {
             //      pays the venue. The happy path is UNCHANGED in effect: when `Aux` serves the venue's
             //      own stable, consolidation skips it (`s == target ⇒ continue`) and the same amount
             //      arrives at the same place.
-            //    ⚠️ REFUND DESTINATION IS `address(this)` — THE VAULT — NOT THE LP. `_consolidateTo`'s
-            //      third argument returns whatever it could not route, and these stables are the
-            //      BASKET's; the LP-refund that is correct in `protectFromQuid` would be a leak here.
+            //    🔴 §REFUND-TO-AUX — **REFUND DESTINATION IS `aux`, AND THE VAULT WAS A ONE-WAY DOOR.**
+            //      The rule this argument encodes is right and unchanged: these stables are the
+            //      BASKET's, so the LP-refund that is correct in `protectFromQuid` would be a leak
+            //      here. What was WRONG is the destination that rule was resolved to. This passed
+            //      `address(this)` — under the Vault's delegatecall that IS the Vault — and
+            //      **`grep -c "IERC20\|safeTransfer" evm/src/Vault.sol` returns 0**: the Vault has no
+            //      code that can move an ERC20, and `Aux.sweep` operates on `balanceOf(Aux)` under
+            //      Aux's OWN delegatecall, so it cannot reach a balance parked at the Vault.
+            //      ⇒ Every refunded slice was PERMANENTLY STRANDED and INVISIBLE to `get_deposits`
+            //        — pool value deleted, silently, ON THE ORDINARY PATH RATHER THAN AN EXOTIC ONE.
+            //        A refund is not a rare event: `_consolidateTo` skips-and-refunds any slice with
+            //        no `_hubRowOf` row (**GHO has none at any roster size**) AND, since §SESS-121's
+            //        `q >= floor` gate, any slice whose pool is merely THIN at the size being
+            //        traded. That gate deliberately converts a would-be revert into a refund, so it
+            //        makes this destination MORE load-bearing, not less — a liveness win upstream is
+            //        a bigger leak downstream until the refund lands somewhere that can spend it.
+            //      ⇒ `aux` IS THE DESTINATION THE RULE ALREADY IMPLIED: these stables came FROM the
+            //        basket, so they belong back at the basket. At Aux the PERMISSIONLESS
+            //        `Aux.sweep(stable)` → `supplySelf` puts them back in a vault AND back on the
+            //        books (`sweepBody` covers every `toIndex != 0` stable plus GHO and USDG
+            //        explicitly), so the value is recoverable by anyone and visible to
+            //        `get_deposits`. ⛔ Do NOT "restore" the Vault here, and do NOT reach for the LP:
+            //        the LP arm is the leak this comment always warned about; the Vault arm was a
+            //        DIFFERENT leak that the same sentence hid.
             IAux(aux).takeToSettle(mgr, BasketLib.scaleTokenAmount(takeUsd18, stable, false), stable); // basket → manager
-            ILevManagerDeliver(mgr).consolidateForRepay(lp, address(this));                           // → venue's own token → venue
+            ILevManagerDeliver(mgr).consolidateForRepay(lp, aux);                                     // → venue's own token → venue; unroutable → back to the basket
             got = IERC20(stable).balanceOf(venue) - bal0;        // venue-stable actually sourced (native units)
         }
         // 🔴 §HELD-IS-NOT-WITHDRAWABLE — THE SAME FAIL-SAFE AS THE `takeUsd18 == 0` BRANCH ABOVE, ON
@@ -2482,10 +2503,15 @@ library SwapLib {
     ///         address — an indexer filtering `DeleverFailed` by the LevManager would never see it,
     ///         and one filtering by topic alone would attribute a delivery-side skip to the LTV
     ///         cascade. Two different faults, two different emitters ⇒ two different events.
-    /// @param  takeFailed distinguishes the two catches: `true` = the basket draw (`takeToSettle`)
-    ///         reverted, so nothing was moved; `false` = the draw SUCCEEDED and the repay/deliver
-    ///         reverted, which means stable has already left the basket for the venue. **They are not
-    ///         the same incident and must not share a flag** — the second leaves state to reconcile.
+    /// @param  takeFailed `true` = the basket draw (`takeToSettle`) reverted, so NOTHING was moved.
+    /// ⛔ **`false` IS NOW UNREACHABLE, AND THE PARAMETER STAYS ANYWAY.** It used to mean "the draw
+    ///    SUCCEEDED and the repay/deliver reverted, which means stable has already left the basket"
+    ///    — and this docblock was right that *"they are not the same incident"*. §PAUSED-VAULT-REROUTE
+    ///    (ETH) settled the second one differently: a sourced-but-unrepayable delivery no longer
+    ///    EMITS, it REVERTS, so the take unwinds with the tx and there is no state left to reconcile.
+    ///    The field is kept because the event's ABI is indexed against, and because a future emitter
+    ///    that can move money before failing would need exactly this flag again. ⇒ Any consumer may
+    ///    read `takeFailed == false` as "never happens"; none may read it as "cannot happen".
     /// @notice A de-lever leg was skipped. ⚠️ **NO `lp` TOPIC, ON PURPOSE.** It had one, and both
     ///         emit sites passed `venue` for it — so the topic was permanently the venue address
     ///         and an indexer filtering by LP got nothing meaningful. §POOL-VENUE left no per-LP
@@ -2498,14 +2524,19 @@ library SwapLib {
     ///   WALK THE LEV BOOK — this line said *"Walks the open lev book; per LP: … repays that LP's debt"*
     ///   and §POOL-VENUE collapsed that walk to ONE call before the sentence was updated. The body reads
     ///   the pinned `poolVenue()`, sizes the repay against `ILevPooled(venue).totalDebt()` bounded by the
-    ///   shortfall, sources the swap's OWN proceeds into the venue via `Aux.takeToSettle` DIRECTLY
-    ///   (Quid==address(this) IS authorized — `V4==Quid` in `Aux._requireUs`), and calls
+    ///   shortfall, sources the swap's OWN proceeds via `Aux.takeToSettle` (Quid==address(this) IS
+    ///   authorized — `V4==Quid` in `Aux._requireUs`), and calls
     ///   `swapOutDeleverPooled` ONCE, which delivers the freed collateral as WETH to `recipient` (Quid,
     ///   which unwraps + sends). There is no loop and no per-LP iteration, so nothing "stops once the
     ///   shortfall is covered" — the single repay is pre-bounded by `ask`. VALUE-NEUTRAL (the
-    ///   swapper's input de-levers the pooled position; the keeper re-levers next tick); fault-tolerant
-    ///   — both `try/catch`es emit `DeliverDeleverSkipped` and return a partial fill (#105) rather than
-    ///   reverting the settle. @param px USD 1e18/WETH. @return deliveredEth to recipient.
+    ///   swapper's input de-levers the pooled position; the keeper re-levers next tick).
+    /// ⛔ **THE TAKE NO LONGER LANDS AT THE VENUE, AND THERE IS NO LONGER A SECOND `try/catch`.** This
+    ///   read *"sources … into the venue DIRECTLY"* and *"both `try/catch`es … return a partial fill"*;
+    ///   §PAUSED-VAULT-REROUTE (ETH) in the body replaced both. The take lands at the RANGE, is
+    ///   consolidated into the venue's own loan token and forwarded; the ONE remaining catch covers
+    ///   "cannot source" (partial fill, #105, announced). "Sourced but cannot repay" now REVERTS, so
+    ///   the take unwinds with the tx instead of standing against zero retired debt.
+    ///   @param px USD 1e18/WETH. @return deliveredEth to recipient.
     ///   🔴 UNVERIFIED (forge OOM): fork-test the (1) gating chain, (2) Σbacking invariant (QD-burn: takeToSettle
     ///   draws basket stable to repay — needs `DeleverEthBackingProbe`), (3) non-toxicity, before trusting.
     function deleverEthOnDelivery(address mgr, address aux, uint px, uint shortfallEth, address recipient)
@@ -2551,33 +2582,80 @@ library SwapLib {
         //   repayable size is the shortfall bounded by what the pool actually owes.
         address stable = ILevVenue(venue).stable();
         uint ask = SoladyMath.fullMulDiv(shortfallEth, px, 1e18);      // WETH → USD 1e18
-        uint poolDebtUsd = LevMath._toUsd18(aux, stable, ILevPooled(venue).totalDebt());
-        uint amtNative = poolDebtUsd == 0 ? 0 : LevMath._fromUsd(aux, stable,
-                            ask > poolDebtUsd ? poolDebtUsd : ask);
-        if (amtNative == 0) return 0;   // venue == 0 already returned above
-        uint fundUsd = LevMath._toUsd18(aux, stable, amtNative);
-        if (fundUsd > ask) fundUsd = ask;
+        uint fundUsd;
+        // §STACK-SCOPE — `poolDebtUsd`/`amtNative` are BLOCK-scoped, not new. Both are dead the
+        // instant `fundUsd` exists, and function-body scope kept their slots alive to the end of the
+        // frame — which is the budget §STACK-REUSE below is spending. Scoping them (no new name, no
+        // new value) is what pays for `bal0` in the `try` body without via_ir.
+        {   uint poolDebtUsd = LevMath._toUsd18(aux, stable, ILevPooled(venue).totalDebt());
+            uint amtNative = poolDebtUsd == 0 ? 0 : LevMath._fromUsd(aux, stable,
+                                ask > poolDebtUsd ? poolDebtUsd : ask);
+            if (amtNative == 0) return 0;   // venue == 0 already returned above
+            fundUsd = LevMath._toUsd18(aux, stable, amtNative);
+        }
+        if (fundUsd > ask) fundUsd = ask;   // `ask` is still USD here — the take is sized off this
         if (fundUsd == 0) return 0;
-        // §STACK-REUSE — `ask` CHANGES UNITS HERE: USD-1e18 above this line, ETH WEI below it. The slot
-        // is reused deliberately and the reuse is FORCED. This file compiles with `via_ir = false`, and
-        // computing `shortfallEth · fundUsd / ask` inline at the nested `try` below puts `shortfallEth`
-        // out of reach — `Stack too deep`, which is exactly how this line came to exist. Binding a SIXTH
-        // local fails the same way; the only slot that costs nothing is one already on the stack whose
-        // last read is right here. ⛔ Do not "clean this up" into a fresh variable — that is the change
-        // that does not compile, and it looks like an improvement right up until you build.
-        // ⇒ The value: the native slice `fundUsd` stands for, from quantities already in hand — NO PRICE
-        //   READ. `fundUsd <= ask` (capped one line up), and `ask` was itself derived from
-        //   `shortfallEth`, so this scales DOWN and cannot exceed the shortfall.
-        ask = SoladyMath.fullMulDiv(shortfallEth, fundUsd, ask);
-        // Source the swap's OWN proceeds into the venue, then repay the pool and free the matching
-        // collateral in one manager call. try/catch preserved: a venue that cannot source must leave a
-        // partial fill (#105), never revert the settle — and the skip is ANNOUNCED (§SILENT-SKIP).
-        try IAux(aux).takeToSettle(venue, BasketLib.scaleTokenAmount(fundUsd, stable, false), stable) returns (uint) {
-            // `ask` is ETH wei by this point, not USD — see §STACK-REUSE above.
-            try ILevEthDeliver(mgr).swapOutDeleverPooled(venue, fundUsd, recipient, 0, ask)
-                    returns (uint, uint w) {
-                deliveredEth = w;
-            } catch { emit DeliverDeleverSkipped(venue, fundUsd, false); }
+        // 🔴 §PAUSED-VAULT-REROUTE (ETH) — **THE TWIN OF THE FIX `_sourceRepayFree` ALREADY CARRIES,
+        //    AND IT LANDED THERE ONLY AFTER 1,377,974,721,301,924,123,210 OF DAI WAS MEASURED SITTING
+        //    AT A VENUE.** Two defects, one shape:
+        //    (a) `takeToSettle` names `stable` only as PREFERRED. `BasketLib._takePreferred` wraps
+        //        `withdrawSelf` in try/catch, so a PAUSED vault yields `sent = 0` and the whole
+        //        request falls to `_takeProRata`, which pays EVERY basket stable to `who`. With
+        //        `who == venue` that value is unrecoverable on arrival: `LevVenueBase` has no
+        //        `sweep`, no `rescue`, no `onlyOwner` — it moves `STABLE` and `COLLATERAL` and
+        //        nothing else, ever.
+        //    (b) the inner `try` around `swapOutDeleverPooled` swallowed AFTER `takeToSettle` had
+        //        already moved money, so the take STOOD with zero debt retired — a basket drain
+        //        against nothing. Two catches read as "twice as fault-tolerant"; they were
+        //        "fault-tolerant about sourcing" plus "silent about spending".
+        // ⇒ SAME THREE MOVES AS THE BTC RAIL. **THE TAKE LANDS HERE** (`address(this)` is the RANGE
+        //   under `QuidLib.sendEth`'s delegatecall, and `Aux._requireUs` authorises it), where
+        //   `LevMath._consolidateTo` — `public` precisely so the reroute could gain callers — turns
+        //   whatever the basket actually paid into the venue's OWN loan token over the keyless
+        //   `_hubRowOf` Curve rows. The happy path is unchanged in effect: when Aux serves the
+        //   venue's stable, consolidation skips it (`s == target ⇒ continue`).
+        //   ⚠️ `refundTo` IS `aux` (§REFUND-TO-AUX): an unroutable slice is BASKET value, so it goes
+        //     back to the basket, where the permissionless `Aux.sweep` re-supplies it. Never the LP
+        //     (a leak), and never a holder that cannot move an ERC20 (a shredder).
+        //   📌 Sends its WHOLE `stable` balance, on the same premise `_consolidateTo` is written on:
+        //     the range custodies no basket stable in the normal course (`Quid.sol` touches WETH and
+        //     eETH only). Any residue that did exist goes to retiring debt, which cannot be a loss.
+        // ⛔ AND ONLY THE OUTER `try` SURVIVES. It covers "the basket CANNOT SOURCE", which must
+        //   leave a partial fill (#105) and never revert the settle — announced via §SILENT-SKIP. The
+        //   inner one covered "sourced but cannot repay", and that case MUST revert: the take has
+        //   already happened, and unwinding it with the tx is the only thing that puts the dollars
+        //   back. A `revert` in a `try` BODY is not caught by its own `catch`, which is exactly the
+        //   split we want. ⇒ Do NOT restore it "for symmetry"; the asymmetry is the correctness.
+        try IAux(aux).takeToSettle(address(this), BasketLib.scaleTokenAmount(fundUsd, stable, false), stable) returns (uint) {
+            {   // 🔑 THE REPAY IS SIZED OFF A MEASURED BALANCE DELTA AT THE VENUE, NOT OFF THE ASK.
+                //    What the basket QUOTED, what it PAID, and what SURVIVED consolidation are three
+                //    different numbers; only the third can retire debt. Sizing off the ask is what
+                //    produced the recorded `ERC20: transfer amount exceeds balance` inside
+                //    `swapOutDeleverPooled` — the venue was told to repay more than it held.
+                uint bal0 = IERC20(stable).balanceOf(venue);
+                LevMath._consolidateTo(aux, stable, aux);                    // wrong-denomination slices → the venue's own token
+                IERC20OZ(stable).safeTransfer(venue, IERC20OZ(stable).balanceOf(address(this)));
+                fundUsd = LevMath._toUsd18(aux, stable, IERC20(stable).balanceOf(venue) - bal0);
+            }
+            // Fail-safe, and now the LAST resort rather than the only one: reaching it means the
+            // basket paid nothing the hub table could convert into this venue's loan token. The
+            // revert unwinds the take with the tx, so nothing strands anywhere.
+            if (fundUsd == 0) revert DeleverStableUnavailable();
+            if (fundUsd > ask) fundUsd = ask;   // re-apply the shortfall bound to the RE-DERIVED size
+            // §STACK-REUSE — `ask` CHANGES UNITS HERE: USD-1e18 above this line, ETH WEI below it. The
+            // slot is reused deliberately and the reuse is FORCED. This file compiles with
+            // `via_ir = false`, and computing `shortfallEth · fundUsd / ask` inline at the call below
+            // puts `shortfallEth` out of reach — `Stack too deep`, which is exactly how this line came
+            // to exist. ⛔ Do not "clean this up" into a fresh variable — that is the change that does
+            // not compile, and it looks like an improvement right up until you build.
+            // ⚠️ IT MOVED BELOW THE MEASUREMENT, AND IT HAD TO. `swapOutDeleverPooled` frees
+            //   `askNative · usedUsd / stableUsd` of collateral, so `ask` and `fundUsd` are a MATCHED
+            //   PAIR at one price. Scaling `ask` off the REQUESTED size and then repaying the
+            //   MEASURED (smaller) one would inflate that ratio and free MORE collateral per dollar
+            //   retired — a real over-withdraw, silently. Deriving both from the same measured number
+            //   keeps the pair exact, and the scale is strictly DOWN (`fundUsd <= ask` one line up).
+            ask = SoladyMath.fullMulDiv(shortfallEth, fundUsd, ask);
+            (, deliveredEth) = ILevEthDeliver(mgr).swapOutDeleverPooled(venue, fundUsd, recipient, 0, ask);
         } catch { emit DeliverDeleverSkipped(venue, fundUsd, true); }
     }
 

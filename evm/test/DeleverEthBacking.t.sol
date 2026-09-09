@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {LevCascadeProbe} from "./LevCascade.t.sol";
+import {LevCascadeProbe, IERC20R} from "./LevCascade.t.sol";
+import {MorphoEscrowVenue} from "../src/imports/LevVenueBase.sol";
 import {Vm} from "forge-std/Vm.sol";
 
 /// @title §PLP-6 — `DeleverEthBackingProbe`. THE TEST THAT ROW HAS BEEN WAITING ON.
@@ -285,5 +286,208 @@ contract DeleverEthBackingProbe is LevCascadeProbe {
         assertEq(afterReport, liveAfter,
                  "PLP-6-BACKING-DELTA: the reported aggregate must be exact once the range re-pushes");
         emit log_named_uint("lev debt after  (usd18)   ", debt18);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════════════════
+    // ⭐ §PRO-RATA-FALLBACK (ETH) — THE PORT OF THE BTC RAIL'S
+    //    `testReal_MEASURE_ProRataFallback_VenueStableVaultPaused` (`VBtcLevFeeLane.t.sol`).
+    //
+    // 🔴 THE BTC MEASUREMENT THAT BOUGHT §PAUSED-VAULT-REROUTE: with the venue's own stable vault
+    //    paused, `Aux.takeToSettle` cannot serve that stable — `BasketLib._takePreferred` wraps
+    //    `withdrawSelf` in try/catch, a paused vault yields `sent = 0`, and the WHOLE request falls
+    //    to `_takeProRata`, which pays EVERY basket stable to `who`. Measured on the BTC rail:
+    //    delivery SUCCEEDED, debt retired ZERO, and **1,377,974,721,301,924,123,210 of DAI** sat at
+    //    a USDC-debt venue. `LevVenueBase` has no `sweep`, no `rescue` and no `onlyOwner`, so that
+    //    is not "misplaced", it is DESTROYED.
+    //
+    // ⚠️ THE ETH RAIL HAD THE IDENTICAL EXPOSURE AND NO TEST AT ALL. `deleverEthOnDelivery` passed
+    //    `who == venue` to `takeToSettle`, and wrapped the repay in an INNER try/catch that
+    //    swallowed AFTER the take had already moved money — so the basket paid and nothing was
+    //    retired, silently. Both are fixed (take lands at the RANGE → `LevMath._consolidateTo` →
+    //    forward → repay sized off a MEASURED venue balance delta; inner try deleted).
+    //
+    // ⛔ THIS ASSERTS ONE PROPERTY AND MEASURES THE REST, exactly as the BTC original does. The
+    //    property is the one the fix guarantees and the old code could not: **no basket stable
+    //    other than the venue's own may be left at the venue.** Whether the delivery SUCCEEDS under
+    //    a paused vault is a market/liquidity question this does not bake in.
+    // ⚠️ RULE 21 — THE RUN-HAPPENED GATE IS AN ASSERTION, NOT A COMMENT. A paused-vault probe whose
+    //    de-lever leg is never reached passes vacuously and reads as coverage. `sendEth` only falls
+    //    through to `deleverEthOnDelivery` when free depth cannot cover the ask, so the free depth
+    //    is made SMALL on purpose and the reached-ness is asserted three ways below.
+    // ═══════════════════════════════════════════════════════════════════════════════════════════
+    function testReal_MEASURE_ProRataFallback_VenueStableVaultPaused_ETH() public {
+        _setupLev();
+        EV.setLevManager(address(lm));
+
+        // THIN free depth on purpose (§G7's shape): `QuidLib.sendEth` serves native → its own WETH →
+        // a venue pull → and only then the de-lever leg. A thick range answers from the first rung
+        // and the leg under test never runs.
+        vm.deal(address(this), 20 ether);
+        ETH.deposit{value: 3 ether}(0, address(this));
+
+        _openAtEntry(lps[0], 5 ether);
+        _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
+        lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0, "");
+        _calmVol();
+        ETH.syncLev(lps[0]);
+        _realignRangeToReal();
+
+        address vStable = venue.stable();
+        uint debtBefore = venue.totalDebt();
+        // ── PREMISES (rule 21): every mechanism this measures must be PRESENT before it is paused ──
+        assertGt(debtBefore, 0, "PREMISE: the pool must owe something, or there is no de-lever to source for");
+        assertEq(lm.poolVenue(), address(venue), "PREMISE: the pinned pool venue is the one being paused");
+        address[] memory sts = AUX.getStables();
+        assertGt(sts.length, 1,
+            "PREMISE: the basket must hold MORE THAN ONE stable, or the pro-rata leg has nothing "
+            "foreign to pay and the whole scenario is unreachable");
+        emit log_named_address("venue stable            ", vStable);
+        emit log_named_uint("basket stable count     ", sts.length);
+        emit log_named_uint("deliverableETH pre (wei)", ETH.deliverableETH());
+        emit log_named_uint("rangeETH       pre (wei)", ETH.rangeETH());
+
+        // ⛔ PAUSE THE VENUE STABLE'S VAULTS. `FeeLib.multiVaultWithdrawBody` reaches them via
+        //    `IERC4626(vs[i]).redeem(...)`, so reverting `redeem` AND `withdraw` is what a paused
+        //    venue looks like from Aux's side — `held > 0`, but nothing can come out. That is the
+        //    exact state `_heldUsd18`'s accounting clamp cannot see (§HELD-IS-NOT-WITHDRAWABLE).
+        address[] memory vs = AUX.getVaults(vStable);
+        assertGt(vs.length, 0, "PREMISE: the venue stable must HAVE vaults, or pausing them changes nothing");
+        for (uint i; i < vs.length; ++i) {
+            vm.mockCallRevert(vs[i], abi.encodeWithSignature("redeem(uint256,address,address)"), "PAUSED");
+            vm.mockCallRevert(vs[i], abi.encodeWithSignature("withdraw(uint256,address,address)"), "PAUSED");
+            emit log_named_address("  paused vault          ", vs[i]);
+        }
+
+        // ── DRAIN ETH OUT PAST FREE DEPTH, which is what drives `sendEth` to the de-lever leg ──
+        uint tvl0 = _tvl();
+        bool sawUnavailable;
+        deal(address(USDC), User03, 600_000 * USDC_PRECISION);
+        vm.recordLogs();
+        vm.startPrank(User03);
+        IERC20R(address(USDC)).approve(address(AUX), type(uint).max);
+        for (uint i; i < 12; ++i) {
+            try AUX.swap(address(USDC), address(WETH), true, 40_000 * USDC_PRECISION, 0, true) {}
+            catch (bytes memory e) {
+                // §SILENT-SETUP — a swallowed revert makes this case vacuous rather than failing it,
+                // so the ONE revert that means "the leg ran and refused" is captured by selector.
+                if (e.length >= 4 && bytes4(e) == bytes4(keccak256("DeleverStableUnavailable()")))
+                    sawUnavailable = true;
+                break;
+            }
+            vm.roll(block.number + 1); vm.warp(block.timestamp + 20 minutes);
+        }
+        vm.stopPrank();
+
+        uint skips;
+        {   bytes32 sig = keccak256("DeliverDeleverSkipped(address,uint256,bool)");
+            Vm.Log[] memory logs = vm.getRecordedLogs();
+            for (uint i; i < logs.length; ++i)
+                if (logs[i].topics.length > 0 && logs[i].topics[0] == sig) {
+                    skips++;
+                    (uint fundUsd, bool takeFailed) = abi.decode(logs[i].data, (uint, bool));
+                    emit log_named_uint("  skip: fundUsd (usd18) ", fundUsd);
+                    emit log_named_string("  skip: which catch     ",
+                        takeFailed ? "takeToSettle (could not SOURCE - partial fill, #105)"
+                                   : "UNREACHABLE post-fix: sourced-but-unrepayable now REVERTS");
+                }
+        }
+
+        // ── THE MEASUREMENT: where did the basket's money end up? ────────────────────────────────
+        uint foreignAtVenue;
+        for (uint i; i < sts.length; ++i) {
+            uint b = IERC20R(sts[i]).balanceOf(address(venue));
+            if (b > 0) { emit log_named_address("  VENUE HOLDS stable    ", sts[i]);
+                         emit log_named_uint("    amount (native)     ", b); }
+            if (sts[i] != vStable) foreignAtVenue += b;
+        }
+        emit log_named_uint("     debt before  (native)", debtBefore);
+        emit log_named_uint("     debt after   (native)", venue.totalDebt());
+        emit log_named_uint("     basket TVL before    ", tvl0);
+        emit log_named_uint("     basket TVL after     ", _tvl());
+        emit log_named_uint("     DeliverDeleverSkipped", skips);
+        emit log_named_string("     DeleverStableUnavailable seen",
+            sawUnavailable ? "yes (leg ran and refused - take unwound with the tx)" : "no");
+
+        // ── RUN-HAPPENED GATE, BEFORE THE PROPERTY (the vacuous-test rule) ──────────────────────
+        // Three mutually exclusive proofs that the leg executed: it announced a skip, it repaid, or
+        // it refused loudly. None of them can be produced by a drain that never reached `sendEth`'s
+        // shortfall branch.
+        assertTrue(skips > 0 || sawUnavailable || venue.totalDebt() < debtBefore,
+            "RUN-HAPPENED: the de-lever leg was never reached, so the property below is VACUOUS. "
+            "Free depth covered the ask - shrink the seed deposit or grow the drain until "
+            "QuidLib.sendEth falls through to SwapLib.deleverEthOnDelivery.");
+
+        // ── THE PROPERTY THE FIX GUARANTEES ─────────────────────────────────────────────────────
+        assertEq(foreignAtVenue, 0,
+            "PRO-RATA-FALLBACK: the venue holds a basket stable that is NOT its own loan token. "
+            "LevVenueBase has no sweep, no rescue and no onlyOwner - it moves STABLE and COLLATERAL "
+            "and nothing else - so that value is UNRECOVERABLE, which is the 1.377e21 DAI the BTC "
+            "rail measured. The take must land at the range and be consolidated, never paid raw to "
+            "the venue.");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════════════════
+    // 🔴 §REPAY-PROVEN-PREACCRUAL — `repayPool`'s GUARD FIRED ON ORDINARY ACCRUAL, NOT ON A FAILED
+    //    REPAY, AND THE ONLY REASON IT LOOKED RIGHT IS THAT ITS COMMENT SAID `>=` WAS THE LOOSE
+    //    DIRECTION.
+    //
+    // THE MECHANISM: `MORPHO.repay` ACCRUES INTEREST AS ITS FIRST ACT. `repayPool` read
+    // `d = totalDebt()` BEFORE that call — and `totalDebt()` is a `view`, so it reports the LAST
+    // ACCRUED totals, understated by everything pending since `lastUpdate`. The §REPAY-PROVEN check
+    // then compares a POST-accrual `totalDebt()` against a PRE-accrual `d`, which is not "did the
+    // debt fall" — it is `accruedInterest >= repaid`. On a stale market a perfectly good repay
+    // reverts `RepayNotApplied()` and the whole de-lever bricks.
+    //
+    // ⭐ ITS TWO TWINS ALREADY GET THIS RIGHT and say so: `repay` calls `MORPHO.accrueInterest`
+    //    first (*"`debtOf` below must be post-accrual, not stale"*), and `_closeLev` calls `accrue()`
+    //    before reading the debt it is about to repay. `repayPool` was the ONE that did not.
+    //
+    // ⚠️ THIS IS NOT A TOLERANCE TEST AND ASSERTS NO SLACK. It asserts the OLD CONDITION WOULD HAVE
+    //    FIRED (`fresh >= stale`) and that the call nonetheless COMPLETED — so a green run cannot be
+    //    produced by a market that happened not to accrue, which is exactly the vacuous shape a
+    //    "repay works" test would have.
+    // ═══════════════════════════════════════════════════════════════════════════════════════════
+    function testReal_RepayPool_AccruesBeforeReadingDebt_OrdinaryRepayMustNotRevert() public {
+        _setupLev();     // real Morpho market + 5,000,000 USDC of real borrow liquidity
+
+        // A venue whose MANAGER is this test, so `repayPool` (onlyManager) is reachable directly.
+        // Its own Morpho position, disjoint from the fixture's — nothing else can move its clock.
+        MorphoEscrowVenue v = new MorphoEscrowVenue(MORPHO, mp, address(this));
+        address lp = address(0xBEEF9);
+
+        deal(WEETH, address(this), 20e18);
+        IERC20R(WEETH).transfer(address(v), 20e18);      // MANAGER pre-transfers, as `supply` documents
+        assertGt(v.supply(lp, 20e18), 0, "PREMISE: the collateral must actually reach Morpho");
+
+        uint borrowed = v.borrow(lp, 20_000 * USDC_PRECISION);
+        assertGt(borrowed, 0, "PREMISE: the pool must really owe Morpho, or there is no accrual to race");
+
+        // ⏳ LEAVE THE MARKET UNTOUCHED SO INTEREST PENDS. This is the whole state under test: a
+        //    market whose `lastUpdate` is old is a market whose `totalDebt()` view is UNDERSTATED.
+        vm.warp(block.timestamp + 30 days);
+        vm.roll(block.number + 1);
+
+        uint stale = v.totalDebt();                       // EXACTLY the read `repayPool` used to take
+        uint pay   = 1 * USDC_PRECISION;                  // an ORDINARY, small repay
+        // Paid out of the BORROW PROCEEDS this manager already holds — no `deal` here, which would
+        // also wipe the 20,000 USDC `borrow` just delivered and hide any accounting error in it.
+        IERC20R(address(USDC)).transfer(address(v), pay); // `repayPool` expects it pre-transferred
+
+        // ⛔ PRE-FIX THIS LINE REVERTS `RepayNotApplied()`. Post-fix it is an ordinary repay.
+        uint repaid = v.repayPool(pay);
+        uint fresh  = v.totalDebt();                      // post-accrual, post-repay
+
+        emit log_named_uint("stale totalDebt (pre-accrual) ", stale);
+        emit log_named_uint("repaid                        ", repaid);
+        emit log_named_uint("fresh totalDebt (post-accrual)", fresh);
+        emit log_named_uint("interest accrued over 30 days ", fresh + repaid > stale ? fresh + repaid - stale : 0);
+
+        assertGt(repaid, 0, "the repay must have applied something");
+        // 🔑 THE NON-VACUITY GATE: `fresh >= stale` IS the old guard's revert condition, spelled out.
+        //    If this fails, the market did not accrue past the repay and the pre-fix code would have
+        //    survived — meaning the fixture, not the fix, is what made the test green.
+        assertGe(fresh, stale,
+            "PREMISE: 30 days of accrual on 20,000 USDC must EXCEED a 1 USDC repay, or this test "
+            "does not exercise the pre-accrual defect at all and its green is meaningless");
     }
 }

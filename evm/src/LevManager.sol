@@ -532,8 +532,46 @@ contract LevManager is LevBase {
         // and the venue's own repay, agree on one market state.
         venue.accrue();
         uint256 d = debtUsd(lp);
+        // ⭐ THE `+ 1` IS A CEIL, NOT A TOLERANCE, AND IT IS WHAT MAKES THE POST-CONDITION BELOW
+        //    SATISFIABLE. `deleverFlashBody` sizes the flash as `LevMath._fromUsd(repayUsd)` and THEN
+        //    clamps it to `venue.debtOf(lp)`, and `_fromUsd` FLOORS: at any non-par loan price the round
+        //    trip `_fromUsd(_toUsd18(debtOf))` can land ONE unit short of `debtOf`, which drops
+        //    `LevVenueBase._repayCreditingLp` out of its `r >= need` branch — the by-SHARES repay that
+        //    "lands on ZERO" — into the by-ASSETS branch, orphaning a unit of debt on a full close. One
+        //    wei of USD-1e18 is enough to push the floor back onto `debtOf`, and the existing clamp means
+        //    it can never flash MORE than the debt.
+        // 🔴 THE POST-CONDITION ITS SIBLING HAS HAD ALL ALONG. `LevMath.deleverFlashBody` returns
+        //    SILENTLY on three conditions (`repayUsd == 0`, `flashProvider == address(0)`, `debt == 0`),
+        //    so this body could not tell "repaid" from "did nothing" — and what it does next is withdraw
+        //    ALL of the LP's collateral and drop the slot. Under §POOL-VENUE that is not a stuck close,
+        //    it is an EXIT: `venue.withdraw` burns only THIS LP's units while Morpho's health check is
+        //    against the POOL, so with other LPs' collateral present it PASSES and the departing LP's
+        //    debt stays SOCIALISED across the ones who remain.
+        // ⚠️ `flashProvider == address(0)` is a DOCUMENTED config, not dead code — `init` takes it and
+        //    says so ("`address(0)` disables it"), with no check. (`LevMath.sol`'s "`init` refuses a zero
+        //    `flashProvider`" is therefore FALSE; it is another lane's file to correct.) This makes a
+        //    levered close under that config fail LOUDLY instead of handing the collateral over.
+        // ⛔ **IT IS `< debtBefore`, NOT `== 0`, AND THAT IS DELIBERATE — `== 0` IS NOT SATISFIABLE
+        //    TODAY WITH MORE THAN ONE LP IN THE POOL.** `LevVenueBase._repayCreditingLp` takes its
+        //    by-SHARES branch on a full repay (the branch whose whole purpose is to "land on ZERO"),
+        //    but it then burns the LP's UNITS through `_burnUnits(sharesDown, …)`, which is the FLOOR
+        //    inverse of the FLOOR `_unitSlice` that produced `sharesDown` — so the round trip can
+        //    return `debtUnits[lp] − 1` and leave the LP one unit. With a single LP that is invisible
+        //    (`_poolShares()` reaches 0, so `debtOf` answers 0 regardless — which is why
+        //    `testReal_BtcCloseLev_RepaysUnfoldsDeletes` can assert exact zero); with a SECOND LP's
+        //    shares still in the pool that unit prices back up to 1 native unit and an `== 0` here
+        //    would revert every legitimate multi-LP close — trading one way to destroy an LP's
+        //    position for another. `< debtBefore` is exact, needs no tolerance, and is a COMPLETE
+        //    detector for the three silent returns, each of which leaves the debt EXACTLY unchanged.
+        //    The residual it still admits is bounded at one unit by the ceil above, because the flash
+        //    is sized at the FULL debt and `deleverFlashBody` clamps it to `debtOf`.
+        // ⇒ Tightening this to `== 0` is a ONE-LINE change here once `_repayCreditingLp` zeroes
+        //   `debtUnits[lp]` outright on the branch it already knows is a full repay. That hunk is in
+        //   `imports/LevVenueBase.sol` — another lane's file — and is reported, not applied here.
+        uint256 debtBefore = venue.debtOf(lp);
         // ⚠️ §SESS-19 — as above: `closeLev`/`closeLevFor` are 2-arg entrypoints. Explicit, not implied.
-        if (d > 0) _deleverFlash(venue, lp, stable, d, minOut, dex, 0, "");
+        if (d > 0) _deleverFlash(venue, lp, stable, d + 1, minOut, dex, 0, "");
+        if (debtBefore > 0) require(venue.debtOf(lp) < debtBefore, "close: no repay");
         uint256 remaining = venue.collateralOf(lp);
         uint256 back = remaining > 0 ? venue.withdraw(lp, remaining) : 0;
         if (back > 0) IERC20Min(_collToken(venue)).transfer(lp, back); // weETH OR WETH, per the venue (incl. rebuilt short base)
@@ -598,7 +636,14 @@ contract LevManager is LevBase {
     ///         permissionless (it routes value OUT). Bounded by the #67 `deliverableDollars` (never past the liq
     ///         threshold). The LP's residual position stays OPEN (unlike `closeLev`); `syncLev` reconciles the
     ///         shrunk net-equity range slice. Uniform over YB + directional (both in-range); the YB-vs-directional
-    ///         settlement is on the LP's untouched residual, not here. Returns the stable actually routed to `vault`.
+    ///         settlement is on the LP's untouched residual, not here.
+    /// @return freed the USD (1e18) VALUE of the stable actually routed to `vault` — NOT the stable's own
+    ///         native units. Every consumer compares it against an 18-dec figure (`deleverBook` hands it
+    ///         straight on to `BasketLib`'s `freed < need`, where `need` and the seeding `unwindForRedeem`
+    ///         are both USD 1e18), so returning 6-dec USDC here reported a $25,000 extraction as `2.5e10`
+    ///         — indistinguishable from ZERO against `need`, which left `freed < need` true and sent the
+    ///         next redeem back to tear down more of the same LP's leverage for no credit. The conversion
+    ///         is the one `swapOutDeleverPooled` already applies to its own `repaid` two functions below.
     function deleverToVault(address lp, uint256 extractUsd, address vault, uint256 minOut)
         external returns (uint256 freed)     // NOT nonReentrant: the outer deleverBook (or the range's redeem lock) holds it — mirrors deleverOne
     {
@@ -620,7 +665,10 @@ contract LevManager is LevBase {
             abi.encode(uint8(2), lp, address(p.venue), 
             p.venue.stable(), extractUsd, vault, minOut));
 
-        freed = _lastFreed; _lastFreed = 0;
+        // `_lastFreed` is what `LevMath._sellAndPay` handed the sink: `stableOut - assets`, in the venue
+        // stable's NATIVE units (6-dec for USDC). USD-1e18 is the unit every caller reads it in — see the
+        // `@return` note above — so the conversion happens HERE, at the boundary, exactly once.
+        freed = LevMath._toUsd18(address(AUX), p.venue.stable(), _lastFreed); _lastFreed = 0;
         // Reconcile the shrunk net-equity into the range slice (try/catch: never block the settle).
         _syncRange(lp);
     }
@@ -730,8 +778,10 @@ contract LevManager is LevBase {
     ///         (USD 1e18) into `sink`, stopping as soon as it's met. FAULT-TOLERANT via the same `this.`-self-call
     ///         pattern as `cascadeDelever`: a stuck/illiquid position reverts its own `deleverToVault` and is
     ///         SKIPPED, never blocking the sweep. Gated to the range (`RANGE`). Partial de-lever keeps
-    ///         positions OPEN, so the book is stable across the walk (no swap-pop mid-loop). Returns stable routed
-    ///         to `sink`. Book-order (not strict LTV rank): each tap is value-neutral + capped at its own #67
+    ///         positions OPEN, so the book is stable across the walk (no swap-pop mid-loop). Returns the USD
+    ///         (1e18) VALUE routed to `sink` — the same unit as `usdWanted`, and the unit `BasketLib`'s
+    ///         `freed < need` compares it in; `deleverToVault` does that conversion at its own boundary and
+    ///         this only passes the result on. Book-order (not strict LTV rank): each tap is value-neutral + capped at its own #67
     ///         deliverable, so order only picks WHICH lightly-levered LPs are tapped — strict LTV-ranking is the
     ///         proactive cascade's job.
     function deleverBook(uint256 usdWanted, address sink, uint256 minOut)
@@ -800,12 +850,37 @@ contract LevManager is LevBase {
     /// mode-2 (§G.3 redeem/swap-out extraction) settle in its OWN frame (no via_ir): the wider layout
     /// (2, lp, venue, stable, extractUsd, vault, minOut2); the extract body lives in LevMath (bytecode outside
     /// this contract). Extracted from onMorphoFlashLoan to stay within the legacy stack.
+    ///
+    /// 🔴 **THE SINK IS `address(this)`, NOT `vault`, AND THAT IS THE FIX — NOT A DETOUR.**
+    ///    `LevMath._repayAndPull` deliberately OVER-withdraws the paired collateral by
+    ///    `10_000/(10_000 − maxSlippageBps)` — **+1.0101 %** at `MAX_SLIPPAGE_BPS = 100` — "so the sale
+    ///    covers `assets` at worst execution". Whatever the sale does NOT lose to slippage is therefore a
+    ///    LEFTOVER of the LP's OWN collateral, and `_sellAndPay` hands the WHOLE `stableOut − assets` to
+    ///    whoever it was told to pay. With `lp` as that recipient — mode 0, and the WBTC mirror
+    ///    `LevMath.flashDeleverWbtcSettle`, which sends `stableOut − assets` straight back to the LP — the
+    ///    buffer goes home and the asymmetry does not exist. With `vault` it did not: the redeem sink was
+    ///    paid the buffer too, **uncapped by the `extractUsd` that sized the withdraw in the first place**
+    ///    (~$190 over a sized $10,000 at 50 % LTV — a ~1.9 % overshoot of the §67 `deliverableDollars`
+    ///    bound, out of the LP's residual equity, on EVERY call). The keeper-gas peel does not absorb it
+    ///    either: `_activeKeeper` is written only by `rebalance`/`rebalanceMany`/`_batch`, never on this
+    ///    RANGE-driven path, so the peel is a no-op here.
+    /// ⇒ The body pays THIS manager, and the split happens on this side of the delegatecall, where the
+    ///   sized cap is in scope: `extractUsd` to `vault`, the unconsumed buffer back to `lp`.
+    /// ⚠️ `extractUsd` is REUSED as the native-unit cap rather than adding a local (rule 23, and this
+    ///   frame's stack budget is the reason `_extractSettle` exists at all) — after `extractToVaultBody`
+    ///   returns, its USD-1e18 value is dead.
     function _extractSettle(uint256 assets, bytes calldata data) internal {
         (, address lp, address venueAddr, address stable, uint256 extractUsd, address vault, uint256 minOut2) =
             abi.decode(data, (uint8, address, address, address, uint256, address, uint256));
         (gasReserve, _lastFreed) = LevMath.extractToVaultBody(
-            assets, lp, venueAddr, stable, extractUsd, vault, minOut2,
+            assets, lp, venueAddr, stable, extractUsd, address(this), minOut2,
             _extractCfg());
+        extractUsd = LevMath._fromUsd(address(AUX), stable, extractUsd);   // USD 1e18 → the sized cap, native
+        if (_lastFreed > extractUsd) {
+            IERC20Min(stable).transfer(lp, _lastFreed - extractUsd);       // the buffer is the LP's, not the sink's
+            _lastFreed = extractUsd;
+        }
+        if (_lastFreed > 0) IERC20Min(stable).transfer(vault, _lastFreed);
     }
 
     /// mode-0 (generic flash-stable) settle in its OWN frame (no via_ir): repay-first → withdraw → sell → return the
