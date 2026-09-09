@@ -59579,3 +59579,48 @@ only restoring force). **Then G7** (it sets the execution floor the design leans
 G2 and G6 can run in parallel; G6 is blocked on the tree compiling.
 ⛔ **NOTHING IS WIRED AND NOTHING SHOULD BE UNTIL G1 RETURNS.** Owner: *"dont build until we have full
 confidence about all of it."* `refillNeeded` still has zero call sites, and that is the correct state.
+
+---
+
+## ✅ §REFILL-BASIS — **G1 RAN. The premium is real, and it is thin: break-even at −5.8 bps of basis.**
+
+The control that §REFILL-AFFORDABILITY needed. Basis measured ALONE — no drain, no Core, no premium.
+
+    BASIS: pool gives     7.961692285063152052 ETH for 20,000 USDC
+           oracle implies 7.941203330540676828
+           pool − oracle  +20,488,954,522,475,224 wei = +0.020489 ETH = **+25 bps**   (pool CHEAPER)
+
+### THE ATTRIBUTION, which is what G1 existed for
+    total round-trip surplus   0.025098 ETH
+    − basis                    0.020489 ETH   ← 81.6% of it
+    = PREMIUM contribution     0.004609 ETH = **$11.61**   ← 18.4%
+
+⭐ **THE PREMIUM IS REAL AND THE MEASUREMENT CROSS-CHECKS.** $11.61 derived by subtraction against
+**$8.40** on the independent `skewPremiumCum` counter — same order, and the gap is the drain executing
+at a skewed price plus its own pool impact, neither of which the counter records. Two instruments, one
+answer. **§E294's 23 bps basis predicted the 25 bps we measured**, which is the third independent
+confirmation.
+
+### 🔴 AND THE COUNTERFACTUALS ARE THE RESULT
+| basis | buy-back | vs owed 7.936594 | verdict |
+|---|---|---|---|
+| **+25 bps** (measured) | 7.961692 | **+0.025098 ETH** | covers, with $62 |
+| **0 bps** | 7.941203 | **+0.004609 ETH = +$11.61** | **still covers** — on the premium alone |
+| **−25 bps** (inverted) | 7.920714 | **−0.015880 ETH = −$39.99** | **DOES NOT COVER** |
+
+⇒ **BREAK-EVEN IS ≈ −5.8 bps OF ADVERSE BASIS.** Beyond that the swapper's premium stops funding their
+own restoration and the pool eats the difference.
+
+### WHAT THIS SETTLES, AND WHAT IT DOES NOT
+✅ **The funding argument survives its own control.** At a NEUTRAL basis the premium covers restoration
+unaided — the earlier $62 was mostly market kindness, but removing all of it still leaves $11.61 of
+genuine premium against a zero spread. *"The swapper pays for execution"* is now measured, not asserted.
+🔴 **Feasibility is NOT settled, and the margin is thinner than the headline.** 4 bps of premium against
+a basis that moved 25 bps in our favour on the one block we looked at. **§G2 (basis distribution) is
+promoted from a nice-to-have to THE gating measurement**: the design must survive −5.8 bps, and an
+adverse basis is correlated with exactly the conditions that deplete a range in the first place.
+⛔ **DO NOT BUILD ON THE +25 bps NUMBER.** It is one draw. The number the design must be sized against is
+the break-even, −5.8 bps, and the open question is how often the basis is worse than that.
+📌 §G7 sharpens too: this was measured buying **USDC**, which HAS a `_hubRowOf` row. The drain is
+denominated in **BOLD**, which does NOT — so the leg actually on the refill path has the weaker floor
+(oracle only, no `_selfServableQuote` arm). Re-run against BOLD once project-45's table work lands.
