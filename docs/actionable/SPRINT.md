@@ -58518,8 +58518,38 @@ quid-bridge`, and **`tools/check-client-abis.py`** — which is the ONLY client-
 📌 **`openChannel`/`splice` are NOT in the first slice**: their `blockHash`/`txIndex` live INSIDE
 `Types.OpenParams` (`fundingBlockHash`/`fundingTxIndex`), so folding them means moving fields OUT of
 `OpenParams` — a second, larger decision that B8 does not ask for. **Close/exit/deposit first.**
-⏸️ **NOT STARTED — it needs the builds, and B8's own scope note says the security half already landed,
-so nothing is exposed while it waits.**
+### ⏸️ PARTIALLY LANDED 2026-09-09 — `Types.TxProof` EXISTS AND THE THREE EXTERNAL SIGNATURES ARE FOLDED. THE INTERNAL 5 → 2 IS **BLOCKED**, NOT PENDING.
+✅ **LANDED** (`evm/src/imports/Types.sol`, PURELY ADDITIVE — `DepositProof` untouched, no other importer moves):
+`struct TxProof { bytes rawTx; bytes32 blockHash; bytes32[] merkleProof; uint txIndex; }`, field order = the old parameter order.
+Three external signatures folded, selectors changed:
+`recordClose` **6 → 3** `0x30a1a773` → `0x49421725` · `recordDeadManExit` **6 → 3** `0x97394b1c` → `0x2989b1b1` ·
+`recordForceClosePermissionless` **5 → 2** `0x2fe84ee1` → `0x58119418`.
+Clients moved in the same change: `quid-hop/src/evm_codec.rs` (`SIG_RECORD_CLOSE`,
+`SIG_RECORD_FORCE_CLOSE_PERMISSIONLESS`, both encoders — the Rust fns keep their loose arguments and pack
+the tuple internally, so `channel_driver.rs` is untouched), `spa/src/lib/abi.ts`,
+`app/features/identity/chain/abi.ts` + `encode.ts`. `check-client-abis.py` reports **0 drift on any of
+these three** (the 4 Rust + 1 SPA drifts it does report are pre-existing and unrelated: DEX interfaces in
+`lev_keeper.rs`, and `get_deposits`'s `uint256[15]` vs `[16]`).
+📏 **MEASURED, `tools/check-contract-sizes.py` (and standalone `solc`, which reproduced it exactly):
+`BTCChannels` 21,241 → 21,206 (**−35 B**); `ChannelLib` 16,119 → 16,119 (**0**, untouched).**
+🔴 **THE INTERNAL FOLD THIS ROW PROMISED CANNOT BE DONE FROM HERE, AND THE REASON IS STRUCTURAL:**
+`_verifyTxSpendsChannel`'s four `_verifyTxSpendsChannel(…)` call sites include `_verifySplice`, whose
+`blockHash`/`txIndex` come from `OpenParams.fundingBlockHash`/`fundingTxIndex` while its `rawTx`/proof
+come from `splice`'s own loose parameters — **there is no calldata `TxProof` to hand it**, and a `memory`
+one is impossible because `BitcoinTx.txid`/`inputCount`/`extractInputPrevOutpoint` all take
+`bytes calldata`. ⇒ **`_verifyTxSpendsChannel` 5 → 2 is downstream of moving `fundingBlockHash`/
+`fundingTxIndex` OUT of `OpenParams`** — the "second, larger decision" this row already flags, now
+promoted from *optional ordering* to *hard prerequisite*.
+⚠️ **THE SITE COUNT IS TEN, NOT EIGHT** (measured, `evm/src/BTCChannels.sol`): 1 `_verifyTxSpendsChannel`
+declaration + 4 of its call sites + 3 external declarations + `_provenTxid`'s declaration and its one
+call. Three are folded; five are blocked by the `OpenParams` prerequisite above and two (`_provenTxid`,
+`_provenDeposit`) by the `DepositProof` composition below.
+⏸️ **STILL OPEN — the `DepositProof` composition this row demands.** `TxProof` now sits beside
+`DepositProof` exactly as this row warned it must not, and the warning is repeated verbatim in
+`Types.sol` above the declaration. `DepositProof { userRefund, cltvHeight, TxProof }` also folds
+`settleSwapInProven`'s separate `rawDepositTx` argument (3 → 2) and unblocks `_provenTxid`. It was NOT
+done here because it changes `DepositProof`'s own layout in a file that belongs to no lane
+(§COMPILE-COUPLING); the additive declaration is a step toward it, not a substitute for it.
 
 ## §K-AND-HEADROOM-2026-09-07 — two findings from project-c5's peer, BOTH INDEPENDENTLY CONFIRMED HERE
 
@@ -62940,3 +62970,94 @@ against a crash.** Refusing to pay what cannot be valued is right under a feed o
 deploy that every asset the money path prices has a feed pinned, and decide the 4h staleness posture.
 Then `_pricingBacking`'s `if (px > 0)`, and the sibling catches, are covering an unreachable state and
 come out under rule 1** — instead of each acquiring its own invented fallback.
+
+---
+
+# 🔐 §KEEPER-PQ-VENUE-2026-09-09 — three owner questions answered from code
+
+## 1️⃣ §NO-KEEPER-TO-HACK — **the threat model is wrong, and the truth is worse than the question**
+*"If the keeper gets hacked, can they over-lever the whole protocol?"* ⇒ **There is no keeper privilege
+to compromise.** `LevManager.sol:317` — *"PERMISSIONLESS single-LP rebalance toward the IL target"*.
+`rebalance` / `rebalanceMany` set `_activeKeeper = msg.sender`, which is a **gas-reimbursement tag, not
+an authorization**. **Anyone can call these today**, so an enclave compromise grants nothing that is not
+already public. ⇒ safety cannot come from trust here, and does not:
+- ✅ **THE TARGET IS NOT CALLER-SUPPLIED.** `debtDeltaToTarget` → `_targetInputs` reads the pinned
+  `ilBasisPx`, the TWAP and `_bandFor`. A caller passes only `minOut, dex, dex2, route`. **Nobody can
+  choose the leverage — it is a function of price** (`ilTargetBps = 1 − √(entry/now)`).
+- ✅ **`minOut` IS NOT THE BOUND; THE ORACLE FLOOR IS.** `LevMath:366` — *"the oracle floor always
+  wins"* (`if (minOut < floorWbtc) minOut = floorWbtc`), and `:647` takes `max(minOut, floorOut)`. A
+  hostile caller cannot lowball to extract. ⇒ **this also retires the `minReturn = 1` worry FOR THIS
+  PATH** — the decorative bound is overridden by a live one.
+- ⇒ **"Over-lever the book and get liquidated" is NOT reachable by a caller.** With pool LTV being the
+  collateral-weighted mean of individual LTVs, a caller can at most drive the book to where price
+  already says it belongs.
+🔴 **WHAT A HOSTILE CALLER DOES GET, and all three are real and unpriced:**
+  1. **VENUE CHOICE.** `dex`/`dex2`/`route` pick where the trade lands. The oracle floor bounds the loss
+     to the floor's **SLACK**, not to zero — route through a pool you control and take the spread down
+     to the floor, repeatedly, at a moment of your choosing. **The floor's tightness IS the exposure,
+     and it has not been measured as a bound on a hostile router.**
+  2. **THE GAS PEEL.** `_activeKeeper` collects a native-ETH reserve peel (`LevMath:1756`);
+     permissionless, bounded by `gasReserve`.
+  3. **TIMING.** Choosing *when* to rebalance is itself an edge.
+⚠️ **AND THE SYSTEMIC RISK THE QUESTION IS REACHING FOR IS REAL BUT IS DESIGN, NOT COMPROMISE:**
+liquidation is POOLED (`LevVenueBase:198`), so one position's liquidation hits every LP pro-rata — the
+4,801 bps cross-subsidy — and that fires with no attacker at all. 🔗 §LEVER-UP-SUPPLY-ON-DEMAND.
+
+## 2️⃣ §NO-POST-QUANTUM-ANYWHERE — **the dependency is total, and it is THREE dependencies, not one**
+Grepped `p2mr|post.?quantum|BIP-?360|P2QRH|lamport|winternitz|dilithium|falcon|sphincs` across
+`.sol/.rs/.nr/.md` excluding vendored trees: **ZERO hits in our code** (the only matches were Solana
+`lamports`). So the P2MR alignment the owner describes **is not in this tree**, and three separate
+layers rest on pre-quantum assumptions:
+| layer | primitive | where |
+|---|---|---|
+| Bitcoin custody | **MuSig2 2-of-2 taproot — secp256k1 Schnorr** | `BitcoinTx` (`computeOutputKey`, `tapLeafHash`, `isTwoOfTwoOutputKey`), `ChannelLib`, `BTCChannels` |
+| EVM auth | **`ecrecover` — secp256k1 ECDSA** | `Quid`, `SwapLib`, `Types` |
+| identity | **Noir/Honk — BN254 pairings** | `evm/src/identity/**` (109 generated verifiers) |
+⚠️ **THE IDENTITY LAYER IS THE ONE MOST OFTEN ASSUMED SAFE BECAUSE "IT IS A SNARK". IT IS NOT** —
+BN254 is discrete-log-hard, so it falls to the same machine that takes secp256k1.
+▶️ **SEQUENCING, IF PQ IS REAL SCOPE:** the Bitcoin layer **cannot move ahead of Bitcoin itself**, so
+the near-term addressable surface is EVM auth and the proof system, NOT the channels. ⇒ do not scope
+"go post-quantum" as one project; it is one blocked-on-consensus item and two independent migrations.
+
+## 3️⃣ §CHEAPEST-BORROW-IS-HALF-BUILT — **the owner's requirement IS the booked design; the allocator is the gap**
+*"There must be one piece of code dedicated to finding the cheapest borrow (least utilisation for our
+size) without scattering borrows across multiple venues."*
+- ✅ **"WITHOUT SCATTERING" IS ALREADY ENFORCED, MORE STRICTLY THAN ASKED.** `LevBase:420-423`:
+  *"pin the pool on the FIRST open; refuse any second venue for this range"* — a second venue reverts
+  `VenueNotPooled()`. **One position, one venue, by construction.**
+- ✅ **"LEAST UTILISATION FOR OUR SIZE" IS ALREADY THE DESIGN AND ALREADY BUILT AS A PRIMITIVE.**
+  `ILevVenue.borrowRateRay(uint256 extraBorrow)` (`Interfaces:637`) is the rate that *would* apply if
+  `extraBorrow` more were drawn. Its docblock states the owner's exact reasoning: **"a spot rate is a
+  rate that stops existing when we arrive"** — MEASURED on Aave v3, USDT **4.08% → 4.45% at +$25M →
+  7.49% at +$100M**. Implemented on BOTH adapters (`MorphoEscrowVenue` `:529`, `AaveV3Venue` `:804`),
+  each delegating to the protocol's own rate view rather than reconstructing its IRM.
+- 🔴 **AND IT HAS ZERO CALLERS. THE ALLOCATOR DOES NOT EXIST.** Booked as a KNOWN DEFECT held open —
+  `tools/orphans-allow.txt:27`: *"`borrowRateRay` — §MULTI-VENUE step 3 — needs the per-venue walk
+  (`LevBase _pool()`, 5 sites) first"*. **§MULTI-VENUE step 1 IS done** (`isPoolVenue` + `poolVenues[]`
+  accumulate on open); **step 2, the per-venue aggregate walk, is missing**, and the allocator sits on
+  top of it. ⇒ **landing an allocator today would be dead code**, because `poolVenue` pins to one venue.
+⚠️ **TWO THINGS TO DECIDE BEFORE BUILDING IT, neither of which is a coding question:**
+  1. **IT TRADES AGAINST §POOL-VENUE.** That collapse is what made repay **O(1)** and removed the
+     swap-size ceiling (*"size is now bounded by stable liquidity, not by how many LP repays fit in a
+     block"*). **Multi-venue re-introduces the per-venue walk that collapse deleted.** Cheapest dollars
+     and one pooled position are in tension; the owner has to price which is worth more.
+  2. **CHEAPEST ≠ BEST.** A venue is a MARKET, not an asset — `(collateral = our volatile, loan = a
+     stable we hold)` — and markets differ in `liqThresholdBps`. **A cheaper rate at a tighter LLTV
+     buys carry and spends liquidation headroom on a POOLED position**, i.e. it moves risk onto every
+     LP. Rate alone is the wrong objective function, and nothing today states the right one.
+
+## 4️⃣ ✅ §IL-PROTECT-BORROWS-DOLLARS-ONLY — confirmed from code, the owner's reading is right
+*"For IL protect we never need to borrow volatile? We only borrow dollars? We need to use the volatile
+as collateral though?"* — **Yes, yes, and yes.** `LevManager._leverUpBuy:952`:
+```
+uint256 coll = LevMath.stableToColl(…, stable, venue.borrow(who, _fromUsd(stable, usd)), minOut);
+venue.supply(who, coll);
+```
+⇒ **borrow the STABLE → buy the volatile → supply the volatile as COLLATERAL.** The volatile is never
+borrowed, on either range (`_leverUpBuyWbtc` is the same shape). ⭐ **AND THAT IS WHY THE HEDGE WORKS:**
+the range SELLS volatile as price rises (that is the IL), so the lev book must BUY it back —
+`ilTargetBps = 1 − √(entry/now)` rises with price, levering the long. **A borrowed volatile would be a
+SHORT and would double the loss, not offset it.**
+📌 **CONSEQUENCE FOR ITEM 3: the search space is PAIRS, not assets** — every candidate venue must accept
+our volatile as collateral AND lend a stable we already hold. That is a much smaller set than "cheapest
+borrow of any asset", and it is the set the allocator must actually walk.
