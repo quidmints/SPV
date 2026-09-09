@@ -193,6 +193,43 @@ contract DrainAtomicity is AllesFixture {
         //    would encode the conclusion this test exists to find (§VACUOUS-BOUNDS).
     }
 
+    /// @notice 🔴 §REFILL-BASIS — **G1, THE CONTROL THAT DECIDES WHETHER THE PREMIUM FUNDS THE REFILL.**
+    ///   `test_REFILL_AFFORDABILITY` measured a round-trip surplus of 0.0251 ETH (~$62) against a
+    ///   premium of only $8.40. Those cannot both be the premium, and the reason is structural:
+    ///   **`Core.swap` settles at the ORACLE while the buy-back executes at the POOL**, so the surplus
+    ///   is `premium + basis` and §E294 already put that basis at 23 bps — the right order for the gap.
+    /// ⇒ THIS MEASURES THE BASIS ALONE: no drain, no swap through Core, no premium anywhere. Just
+    ///   "what does the pool give for N dollars" against "what does the oracle say N dollars is worth".
+    ///   Subtract it from the affordability surplus and what remains is the premium's REAL contribution.
+    /// ⛔ WHY THIS IS THE HONEST FORM RATHER THAN ZEROING Γ. Setting `GAMMA_WAD = 0` does NOT zero the
+    ///   premium: `skewWad` keeps its Γ-free base term (`σ²·ETH_CONF_FRAC/8`), so a Γ toggle would
+    ///   leave a residue and quietly attribute it to basis. Measuring the basis on a path Core never
+    ///   touches has no premium in it BY CONSTRUCTION.
+    /// ⚠️ ONE BLOCK IS ONE DRAW (§G2). A favourable basis is a MARKET STATE and can invert — which is
+    ///   exactly when a refill is most needed — so this settles attribution, NOT feasibility.
+    function test_REFILL_BASIS_OracleVsPoolWithNoDrainAndNoPremium() public {
+        _setupRange();
+        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint usdcIn = 20_000 * USDC_PRECISION;                 // the same size the drain used
+        deal(address(USDC), address(this), usdcIn);
+        IERC20(address(USDC)).approve(address(AUX), type(uint).max);
+        uint before_ = WETH.balanceOf(address(this));
+        try this.buyBack(usdcIn) returns (uint) {} catch {}
+        uint ethAtPool = WETH.balanceOf(address(this)) - before_;
+        // CONTROL: the venue must fill, or "basis" is really "we failed to route".
+        assertGt(ethAtPool, 0, "CONTROL: the default venue must fill the basis probe");
+        uint ethAtOracle = px == 0 ? 0 : (usdcIn * 1e12) * 1e18 / px;
+        emit log_named_uint("BASIS: dollars in (6d)      ", usdcIn);
+        emit log_named_uint("BASIS: oracle px (USD18/ETH)", px);
+        emit log_named_uint("BASIS: ETH the POOL gives   ", ethAtPool);
+        emit log_named_uint("BASIS: ETH the ORACLE implies", ethAtOracle);
+        emit log_named_int ("BASIS: pool - oracle (wei)  ", int256(ethAtPool) - int256(ethAtOracle));
+        emit log_named_int ("BASIS in bps (+ = pool cheaper than oracle)",
+            ethAtOracle == 0 ? int256(0)
+                             : (int256(ethAtPool) - int256(ethAtOracle)) * 10_000 / int256(ethAtOracle));
+        // ⛔ NOTHING ASSERTED ABOUT THE SIGN. That is the result.
+    }
+
     /// @dev External so the try/catch above can isolate a venue failure from a test failure — a
     ///      reverting route must show up as CONTROL 3 failing, never as an unexplained zero.
     function buyBack(uint usdcIn) external returns (uint) {
