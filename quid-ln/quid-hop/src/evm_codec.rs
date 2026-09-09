@@ -523,8 +523,16 @@ pub struct OpenAuth {
     /// basepoint, and the basepoint is the only LP-side key stable for the channel's life: a splice
     /// rotates the funding pubkey (`new_funding_pubkey(prev_funding_txid)`), while
     /// `compute_funding_key_tweak` is applied to the funding key ALONE and no Lightning operation
-    /// rotates a basepoint. Read it from the monitor's `ChannelPublicKeys`, never from
-    /// `funding_pubkeys()`.
+    /// rotates a basepoint.
+    ///
+    /// 🔴 **(§BTC-2.4d) IT ARRIVES FROM THE LP, AND THIS PROCESS MUST NOT SOURCE IT ITSELF.** The
+    /// only writer is `/lp/consent`'s intake (`swap_in_api.rs`), which carries what the LP's wallet
+    /// derived (`app/features/identity/chain/hop.ts::deriveLpPaymentPoint`, a distinct scalar off
+    /// the LP's own mnemonic per §E182-b). **A fleet reading the point off its own
+    /// `ChannelPublicKeys` would be choosing the key the force-close check keys on** — pin a point
+    /// no output pays and `ForceCloseLpOutput` reports zero for every close, silently disarming the
+    /// check while it still appears to run. Integrity comes from `btc_recipient_pop` beside it,
+    /// whose digest commits to `keccak256(lp_payment_point)`.
     pub lp_payment_point: Vec<u8>,
 }
 

@@ -61,7 +61,8 @@ fn run() -> Result<()> {
     loop {
         match watchtower_tick(&rpc, &contract, &esplora) {
             Ok(results) => {
-                let (mut watched, mut broadcast, mut live) = (0usize, 0usize, 0usize);
+                let (mut watched, mut broadcast, mut live, mut stale) =
+                    (0usize, 0usize, 0usize, 0usize);
                 for (ch, r) in &results {
                     watched += 1;
                     match r {
@@ -72,11 +73,24 @@ fn run() -> Result<()> {
                         }
                         Ok(RecoverOutcome::NotMatured(_, _)) => live += 1, // fleet still alive
                         Ok(RecoverOutcome::NoExit) => {} // channel never armed an exit
+                        // (§BTC-2.5a-bis) NOT counted as still-live: the EVM says armed and
+                        // Bitcoin says the outpoint is gone, so this channel has no escape a
+                        // watchtower can fire. It is the one state that looks protected and
+                        // is not, so it goes to stderr beside the genuine errors.
+                        Ok(RecoverOutcome::StaleArming(outpoint)) => {
+                            stale += 1;
+                            eprintln!(
+                                "  channel 0x{}: STALE ARMING — emitted exit spends {outpoint}, \
+                                 already spent on Bitcoin; channel is UNPROTECTED",
+                                hexid(ch)
+                            );
+                        }
                         Err(e) => eprintln!("  channel 0x{}: {e}", hexid(ch)),
                     }
                 }
                 println!(
-                    "quid-watchtower tick: {watched} watched, {broadcast} broadcast, {live} still-live"
+                    "quid-watchtower tick: {watched} watched, {broadcast} broadcast, \
+                     {live} still-live, {stale} STALE-ARMING"
                 );
             }
             // A whole-tick failure (RPC/Esplora down) must NOT kill the watchtower — log

@@ -13,9 +13,11 @@
 //!
 //! * **input** = the channel funding outpoint (`0x5120||Q`), with a NON-FINAL
 //!   `nSequence` (`ENABLE_LOCKTIME_NO_RBF`) so consensus enforces the locktime;
-//! * **output** = `checkpointSats − fee` → the LP's committed `btcRecipientOf`
+//! * **output 0** = `checkpointSats − fee − anchor` → the LP's committed `btcRecipientOf`
 //!   key-path P2TR (`0x5120||recipient_xonly`), byte-identical to the EVM
 //!   `_withdrawalPayout` (`0x51 0x20 || btcRecipientOf`);
+//! * **output 1** = the keyless CPFP anchor (§BTC-2.4c) — see [`deadman_anchor_spk`], which
+//!   is what makes *bumping* as keyless as broadcasting already was;
 //! * **nLockTime** = the absolute CLTV dead-man deadline.
 //!
 //! Because the funding output is a KEY-PATH 2-of-2 (`with_unspendable_taproot_tweak`
@@ -45,7 +47,7 @@ pub enum DeadManExitError {
     Sighash,
     /// Final MuSig2 aggregation of the two partials failed.
     Aggregate,
-    /// `checkpoint_sats < fee_sats` (would underflow the output value).
+    /// `checkpoint_sats < fee_sats + DEAD_MAN_ANCHOR_SATS` (would underflow the LP output).
     Value,
 }
 
@@ -61,8 +63,45 @@ pub fn keypath_p2tr_spk(xonly: XOnlyPublicKey) -> ScriptBuf {
     ScriptBuf::new_p2tr_tweaked(TweakedPublicKey::dangerous_assume_tweaked(xonly))
 }
 
+/// (§BTC-2.4c) The keyless CPFP anchor's value. **240 sats is Bitcoin Core's dust
+/// threshold for a P2A output specifically** (the 4-byte `OP_1 <0x4e73>` scriptPubKey is
+/// cheap to spend, so it gets its own, much lower, limit than the 330 an ordinary
+/// witness-v1 output would need). It is the smallest value that keeps the exit relayable.
+pub const DEAD_MAN_ANCHOR_SATS: u64 = 240;
+
+/// (§BTC-2.4c) The exit's KEYLESS fee-bump anchor: pay-to-anchor, `OP_1 <0x4e73>`.
+///
+/// 🔴 **WITHOUT THIS THE KEYLESS RECOVERY PATH IS ONLY HALF KEYLESS.** §E188's guarantee is
+/// that ANYONE may broadcast a matured exit — but a fixed [`super`]-level fee signed years
+/// before the fee environment it lands in can be too low, and then *anyone can broadcast and
+/// nobody can bump*: RBF needs a new signature the (possibly absent) LP cannot give, and CPFP
+/// needs someone able to spend an output — which, with only the LP payout present, is the LP
+/// alone. So under fee pressure the escape degrades to *"the LP must be online and funded"*,
+/// **exactly the condition the ladder exists to remove.** Deepening the ladder does not help:
+/// every rung carries the same fixed fee.
+///
+/// 🔑 **P2A IS ANYONE-CAN-SPEND WITH NO KEY AND NO DELAY**, so a watchtower, a keeper or a
+/// passer-by can attach a CPFP child and pay the real feerate. ⛔ **NOT the BOLT-§995 commitment
+/// anchor** (`get_taproot_anchor_spk`): that one is key-path spendable by the broadcaster and
+/// only becomes anyone-can-spend after `OP_16 OP_CSV` — 16 blocks of exactly the delay a fee
+/// bump exists to avoid. ⛔ **NOT `bump.rs`** either: it funds bumps from the HOP's confirmed
+/// UTXOs, i.e. from the party that is dead in the case this exit exists for.
+///
+/// ⚠️ **IT COSTS THE LP [`DEAD_MAN_ANCHOR_SATS`] ON EVERY EXIT, BUMPED OR NOT**, because a
+/// pre-signed tx cannot add the output later. The alternative — a 0-value ephemeral anchor —
+/// is relay-standard only under TRUC (tx version 3), which would also change the replacement
+/// and package semantics of the exit and of its freshness input; a funded P2A on the existing
+/// v2 transaction buys the same keyless bump with no other moving part.
+/// 📌The on-chain arming check needs no change for this: `BitcoinTx._exitStructure` SUMS the
+/// outputs paying the LP script and ignores the rest, so an extra output is already legal
+/// — but `checkpointSats` must be what the exit PAYS THE LP, or `ExitUnderpaysCheckpoint`
+/// rejects the arming.
+pub fn deadman_anchor_spk() -> ScriptBuf {
+    ScriptBuf::new_p2a()
+}
+
 /// Build the UNSIGNED dead-man exit tx (see the module docs). `output_sats` is the
-/// LP payout AFTER subtracting the miner fee; `recipient_xonly` is the LP's
+/// LP payout AFTER subtracting the miner fee and the keyless anchor; `recipient_xonly` is the LP's
 /// `btcRecipientOf` x-only key; `cltv` is the absolute dead-man deadline (nLockTime).
 /// `freshness` (#114): an OPTIONAL second input spending a fleet-controlled UTXO shared by
 /// every channel. Because the BIP341 key-path sighash is taken over `Prevouts::All`, the
@@ -104,10 +143,18 @@ pub fn build_deadman_exit_tx(
         // Absolute CLTV: consensus won't mine this before `cltv`.
         lock_time: cltv,
         input,
-        output: vec![TxOut {
-            value: Amount::from_sat(output_sats),
-            script_pubkey: keypath_p2tr_spk(recipient_xonly),
-        }],
+        output: vec![
+            TxOut {
+                value: Amount::from_sat(output_sats),
+                script_pubkey: keypath_p2tr_spk(recipient_xonly),
+            },
+            // (§BTC-2.4c) The keyless CPFP anchor — see `deadman_anchor_spk`. It is LAST so the
+            // LP payout stays at index 0, which is what every reader of this tx already assumes.
+            TxOut {
+                value: Amount::from_sat(DEAD_MAN_ANCHOR_SATS),
+                script_pubkey: deadman_anchor_spk(),
+            },
+        ],
     }
 }
 
@@ -214,7 +261,12 @@ pub fn presign_deadman_exit(
         .map_err(|_| DeadManExitError::Signer)?;
 
     // (2) Unsigned exit tx + its key-path sighash (the message every partial signs).
-    let output_sats = checkpoint_sats.checked_sub(fee_sats).ok_or(DeadManExitError::Value)?;
+    // (§BTC-2.4c) The anchor comes out of the same balance as the fee: the funding UTXO is
+    // the only input that carries value, so every output the exit adds is funded from it.
+    let output_sats = checkpoint_sats
+        .checked_sub(fee_sats)
+        .and_then(|v| v.checked_sub(DEAD_MAN_ANCHOR_SATS))
+        .ok_or(DeadManExitError::Value)?;
     let exit_tx =
         build_deadman_exit_tx(
         funding_outpoint, output_sats, recipient_xonly, cltv_deadline,

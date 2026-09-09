@@ -56,7 +56,7 @@
 //!   ValidatingChannelSigner { inner: InMemorySigner, policy: PolicyState }
 //! ```
 //!
-//! # Policy checks (the two sound, production checks)
+//! # Policy checks
 //!
 //! * **Anti-revoked-reuse monotonic state machine.** See [`PolicyState`]. This
 //!   is the core justice-safety property: we refuse to release a revocation
@@ -74,8 +74,16 @@
 //!   *absent* (a fully-delivered LP with a zero holder balance), that is valid:
 //!   there is nothing to redirect, so the script field is not checked.
 //!
+//! * **Splice continuing-funding lock (§T9-STEP-3).** See
+//!   [`ValidatingChannelSigner::check_splice_continues_funding`]. A splice may spend
+//!   the funding output only if it re-creates one: exactly one output must equal the
+//!   `0x5120||Q'` and the funded value of the scope that splice negotiated. It bounds
+//!   the destination half of a splice; bounding what a splice PAYS (the swap-out
+//!   obligation) is §T9-STEP-3's second half and needs the claimed `swapId` threaded
+//!   into [`TaprootSignerContext`].
+//!
 //! All other [`ChannelSigner`] / [`EcdsaChannelSigner`] methods delegate
-//! straight to `inner`: a self-host trusts its own node for those, and the two
+//! straight to `inner`: a self-host trusts its own node for those, and the
 //! checks above are the defense-in-depth layer.
 //!
 //! # Persistence
@@ -350,13 +358,15 @@ pub fn check_closing_payout_script(
 // ValidatingChannelSigner — policy engine wrapping the in-process signer
 // ===========================================================================
 
-/// A validating channel signer: routes the two funds-critical operations
-/// through [`PolicyState`] before signing, and delegates everything else
-/// straight to the inner [`InMemorySigner`].
+/// A validating channel signer: routes every funds-critical operation through an
+/// explicit policy check before signing, and delegates everything else straight to
+/// the inner [`InMemorySigner`].
 ///
 /// Self-host model: `inner` both derives metadata *and* produces every
-/// signature. The two policy checks ([`PolicyState`] monotonic gate +
-/// [`check_closing_payout_script`]) are defense-in-depth on the LP's own node.
+/// signature. The policy checks ([`PolicyState`]'s monotonic + nonce-binding gates,
+/// [`check_closing_payout_script`], [`Self::check_holder_htlc_tx`],
+/// [`Self::check_against_chain`] and [`Self::check_splice_continues_funding`]) are
+/// defense-in-depth on the LP's own node.
 pub struct ValidatingChannelSigner {
     inner: InMemorySigner,
     policy: PolicyState,
@@ -413,6 +423,33 @@ pub struct ValidatingChannelSigner {
     /// after a `Match` is a REGRESSION and poisons: the pre-record window becomes strictly
     /// one-way, entered once and never re-entered.
     truth_recorded: std::sync::atomic::AtomicBool,
+    /// (§T9-STEP-3) The funding output each negotiated splice scope MUST create, keyed by
+    /// the funding txid that scope rotated FROM — which is exactly the `prev_funding_txid`
+    /// of the splice that opens it, and exactly what
+    /// [`TaprootChannelSigner::partially_sign_splice_shared_input`] is handed. Recorded in
+    /// [`Self::provide_taproot_context`] the moment a rotated scope is ACCEPTED, and it is
+    /// the whole comparand for [`Self::check_splice_continues_funding`].
+    ///
+    /// 🔑 **WHY IT MUST BE REMEMBERED RATHER THAN RE-DERIVED AT SIGNING TIME.** The splice
+    /// SPENDS the old funding output, so the context in force while its shared input is
+    /// signed is the OLD scope (`channel.rs` re-supplies it right before the call, and the
+    /// MuSig2 partial would not verify otherwise) — while the continuing output pays the
+    /// NEW `0x5120||Q'`. `Q'` needs the COUNTERPARTY'S ROTATED funding key, and that key is
+    /// not derivable from anything the signer holds: the BOLT #995 rotation tweaks the
+    /// SECRET key (`compute_funding_key_tweak` hashes `prev_funding_txid ‖ sk`), so the
+    /// peer's rotated pubkey is a value it must TELL us. It does, once, in the new scope's
+    /// context — and that is the only moment the signer ever sees it.
+    ///
+    /// ⚠️ **KEYED BY THE PARENT TXID, NOT A SINGLE SLOT, BECAUSE THE TWO SCOPES INTERLEAVE.**
+    /// During splice N the handler pushes the new scope (parent = `prev_funding_txid`) and
+    /// then pushes the old scope again to sign; a single slot would be clobbered by that
+    /// second push and the splice would refuse itself.
+    ///
+    /// ⚠️ **EMPTY AFTER A RESTART, exactly like `nonce_bindings`** — nothing here is
+    /// persisted. A splice whose scope was negotiated before the restart therefore has no
+    /// comparand and is REFUSED until the peer re-drives the negotiation, which re-supplies
+    /// the context. That is fail-closed and recoverable; it is not a silent downgrade.
+    splice_continuation: Mutex<std::collections::HashMap<bitcoin::Txid, bitcoin::TxOut>>,
 }
 
 /// The late-bound per-channel data the MuSig2 (`TaprootChannelSigner`) bodies
@@ -482,10 +519,16 @@ pub trait ChannelTruthSource: Send + Sync {
     ///
     /// A successful read returns one of the three [`TruthVerdict`] states; see that type
     /// for why two would be wrong.
+    /// 🔴 §T9-SORT-NOT-ROLE — `k0`/`k1` ARE THE BYTE-SORTED PAIR, NOT `(lp, hop)`. The two
+    /// on-chain fields are NAMED for roles and carry the sorted pair, because the only
+    /// submitter of `openChannel`/`splice` is the hop and it sorts
+    /// (`evm_codec::sort_funding_pubkeys` → `lp_pubkey: k0, hop_pubkey: k1`). Naming these
+    /// parameters for roles is what produced the bug this check fails closed on, so they
+    /// are named for what they are: `k0` is the lexicographically smaller serialized key.
     fn verify(
         &self,
-        lp_pubkey: &[u8; 33],
-        hop_pubkey: &[u8; 33],
+        k0: &[u8; 33],
+        k1: &[u8; 33],
         funding_value_sat: u64,
     ) -> Result<TruthVerdict, ()>;
 }
@@ -536,14 +579,19 @@ pub trait TruthSourceFactory: Send + Sync {
     fn for_channel(&self, channel_keys_id: [u8; 32]) -> std::sync::Arc<dyn ChannelTruthSource>;
 }
 
-/// Which side of the 2-of-2 this signer is, so a candidate pair can be ordered the way
-/// `BTCChannels` hashed it (`abi.encode(lpPubkey, hopPubkey)` — order is significant, and
-/// guessing it by trying both would pin only the SET, weakening the check for no gain).
+/// Which side of the 2-of-2 this signer is.
+///
+/// 🔴 §T9-SORT-NOT-ROLE — **THIS DOES NOT ORDER THE PAIR, AND SAYING IT DID WAS THE BUG.**
+/// The two on-chain fields carry the BYTE-SORTED pair whichever role submitted them, so
+/// [`ValidatingChannelSigner::check_against_chain`] sorts and ignores this value. It is
+/// carried because it is public API (`QuidKeysManager::with_truth_factory(factory, role)`)
+/// and because it is the honest answer to *"which half is this"* for any check that ever
+/// needs one — not because the comparand is ordered by it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FundingRole {
-    /// This signer is the vault/LP half — its base funding key is `lpPubkey`.
+    /// This signer is the vault/LP half of the funding 2-of-2.
     Lp,
-    /// This signer is the hop half — its base funding key is `hopPubkey`.
+    /// This signer is the hop half of the funding 2-of-2.
     Hop,
 }
 
@@ -566,6 +614,7 @@ impl ValidatingChannelSigner {
             ctx_poisoned: std::sync::atomic::AtomicBool::new(false),
             truth: std::sync::OnceLock::new(),
             truth_recorded: std::sync::atomic::AtomicBool::new(false),
+            splice_continuation: Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -647,13 +696,13 @@ impl ValidatingChannelSigner {
         // ⇒ Sort here, exactly as the submitter does. The standing warning that ordering is
         // SIGNIFICANT still holds — this is still ONE deterministic order, and trying both would pin
         // only the SET; only the prescribed order was wrong.
-        // 📌 `role` is now unused BY THIS CHECK and deliberately not deleted: it is public API
-        // (`with_truth_factory(factory, role)`) and the fields it selects are still the right ones to
-        // hold, so removing it is a separate call, not a side effect of a correctness fix.
-        let (lp, hop) = if ours <= theirs { (&ours, &theirs) } else { (&theirs, &ours) };
+        // 📌 `role` is unused BY THIS CHECK and deliberately not deleted: it is public API
+        // (`with_truth_factory(factory, role)`), consumed by `quid-hop` and `quid-bridge`, so
+        // removing it is a separate cross-crate call, not a side effect of a correctness fix.
+        let (k0, k1) = if ours <= theirs { (&ours, &theirs) } else { (&theirs, &ours) };
         let _ = role;
         // `Err` = unreadable chain ⇒ fail closed (propagated, poisons at the call site).
-        match truth.verify(lp, hop, ctx.funding_value_sat)? {
+        match truth.verify(k0, k1, ctx.funding_value_sat)? {
             TruthVerdict::Match => {
                 self.truth_recorded.store(true, SeqCst);
                 Ok(())
@@ -704,12 +753,12 @@ impl ValidatingChannelSigner {
                 // `FakeTruth` is built `lp: inner, hop: cp` — role order — so it agreed with the
                 // defect for the one key pair it uses. It now runs under BOTH declared roles
                 // against a SORTED comparand, which is what the chain actually holds.
-                let (lp_prev, hop_prev) = if ours_prev <= theirs_prev {
+                let (k0_prev, k1_prev) = if ours_prev <= theirs_prev {
                     (&ours_prev, &theirs_prev)
                 } else {
                     (&theirs_prev, &ours_prev)
                 };
-                match truth.verify(lp_prev, hop_prev, prev.funding_value_sat)? {
+                match truth.verify(k0_prev, k1_prev, prev.funding_value_sat)? {
                     // The chain is one scope behind: the splice is real and unmirrored. Accept the
                     // new context, and DO latch — we have seen a record, so a later `NotRecorded`
                     // is a downgrade exactly as it would have been before.
@@ -813,6 +862,27 @@ impl ValidatingChannelSigner {
                 self.ctx_poisoned.store(true, std::sync::atomic::Ordering::SeqCst);
                 return;
             }
+            // (§T9-STEP-3) A rotated scope is the ONLY moment this signer ever sees the
+            // counterparty's rotated funding key, so it is the only moment `0x5120||Q'` can
+            // be derived. Record what that scope's funding output must be, keyed by the
+            // funding txid it rotated FROM — the `prev_funding_txid` of the splice that
+            // opens it — so `check_splice_continues_funding` can demand it later, after the
+            // handler has swapped the OLD scope back in to sign the shared input.
+            if let Some(parent) = ctx.splice_parent_funding_txid {
+                if let Ok((_, _, _, value_sat, spk)) =
+                    self.key_agg_for(&ctx, &Secp256k1::new())
+                {
+                    if let Ok(mut scopes) = self.splice_continuation.lock() {
+                        scopes.insert(
+                            parent,
+                            bitcoin::TxOut {
+                                value: bitcoin::Amount::from_sat(value_sat),
+                                script_pubkey: spk,
+                            },
+                        );
+                    }
+                }
+            }
             *slot = Some(ctx);
         }
     }
@@ -876,6 +946,20 @@ impl ValidatingChannelSigner {
             let slot = self.taproot_ctx.lock().map_err(|_| ())?;
             slot.clone().ok_or(())?
         };
+        self.key_agg_for(&ctx, secp_ctx)
+    }
+
+    /// [`Self::taproot_key_agg`] for an ARBITRARY funding scope rather than the one in
+    /// force. Split out because [`Self::provide_taproot_context`] must derive the
+    /// `0x5120||Q'` of a scope it is only passing THROUGH — at splice-signing time the
+    /// in-force context is the OLD scope, so the new one is unreachable by then (see
+    /// `splice_continuation`). There is exactly one derivation of `Q`, and both callers
+    /// use it, so the two can never disagree about what a funding output looks like.
+    fn key_agg_for(
+        &self,
+        ctx: &TaprootSignerContext,
+        secp_ctx: &Secp256k1<secp256k1::All>,
+    ) -> Result<(musig2::KeyAggContext, usize, usize, u64, bitcoin::ScriptBuf), ()> {
         // Use the ROTATED holder funding key for a spliced scope (matching the new
         // Q'); the base key otherwise.
         let holder = self
@@ -894,6 +978,54 @@ impl ValidatingChannelSigner {
             bitcoin::key::TweakedPublicKey::dangerous_assume_tweaked(q),
         );
         Ok((key_agg, our_index, counterparty_index, ctx.funding_value_sat, spk))
+    }
+
+    /// (§T9-STEP-3) The continuing-funding refusal: a splice may not spend the funding
+    /// output unless it RE-CREATES one.
+    ///
+    /// The splice tx must contain **exactly one** output equal to the funding output of
+    /// the scope this splice negotiated — the `0x5120||Q'` built from the two ROTATED
+    /// funding keys, at the funded value the same context declared. That single equality
+    /// refuses the sharpest shapes the blind signer allowed: a splice that pays everything
+    /// out and leaves no channel behind, one whose continuing output pays a key the LP has
+    /// no half of, and one that quietly shrinks the channel below the size the LP agreed
+    /// to in the commitment it signed for that scope.
+    ///
+    /// ⚠️ **THE VALUE IS HALF THE CHECK, NOT DECORATION.** `Q'` alone would let the hop
+    /// negotiate one channel size in the commitment and pay a different one on chain; the
+    /// difference would leave in an output this signer never looks at.
+    ///
+    /// ⚠️ **WHAT THIS DELIBERATELY DOES NOT DO (§T9-STEP-3's second half).** It says
+    /// nothing about the OTHER outputs — the swap-out payment and, on a splice-in, the
+    /// hop's own change. Bounding those needs the claimed `swapId` threaded into
+    /// [`TaprootSignerContext`], because `pendingOnchainSwapOut` is keyed by `swapId` and
+    /// there is no script-hash index to search. **Do not turn this into "outputs ==
+    /// [expected]"**: a splice-out delivery legitimately carries a payment output and a
+    /// splice-in legitimately carries change, and demanding an exact set would refuse
+    /// every honest splice — the failure this row has warned about since §T9-IS-WIRING-E177.
+    ///
+    /// 🔑 **AN ABSENT COMPARAND IS A REFUSAL, AND THAT IS REACHABLE ONLY OFF THE HONEST
+    /// PATH.** The scope is recorded when the handler supplies it, which LDK does in
+    /// `get_initial_commitment_signed_v2` — and that runs while the interactive tx is being
+    /// constructed, strictly before an `interactive_tx_signing_session` exists, which is
+    /// what `funding_transaction_signed` requires before it can reach this signer at all.
+    /// So on the honest path the entry is always present by the time the shared input is
+    /// signed. The reachable absences are a restart mid-splice (see `splice_continuation`)
+    /// and a node signing a splice it never negotiated, which is the case being refused.
+    fn check_splice_continues_funding(
+        &self,
+        tx: &bitcoin::Transaction,
+        prev_funding_txid: &bitcoin::Txid,
+    ) -> Result<(), ()> {
+        let expected = {
+            let scopes = self.splice_continuation.lock().map_err(|_| ())?;
+            scopes.get(prev_funding_txid).cloned().ok_or(())?
+        };
+        if tx.output.iter().filter(|out| **out == expected).count() == 1 {
+            Ok(())
+        } else {
+            Err(())
+        }
     }
 
     /// The (rotated, for a splice) holder funding SECRET key the current taproot
@@ -1770,6 +1902,12 @@ impl TaprootChannelSigner for ValidatingChannelSigner {
         prev_funding_txid: &bitcoin::Txid,
         secp_ctx: &Secp256k1<secp256k1::All>,
     ) -> Result<(PartialSignature, PublicNonce), ()> {
+        // Policy: the continuing-funding destination lock (§T9-STEP-3), FIRST, before any
+        // key material is touched — the same ordering as the closing-payout lock. This is
+        // the check whose absence made this the one funds-critical signing path that never
+        // read `tx.output`.
+        self.check_splice_continues_funding(tx, prev_funding_txid)?;
+
         // The splice tx spends the OLD funding output (the current `0x5120||Q`); the
         // KeyAggContext is the CURRENT funding-key aggregate (spec §9c). A splice tx
         // has MULTIPLE inputs, so the BIP341 key-path sighash commits to ALL prevouts
@@ -3650,11 +3788,40 @@ mod tests {
         let old_funding_spk = funding_spk_for(&agg_ctx);
 
         // A splice tx: input 0 = the shared OLD funding output, input 1 = a
-        // contributed P2WPKH input. Output 0 = the new funding output (value
-        // irrelevant to the sighash test).
+        // contributed P2WPKH input. Output 0 = the CONTINUING funding output of the scope
+        // this splice negotiates — `0x5120||Q'` over the two ROTATED funding keys, at the
+        // new funded value. (§T9-STEP-3) `check_splice_continues_funding` requires exactly
+        // that output before either side will produce a partial.
         let prev_funding_txid = bitcoin::Txid::from_raw_hash(
             bitcoin::hashes::Hash::hash(b"old-funding-tx"),
         );
+        let spliced_sats = FUNDING_SATS + 50_000;
+        let lp_rot = lp.new_funding_pubkey(prev_funding_txid, &secp);
+        let hop_rot = hop.new_funding_pubkey(prev_funding_txid, &secp);
+        let (new_agg_ctx, _) = crate::taproot_signer::channel_key_agg_ctx(
+            &lp_rot.serialize(),
+            &hop_rot.serialize(),
+            &lp_rot.serialize(),
+        )
+        .unwrap();
+        let new_funding_spk = funding_spk_for(&new_agg_ctx);
+        // The handler supplies the ROTATED scope while the splice is negotiated (LDK does
+        // it in `get_initial_commitment_signed_v2`) and then swaps the OLD scope back in to
+        // sign the shared input, because the partial must be under the OLD `Q`. That order
+        // is what makes the rotated scope unreachable at signing time, and it is reproduced
+        // here rather than assumed.
+        for (vs, cp_rot) in [(&lp_vs, hop_rot), (&hop_vs, lp_rot)] {
+            vs.provide_taproot_context(TaprootSignerContext {
+                counterparty_funding_pubkey: cp_rot,
+                funding_value_sat: spliced_sats,
+                counterparty_closing_nonce: None,
+                closing_round: 0,
+                splice_parent_funding_txid: Some(prev_funding_txid),
+            });
+        }
+        give_ctx(&lp_vs, &hop, None, &secp);
+        give_ctx(&hop_vs, &lp, None, &secp);
+
         let contributed_txid =
             bitcoin::Txid::from_raw_hash(bitcoin::hashes::Hash::hash(b"contrib-utxo"));
         let splice_tx = Transaction {
@@ -3675,8 +3842,8 @@ mod tests {
                 },
             ],
             output: vec![TxOut {
-                value: Amount::from_sat(FUNDING_SATS + 50_000),
-                script_pubkey: old_funding_spk.clone(),
+                value: Amount::from_sat(spliced_sats),
+                script_pubkey: new_funding_spk.clone(),
             }],
         };
         // All prevouts in input order: the OLD funding output + the contributed UTXO.

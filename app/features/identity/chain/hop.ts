@@ -19,8 +19,11 @@
 // The hop URL + bearer token are deployment config (see chains.ts HOP_API). Until they're set every
 // call returns null and the UI shows "coming online".
 
+import { HDNodeWallet } from 'ethers'
+
 import { CONTRACTS, HOP_API } from './chains.ts'
 import { readOne } from './eth.ts'
+import { normaliseKey } from './keys.ts'
 import { verifyQuotedDepositAddress } from './taproot.ts'
 
 const headers = () => ({
@@ -197,6 +200,45 @@ export async function lpWithdraw(channel_id: string, sats: number):
 
 // ── The LP's consent for ONE open ────────────────────────────────────────────────────────
 
+/// (§BTC-2.4d) HD path for the LP's Lightning PAYMENT BASEPOINT — the key `openChannel` turns into
+/// `channel.lpToRemoteKey`, and therefore the key a force-close commitment's LP output is measured
+/// against (`ChannelLib.lpToRemoteOutputKey`, `BTCChannels.sol:1012`).
+///
+/// 🔑 **A THIRD, DISTINCT SCALAR OFF THE SAME MNEMONIC — the property `§E182-b` demands.** It is the
+/// same BIP-86 purpose and coin type as `root.ts`'s `FUNDING_PATH` (`m/86'/0'/0'/0/0`) and differs in
+/// the hardened ACCOUNT, so it cannot collide with the funding half and no BIP-86 wallet restored
+/// from these words will ever scan it as a receiving address (which an adjacent `.../0/1` WOULD be).
+/// ⛔ **DO NOT REUSE THE FUNDING KEY.** A splice rotates the funding pubkey
+/// (`new_funding_pubkey(prev_funding_txid)`); nothing rotates a basepoint, and the contract pins
+/// this one for the channel's whole life. ⛔ **DO NOT REUSE `btcRecipientOf`** — §E182-b: one key as
+/// both payout destination and channel key converts a degraded-service event into fund loss.
+const LP_PAYMENT_BASEPOINT_PATH = "m/86'/0'/1'/0/0"
+
+/// (§BTC-2.4d) Derive the LP's 33-byte COMPRESSED payment basepoint from the enclave-held mnemonic.
+///
+/// 🔴 **THIS EXISTS BECAUSE THE APP COULD NOT SUPPLY WHAT IT DID NOT DERIVE, AND THE ALTERNATIVE IS
+/// A SILENTLY DISARMED CHECK.** The fleet could read a payment point off its own monitor — but the
+/// fleet SUBMITS the open, so a compromised one would then be choosing the key the force-close
+/// check keys on: pin a point that matches no output and every force close measures zero while the
+/// check still appears to run. The point has to come from the LP, and the LP is this wallet.
+///
+/// ⚠️ **BIP-340-NORMALISED, AND THAT IS NOT COSMETIC.** `lpToRemoteOutputKey` drops the compressed
+/// parity prefix and builds the `to_remote` leaf from the X-ONLY key, so the chain cannot tell
+/// `02‖x` from `03‖x` — but the SCALAR that can spend that output differs by a negation. Deriving
+/// through `normaliseKey` (see `keys.ts` for the half-of-all-users trap this closes) makes the
+/// returned point always even-y and its matching secret always `normaliseKey(...).privateKey`, so
+/// the identity the fleet pins and the key the LP can sign with cannot disagree.
+///
+/// ⚠️ The caller must already hold an unlocked mnemonic from `getOrCreateRootMnemonic()`. The
+/// mnemonic is NOT taken by `postLpConsent` below on purpose: this module also does `fetch`, and
+/// seed material has no business inside a request builder.
+export function deriveLpPaymentPoint(mnemonic: string): string {
+  const node = HDNodeWallet.fromPhrase(mnemonic, '', LP_PAYMENT_BASEPOINT_PATH)
+  // `normaliseKey` returns the x-only form; the wire and the contract want the 33-byte COMPRESSED
+  // point, and `02` is the compressed prefix for the even-y point normalisation guarantees.
+  return `0x02${normaliseKey(node.privateKey).xOnly.slice(2)}`
+}
+
 /// One rung of the pre-signed exit ladder (`ExitArmingReq`, `swap_in_api.rs:114`). Hex strings,
 /// because the codec types deliberately derive no `serde`.
 export interface ExitArmingWire {
@@ -223,6 +265,9 @@ export interface LpConsentRequest {
   /// fleet reading it off its own monitor would be choosing the key the force-close check keys on.
   /// ⚠️ It is an IDENTITY, not consent — it carries no signature of its own, and its integrity
   /// comes entirely from the PoP beside it, which commits to `keccak256(lp_payment_point)`.
+  /// ⛔ **THE ONLY LEGITIMATE PRODUCER IS `deriveLpPaymentPoint(mnemonic)` ABOVE.** Any other value
+  /// here — a hop-quoted one above all — reintroduces exactly the substitution the field exists to
+  /// prevent, and nothing downstream can detect it: the PoP commits to whatever is passed.
   lp_payment_point: string
   /// One pre-signed spend of the 2-of-2 per rung. `_armLadder` rejects fewer than two rungs and a
   /// ladder sharing one deadline.

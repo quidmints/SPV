@@ -43,9 +43,12 @@
 //!   the on-chain funding the exit spends, and gets a live backstop like a base channel. A
 //!   never-spliced channel reads `None` (base scope), unchanged. Still fork-verify the
 //!   spliced-channel exit end-to-end on the big box (no regtest broadcast locally).
-//! * **Fee / feerate:** a fixed [`DEAD_MAN_FEE_SATS`] is deducted. Because the exit
-//!   is re-signed every heartbeat, a live feerate could be substituted; the fixed
-//!   value is a conservative placeholder. Flagged.
+//! * **Fee / feerate:** a fixed [`DEAD_MAN_FEE_SATS`] is deducted. ✅ (§BTC-2.4c) **The
+//!   RECOVERABILITY half of that is closed** — the exit now carries a keyless P2A anchor
+//!   (`quid_ln::deadman_exit::deadman_anchor_spk`), so anyone who can broadcast a matured
+//!   exit can also CPFP it to the live feerate. The fixed value is therefore a COST
+//!   question, not a "the LP must be online and funded" question. A live feerate could
+//!   still be substituted at each heartbeat; that is the remaining refinement.
 //! * **`DEAD_MAN_DELTA_BLOCKS`:** the broadcast delay Δ after fleet death is a policy
 //!   parameter (LP-recovery latency vs. heartbeat-lag griefing margin). Tune on hw.
 
@@ -71,6 +74,11 @@ pub const DEAD_MAN_DELTA_BLOCKS: u32 = 144;
 
 /// Fixed miner fee deducted from the checkpoint balance for the exit tx. Placeholder
 /// (the exit is re-signed each heartbeat, so a live feerate could replace this).
+/// ⚠️ (§BTC-2.4c) **THIS BEING WRONG IS NO LONGER UNRECOVERABLE.** It used to be, because a
+/// too-low fee could be neither replaced (RBF needs a signature the absent LP cannot give)
+/// nor bumped (CPFP needed the LP's own payout output). The exit's keyless P2A anchor —
+/// `quid_ln::deadman_exit::deadman_anchor_spk` — lets any third party attach the child, so a
+/// stale value now costs a bump rather than the escape.
 pub const DEAD_MAN_FEE_SATS: u64 = 2_000;
 
 /// Default heartbeat cadence. MUST be « `DEAD_MAN_DELTA_BLOCKS`×~600s so the CLTV
@@ -210,6 +218,20 @@ fn build_exit_call(
         amount_sats,
         funding_taproot: quid_hop::funding::taproot_funding_aggregate_xonly(&k0, &k1),
     };
+    // 🔴 `checkpointSats` IS WHAT THE EXIT PAYS THE LP, NOT THE FUNDED SIZE. `_armDeadManExit`
+    // reverts `ExitUnderpaysCheckpoint` when `paid < checkpointSats`, and `paid` is the sum of
+    // the exit's outputs to `_lpPayoutScript` — i.e. `amount_sats` MINUS the miner fee and
+    // (§BTC-2.4c) the keyless anchor, both of which are funded from the same input. Passing
+    // `amount_sats` here claimed more than the tx pays, so **every arming reverted, on every
+    // channel, and the heartbeat swallows the revert as a per-channel "log and continue"** —
+    // the same silent-unarmable-exit failure §T9-SORT-NOT-ROLE describes above, arriving
+    // through the value rather than the key order.
+    // ⚠️ It is derived from the SAME two constants the tx builder subtracts, not restated: a
+    // second copy of this arithmetic is a second place for it to drift out of agreement with
+    // the bytes, and the disagreement is invisible until an arming reverts.
+    let paid_to_lp = amount_sats
+        .checked_sub(DEAD_MAN_FEE_SATS)?
+        .checked_sub(quid_ln::deadman_exit::DEAD_MAN_ANCHOR_SATS)?;
     let exit = quid_hop::evm_codec::ExitArming {
         // The contract OVERWRITES the funding entry with what it already knows, and only
         // the freshness input's entry is honoured — so a single placeholder pair is correct
@@ -217,11 +239,11 @@ fn build_exit_call(
         prev_values: vec![0u64],
         prev_scripts: vec![Vec::new()],
         cltv_deadline: cltv.to_consensus_u32() as u64,
-        checkpoint_sats: amount_sats,
+        checkpoint_sats: paid_to_lp,
         signed_exit_tx: raw_tx.clone(),
     };
     let calldata = quid_hop::evm_codec::encode_emit_dead_man_exit(on_chain_cid, &params, &exit);
-    Some((calldata, amount_sats))
+    Some((calldata, paid_to_lp))
 }
 
 /// The periodic dead-man-exit heartbeat. Spawn once at daemon boot (supervised in the

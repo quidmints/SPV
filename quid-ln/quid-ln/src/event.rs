@@ -672,10 +672,9 @@ pub fn handle_scorer_update(
 //
 // Event sources:
 // - `EventHandler` -> `Event::SpendableOutputs` (replayable)
-// NOTE: Err(Replay) ==> must be handled idempotently
-// TODO(phlip9): idempotency audit
-// TODO(max): Re idempotency, we may want to first check if the outputs have
-// actually been spent in some other way before trying to spend them.
+// NOTE: Err(Replay) ==> must be handled idempotently. The audit that discharges
+// that obligation is the first comment in the body, which also records why the
+// proactive "have these already been spent?" probe is deliberately absent.
 pub async fn handle_spendable_outputs<CM, PS>(
     channel_manager: CM,
     persister: PS,

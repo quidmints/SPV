@@ -58,6 +58,17 @@ fn run() -> Result<()> {
                  (the fleet is still alive; re-run after the deadline). Use --force to override."
             );
         }
+        // (§BTC-2.5a-bis) Loud, and deliberately NOT phrased as a transient failure: the
+        // channel reads armed on the EVM and has no valid escape on Bitcoin. Re-running
+        // later cannot fix it — a fresh ladder must be armed against the LIVE outpoint.
+        RecoverOutcome::StaleArming(outpoint) => {
+            println!(
+                "STALE ARMING: this channel's emitted exit spends {outpoint}, which is \
+                 ALREADY SPENT on Bitcoin — the exit can never confirm and the EVM's arming \
+                 record is a lie. The channel is NOT protected. Re-arm the ladder against \
+                 the channel's current funding outpoint."
+            );
+        }
         RecoverOutcome::Broadcast(txid) => {
             println!("broadcast dead-man exit: txid {txid}");
         }

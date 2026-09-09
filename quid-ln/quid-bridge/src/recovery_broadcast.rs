@@ -58,6 +58,11 @@ pub enum RecoverOutcome {
     /// An exit exists but its CLTV has NOT matured (the fleet is still alive) —
     /// carries `(tip_height, cltv_deadline)`. Not broadcast (would be rejected).
     NotMatured(u32, u64),
+    /// (§BTC-2.5a-bis) **THE CHANNEL READS ARMED AND HAS NO VALID ESCAPE.** An exit exists,
+    /// but an input it spends is ALREADY SPENT on Bitcoin, so these bytes can never confirm.
+    /// Carries the `txid:vout` that is gone. See [`recover_and_broadcast`] for how this
+    /// arises and why it must not be reported as [`Self::NotMatured`].
+    StaleArming(String),
     /// Broadcast succeeded; carries the mempool-returned txid.
     Broadcast(String),
 }
@@ -160,6 +165,34 @@ pub fn bitcoin_tip_height(esplora_url: &str) -> Result<u32> {
     text.trim().parse::<u32>().context("parse tip height")
 }
 
+/// (§BTC-2.5a-bis) The FIRST input of `raw_tx` that Esplora reports as already spent,
+/// rendered `txid:vout`. `None` means no input was observed spent — which includes every
+/// input answering "unspent" AND any input Esplora could not be asked about.
+///
+/// 🔑 **THE ASYMMETRY IS THE POINT AND IT IS NOT A TOLERANCE.** Only a POSITIVE
+/// `"spent": true` is acted on. An unparseable tx or an unreachable Esplora leaves the
+/// caller exactly where it was before this function existed — it never blocks a broadcast —
+/// because refusing to recover on an unanswerable query would hand any host that can break
+/// its own Esplora endpoint the power to strand a genuine escape, which is a strictly worse
+/// failure than the one being detected. The mempool remains the final arbiter either way.
+fn first_spent_input(esplora_url: &str, raw_tx: &[u8]) -> Option<String> {
+    let tx: bitcoin::Transaction =
+        bitcoin::consensus::encode::deserialize(raw_tx).ok()?;
+    let base = esplora_url.trim_end_matches('/');
+    tx.input.iter().find_map(|txin| {
+        let op = txin.previous_output;
+        let url = format!("{base}/tx/{}/outspend/{}", op.txid, op.vout);
+        let spent = ureq::get(&url)
+            .call()
+            .ok()?
+            .into_json::<Value>()
+            .ok()?
+            .get("spent")?
+            .as_bool()?;
+        spent.then(|| op.to_string())
+    })
+}
+
 /// Broadcast a raw tx via a public Esplora (`POST {esplora}/tx`, hex body → txid).
 pub fn broadcast_raw_tx(esplora_url: &str, raw_tx: &[u8]) -> Result<String> {
     let url = format!("{}/tx", esplora_url.trim_end_matches('/'));
@@ -170,12 +203,28 @@ pub fn broadcast_raw_tx(esplora_url: &str, raw_tx: &[u8]) -> Result<String> {
     Ok(txid.trim().to_string())
 }
 
-/// The full recovery flow: read the latest exit, and if its CLTV has matured (or
-/// `force`), broadcast it. KEYLESS — only public reads + a public broadcast POST.
+/// The full recovery flow: read the latest exit, check that it can still spend what it
+/// claims to, and if its CLTV has matured (or `force`), broadcast it. KEYLESS — only
+/// public reads + a public broadcast POST.
 ///
 /// `force` bypasses the maturity check (for keeper testing / a keeper that already
 /// verified maturity out of range); a non-final tx will simply be rejected by the
 /// mempool, so `force` cannot cause harm.
+///
+/// 🔴 **(§BTC-2.5a-bis) THE SPENTNESS CHECK IS NOT AN OPTIMISATION — IT IS THE ONLY THING
+/// THAT DISTINGUISHES "ARMED" FROM "READS ARMED".** `_armLadder` is atomic with `splice`, so
+/// a splice whose EVM leg REVERTS after Bitcoin already confirmed it arms nothing new, while
+/// the OLD `exitArmedOnOutpoint[oldTxid][oldVout]` still reads `true` and the outpoint every
+/// old rung spends is gone. §BTC-2.4e's *"rotation retires the stale entries"* guarantee holds
+/// only when the EVM RECORDED the rotation; here it did not. **Without this check the LP is
+/// told `NotMatured` — "the fleet is alive, you are protected" — which is the ladder failing
+/// silently in the one direction it must not.**
+/// 🔑 **AND IT IS CHECKED AGAINST BITCOIN, NOT AGAINST THE EVM'S RECORD**, which is what makes
+/// it general: any future path that leaves the EVM behind Bitcoin is caught by the same
+/// predicate, and it needs no contract change to deploy.
+/// ⚠️ **IT PRECEDES THE MATURITY BRANCH AND OVERRIDES `force`.** A stale arming is wrong in
+/// both directions — before maturity it is a false reassurance, after maturity it is a
+/// broadcast that cannot confirm — and no flag can make a spent input spendable.
 pub fn recover_and_broadcast(
     rpc_url: &str,
     btc_channels: &str,
@@ -187,6 +236,9 @@ pub fn recover_and_broadcast(
         Some(e) => e,
         None => return Ok(RecoverOutcome::NoExit),
     };
+    if let Some(outpoint) = first_spent_input(esplora_url, &exit.signed_exit_tx) {
+        return Ok(RecoverOutcome::StaleArming(outpoint));
+    }
     let tip = bitcoin_tip_height(esplora_url)?;
     // Broadcastable when the tip has reached the deadline (the tx becomes includable
     // in block tip+1, where nLockTime < tip+1 ⇔ cltv_deadline ≤ tip).

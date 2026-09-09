@@ -10,7 +10,7 @@ use quid_api::types::{
         PaymentKind, PaymentPreimage, PaymentRail, PaymentSecret,
     },
 };
-use quid_common::{ln::amount::Amount, time::TimestampMs};
+use quid_common::{ln::amount::Amount, ppm::Ppm, time::TimestampMs};
 use lightning::events::PaymentPurpose;
 #[cfg(doc)] // Adding these imports significantly reduces doc comment noise
 use lightning::{
@@ -25,6 +25,16 @@ use crate::command::create_invoice;
 use crate::payments::{
     PaymentMetadata, PaymentV2, PaymentWithMetadata, manager::CheckedPayment,
 };
+
+/// (§BTC-8e D2.1) The most our channel counterparty may skim off an inbound invoice payment
+/// as ITS OWN fee, before the invoice's partner terms are added on top.
+///
+/// 10,000 ppm = 1%, which is **double** the 5,000 ppm receiver fee `PartnerFeeFields` names as
+/// its minimum. The doubling is the whole reason this is a separate constant rather than a
+/// reference to the fee itself: the receiver fee *"may change slightly over time"*, and a bound
+/// that tracks it exactly would fail honest payments on every adjustment. **It is a ceiling on
+/// the absurd, not a price** — tighten it only alongside a fee schedule this node can read.
+const MAX_RECEIVER_SKIM_PPM: Ppm = quid_common::ppm!(10_000);
 
 // --- Helpers to delegate to the inner type --- //
 
@@ -529,14 +539,58 @@ impl InboundInvoicePaymentV2 {
             return Err(ClaimableError::FailBackHtlcsTheirFault);
         }
 
-        // TODO(phlip9): Validate that the skimmed fee is within reasonable
-        // maximum bounds for:
+        // (§BTC-8e D2.1) BOUND THE SKIMMED FEE.
         //
-        // - a receiver fee (~0.5%) that may change slightly over time
-        // - the partner fee (base + ppm) from the CreateInvoiceRequest
-        // - potential future JIT channel fees
+        // 🔴 `skimmed_fee` is chosen by our CHANNEL COUNTERPARTY and arrives inside the
+        // HTLC. Until this check it was recorded and never questioned, so a counterparty
+        // could take any fraction of the payment and we would claim what was left and call
+        // the payment settled — the payer sees a paid invoice and the receiver silently
+        // gets less. 🔗 SAME FINDING AS §BTC-2.5a's `reverseSwapOut` floor, on the Rust/LN
+        // side of the stack: an economic value supplied by a counterparty and bounded by
+        // nothing.
         //
-        // so that we reject skimmed fees which are absurdly high.
+        // THE BOUND IS THE FEE TERMS THE INVOICE WAS QUOTED UNDER: our own receiver skim,
+        // plus the partner's `base_fee + prop_fee` carried on this record from the
+        // `CreateInvoiceRequest` that produced the invoice (`command.rs`'s
+        // `total_partner_fee := partner_prop_fee + partner_base_fee / amount` is the same
+        // sum, expressed as a rate). Both proportional terms apply to the PAYMENT VALUE —
+        // `recvd_amount + skimmed_fee`, the pre-skim total the partner fee was quoted
+        // against (`quid-api-core/src/types/payments.rs`: *"Receives: `payment_value` :=
+        // `recvd_amount` + `skimmed_fee`"*).
+        //
+        // ⚠️ NO JIT ALLOWANCE, AND THAT IS DELIBERATE. `channel_fee` is commented out on the
+        // struct above and *"Implement JIT channel fees"* is unbuilt, so there is no JIT
+        // channel open on this rail to pay for. Headroom for a mechanism that does not exist
+        // is headroom the attacker gets and the honest counterparty never uses — widen this
+        // WITH the JIT path, in the same change, or not at all.
+        // ⚠️ THE WORST INPUT THAT STILL PASSES: a counterparty taking `MAX_RECEIVER_SKIM_PPM`
+        // (double the 5,000 ppm receiver fee, so an honest fee may move without this firing)
+        // plus the invoice's own partner terms. Without the check the worst case is 100%.
+        if let Some(skim) = skimmed_fee {
+            // `payment_value` is the pre-skim total; `amount` is what survived the skim.
+            let payment_value = amount.saturating_add(skim);
+            let (partner_prop, partner_base) = match &self.partner_fee {
+                Some(pf) => (
+                    pf.prop_fee.unwrap_or(Ppm::ZERO),
+                    pf.base_fee.unwrap_or(Amount::ZERO),
+                ),
+                None => (Ppm::ZERO, Amount::ZERO),
+            };
+            let allowed = payment_value
+                .saturating_mul(
+                    MAX_RECEIVER_SKIM_PPM.to_decimal() + partner_prop.to_decimal(),
+                )
+                .saturating_add(partner_base);
+            if skim > allowed {
+                warn!(
+                    %skim,
+                    %allowed,
+                    %payment_value,
+                    "counterparty skimmed more than this invoice's fee terms allow"
+                );
+                return Err(ClaimableError::FailBackHtlcsTheirFault);
+            }
+        }
 
         // TODO(max): In the future, check for on-chain fees here
 
