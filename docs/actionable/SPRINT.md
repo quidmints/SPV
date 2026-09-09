@@ -237,6 +237,39 @@ The F9 lane swept for its own shape and found the family. Ordered by damage:
 5. `QuidLib.deliverableETH:713` and `Shares.levGrossNative:149` / `Vault.totalNetEquity:240` — same
    shape, but each is fail-open **with the argument written down**. Left alone deliberately.
 
+### 📋 §SWAPLIB-LANE-RESIDUE-2026-09-09 — what the size lane found and did NOT fix
+- 🔴 **RULE 14c COLLISION, LIVE AND MEASURED: a peer edited `_convert` INSIDE `SwapLib.sol` while a
+  lane held that file.** Nothing was lost, but **the lane partition on this file was not real.** That
+  is the §LANES premise failing in practice, not in theory — and `SwapLib` is the one file the
+  partition calls single-lane BY PHYSICS. ⇒ Attribution had to be measured by isolating hunks: of the
+  −712 bytes, **−469 was the lane's and −243 was the peer's** `_convert`/`FeeLib.applyFeeAndHaircut`
+  change that arrived mid-flight.
+- **`SwapLib._applySkew` has ZERO callers** (pre-existing; `check-dead-internals.py`). It is `private`
+  so solc already strips it — **deleting it frees 0 bytes.** Book as rule-1 cleanup, NOT a size item;
+  the file carries ~40 lines of docblock still deciding whether to wire it up.
+- **Not from this session, confirmed:** `check-skew-agnostic.py` flags a new `Core.skewTargetUsd` seam
+  accessor; `check-orphans.py` flags `retainedEthPremium` (0 src callers, 8 test refs).
+
+### 🟡 §POOLED-CONSOLIDATE-FOR-REPAY — **the lane's verdict: BOOK IT, but NOT as an EIP-170 remedy and NOT in the proposed form**
+The idea was that `LevManager` gaining `consolidateForRepay(address venue, address refundTo)` would
+collapse F2's body. **The lane that owns SwapLib argued it down, and the argument holds:**
+1. **It is off the critical path** — SwapLib is +436 without it.
+2. ⛔ **The proposed collapse is OVERSTATED: F2 does not become three calls.** The BTC twin's own
+   docblock says why — *"`got` is still measured by the caller AT THE VENUE, so the repay is sized by
+   what actually arrived — never by what this function reports."* **The two `balanceOf(venue)` reads
+   ARE F2's measured-delivery half and must survive wherever the consolidation lives.** Only
+   `_consolidateTo` + one `safeTransfer` actually move.
+3. **But the shape is right and the duplication is real:** it is the exact twin of
+   `BtcLevManager.consolidateForRepay(lp, refundTo)`, differing only in venue resolution —
+   §POOL-VENUE left the ETH rail with no `lp` to key on, which is the ONLY reason the twin was never
+   written. Landing it deletes SwapLib's new `LevMath._consolidateTo` link edge.
+⇒ **Sequence it after `LevManager` has margin, and have it RETURN THE VENUE-MEASURED DELTA itself.**
+That is the version that lets F2's two `balanceOf` reads go too, and it is **strictly better than the
+BTC twin**, whose docblock currently has to warn callers not to trust its return value.
+⚠️ **CORRECTION to the lane's own premise:** it argued from *"LevManager has 33 bytes"*. That reading
+predates `751b8597` — **`LevManager` is 24,064 with +512.** The sequencing advice survives (the
+duplication, not the budget, is the reason to do it), but the budget objection does not.
+
 ### 🟠 §GHO-HAS-NO-CONVERTER — **owner asked 2026-09-09: *"cant gho redeem directly from aave for another stable?"* SHORT ANSWER: NO, AND THE REASON IS WORTH KNOWING.**
 ✅ **Verified in code, not assumed.** GHO *is* Aave-wired here — `Aux.GHO_RESERVE_ID` is resolved at
 construction and reverts `GHONotOnAAVE` if absent, and `configure` reverts `GHOIsAaveWired` to stop a

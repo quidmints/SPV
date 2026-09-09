@@ -1933,6 +1933,31 @@ merge: **`SwapLib` 24,474 (102) · `BTCChannels` 23,217 (1,359) · `Quid` 23,123
 `LevManager` 22,999 (1,577) · `BasketLib` 21,503 (3,073).**
 ⚠️ **THIS IS THE FOURTH CONSECUTIVE WRONG ANSWER THE ROW BELOW GIVES** — `Quid`, `BTCChannels`,
 `LevManager`, and now none of those. 102 bytes is tighter than `LevMath`'s 73-byte low and `Quid`'s
+
+⭐ **AND THE 4-SECOND SIZE LOOP — measured 2026-09-09, it turned a ~10-minute `forge build` cycle into
+3.7 s and is the only reason a size fix fits in one session.** Standalone `solc` reproduces
+`check-contract-sizes.py`'s number **exactly** (verified: 24,852 → 24,852 on `SwapLib`), with no
+`forge` contention, so it does not compete for the one-build-at-a-time budget. From `evm/`:
+```
+solc --base-path . --include-path lib $(tr '\n' ' ' < remappings.txt) --optimize \
+     --optimize-runs 200 --evm-version cancun --metadata-hash none --no-cbor-metadata \
+     --bin-runtime src/imports/SwapLib.sol
+```
+⇒ **Iterate with this; confirm with `check-contract-sizes.py` once at the end.**
+
+⛔ **`tools/bytemap.py`'s PER-FUNCTION attribution is NOT trustworthy when the optimizer dedupes
+blocks — measured 2026-09-09.** It billed **547 bytes** to `burnInRange`, which has no caller inside
+`SwapLib` and is provably not in its bytecode (the file's own §LP-ENGINE comment says so, and
+`rebalanceCore` correctly scored 0). **Use it for totals and file-level attribution; never to pick a
+deletion target.** A confident per-function number is exactly the shape of §CONFIRM-THE-RUN-HAPPENED.
+
+📌 **Two shrink facts that generalise, both measured 2026-09-09:** (1) wrapping a bare `immutable`
+read in a `private view` accessor **saves nothing** — the legacy optimizer inlines it straight back
+(`immutableReferences` unchanged across 15 sites, identical size); **folding a repeated CALL SEQUENCE
+is where the bytes are.** (2) `public` → `external` is **not** reliably a saving: on
+`skewWad`/`sellSkew` it was **−187** (two dispatcher entries plus a `Risk memory` ABI decoder went
+away) and on `deleverOnDelivery`/`deleverEthOnDelivery`/`addLiqBody` it was **exactly 0**. Measure it;
+do not assume it, and do not leave zero-byte churn in a file another lane is holding.
 190, and **this repo has already shipped a `Core` at −126 bytes with a fully green suite**, so the
 suite will not catch the next addition.
 ⛔ **`SwapLib` IS ALSO THE FILE ANOTHER LANE IS ACTIVELY EDITING** (the §E308 load-balance work,
