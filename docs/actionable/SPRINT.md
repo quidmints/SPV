@@ -312,6 +312,72 @@ transfers); "1e12 tranche wipe" overstated it. **F5** — inert unless a stable 
 
 ---
 
+## ✅ §BITCOIN-CENSUS-2026-09-09 — **THE BITCOIN SCOPE, RE-COUNTED AGAINST CODE. SEVEN ROWS THE ROUTER CALLS OPEN ARE DONE.**
+
+⛔ **RULE 22 — CROSS THESE OFF. Each was verified in the CODE, not the prose (rule 20). Re-opening any
+of them costs a session, which is what this block exists to prevent.**
+1. **§WBTC-MODE-CANNOT-CLOSE §1** — the row is 🔴 *"NOT WRITTEN"*. **The branch exists:**
+   `BtcLevManager.sol:457` `if (p.venue.COLLATERAL() == address(COLL))` in `closeBtcLev`, and
+   `swapOutDelever` now fails loud with `WbtcSliceNotDeliverable()` instead of falling into
+   `VBTC.burnFrom`. **Only §2 (auto-sell at withdrawal) is open.**
+2. **§T9-SORT-NOT-ROLE second half** — the 2026-09-09 note in §BTC-9 says `check_against_chain`'s
+   `Mismatch` arm *"still ROLE-orders the predecessor pair"*. **It does not:** `validating_signer.rs`
+   ~:707 is `let (lp_prev, hop_prev) = if ours_prev <= theirs_prev {…}`, byte-sorted, with the §T9
+   comment above it. **The note is the stale thing, not the code.**
+3. **D2 #21 `NotPubkeyHash()` ×20** — fixtures no longer sign the PoP over `vm.addr(lpPk)`:
+   `OpenChannelE2E.t.sol:97`, `BtcSelfManaged.t.sol:223`, `BtcLpMintStress.t.sol:225`,
+   `Alles.t.sol:4747` all derive `ChannelLib.lpEthOf(p.lpPubkey)`.
+4. **D2 #22 — the LIVENESS GATE.** The row is 🔴🔴🔴 *"NOT BUILT, AND I LANDED THE HALF THAT NEEDS IT"*.
+   **`RoutingGate` IS built and wired in five places** (the row's own ✅ 2026-09-06 line says so; the
+   census re-flagged it as open by reading the screaming header instead of the tail). ⚠️ **The document
+   it argues from, `LP-SIGNING-READINESS.md`, does not exist anywhere in the tree** — that argument
+   cannot be re-read, so do not cite it.
+5. **GATE 3 items 4/5/6** — genuinely closed (`Ownable` absent from `BTCChannels` except in retired
+   comments; `error LadderTooDeep()` at `:501`). Listed so they are not re-opened.
+6. **7540 `preview*` half** — `grep preview|max*` in `Vault.sol`/`VBtc.sol`/`Shares.sol` returns **0**;
+   `Quid.sol` holds exactly the four deposit-side accessors. Discharged as claimed.
+7. **`redeemVBtc`'s ⛔ header (C4)** — landed, **and now LIFTED by §VBTC-IS-THE-SHARES**; see below.
+⚠️ **HALF-COVERED, not done: 4j** (dead-man exit on regtest end to end).
+`regtest/deadman-freshness-e2e.sh` proves the freshness-UTXO consensus claim; **no script broadcasts a
+matured exit end to end.** SPRINT calls 4j *"the highest-value test in the Bitcoin scope"* — it is still
+owed.
+
+### 🔑 §B8-IS-UNBLOCKED — **the 2.3 ruling landed 2026-09-09.**
+`§MASTER-ORDER` 2.3 stated the obstruction as *"the vault must BE the share token, and on the BTC leg
+vBTC is minted to `LEV_MANAGER`, never to an LP"*, and trap 1 as *"Shares are the blocker, not `asset()`
+and not the `preview*` reverts."* **Owner ruled: `the token is the shares`.** ⇒ the first half is
+decided, and the second half is now ordinary work (`Vault.sol`'s `VBTC.mintTo(msg.sender, sats)` inside
+`exposeBtcToLev` mints the LP's shares to the lev manager). **Both the deferred-claim half
+(§7540-CLAIM-IS-IMMEDIATE) and the position-token half are now settled, so nothing in the 7540 area is
+owner-blocked.**
+⚠️ **B8 IS LANE L5 (`Quid.sol`/`Vault.sol`), NOT A BITCOIN LANE** — do not hand it to L2/L3.
+⛔ **AND RE-DERIVE ITS SCOPE FROM CODE BEFORE STARTING:** `§MASTER-ORDER` warns that `B8`/`D2` cite
+symbols — `recordForceClosePenalty`, `termsLeaf`, `closeChannel` — that **never existed in this tree.**
+
+### 📌 §BITCOIN-PARTITION-2026-09-09 — five concurrent lanes, cut on collision domain then ordered by GATE
+| lane | owns | gates |
+|---|---|---|
+| **BTC-CONTRACTS (L3)** | `BTCChannels.sol` `ChannelLib.sol` `BitcoinTx.sol` | GATE 3 first (immutable, one attempt), then 4d/4e, then 7e/7f |
+| **RUST-SIGNER (L2a)** | `quid-ln/quid-ln/src/validating_signer.rs` `taproot_signer.rs` | GATE 4. **One worker only** — its rows are all predicates on one function |
+| **RUST-HOP/BRIDGE (L2b)** | `quid-hop/**` `quid-bridge/**` | GATE 4 |
+| **ENCLAVE (L2c)** | `quid-enclave` `quid-cvm` `quid-sgx-*` sealer | GATE 4/5. Separate toolchain, zero Solidity collision |
+| **TESTS/REGTEST (L6)** | `evm/test/` `regtest/` | additive by construction |
+⚠️ **L1 prose (GATE 9b/9c/9e) touches the SAME files as L3, so it runs AFTER L3 lands, not beside it.**
+🔴 **CROSS-LANE HAZARDS — the three that will merge clean and break the pair:**
+- **§LPETH spans `quid-hop/src/evm_codec.rs` (L2b) and `BTCChannels.sol` (L3)** — the only item that
+  cannot sit in one lane. Give it to L3 and **freeze `evm_codec.rs` for its duration.**
+- **§WBTC §2 touches `BtcLevManager.sol` and `LevMath.sol`.** `LevMath` is L4's serialiser and
+  `BtcLevManager` is named in §COMPILE-COUPLING as owned by **no lane at all.** Never schedule it
+  concurrently with lever/range work.
+- **`deliverableBTC` (7c) lands partly in `Vault.sol`/`BtcLib.sol`, i.e. OUTSIDE every BTC lane.**
+  Assign an owner explicitly before starting it.
+
+### ⛔ §ACCEPTOR-ITEMS-ARE-IN-THE-FORK — not workable from this tree
+`§ACCEPTOR-CONTRIBUTION-FEES` and `§ACCEPTOR-SPLICE-TEST-IS-RED` both live in
+`quid-ln/lib/rust-lightning`, now the external `quidmints/rust-lightning`. The settling run is
+`cargo test -p lightning --lib splicing_tests::test_acceptor_contributed_splice_out` **in that fork**.
+📌 Its zero-callers half is **expected state, not a defect** — its only consumer is item 4b.
+
 ## 🔴🔴 §LPETH-FROM-THE-SORTED-FIELD — **THE LP'S ON-CHAIN IDENTITY IS DERIVED FROM A FIELD THAT IS THE HOP'S KEY HALF THE TIME. FAIL-OPEN.**
 
 Found 2026-09-09 sweeping the §T9-SORT-NOT-ROLE seam. **Every other mis-ordering in that family fails
