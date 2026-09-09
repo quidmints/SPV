@@ -60466,3 +60466,60 @@ pole actually resembles — but `0505a993` cited §2.3 to justify the pole and *
 our pole comes from a boundary condition A–S do not have (inventory floored at zero, no outside venue),
 not from §2.3's denominator. **Right answer, wrong citation — and correcting it may settle §2.2 vs §2.3
 on its own.**
+
+---
+
+# 🔧 §SKEW-SYNTHESIS-CORRECTED — **my "which A–S section?" question is SUPERSEDED. The test detects a DOUBLE-COUNT, and σ² was never the driver.**
+
+§SKEW-MONTH-SYNTHESIS (one commit ago) named the wall as `test_E287_SkewIsNotPinnedToAConstant`'s
+linearity assertion and posed *"which A–S section are we implementing?"* as the unasked question. **A peer
+supplied a better answer, it is verified, and it retires my framing.**
+
+## THE CORRECTION — the test is not foreclosing a legitimate shape, it is catching a bug
+`skew = Γ·σ²·q̄(q)` **already carries σ² ONCE, LINEARLY — that IS A–S §2.2.** So κ(σ) and ρ(σ) were each
+a **SECOND appearance of the same σ²**, and *a linearity assertion is precisely what detects a
+double-count*. ⇒ **The test rejected both correctly, for a better reason than the one it states**, and
+the two failures having different mechanisms (κ via a ceiling, ρ via non-linearity) is the same defect in
+two disguises. **There is no §2.2-vs-§2.3 choice to make: we are in §2.2 and the shape is already right.**
+
+## ⇒ SO THE VOL-SENSITIVITY INSTINCT WAS CHASING THE WRONG VARIABLE — mine included
+**σ² is not the reserve's driver. What empties a range is DIRECTIONAL FLOW, not price variance.** And the
+tree already names the gap precisely: `Core:250` — *"one-directional drain and a balanced round trip look
+identical to gross alone"*. `skewTargetUsd() = flowEwmaUsd + redeemEwmaUsd` is **GROSS**, so **target
+cannot tell churn from drain.**
+🔑 **THAT IS WHY §M0 MEASURES ~0 bps.** A steadily-draining basket reads as balanced ⇒ target stays high
+⇒ q stays low ⇒ nothing prices. The weak signal I attributed to κ's constancy is really target's
+blindness to direction.
+
+## ⭐ AND THE TARGET-SIDE ROUTE IS REAL — VERIFIED, NOT ASSERTED
+`skewWad(uint poolVolUsd, **uint flowUsd**, uint sigmaSqWad, …)` takes the target as a **PARAMETER**, and
+`SkewLearningsAreLive` supplies `TARGET = 2_000_000e6` directly. ⇒ **changing how `Core.skewTargetUsd()`
+computes it is INVISIBLE to the linearity test.** The wall is routed around, not broken.
+| | κ(σ) | ρ(σ) | **target-side** |
+|---|---|---|---|
+| linearity test | 🔴 ceiling | 🔴 non-linear | ✅ invisible |
+| §E68 integral | 🔴 voided | ✅ | ✅ untouched |
+| new sentinel branch | 🔴 required | ✅ | ✅ none |
+| SwapLib bytes (577 left) | 🔴 +403 measured | 🔴 2 powWad/swap | ✅ **zero** |
+| §E289's κ gate | 🔴 engages | ✅ | ✅ never engages |
+📌 And the SIGN works: higher target ⇒ **dearer** drain (measured 7.01/35.07/105.21/245.48 bps at target
+60/100/200/400), so *"more reserve when riskier"* means **target rises with risk** — the newsvendor
+safety-stock shape. **Today's target is pure mean flow with NO safety term at all.**
+
+## 🔴 TWO HONEST BLOCKERS, both verified in the declaration itself
+1. **`int256 public netFlowUsd` is CUMULATIVE and UNDECAYED** (`Core:1603`, `+= usdLeg` at `:1091`) while
+   gross is a 48h-decayed EWMA. **Ratio of a stock to a decayed stock is incoherent, and no decayed
+   SIGNED register exists.**
+2. **Its own docblock gates money-path reads** until the mapping is derived on our balance sheet —
+   *"their risky asset sits OUTSIDE the reserve and ours sits inside it"* (`Core:1594`). **That gate is
+   correct and is not to be argued around.**
+⇒ **Next MEASUREMENT, not next commit.**
+
+## WHAT THIS RESOLVES
+**Both open questions become one.** If target priced directional drain: scarcity would price itself
+correctly, and **LP entry — the only refill path the shipped design has — would be pulled in at the right
+moment by construction.** No funded refill, because none was ever needed. ⇒ §REFILL-G2-VERDICT,
+§REFILL-DESIGN-OPEN and §REFILL-OPTION-F were all elaborate answers to a question that dissolves here.
+✅ Also conceded, from the same exchange: my *"balanced quantities"* framing was right — §V4-CUT removed
+the curve, settlement is at oracle, and `skewWad` never sees a second leg. There is **no paired-reserve
+invariant** anywhere; q compares inventory to expected FLOW, not to another leg.
