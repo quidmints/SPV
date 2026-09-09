@@ -63342,3 +63342,45 @@ marginal-rate band are owner rulings, and everything downstream of them is ⏸�
 design above stands and is NOT to be built yet: it is blocked on two owner rulings (pro-rata vs
 cheapest-first repay; the marginal-rate band width) and it sits behind the unfinished items below.
 **Do not open it before §DELIVERABLE-VS-MAX and the §CATCH-SWALLOWS root fix are closed.**
+
+---
+
+# ✅ §DELIVERABLE-VS-MAX — **RESOLVED, AND THERE IS NO DEFECT. I framed it wrong; both numbers are right.**
+
+I booked this as *"two numbers about the same range that disagree completely. One of them is wrong."*
+**Neither is wrong. They are two different liquidity sources, and the code says so in its own words.**
+
+| number | what it is | who draws it |
+|---|---|---|
+| **`max` = `ICore(core).POOLED()`** (`SwapLib:459`) | the range's **in-pool inventory** | **swap-out** |
+| **`deliverableETH()`** (`QuidLib:690`) | `_rangeETH` (idle WETH + eETH + **ether.fi venue**) − the weETH Curve haircut − lev net equity | **redeem / withdraw** (`Quid:932`) |
+
+`SwapLib:460-464` states the separation as DESIGN, not accident: *"swap-out is **NOT** capacity-gated /
+deferred during stable illiquidity — it pays volatile from **the pool's OWN inventory** (bounded by
+`max` = POOLED depth …), a **DIFFERENT liquidity source** than the (possibly illiquid) stable vaults."*
+⇒ **A swap fills against POOLED. A redeem draws venue-deliverable ETH. Holding 5.048e18 of venue ETH
+while `POOLED == 0` is the system working**, not a view over-reporting.
+⚠️ **WHAT IS TRUE AND IS NOT A BUG, stated so it is not re-opened as one:** the protocol can hold ETH it
+cannot SELL. That is a service-capacity property of quoting against in-range depth, and the `sendEth`
+cascade exists to HONOUR a fill that `POOLED` already sized — it is not a second source the quote may
+draw on. 🔗 Same frame as §M.1's inverse (net equity priced in POOLED but undeliverable).
+
+## ▶️ AND IT GIVES §F2-NEVER-DRAINED ITS ACTUAL FIX — the lever is **`POOLED`**, not the seed or the drain
+The run-happened gate's remedy text has now been wrong **three ways**, and this is the last of them:
+*"free depth covered the ask"* (no — `filled == 0`, there was no ask), *"shrink the seed deposit"*
+(measured strictly worse), *"grow the drain"* (measured: no effect).
+⇒ **THE REAL CAUSE: `_rallyRange` + `_realignRangeToReal` leave `POOLED` at zero, so the FIRST swap has
+no in-range inventory to fill against and reverts `SlippageMaxS()` (`max == 0`, the dry-pool arm).**
+To reach `QuidLib.sendEth`'s de-lever fallback the fixture must make a swap **FILL** and then ask for
+more ETH than idle + venue can serve. That needs **POOLED FUNDED**, and a drain sized against POOLED —
+the opposite of what the message advises. **Neither seed size nor drain size is the lever; `POOLED` is.**
+📌 Not applied: tests are stopped by owner instruction. **This is the whole instruction for whoever
+turns them back on**, and it is a fixture change only — no `src` change is implied by any of it.
+
+## 📌 CONSEQUENCE FOR MY OWN GATE 0
+I made §DELIVERABLE-VS-MAX the gate on trusting these fixtures, on the theory that a view and a fill
+path disagreeing meant one was lying. **They were never in conflict, so GATE 0 is DISCHARGED and the
+F-series numbers it was holding up are admissible.** ⚠️ The general caution survives and is worth
+keeping: **a capacity number is only meaningful against the PATH that draws it** — reading a redeem-side
+capacity as swap-side depth is what produced this, and it is the same class as reading `rangeETH` as
+`deliverableETH`, which `LevMath:232` already records as a real prior error.
