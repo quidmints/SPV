@@ -7,6 +7,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {console} from "forge-std/console.sol";
 import {SwapLib} from "../src/imports/SwapLib.sol";
+import {LevMath} from "../src/imports/LevMath.sol";   // §REFILL-AFFORDABILITY: the RESTORATION leg
 // §E113: the v4-PERIPHERY LiquidityAmounts has only getLiquidityFor* (forward). The reverse
 // (amounts FROM liquidity) lives in v4-core/test/utils -- the one that can price a position.
 
@@ -155,6 +156,47 @@ contract DrainAtomicity is AllesFixture {
         // CONTROL 2 — the premium leg must be REACHABLE, or the inequality is vacuous from the other
         // side: a zero premium satisfies "spread >= premium" trivially and says nothing.
         emit log_named_uint("premium non-zero (1) or leg never fired (0)", premium6 > 0 ? 1 : 0);
+
+        // ═══ THE RESTORATION LEG — the half §E65 has called UNMEASURED since it was booked ═══
+        // ⭐ **THE PROTOCOL'S OWN DEFAULT VENUE, NOT A MODEL AND NOT AN API KEY.** `routedSwap` with an
+        //    EMPTY route means exactly that (§SESS-92), so this measures what restoration would really
+        //    cost on the path the code would really take, with no keeper in it.
+        // ⇒ THE ROUND TRIP IS THE MEASUREMENT. The drain took `ethGot` out and put `boldAmt` dollars in.
+        //   To restore, those SAME dollars must buy `ethGot` back. Whatever they cannot buy is the
+        //   restoration spread — no exact-output quote and no modelled fee, just what the venue did.
+        // ⚠️ PRICED IN USDC, NOT BOLD. The dollars actually received are BOLD; converting them is a
+        //   stable hop the tree measures at ~1 bps (`Interfaces.sol:244`), so it is a known, small,
+        //   SEPARATE cost and folding it in here would blur the venue's own spread. Stated, not hidden.
+        uint usdcIn = boldAmt / 1e12;                       // 18-dec BOLD → 6-dec USDC, same dollars
+        deal(address(USDC), address(this), usdcIn);
+        uint wethBefore = WETH.balanceOf(address(this));
+        IERC20(address(USDC)).approve(address(AUX), type(uint).max);
+        uint ethBack;
+        try this.buyBack(usdcIn) returns (uint got) { ethBack = got; } catch { ethBack = 0; }
+        ethBack = WETH.balanceOf(address(this)) - wethBefore;
+
+        emit log_named_uint("RESTORE: dollars available   ", usdcIn);
+        emit log_named_uint("RESTORE: volatile bought back", ethBack);
+        emit log_named_uint("RESTORE: volatile owed       ", ethGot);
+        // CONTROL 3 — the venue must actually have filled, or the shortfall below is 100% by default
+        // and measures our own failure to route rather than the market's price.
+        assertGt(ethBack, 0, "CONTROL: the default venue must actually fill the buy-back");
+        uint shortEth = ethGot > ethBack ? ethGot - ethBack : 0;
+        uint spreadUsd18 = shortEth * px / 1e18;
+        emit log_named_uint("RESTORE: shortfall (wei)     ", shortEth);
+        emit log_named_uint("RESTORE: SPREAD @oracle (18d)", spreadUsd18);
+        emit log_named_uint("PREMIUM collected      (18d) ", premium6 * 1e12);
+        emit log_named_int ("PREMIUM - SPREAD (>0 = COVERS)", int256(premium6 * 1e12) - int256(spreadUsd18));
+        emit log_named_uint("spread as bps of the drain   ", boldAmt == 0 ? 0 : spreadUsd18 * 10_000 / boldAmt);
+        emit log_named_uint("premium as bps of the drain  ", boldAmt == 0 ? 0 : premium6 * 1e12 * 10_000 / boldAmt);
+        // ⛔ STILL NO INEQUALITY ASSERTED. The SIGN is the result being established; asserting it now
+        //    would encode the conclusion this test exists to find (§VACUOUS-BOUNDS).
+    }
+
+    /// @dev External so the try/catch above can isolate a venue failure from a test failure — a
+    ///      reverting route must show up as CONTROL 3 failing, never as an unexplained zero.
+    function buyBack(uint usdcIn) external returns (uint) {
+        return LevMath.routedSwap(address(USDC), address(WETH), usdcIn, 0, "");
         // ⛔ NO INEQUALITY ASSERTED, ON PURPOSE (§VACUOUS-BOUNDS). A one-sided bound cannot fail when
         //    the defect drives the value toward the asserted side, and BOTH sides are still being
         //    established. The SIGN is the result; asserting it now would encode a conclusion.
