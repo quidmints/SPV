@@ -62333,3 +62333,55 @@ share rise or fall as inventory falls?
 refill is a degradation, not a failure. The pool can sit mis-composed indefinitely without harming
 redeemers or solvency. **That is what buys the time for entry to arrive — and it is why this is a
 product question rather than a safety one.**
+
+---
+
+## 📖 §IMBALANCE-CONSEQUENCES — five owner questions answered from code, and ONE IS A REAL FINDING
+
+### Q1 · "dollars may not be enough to pay a redeemer"
+**Correct, and I overstated when I said redemption is untouched.** A redeemer is paid in dollars and never
+draws range volatile — that part holds. But **redemption is bounded by `redeemableAmount()`**, which is
+basket dollars less what is committed to the ranges. ⇒ **redemption is not immune, it is bounded by a
+DIFFERENT quantity** — basket dollar depth, not range inventory. A drained range does not impair it; a
+depleted *basket* does. ⚠️ And `redeemableAmount` carries a booked defect (§REDEEM-WRONG-RANGE): it
+**OVER-reports** redeemability by the other range's commitment. So the bound is looser than it should be,
+which is the wrong direction for safety.
+
+### Q2/Q3 · what a "partial fill" is, and whether it load-balances
+A swapper asks to buy more volatile than the range holds. The code sets `out = held`, re-derives the
+input for what it can actually serve, and **refunds the unused input**. The swapper gets everything the
+range had, at oracle, and their money back for the rest.
+⇒ **It does NOT load-balance. It BOUNDS.** It is the reason inventory cannot go negative and a drain
+cannot be larger than the range — a floor, not a restoring force. Balance is unchanged by it; the range
+simply ends at zero rather than below.
+
+### Q4 · does an incoming swapper face a very high skew?
+**Depends entirely on DIRECTION, and the asymmetry is the design:**
+· **Draining** (buying volatile out of a short range) → charged on `q`, rising convexly toward the pole.
+· **Restoring** (selling volatile INTO a short range) → **EXEMPT.** `if (over == 0) return
+  MIN_SWAP_SKEW_WAD` — at or below target the premium is not charged at all, only the 420 ppm floor.
+⇒ **A swapper who restores balance is never penalised for it.** They are not PAID either (§E276) — the
+best they get is reference price plus the floor — but they are not charged the scarcity premium.
+
+### Q5 · 🔴 THE IL-PROTECT CONSEQUENCE — and this is a real finding, not a restatement
+The IL hedge is sized by `ilTargetBps = 1 − √(entry/now)` — **a function of PRICE ONLY.** The leverage is
+reconciled against **gross venue collateral**, and **a range swap does not touch venue collateral.**
+⇒ **DRAINING THE RANGE DOES NOT RESIZE THE HEDGE.** The LP's long exposure falls with the range's
+inventory while the short (debt) stays sized for the long they had. **A drained range leaves the LP
+OVER-HEDGED — carrying a short against a long that has partly been sold out from under it.**
+📌 That is a genuine cost of imbalance nobody has priced, it is *separate* from service capacity and LP
+composition, and it grows with depletion. ▶️ Measurable: sweep realised LP P&L against inventory
+depletion at a fixed price move; if over-hedging is real the drained LP loses on an UP move.
+
+### Q6 · how this compares to a Uniswap v3 pool's LVR
+**LVR is the cost of quoting a curve that goes stale between arbitrages.** A v3 LP is picked off
+continuously because the pool's price only moves when someone trades against it.
+**We do not quote a curve at all — we settle at the oracle.** The tree prices its exposure explicitly as
+`σ²·T_settle/yr / 8` (MMRZ eq. 16), i.e. **LVR over the SETTLEMENT WINDOW ONLY — one block for ETH** —
+rather than over the interval between arbitrages. That is why the adverse-selection base is tiny.
+⇒ **Structurally we do not carry v3's LVR; we carry one block of it.** What we DO carry that v3 does not
+is *inventory* risk — v3's LP is always balanced by construction along the curve, ours can end up short —
+and that is precisely what the skew's `q` term prices and what the leverage overlay hedges.
+⚠️ **The honest comparison is therefore not "less LVR": it is a DIFFERENT RISK.** v3 trades inventory
+balance for continuous pickoff; we trade pickoff for the possibility of being short inventory. Q5's
+over-hedge is the cost of that trade that is currently unpriced.
