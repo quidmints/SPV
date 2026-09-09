@@ -121,7 +121,7 @@ lane $LANE ready at $DEST
   python3 tools/impacted-tests.py       # what actually needs running
   git commit -- <paths by name>         # rule 14: NEVER add -A, NEVER commit -a
 
-  🔴 BOOK FINDINGS IN docs/actionable/lanes/$LANE.md, NEVER IN SPRINT.md.
+  🔴 BOOK FINDINGS IN docs/actionable/SPRINT.md. Lane books were ABOLISHED 2026-09-09.
      This is mechanical, not stylistic. MEASURED 2026-09-06: two lanes that each
      appended one line to SPRINT.md merged clean the FIRST time and CONFLICTED the
      second. Their lanes/*.md files merged clean both times, being different files.

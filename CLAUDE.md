@@ -5,6 +5,12 @@ This file exists because these facts were living **only** in one machine's agent
 2026-08-29; this file tracks *how to work here* and *what the
 environment actually is*. Every line below was verified in-repo, not recalled.
 
+> 🔴 **BEFORE TOUCHING THE SKEW OR THE REFILL, READ `docs/actionable/REFILL-START-HERE.md`.** A month
+> of commits across three threads has covered it, and 77 section tags are scattered through SPRINT.md's
+> 1,424 headings. That file lists what is settled (do not re-measure), what was built and reverted (do
+> not re-attempt), four traps that have each produced a confident wrong conclusion, and the one question
+> that is actually open. Three separate threads have independently re-derived §M0's result.
+
 ## Standing rules (from the repo owner; they apply to every task, not just the one that prompted them)
 
 1. **No unreachable code.** If a branch can't be hit, delete it — don't leave it "for safety".
@@ -760,11 +766,14 @@ Checking the same branch out in two worktrees is refused outright —
 each other's commits.** Per standing rule 17 that beats a rule asking people not to do it: the bad
 state is unconstructible rather than merely forbidden.
 
-🔴 **AND THE ONE RULE THE TOOLING CANNOT ENFORCE — BOOK IN `docs/actionable/lanes/L<n>.md`, NEVER IN
-`SPRINT.md`. THIS IS MECHANICAL, NOT STYLISTIC, AND IT WAS MEASURED RATHER THAN ARGUED:**
+⛔ **LANE BOOKS ARE ABOLISHED (owner, 2026-09-09: *"i dont want separate lane files"*). BOOK IN
+`SPRINT.md`. The collision below is REAL and its answer is now COMMIT PROMPTLY, not a second file:**
 two lanes each appended **one line** to `SPRINT.md`; the first `git merge --no-ff` was **clean** and
 the second **CONFLICTED** (`CONFLICT (content): Merge conflict in docs/actionable/SPRINT.md`). Their
-`lanes/LA.md` and `lanes/LB.md` merged clean both times, being different files.
+Separate lane books merged clean both times, being different files — which is why the pattern
+existed. ⇒ **The surviving mitigation is `git diff --cached --stat` before every commit and a SHORT
+time between edit and commit, per rule 14c.** The lane TABLE (who owns which file) survives and is now
+fenced inside `SPRINT.md` §LANES, machine-read by `tools/blast-radius.py`.
 ⇒ **`SPRINT.md` is a 52,700-line append target that every lane wants**, which is exactly how
 `fe9720ac` came to swallow a 228-line `§MASTER-ORDER` restructuring with no mention of it in its
 message (§SESS-17 U6). **One merge pass folds the lane books at the end of the day.**

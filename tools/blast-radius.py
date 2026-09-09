@@ -17,14 +17,23 @@ import os, re, sys, collections
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "evm/src")
-TABLE = os.path.join(ROOT, "docs/actionable/lanes/README.md")
+TABLE = os.path.join(ROOT, "docs/actionable/SPRINT.md")
+# Lane BOOKS were abolished 2026-09-09; the lane TABLE moved into SPRINT.md under §LANES.
+# ⛔ Parse ONLY between the markers: SPRINT.md carries a SECOND `| L1 | ... |` table from an
+#    older partition (~line 10,335, where L1 is Core.sol rather than .md). Taking the first
+#    match reports confident, wrong ownership -- silently.
+BEGIN, END = "<!-- LANE-TABLE:BEGIN -->", "<!-- LANE-TABLE:END -->"
 
 def lane_map():
     """Parse the ONE source of truth rather than hardcoding a copy that goes stale."""
     if not os.path.exists(TABLE):
         sys.exit(f"FATAL: no lane table at {TABLE} — cannot say who owns what.")
     owner = {}
-    for line in open(TABLE):
+    body = open(TABLE).read()
+    if BEGIN not in body or END not in body:
+        sys.exit(f"FATAL: no {BEGIN} .. {END} fence in {TABLE} -- refusing to guess which lane table "
+                 f"is canonical. Restore the fence rather than relaxing this check.")
+    for line in body.split(BEGIN, 1)[1].split(END, 1)[0].splitlines():
         m = re.match(r"\|\s*(L\d)\s*\|(.*?)\|", line)
         if m:
             for f in re.findall(r"`([^`]+\.sol)`", m.group(2)):
