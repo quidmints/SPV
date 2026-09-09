@@ -14524,7 +14524,34 @@ moving it saves no bytecode either — the only gain is one declaration.
 | sandwich: private relay | ✅ pre-existing | `daemon.rs:87` has defaulted to Flashbots all along via `QuorumJsonRpc::with_send_endpoints`. ⛔ I built a duplicate and reverted it (`cdec4868`) — do not build a second one |
 | Curve coverage / the six rowless stables | ◐ **BOLD LANDED; measured, see below** | |
 | quote-gate (`q >= floor`) | ✅ this commit | makes a row's DEPTH a runtime question, so a row can never be worse than no row |
-| quote-vs-fill, freshness, gas cap | 🔴 open, mine | |
+| quote-vs-fill | 🔴 open, mine | keeper-side; `prefer_fetched` compares two QUOTES, never outcomes |
+| freshness bound | ✅ `c3f704d1` | wall-clock vs `block.timestamp`, on both live-route suites |
+| ⑦ per-leg gas cap | ✅ MEASURED, not tight | see the row below — the cap is fine, the FRAME is not |
+
+### 🔴 §CONVERTTO-FRAME-IS-THE-CEILING — **the per-leg cap is not tight; the AGGREGATE is unbounded**
+Measured 2026-09-09 (`ProRataConvertGas`, live fork), and it retires ⑦ while opening a smaller one.
+
+| | gas |
+|---|---:|
+| ONE real routed leg (frame + router + swap) | **289,996** vs `ROUTE_GAS_CAP` **3,000,000** |
+| `convertTo` frame, 1 / 2 / 4 / 8 legs | 170,912 · 341,966 · 630,069 · 1,340,043 |
+| `convertTo` frame, **14 legs** (the full basket) | **2,341,107** — *before any router call* |
+
+✅ **⑦ IS ANSWERED AND THE WORRY WAS WRONG.** A real fill uses 290k against a 3M ceiling — 10×
+headroom — so the cap bounds a griefing route at a tenth of what a legitimate one needs, with no
+liveness risk. A complex v4/split route exceeding it is not supported by measurement.
+🔴 **BUT NOBODY HAD PRICED THE FRAME, AND IT IS THE REAL CEILING.** 14 legs is exactly what
+`convertShortfall`'s PRO-RATA draw produces, so it is the normal case, not the tail. Scaling is clean
+and linear (~167k/leg) — not a bug, but it means a 14-leg conversion with several legs filling lands
+at **5–7M**, and **`ROUTE_GAS_CAP` bounds each leg while NOTHING bounds the sum**: 14 × 3M = 42M is
+reachable in principle, above the block limit.
+⇒ **THE SECURITY BOUND IS PER-LEG AND THE LIVENESS RISK IS PER-CALL.** A hostile keeper cannot
+extract, but it can compose a conversion that never fits in a block — the same griefing vector the cap
+was written for, relocated from one leg to the sum.
+▶️ **THE SHAPE, NOT BUILT:** divide the remaining budget across the remaining legs —
+`min(ROUTE_GAS_CAP, gasleft() / (n - k))`. ⛔ It is a money-path change and it belongs in the SAME
+`LevMath` pass as the USDE/FRAX rows, not as a separate edit — that library has 71 bytes and every
+pass costs a full recompile.
 
 ### 📊 CURVE DEPTH FOR EVERY ROWLESS BASKET STABLE — measured 2026-09-09, do not re-measure
 Indices verified against `coins()`, `is_underlying` checked (a metapool quotes a price `curveExchange`
