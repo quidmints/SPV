@@ -1,13 +1,18 @@
 # QU!D — the whole thing, as questions
 
-**Status 2026-08-01.** One document. It replaces `ALLIANCE-APPLICATION.md`,
+**Status 2026-09-08.** One document. It replaces `ALLIANCE-APPLICATION.md`,
 `ALLIANCE-APPLICATION-LONG.md`, `legal.md`, `informational/CREDIT-STRATEGY-FINDINGS.md` and
-`informational/GO-TO-MARKET-AND-READINESS.md`, which are deleted. Code documentation in
-`docs/informational/` (IL, fees, venues, vault health) stays where it is and is referenced from here.
+`informational/GO-TO-MARKET-AND-READINESS.md`, which are deleted.
 
-Every technical claim was read from source in `quidmints/SPV` and `quidmints/ibiza` before it went in.
-Every external claim carries a source. Anything marked **OPEN** is genuinely unresolved and most of it
-needs counsel rather than engineering.
+Every technical claim here was read from the contracts in `evm/src` and carries a `file:line`. Where
+this document and the contracts disagree, **the contracts win**; `spec.md` is the shorter engineering
+statement of the same system and is the reference for anyone reading the code. Every external claim
+carries a source. Anything marked **OPEN** is genuinely unresolved and most of it needs counsel rather
+than engineering.
+
+⚠️ **`docs/informational/` is prose written to persuade and is not reconciled against the contracts.**
+Every θ, K and LVR figure in that folder was computed on a range geometry that has since changed by
+10× — it assumes a ±0.2% band and the band is now ±2% — so none of those numbers is quoted here.
 
 **Part 1 is the fundraising application and is extractable on its own.** Parts 2 onward are the
 reference behind it.
@@ -123,7 +128,7 @@ reserve's backing are untouched (`test/LeverageCrossSubsidyProbe.t.sol`). And th
 zero debt when price falls back below where you started, so we are never carrying leverage into a
 crash.
 
-**The dollar yield comes from breadth.** Eleven stablecoins across lending venues rather than one
+**The dollar yield comes from breadth.** Fourteen stablecoins across lending venues rather than one
 issuer's promise, because holding the basket is the only insurance against a break that anyone can
 honestly sell. There is a second-order effect that surprised us: when a depositor locks dollars for
 twelve months they simultaneously remove redemption pressure from every stablecoin in the basket, in
@@ -216,22 +221,28 @@ Bitcoin's own rules and their own key, and connects that to everything else.
 
 All of it runs against forked mainnet state. None is audited or holds value yet.
 
-A Uniswap v4 position whose token side is virtual, so your Ethereum stays in its lending venue earning
-yield while the position quotes prices and collects fees. **You get paid twice on the same coins.** The
-bond ladder funding single-sided deposits, capped at 600,000, with a bootstrap window closing after
-twelve months. The up-side loss protection, sized from how far price moved since entry, running on
-Morpho, Euler, Aave or Liquity, one isolated position per depositor. We wrote no liquidation engine,
-because ours sheds debt in the direction the danger comes from, and a test runs a leveraged position
-through a real liquidation to prove a passive depositor is untouched.
+A concentrated liquidity range that depends on no outside exchange. There is no automated market
+maker underneath it, no pool contract, no ticks: the range is a band computed on an absolute price,
+currently plus or minus two percent (`SwapLib.updateBounds`, `evm/src/imports/SwapLib.sol:2878`, with
+`RANGE_DELTA = 200` at `:888`), and trades fill at an oracle price against the inventory the contract
+already holds. Your Ethereum meanwhile sits in ether.fi as weETH earning restaking yield, and the same
+coins are the range's depth. **You get paid twice on the same coins.** The bond ladder funds the dollar
+side of single-sided deposits, capped at 600,000 units (`evm/src/Basket.sol:58`), with a bootstrap
+window closing after twelve months. The up-side loss protection, sized from how far price moved since
+entry, runs on Morpho and Aave V3 as one isolated position per depositor. We wrote no liquidation
+engine, because ours sheds debt in the direction the danger comes from, and a test runs a leveraged
+position through a real liquidation to prove a passive depositor is untouched
+(`evm/test/LeverageCrossSubsidyProbe.t.sol`).
 
-On Bitcoin, each depositor's coins sit in a two-signature account with one key theirs, verified by our
-contracts using the same lightweight proof a phone wallet uses, validated end to end against a live
-test node. **The depositor signs one cold message and then runs nothing at all**, with no software to
-host and nothing to keep online. That message locks the single address every payout must reach, so even
-a fully compromised operator can only send their money to them. If we vanish, a pre-signed transaction
-whose bytes are already public becomes broadcastable by anyone, released by Bitcoin's own timelock.
-Which machines may run our infrastructure is gated by an on-chain proof that they execute an exact
-published build inside a secure enclave.
+On Bitcoin, each depositor's coins sit in a two-signature account with one key theirs. Our contracts
+verify the funding transaction with the same lightweight proof a phone wallet uses, and then go one
+step further: they **rebuild the joint key on-chain** and check it matches what the transaction
+actually paid, so a two-of-two cannot be faked into existence. Validated end to end against a live test
+node. At open the depositor pins the single Bitcoin address every payout must reach, so even a fully
+compromised operator can only send their money to them, and signs a ladder of timelocked exit
+transactions whose bytes are public — if we vanish, anyone can broadcast one. The depositor keeps their
+own key half and runs a small daemon for it; the alternative, where the operator holds both halves, is
+off by default and is described honestly in Part 2 rather than sold as self-custody.
 
 The second repository merges two open-source systems onto one proving system, with a single device seed
 deriving both the identity key and the spending keys. Privacy Pools breaks the link between a deposit
@@ -263,19 +274,22 @@ cross-chain Bitcoin deliberately, who now choose between a custodial receipt and
 
 Quid Labs is wholly owned by the QuidMint Foundation, so the question is how the protocol funds itself.
 
-The largest line answers the arbitrage problem above. We hold no stale price, so there is no free
-correction to take. A pool still needs restocking, so we charge for scarcity openly: when the pool is
-low on Bitcoin, buyers pay above market and that premium stays in the reserve for depositors. It
-steepens with volatility and is capped at what a market maker really pays to sit on capital awaiting
-confirmations. **We buy the service Uniswap gets free from arbitrageurs, at a stated price, from
-willing counterparties.**
+The largest line answers the arbitrage problem above. We publish no stale price for anyone to trade
+against, so there is no free correction to take. Inventory still needs restocking, so we charge for
+scarcity openly: when the range is low on Bitcoin, buyers pay above the oracle price and that premium is
+credited to the liquidity providers (`Core.recordSkewPremium` → `creditSkewPremium`,
+`evm/src/Core.sol:611-621`). It steepens with realised variance, and it carries an additive floor equal
+to what a market maker really pays to sit on capital awaiting confirmations — about an hour of Bitcoin
+confirmations plus an on-chain splice fee, against roughly one block and no splice on Ethereum
+(`evm/src/imports/SwapLib.sol:944-946`). **We buy the service Uniswap gets free from arbitrageurs, at a
+stated price, from willing counterparties.**
 
-The position collects trading fees. Redemptions pay three to thirty basis points, shaped so the cheap
-exit is the one leaving the reserve healthier. Our router earns a spread and already sits inside
-Liquity's leverage tooling, taking it on both legs of somebody else's trade. The reserve is lent across
-Morpho, Aave, sDAI and Liquity, which earns whether or not anyone trades, so a quiet month has no floor
-to fall through. The deposit-collateral product in Part 5 adds a fee shared with the surety, and it is
-worth more than its margin because it brings deposits from people who are not chasing yield.
+Redemptions pay three to thirty basis points (`FeeLib.BASE = 3`, `FeeLib.MAX_FEE = 30`,
+`evm/src/imports/FeeLib.sol:63-64`), shaped so the cheap exit is the one leaving the reserve healthier.
+The reserve is lent across Morpho, Aave, sDAI, sUSDe and Liquity's Stability Pool, which earns whether
+or not anyone trades, so a quiet month has no floor to fall through. The deposit-collateral product in
+Part 5 adds a fee shared with the surety, and it is worth more than its margin because it brings
+deposits from people who are not chasing yield.
 
 ## How will you find more customers?
 
@@ -293,10 +307,9 @@ ETH is invisible to their reporting stack, so it sits outside the fee base.** Ma
 reportable and they can bring it under management and charge on it. We are not selling them software,
 we are expanding what they can bill.
 
-Then protocols, without a deal: our deposit and mint functions are public and ungated, so an integrator
-declares a local interface and ships against us without ever having a conversation. Then order flow
-rather than users, through Mach, Khalani and Liquity's tooling, none of which needs us to acquire
-anybody. Then surety companies, specifically the ones who decline thin-file renters today, because
+Then protocols, without a deal: our deposit, swap and mint functions are public and ungated, so an
+integrator declares a local interface and ships against us without ever having a conversation. Then
+order flow rather than users, through Mach and Khalani, neither of which needs us to acquire anybody. Then surety companies, specifically the ones who decline thin-file renters today, because
 partial collateral lets them approve a segment they currently reject. Then Lightning operators, where
 the pitch is that they stop working, since one signature is the whole onboarding and Bitcoin enforces
 the exit rather than our goodwill. And the stablecoin issuers, who benefit from every twelve-month lock
@@ -352,7 +365,7 @@ single-sided provision through options machinery. **WBTC and cbBTC** are honest 
 correct for a mandate requiring a regulated counterparty.
 
 Across all of them we subtract. Rather than trying to price a risk nobody can price, we bound it by
-holding eleven things instead of one. A single range around the current price does the work a
+holding fourteen things instead of one. A single range around the current price does the work a
 continuously maintained distribution does elsewhere, and it only moves when price leaves it. Redemption
 runs on a calendar set when the claim was written. Our debt sits on somebody else's market, isolated
 per depositor, on a venue that already operates its own liquidation machinery. Fewer moving parts is
@@ -361,8 +374,9 @@ audit it honestly.
 
 One note on how we relate to these. Bancor sued Uniswap last year. We build to be a venue inside other
 people's products rather than a destination that has to beat them, which is why every integration
-surface is permissionless and why our router already sits inside Liquity's tooling. Ethereum works
-because the pieces compose, and that is worth more to us than winning an argument.
+surface is permissionless: `Aux.swap` takes any caller and any recipient (`evm/src/Aux.sol:914,927`), and
+nothing about being an integrator requires a conversation with us. Ethereum works because the pieces
+compose, and that is worth more to us than winning an argument.
 
 ## What's something a smart, informed person would disagree with?
 
@@ -389,15 +403,72 @@ began matching the easy flow away from pools.
 
 ## What happens to my Ethereum when I deposit it?
 
-It goes to a lending venue you choose at deposit time and stays there earning. The Uniswap v4 position
-that quotes prices and collects trading fees uses **virtual** tokens, so your real ETH never has to sit
-idle in a pool. You are paid twice on the same coins: venue yield on the whole stack, and trading fees
-on the slice that is quoting.
+**It becomes weETH, and there is exactly one destination.** `Quid.deposit(assets, receiver)` takes two
+arguments and no venue code (`evm/src/Quid.sol:1855`). Native ETH sent with the call is wrapped, any
+further WETH is pulled up to your allowance, and the whole balance is supplied to ether.fi
+(`QuidLib.depositETH`, `evm/src/imports/QuidLib.sol:109-113`). There is no venue choice, no dispatch,
+no default and no fallback: if the placement returns zero the call reverts `VenueUnavailable` rather
+than quietly routing somewhere else.
 
-The venue rides the deposit call and there is no setter, so the allocation discretion that exists
-belongs to you rather than to us. Deposit codes are 0 (split across curators), 2 (Aave v4), 3 (Galaxy),
-4 (ether.fi via our own weETH/WETH position), 5 (Euler), 6 (Gauntlet). There is deliberately no code 1;
-ether.fi always routes through Rover. See `docs/informational/ETH-VENUES.md`.
+That is a deliberate subtraction. An earlier design let the depositor pick a venue by passing a numeric
+code, which meant a menu of integrations to keep alive, a fallback path to reason about, and a
+discretion argument to make. One destination has none of those. What you get for it is that your ETH is
+restaked the whole time it is deposited, while the same coins are the range's depth — venue yield on
+the whole stack, and the range's earnings on the slice that is quoting.
+
+⚠️ `docs/informational/ETH-VENUES.md` still describes the multi-venue design and its deposit codes.
+It is stale; the code above is the system.
+
+## Where does the range live, if there is no pool?
+
+**Inside the protocol's own contracts.** There is no Uniswap, no `PoolManager`, no `PoolKey`, no ticks,
+and no reference pool read by anything deployed. The range engine is `Core`
+(`evm/src/Core.sol:42`) — the *same bytecode deployed twice*, once told about WETH and once about
+WBTC, so neither instance can see the other's dollars. Each holds one inventory counter and one dollar
+counter, and the two are bound only in the sum: every in-range dollar added must satisfy
+`committedUsd18() <= haircutTvl` against the joint accountant `Aux`.
+
+The range itself is not a curve and not a tick span. It is a band in basis points around an absolute
+price:
+
+```solidity
+lower = price * (10000 - delta) / 10000;
+upper = price * (10000 + delta) / 10000;
+```
+
+`SwapLib.updateBounds` (`evm/src/imports/SwapLib.sol:2878`), called with `RANGE_DELTA = 200` (`:888`) —
+a **±2% band**. No bounds are stored as configuration; they are recomputed from the anchor every time
+the range repacks. Because the band is always built this way, the ratio of its edges is fixed however
+far spot drifts, which is what makes the range's geometry a constant rather than a parameter anyone
+tunes.
+
+## If there is no AMM, how does a swap get priced?
+
+**At the oracle, against inventory, in one step.** `Aux.swap(token, asset, forVolatile, amount, minOut,
+loadBalance)` (`evm/src/Aux.sol:914`) forwards to `swapTo(..., recipient, ...)` (`:927`), which
+dispatches to whichever `Core` owns that asset. The price is the pinned Chainlink anchor, cross-checked
+in `Aux.getTWAPforAsset`. The fill happens at that one price against the inventory the contract already
+holds. There is no curve to walk, no marginal-versus-average gap, and no price discovery — which is
+also why a swap does not move the range's reported statistics.
+
+Three consequences a trader should know.
+
+**There is no slippage, and that is not free.** Walking a curve is what pays an AMM's providers along
+the path; settling at a single oracle price deletes both the cost to the swapper and that revenue.
+What replaces it is the scarcity premium described below, charged openly rather than harvested from
+the swapper's price impact.
+
+**A stale quote is not tradeable here, because we do not publish one.** An AMM's price is its own
+state and lags the market; that lag is the free option an arbitrageur exercises. Ours is a feed we
+read, not a number we hold.
+
+**The only dynamic axis on the swap path is depeg severity.** `riskFactor` is read live from the
+pinned feed of whichever stablecoin is on the other side (`evm/src/imports/FeeLib.sol:73`). The
+three-to-thirty-basis-point degradation fee is charged on redemption, not here, and there is no pool
+fee tier on this path at all.
+
+The recipient can be named explicitly, so a holder blacklisted by a stablecoin issuer can still take
+proceeds at a fresh address.
 
 ## What is vETH exactly? Is it a wrapper around two assets?
 
@@ -407,8 +478,19 @@ redeems to one asset: ETH, plus the fees that share earned. `convertToAssets(sha
 slice of the ETH-side backing, and fees accrue by appreciating that single-asset share price.
 
 It feels dual because the position trades both sides. The redemption surface is single-asset, which is
-what makes it a clean ERC-4626 rather than an LP-token-of-two-tokens that no accounting system knows
-how to price.
+what lets ordinary accounting software price it at all, rather than the LP-token-of-two-tokens that
+nothing knows how to value.
+
+**It is not, however, a complete ERC-4626, and the gap is deliberate.** `Quid` implements `asset()`,
+`convertToAssets`, `deposit`, `mint` and `previewMint`, and deliberately **omits `maxRedeem`,
+`previewRedeem`, `maxWithdraw` and `previewWithdraw`** (`evm/src/Quid.sol:1700-1704`). The reason is
+that redemption can defer: if the in-range burn plus the venue ladder cannot source your whole
+withdrawal now, the unserved balance is retained as a live deferred claim and paid when it becomes
+liquid. A `maxRedeem` claiming your entire balance is redeemable, or a `previewRedeem` naming an exact
+amount, would each be a confident lie in exactly the state where the answer matters. ERC-7540, the
+async-vault standard, requires `preview*` to revert on a deferrable flow for the same reason; we omit
+them instead. **Any integrator must handle a partial fill and a deferred remainder** — do not wire this
+to a UI that assumes instant, full redemption because the token says 4626.
 
 ## How is the impermanent loss actually cancelled?
 
@@ -418,8 +500,18 @@ it, and supplies exactly enough extra ETH for the range to sell instead of yours
 
 The keeper sizes that buffer to the loss actually incurred, `1 − √(entry/now)`, which is the fraction of
 ETH the range has sold since you entered. The target returns zero at or below entry
-(`imports/LevMath.sol:109-125`). Where the range reports its real measured sold fraction, that number is
-used in preference to the formula.
+(`LevMath.ilTargetBps`, `evm/src/imports/LevMath.sol:235-247`). Where the range reports its real
+measured sold fraction, that number is used in preference to the formula
+(`Quid.soldFractionWad`, `Vault.soldFractionWad` at `evm/src/Vault.sol:375`).
+
+The venues are named rather than gestured at, because "an outside lending market" is doing real work in
+the safety argument. On ETH the collateral is weETH against three allowlisted venues, pinned once at
+deployment and then frozen: Morpho weETH/RLUSD at 86% LLTV, Morpho weETH/PYUSD at 86%, and an Aave V3
+market with weETH collateral and USDT debt (`evm/script/DeployL1_s.sol:664-690`). On Bitcoin there is
+**one** venue, an Aave V3 escrow with WBTC collateral (`:559-567`). Both weETH/USDC markets and the
+weETH/WETH venue are absent rather than demoted, and the deploy script records the measurement that
+decided it: weETH/USDC held $0.17M idle across 100 of 100 weeks, against $9.66M and $4.32M for RLUSD
+and PYUSD.
 
 There is an elegance worth noting: **"the range sells the buffer" and "unwind the borrow for a swap" are
 the same operation.** A buy-ETH swap makes the range sell ETH, which sells the buffer, which de-levers
@@ -484,44 +576,61 @@ negative expected value in any regime.
 **And it is not downside protection.** The target is zero at or below entry, so a depositor expecting a
 fall gains nothing below their entry price and pays spreads and interest to discover it.
 
-**Above entry, though, the depositor sets their own direction.** `setTargetLtv(capBps)` takes any value
-from 1 to 7,500 bps and can be changed at any time while the position is open. It is permissioned to the
-depositor because the cap is a risk choice; the keeper's rebalance toward whatever target results stays
-permissionless. Because the range is only ±0.2% wide, its sold fraction saturates almost as soon as price
-leaves the top of the range, which means the cap is not a rarely-binding ceiling. It is the operating
-leverage.
+**The choice you make is whether to open the overlay at all — not how much of it to take.** There is no
+per-depositor leverage dial. Leverage is bounded by **one protocol-wide constant**,
+`LevBase.TARGET_LTV_CAP_BPS = 7500` (`evm/src/imports/LevBase.sol:51`), and there is no setter for it:
+no `setTargetLtv`, no per-position cap, nothing an owner or a depositor can move. Within that ceiling
+the target is not a preference either — it is the closed form `1 − √(entry/now)`, recomputed every
+tick (`evm/src/imports/LevMath.sol:235-247`).
 
-So 5,000 bps is two times and cancels the range's impermanent loss. Anything above that, to a ceiling of
-7,500 bps or roughly four times, buys back more exposure than neutrality calls for and is an opt-in
-directional long. Anything below it declines to buy back what the range already sold, which expresses a
-bearish view. The honest limit on that last case: you stay net long the pool, so a low cap is a tilt
-against the neutral baseline rather than an outright short.
+So the direction the overlay expresses is fixed by construction. At the top edge of the ±2% band the
+range has sold about **50.75%** of the volatile side — a figure that depends on the band's width alone
+and not on price (`evm/src/imports/LevMath.sol:293-294`) — which puts the target within a whisker of
+the 5,000 bps that is exactly two times and exactly IL-neutral. The 7,500 bps ceiling is therefore a
+genuine ceiling rather than the operating point: reaching it would take price roughly sixteen times
+above the anchor. **You do not opt into a leverage level. You opt into neutrality, or you decline it.**
+
+⚠️ The cap is quoted **debt-over-equity** while a lending venue's LLTV is **debt-over-collateral**, so
+the two are not comparable as written. 7,500 in cap terms is 4,285 in venue terms, which under
+Morpho's 86% LLTV leaves 4,315 bps of headroom (`evm/src/imports/LevBase.sol:111-112`). Anyone
+comparing our number to a venue's liquidation threshold must convert first.
 
 What was removed in July 2026 is narrower than the whole idea of direction. It is the *below-entry* leg,
-the one that bought back as price fell (`boughtFractionWad`, deleted 2026-07-24 as its sole consumer).
-Underneath entry the overlay is off whatever the cap says, for the reasons under "why up-side only".
+the one that bought back as price fell (`boughtFractionWad`, deleted 2026-07-24 as its sole consumer,
+and absent from the tree today). Underneath entry the overlay is off, for the reasons under "why
+up-side only".
 
 **Where it wins:** sustained directional moves, high volume where fee capture on doubled depth dominates
 carry, and any depositor whose exit timing is not their own choice — because then the impermanent loss
 may be permanent exactly when it matters.
 
-## What is the "full-2× buffer" and why do ETH and BTC differ?
+## What is the "full-2× buffer", and does borrowed money count as backing?
 
 A two-times levered position puts in equity E, borrows E, and holds a 2E range position. That 2E sits in
 one pooled-dollar slice as equity E plus a debt-funded buffer E. **The buffer's dollar value equals the
-depositor's own debt exactly**, so the pure equity claim is in-range dollars minus leverage debt, read
-live from the pinned manager (`Core.sol:93-99`).
+depositor's own debt exactly**, so the pure equity claim is in-range dollars minus leverage debt. That
+subtraction is one line, and it is the same line for both assets:
 
-Same concept both assets: the `POOLED_*` counters are **gross** and include the buffer; the `vogue*`
-views are **net** and exclude it. The buffer is excluded from the net view because it is debt-offset —
-an asset E matched by an equal debt E contributes zero equity, and counting it would treat borrowed
-coins as backing, inflate solvency and over-issue QD.
+```solidity
+function _rangeEquityUsd18() internal view returns (uint) {
+    uint pooled18 = basketUsd * 1e12;
+    uint debt18 = _levDebtUsd18();
+    return pooled18 > debt18 ? pooled18 - debt18 : 0;
+}
+```
 
-The plumbing differs. On ETH, `vogueETH` excludes the pooled slice entirely, so the shortfall path must
-add gross collateral back to make a gross-versus-gross comparison balance. On BTC, `syncLevBTC` pairs
-net equity into `POOLED_BTC` in lockstep with the levered slice, so BTC's gross is already inside and
-adding a gross term would double-count. **A naive collapse of the two would break one side's shortfall
-maths**, which is why the asymmetry is deliberate rather than an oversight.
+(`evm/src/Core.sol:117-121`.) The inventory counters are **gross** and include the buffer; what each
+range reports to the joint accountant is **net** and excludes it (`Core._reportEquity`, `:101`). The
+buffer is excluded because it is debt-offset — an asset E matched by an equal debt E contributes zero
+equity — and counting it would treat borrowed coins as backing, inflate solvency and over-issue QU!D.
+
+**ETH and BTC no longer differ here, and the reason is worth stating**, because an earlier version of
+this document described an asymmetry at length. The two ranges used to be one contract with two sets of
+counters and two shortfall paths that had to be reconciled by hand. They are now the *same bytecode
+deployed twice* — one instance told about WETH, one about WBTC — so there is one equity formula, one
+set of counters per instance, and no side whose maths a naive collapse could break. Neither instance
+can see the other's dollars; the only thing binding them is the sum, checked against the basket's
+haircut TVL on every in-range add.
 
 ## Why is ETH's collateral treated differently from BTC's?
 
@@ -543,175 +652,257 @@ separate buffer for capacity.
 > order self-corrects; and the swap-out de-lever gate is caught downstream by slippage bounds and
 > deferral. Do not quote it as a redemption guarantee.
 
-## Why does the theta clamp pull liquidity in exactly when volatility rises?
+## What actually limits how deep the range goes?
 
-**It should not, and the reason is worth understanding because it explains what this venue's real cost
-is.** Volatility is when swap demand and fee opportunity peak and when a
-liquidity venue most needs to be deep, so thinning the range in a vol spike is the fair-weather-liquidity
-failure that makes AMMs unreliable precisely when they matter.
+Three bounds, applied in order, and only one of them is a judgement call.
 
-**Where it came from.** θ ≤ `yield / (K·σ² − f)` is a *solvency* inequality, not a
-liquidity-provision one. It sizes the in-range slice so that yield on the whole backing covers the LVR
-on the exposed part. It was introduced under the previous design, where the **basket's surplus absorbed
-the LP's impermanent loss** through `arbETH`, so bounding the exposed slice was bounding how much of the
-shared surplus could be drained. That design is overruled: `arbETH` is removed and the LP bears its own
-IL through the share price.
+**The solvency bound.** The dollar leg of the range is basket capital, not the liquidity provider's, so
+no in-range dollar may be committed that the basket has not got: `surplus = TVL − committed`. Every
+in-range add is gated on `committedUsd18() <= haircutTvl` against the joint accountant, and because the
+two ranges report into one accountant, ETH depth and Bitcoin depth are jointly bounded even though
+neither `Core` instance can see the other's dollars.
 
-**And the cost it sizes against is one this pool structurally does not face.** Swaps execute at the
-internal TWAP cross-checked against Chainlink, over Core-only mock tokens, gated `onlyUs`. There is no
-public arbitrageur trading against a stale quote, so **there is no public-LP LVR here at all**. The real
-cost is composition divergence realised on reseat plus a bounded execution lag of at most 50 bps. `K·σ²`
-prices a mechanism that was removed and an exposure this venue does not have.
+**The physical bound.** Beyond solvency there is the plain arithmetic of `backing − pooled`
+(`SwapLib.clampByBacking`). This is the one that always binds, and it is the reason the third bound is
+allowed to be permissive.
 
-**Worse, it is arguably backwards in both regimes, per our own simulation.** High vol collapses the
-slice exactly when depth is wanted. And low vol keeps θ **high**, which is precisely the regime the
-findings identify as the one real exposure: a smooth low-σ rally sells the slice off cheap for an
-upper-bound gap around 10%. So θ is large when the actual cost is largest and small when the venue most
-needs depth.
+**θ, the Merton fraction.** This is the interesting one. θ asks the protocol's own rationality question
+directly — *are the fees beating the loss?* — as `range fee yield / (K·σ²)`, where the numerator is the
+range's own realised market-making premium and the denominator is the loss-versus-rebalancing rate
+(`QuidLib.derivedThetaWad`, `evm/src/imports/QuidLib.sol:232-250`). A θ at or above one is a no-op;
+below one it thins the range.
 
-### Pros and cons of going theta-blind
+Three things about θ are worth a non-specialist's attention, because they are where an earlier version
+of this document was wrong.
 
-Theta-blind means the paired depth is bounded only by what is physically available: free USD backing
-(`surplus = TVL − committed`) and the deposit itself.
+**The numerator is the range's own earnings, not the reserve's yield.** It used to be the basket's
+average yield, which over-sized the range: the basket earns that yield whether the dollar leg is ranged
+or sitting idle, so it is not compensation for taking impermanent loss. The only marginal compensation
+for that bet is the scarcity premium the range itself retains.
 
-**For.** Depth is maximal when demand and fees peak. The pool never thins in a crisis. One fewer
-live-derived parameter, and the two it depends on (a variance ring and a `K` computed from range
-geometry) both disappear, which matches the minimalism argument the rest of the design rests on. It
-aligns the clamp with the actual cost model instead of a borrowed one. The LP already bears their own
-IL, can cancel the up-side with the opt-in overlay, and holds through the down-side, so the exposure is
-theirs by choice rather than bounded paternalistically. And `surplus` remains a hard structural bound on
-the basket's side.
+**K is a function of the band's width and nothing else.** `K = 1/(4δ)`, so the ±2% band puts it at
+about 12.56 where the retired ±0.2% band put it at about 125 (`evm/src/imports/SwapLib.sol:870-874`).
+The band's width is the *only* lever on K that exists anywhere in the tree; there is no coefficient to
+tune. That 10× move is also why **no θ, K or LVR figure is quoted in this document**: the material in
+`docs/informational/` was written against differing assumptions about the band and has not been
+reconciled against the deployed width, so any number taken from it needs re-deriving before it is
+repeated.
 
-**Against.** The dollar leg of the range is **basket capital, not the LP's**, so a deeper range means more
-basket dollars converting into the volatile asset as price falls; `surplus` bounds the level of that
-exposure but not the rate. The execution lag is real and genuinely vol-sensitive, since more volume
-through a staler quote leaks more value to swappers, so *some* vol-awareness may be justified —
-**calibrated on the lag, not on `K·σ²`**. Unhedged LPs carry more composition divergence, realised if
-they exit mid-drawdown. And removing θ discards the documented certification, even though that
-certification rests on the wrong basis.
+**θ fails open, deliberately.** An unmeasured variance, an unmeasured premium or a cold observation
+ring all return θ = 1, i.e. no clamp (`evm/src/imports/QuidLib.sol:232-250`). Failing closed would be a
+deadlock — no depth means no fees, which means no premium, which means no depth, permanently — so a
+fresh range could never start. This is safe only because the physical `backing − pooled` bound
+(`SwapLib.clampByBacking`, `evm/src/imports/SwapLib.sol:2784`) is applied independently, which is
+exactly why that bound exists.
 
-**The permanent fact underneath all of it** is that this venue's cost is composition divergence plus a
-bounded execution lag, not adverse selection by an informed arbitrageur, so any depth bound belongs on
-that basis. A clamp inherited from the LVR literature prices a risk a public pool has and this one does
-not.
+**And zero variance never means calm.** The variance a range reads is the larger of two independent
+measurements — its own observation ring and the pinned Chainlink anchor — so whoever feeds the ring can
+only move σ² upward, in the direction that costs them (`evm/src/Core.sol:405-433`). Zero from both
+legs means *nobody has measured*, and every consumer treats it conservatively.
 
-## What is the skew, and why does the pool need one?
+**And the honest tension, kept rather than argued away.** Volatility is when swap demand peaks and when
+a venue most needs to be deep, so a clamp that tightens as σ² rises is thinning the range precisely
+when depth is wanted. That is the fair-weather-liquidity failure everyone criticises AMMs for. The
+counter-argument is that θ is not a liquidity-provision rule but a solvency one — it sizes how much
+basket capital may be exposed to a loss the basket does not want — and that the provider who wants
+depth in a vol spike has the overlay for exactly that. We have not resolved this to our own
+satisfaction, and it is stated here rather than buried.
 
-Swap fees are skimmed off the input and retained, unconditionally, regardless of what the price does after a trade. That is what an LP actually earns.
-Slippage is the gap between the marginal price at the start of your trade and the average price you got walking the curve.
- Nobody receives it. The pool simply ends up holding different reserves at a different price, and the LPs' position is marked wherever the curve stopped.
+## What is the skew, and why does the range need one?
 
-By placing all the liquidity within a couple of ticks worth of range, we have eliminated slippage,
-which is sliding price that changes as it captures liquidity existing within a tick. 
-The LPs would have earned fees along the entire path, but it's a worse price for the swapper. 
-We want to give swappers the best price possible, but aside from the swap fee, this can't come for free
-(even though the cost is not experienced is slippage, but rather something more beneficial to LPs).
+Start with what a provider actually earns and what a swapper actually pays, because the two are
+usually confused.
 
-An AMM that fills at oracle mid with no spread is a free option to anyone whose information is fresher than the oracle. That's loss-versus-rebalancing: the informed trader picks you off on every oracle lag, and the LP eats it. A real market maker never quotes mid — it quotes a spread that widens with inventory and volatility, which is precisely Γσ²·q/(1−q). The skew IS the spread. It is indispensable, without it executing at oracle isn't a feature that removes arbitrage — it is a vulnerability. 
+**Fees are skimmed off the input and kept**, whatever price does afterwards. **Slippage is not a fee
+and nobody receives it**: it is the gap between the price at the start of your trade and the average
+price you got walking a curve, and what it leaves behind is a pool holding different reserves at a
+different price.
 
-Skew is the answer to "the toxic thing Uniswap does to refill." A constant-product AMM keeps inventory
-balanced by letting arbitrageurs trade against its own stale price: the market moves, the pool lags,
-arbers realign it and pocket the gap. The pool always has inventory, and its providers pay for that
-rebalancing through systematic adverse selection.
+**We have no curve, so we have no slippage.** A fill here settles at one oracle price against the
+inventory already held. That is a strictly better execution for the swapper — and it deletes the
+revenue an AMM's providers earn along that path. It cannot be free on both sides.
 
-We refuse it. Swaps price off an internal time-weighted average cross-checked against an independent
-feed, so there is no stale price and no free correction. **But a pool still needs restocking**, so we
-buy the same service openly: when the pool is scarce in the volatile asset, a buyer pays above the
-oracle price, and that premium is retained as basket backing for depositors
-(`Core.sol:259-285`).
+**And filling at oracle mid with no spread would be worse than not free — it would be a standing gift.**
+Any trader whose information is fresher than the oracle exercises it, every time, and the provider eats
+the difference. That is loss-versus-rebalancing in its purest form. A real market maker never quotes
+mid; it quotes a spread that widens with inventory imbalance and with volatility. **The skew is that
+spread**, and it is not an optional refinement — without it, "we settle at oracle" is a vulnerability
+rather than a feature.
 
-This is the reservation-price offset from inventory-risk market making, the Avellaneda–Stoikov idea:
-the price of holding the wrong composition. It steepens with realised variance and is capped at the real
-drain-edge cost a native-BTC desk bears while its capital is locked awaiting roughly six confirmations.
+So the skew answers the thing a constant-product AMM does to keep its shelves stocked. That design
+keeps inventory balanced by letting arbitrageurs trade against its own stale price: the market moves,
+the pool lags, arbitrageurs realign it and keep the gap, and the providers pay for that restocking
+through systematic adverse selection. We refuse the trade. There is no stale price to correct, because
+we publish none. **But inventory still needs restocking**, so we buy the same service openly: when the
+range is scarce in the volatile asset, a buyer pays above the oracle price, and that premium is
+**credited to the range's providers** (`Core.recordSkewPremium`, `evm/src/Core.sol:611-621`).
 
-**One thing that used to exist and does not:** a bonus paid to whoever refilled the pool was removed in
-July 2026. Refill is now a self-funding fleet operation, so the premium accrues to depositors instead of
-being paid out to a refiller.
+That is the reservation-price offset from inventory-risk market making — the Avellaneda–Stoikov idea
+that holding the wrong composition has a price. The kernel is `Γ·σ²·q̄`: linear in realised variance,
+convex in the inventory imbalance `q` (`evm/src/imports/SwapLib.sol:1093-1101`).
+
+Two corrections to how this was described before.
+
+**The confirmation cost is a floor, not a cap.** An earlier version said the premium was capped at what
+a market maker pays to sit on capital awaiting confirmations. It is the opposite: that cost is an
+**additive base** the skew always charges, per asset — Bitcoin locks capital through roughly an hour of
+confirmations plus an on-chain splice fee, Ethereum settles in about a block with neither
+(`evm/src/imports/SwapLib.sol:944-946`). There is no hard percentage ceiling on the skew; the only
+bound is the point at which an order is simply unfillable.
+
+**Unmeasured variance is charged at the ceiling, not treated as calm.** When the variance registers
+have never been written, σ² reads zero, and zero means *unknown* rather than *quiet*: the skew charges
+its unknown-variance rate rather than its cheapest (`evm/src/imports/SwapLib.sol:1502`). This is a
+deliberate fail-conservative default and it costs swappers money in exactly the state where we cannot
+price them properly.
+
+**One thing that used to exist and does not:** a bonus paid to whoever refilled the pool. It was removed
+in July 2026, so the premium reaches the providers rather than a refiller.
 
 ## How is the redemption fee calculated?
 
 Two terms, not three. A drain tax that rises when you pull out the stablecoin whose yield is above the
 basket's weighted average, scaled convexly by how much of that stablecoin you are draining, bounded
-between 3 and 30 basis points. And a separate, uncapped depeg haircut so nobody redeems a
-dollar-booked-but-ninety-five-cent-worth stablecoin at par.
+between 3 and 30 basis points (`FeeLib.calcFeeL1`, `evm/src/imports/FeeLib.sol:130`, with
+`BASE = 3` and `MAX_FEE = 30` at `:63-64`). And a separate, **uncapped** depeg haircut so nobody redeems
+a dollar-booked-but-ninety-five-cent-worth stablecoin at par (`FeeLib.calcRisk`, `:73`). The cap on the
+first term is not a cap on the second: a fee is not a pass-through loss, and the haircut is the loss.
 
 The shape means **the cheap exit is the one that leaves the basket healthier**: shedding a depegged or
-low-yield name costs the floor, draining the yield engine costs more. A default redemption draws
-pro-rata across the basket, so an exit cannot covertly concentrate risk into one collateral.
+low-yield name costs the floor, draining the yield engine costs more. A redemption draws pro-rata across
+the basket, so an exit cannot covertly concentrate risk into one collateral. You can only ever burn your
+own QU!D — the redeem path burns the caller's own matured balance (`Basket.turn`,
+`evm/src/Basket.sol:267`) — and the recipient overload on `Aux.redeemTo` (`evm/src/Aux.sol:1095`)
+retargets the payout without changing whose tokens are burned.
 
 A third term, a Liquity-style decaying directional toll, was documented and then removed, because QU!D
-has no peg-arb loop for it to price. See `docs/informational/FEES-OUTFLOWS-TWAP.md`, which carries the
-retraction.
+has no peg-arbitrage loop for it to price. See `docs/informational/FEES-OUTFLOWS-TWAP.md`, which carries
+the retraction.
 
 ## How does the Bitcoin side work without a custodian?
 
 Each depositor's coins sit in a two-of-two joint account on Bitcoin, key-path taproot, one key theirs.
 The funding output is 34 bytes: `0x5120 || Q`, where **Q is the 32-byte x-only MuSig2 aggregate key** of
-the two funding keys. Our contract does no elliptic curve arithmetic at all; it byte-matches the
-committed Q against an SPV-proven transaction, the same lightweight proof a phone wallet uses to check
-a payment happened. Validated end to end against a live regtest node.
+the two funding keys. To open a channel, the funding transaction is proven to be in the Bitcoin chain
+by an SPV merkle-inclusion check against a header chain the contract maintains itself, and its output is
+byte-matched against that 34-byte script.
 
-Taproot buys a key-path spend carrying a 64-byte Schnorr signature and no witness script, so there is
-no script to reconstruct on-chain and no leaf to hide anything in. **The honest limit, stated in the
-source:** the contract never proves Q equals the aggregate of the two keys, so two-of-two genuineness
-rests on the off-chain key generation plus the hop gate. A malicious hop is the residual, and it was the
-residual under the previous script-based design too.
+**And the contract does not merely take Q on trust — it rebuilds it.** Bitcoin and Ethereum share the
+same elliptic curve, secp256k1, so the aggregation can be redone on the EVM. `BitcoinTx.computeOutputKey`
+decompresses both 33-byte pubkeys, computes the BIP-327 MuSig2 aggregate in a single Shamir pass, applies
+the BIP-341 taproot tweak, and hands back the output key; `isTwoOfTwoOutputKey` compares it to the Q the
+funding transaction actually paid (`evm/src/imports/BitcoinTx.sol:474-491`). So the contract **proves**
+`Q == TapTweak(KeyAgg(lpPubkey, hopPubkey))`, at open and again at every splice. It costs roughly 631,000
+gas and it buys the property the whole design rests on: a hop cannot be credited for sats locked under a
+key it alone controls.
 
-## Who actually holds the keys, and what protects a fleet depositor?
+> **This corrects an earlier version of this document**, which said "our contract does no elliptic curve
+> arithmetic at all" and that "the contract never proves Q equals the aggregate of the two keys, so
+> two-of-two genuineness rests on the off-chain key generation." Both halves were false. The
+> aggregation is verified on-chain, and the reference vector from BIP-327 pins the arithmetic
+> independently of our own fixtures (`evm/test/MuSig2Agg.t.sol`).
 
-Worth stating precisely, because "your BTC sits in a 2-of-2 you co-control" is true of one path and not
-the other.
+Two more things follow from sharing a curve. **The depositor's Ethereum address is derived, not
+supplied**: `lpEth` comes out of `p.lpPubkey` itself (`evm/src/BTCChannels.sol:946-951`), so there is no
+address a caller could assert beside a signature. And the depositor's consent arrives as a *Bitcoin*
+signature — a BIP-340 proof of possession over a digest naming their own EVM address — so **the LP signs
+nothing on Ethereum at all**.
 
-**Self-host.** The depositor's daemon holds one MuSig2 half and the hop holds the other. A key-path
-spend needs both, so the hop alone can spend nothing. This is 2-of-2 in the sense people mean it.
+Taproot buys a key-path spend carrying a 64-byte Schnorr signature and no witness script, so there is no
+script to reconstruct on-chain and no leaf to hide anything in. Validated end to end against a live
+regtest node.
 
-**Fleet.** Still a genuine 2-of-2 on Bitcoin — the fleet runs a second LDK node, the *vault*, holding
-the LP-side channel keys against the hop node's — but **both halves belong to the operator**, run
-in-process, with one vault node serving every `lpEth`. So the 2-of-2 stops third parties and does not
-stop the operator, and `vault.rs` says so directly: *"The LP's protection is the on-chain payout pin +
-enclave key custody — it never runs Lightning."*
+## Who actually holds the keys?
 
-**What that protection actually is, in order of what it rests on:**
+**In the deployed configuration, the depositor does, on their own machine.**
 
-**The payout pin.** `btcRecipientOf` is set and LOCKED at delegation, and every payout path — cooperative
-close, withdrawal splice, dead-man exit — must pay that exact script. So the EVM will not credit a close
-that pays elsewhere.
+The LP's half of every two-of-two lives on the LP's own box and is run by a shipped binary,
+`quid-lp-daemon` (`quid-ln/quid-bridge/src/bin/quid-lp-daemon.rs`). The operator's node holds the other
+half and cannot spend a channel's funding output by itself. This is two-of-two in the sense people mean
+it, and it is the default: the operator's fleet is **vault-less unless explicitly configured
+otherwise** (`quid-ln/quid-bridge/src/vault.rs:4-9`).
 
-**Enclave key custody.** The seed is sealed to MRENCLAVE, so only the exact attested build can derive
-those keys, and the measurement is a reproducible build anyone can rebuild and compare. Rogue code is a
-different measurement and cannot unseal. **This, not the 2-of-2, is what stops the operator.**
+An alternative exists in the code and is worth naming precisely, because it changes the answer. Behind
+an environment flag, `QUID_FLEET_COHOSTS_VAULT`, the operator can run a second node in-process holding
+the LP-side keys for every depositor (`quid-ln/quid-bridge/src/bin/quid-bridge-daemon.rs:389-394`). In
+that mode both halves belong to one party and **the two-of-two is nominal** — the daemon logs a warning
+saying exactly that when it starts. **The flag defaults to false and nothing in the deployment turns it
+on.** If you are ever told your channel is being run that way, the honest description is custody with
+extra steps, and the protections below are what you have instead.
 
-**The dead-man exit**, which covers the operator *vanishing*: a pre-signed CLTV-locked transaction whose
-bytes are already public, broadcastable by anyone once the heartbeat stops. It does not cover the
-operator *stealing*, because spending the funding output first makes the pre-signed exit spend a UTXO
-that no longer exists.
+**What protects the depositor, in order of what it rests on:**
+
+**The payout pin.** `btcRecipient` is set at open and locked, and every payout path — cooperative close,
+withdrawal splice, dead-man exit — must pay that exact script. The EVM will not credit a close that pays
+anywhere else. A fully compromised operator can therefore only send the depositor's money to the
+depositor.
+
+**The pre-signed exit ladder.** At open, the LP signs a ladder of timelocked exit transactions — at
+least two rungs, at most sixteen, at two or more distinct deadlines
+(`evm/src/BTCChannels.sol:1506-1523`, `MAX_LADDER_RUNGS = 16` at `:516`). Each rung is verified on-chain
+before it is armed: the contract parses the signed transaction, checks its structure and its payout
+script, and checks the Schnorr signature against the funding output
+(`BitcoinTx.verifyDeadManExit`, `evm/src/imports/BitcoinTx.sol:713-724`). Their bytes are public, so once
+the timelock passes **anyone** can broadcast one. A splice re-arms a fresh ladder in the same signing
+session, because the splice spends the funding output and the LP is in that session anyway — so a
+channel is never left without an escape.
+
+Depth here is load-bearing rather than a nicety. In the LP-hosted deployment there is no operator
+heartbeat re-arming exits: the heartbeat task disables itself when the process has no vault node
+(`quid-ln/quid-bridge/src/deadman_exit.rs:269-276`). The ladder the LP signed at open **is** the escape,
+which is why one rung is not allowed.
+
+**Enclave key custody**, which protects the operator's own half. The hop's seed is sealed to the
+enclave measurement, so only the exact attested build can derive those keys
+(`quid-ln/quid-enclave/src/platform.rs:388`, `quid-ln/quid-hop/src/seed.rs:27-29`). Rogue code is a
+different measurement and cannot unseal. ⚠️ Off SGX the seal is a mock and the host can read the blob
+(`quid-ln/quid-enclave/src/backend.rs:64`), so this property is real only on attested hardware.
+
+**Retiring a channel does not depend on anybody's liveness.** Recording a close is permissionless, and
+so is recording a force-close or a dead-man exit (`evm/src/BTCChannels.sol:1805`, `:1968`, `:1911`).
+The discriminator between a close and a splice is cryptographic rather than a matter of who calls, so
+the contract does not need to trust the caller.
+
+**What is NOT there, stated plainly.** There is **no attestation gate on any money path**. Which
+addresses may act as a hop is two immutable addresses fixed in the constructor and nothing else — no
+registry, no whitelist, no setter, no multisig (`evm/src/BTCChannels.sol:837`, `:808-809`). The
+`MRENCLAVE` whitelist an earlier version of this document described as gating hops is referenced by no
+code in the contract, and its absence is deliberate: the contract says so in place
+(`evm/src/BTCChannels.sol:105-110`). The reasoning is that an attestation gate asserts an address runs
+approved *code*, which is only as strong as whoever controls the whitelist, and buys nothing against the
+attacks that actually matter — every one of them is available to a hop running perfectly attested code.
+
+Either of the two addresses may act on any channel. They are not a partition of authority and anyone
+reasoning about blast radius should treat them as **one** trust boundary. That was deliberate: a
+fallback operator has to be able to serve channels it did not open.
 
 ### The single point of failure, named
 
 Seed export between enclave builds is authorised by a `MigrationAuth` requiring a threshold of distinct
-**operator Safe** owner signatures, verified in-enclave by `ecrecover` before the old enclave exports.
+operator-multisig owner signatures, recovered and checked inside the enclave before the old enclave
+exports (`quid-ln/quid-hop/src/migration.rs:339-357`, threshold 2 at `:121`).
 `migration.rs` documents the threat it defends against: an untrusted host pointing the old enclave at an
 attacker enclave.
 
-**Compromise of that Safe's threshold is sufficient to take custody of every channel**, and it is
+**Compromise of that owner threshold is sufficient to take custody of every channel**, and it is
 sufficient *alone* — once the seed is held, Bitcoin transactions are signed directly and on-chain hop
-status is never needed. That Safe, not the attestation registry, is where custody actually concentrates.
+status is never needed. That owner set, not any attestation registry, is where custody concentrates.
 
-Two current limitations worth knowing, and both are wider than earlier versions of this document said.
+Three limitations worth knowing, all wider than earlier versions of this document said.
 
-The enclave verifies migrations against a **sealed snapshot of the operator owner set**, not the live
-on-chain one, so an owner removed after the snapshot stays trusted until a new build ships. There is no
-Gnosis Safe involved. The operators are a plain k-of-n multisig, and reading the live set by state proof
-was considered and **withdrawn**, because a plain multisig exposes no owner-set storage to prove
-against. The snapshot is the design rather than a stopgap, and its cost is that the set cannot change
-without a new enclave build.
+**It is not a Gnosis Safe.** The operators are a plain k-of-n multisig; nothing calls a Safe contract and
+nothing reads Safe storage (`quid-ln/quid-hop/src/migration.rs:15-29`). The identifier `OPERATOR_SAFE`
+survives only as an EIP-712 domain value and the name is historical.
 
-Hop authorization is **two immutable addresses**. Every hop entrypoint, including channel opening,
-requires the caller to be one of them. There is no attestation registry and no per-channel authority:
-either address may act on any channel, which was a deliberate choice so that a fallback operator can
-serve channels it did not open. The capability is the point. It also means the two addresses are not a
-partition of authority, and anyone reasoning about blast radius should treat them as one trust
-boundary.
+**The owner set is compiled in, not read from anywhere.** It is a compile-time constant of three
+addresses baked into the binary and therefore into the enclave measurement
+(`quid-ln/quid-hop/src/migration.rs:113-117`). Changing an owner changes the measurement, which means
+**the operator set cannot change without shipping a new enclave build**. Reading the live set by state
+proof was considered and withdrawn: a plain multisig exposes no owner-set storage to prove against. That
+is the design, not a stopgap, and its cost is stated here rather than discovered.
+
+**The values shipped today are development placeholders**, with a guard that fails closed in production
+(`quid-ln/quid-hop/src/migration.rs:129-146`). They must be replaced before anything holds value.
 
 ### On "trusted"
 
@@ -719,7 +910,7 @@ Where this document says an assumption is trusted, it means the code cannot chec
 records it. That is not the same as being less trustworthy than the alternatives. A Groth16-based design
 trusts a setup ceremony that cannot be audited after the fact, and the claim that a ceremony was
 performed honestly is itself unverifiable. What is here instead is a reproducible build and a named
-operator Safe — both inspectable, which an expired ceremony is not.
+operator set — both inspectable, which an expired ceremony is not.
 
 ## Why many channels rather than one pooled vault?
 
@@ -749,116 +940,125 @@ native Bitcoin liquidity is either per-depositor channels (non-custodial but pee
 federation (peer-to-pool but custodial). That is the cross-chain trilemma rather than a design failure.
 
 The resolution is to decouple the swap from the settlement. The user-facing swap is peer-to-pool,
-instant, on Ethereum, against pooled Bitcoin, with providers holding pro-rata shares. Each swap advances
-an off-chain channel commitment, which is cheap, both-signed, and needs no Bitcoin transaction. The
-on-chain settlement happens periodically, or when somebody actually withdraws real Bitcoin to a Bitcoin
-address. **N swaps become one settlement.** That is what a commitment scheme is for: many cheap
-off-chain updates netting into rare on-chain settlements, amortised to near-zero per swap.
+instant, on Ethereum, against pooled Bitcoin, with providers holding pro-rata shares. A swap does not
+move any depositor's coins on Bitcoin. What settles on Bitcoin is only the boundary: a channel opening,
+a splice that grows or shrinks it, or a close. **N swaps become one settlement.**
 
-## What do I give up by letting the fleet run my channel?
+**Where the coins actually are, and what is on-chain instead.** The depositor's bitcoin never leaves
+their Lightning channel. It is not wrapped, bridged, or minted against — nothing is issued that anyone
+else can present for redemption. What exists on Ethereum is three things:
 
-Less than you would expect, and the code says so. You sign one cold EIP-712 delegation, relayed
-gaslessly by the operator, naming who may operate channels owned by your address and the single Bitcoin
-payout address every payout must reach. That address is **locked** from that moment, so a fully
-compromised operator can only fund positions credited to you with payouts to you. Bounded, never theft.
+1. **A header chain.** `SPVGateway` maintains Bitcoin's block headers, submitted permissionlessly by
+   anyone, initialised from a checkpoint that the deploy itself proves canonical by replaying the
+   headers that follow it. Every Bitcoin-facing path routes through its merkle-inclusion check, which
+   reads the height-to-hash map, so an orphaned chain cannot vouch for a transaction.
+2. **A channel registry.** `BTCChannels` records one channel per depositor: its funding outpoint, its
+   proven aggregate key, its locked payout script, its exit ladder, and its lifecycle. Every entry got
+   there by proving a Bitcoin transaction, not by an operator asserting one.
+3. **A position token.** `vBTC` is 8-decimal — it *is* sats — minted and burned only by the range
+   manager, and its 4626 face is a pure identity because the shares are the underlying unit
+   (`evm/src/VBtc.sol:57`, `decimals = 8` at `:61`, the identity face at `:95-97`). It is internal accounting. It is not a claim anyone else can
+   redeem, and there is no pool of bitcoin behind it to drain.
 
-The authority you name is either a specific hop, if you self-host or run a family node, or the
-Safe-governed registry, in which case any hop it attests can operate for you and a key rotation is one
-transaction that every delegating depositor follows without re-signing.
+**How the coins get in and out.** A deposit is a channel opening or a growth splice, SPV-proven, which
+pairs the sats as range depth. An exit is a Bitcoin transaction — a cooperative close, a force close, or
+a timelocked exit rung — and the depositor's bitcoin is recovered by that transaction itself, on
+Bitcoin, not by anything the EVM sends. The EVM's job on close is only to retire the position and settle
+its dollar leg.
 
-**Two residuals remain, and both are narrow.** Autonomy: if the operator is compelled to deny you
-service or shuts down, a self-hoster keeps operating their own channels. But the dead-man exit means
-even a fleet depositor still exits non-custodially, because a pre-signed timelocked transaction with
-public bytes becomes broadcastable by anyone once our heartbeat stops. So the residual is continuing to
-*operate*, not continuing to *exit*. And institutional custody policy: an entity contractually barred
-from any third party in its custody path. Both are real and neither is mass-market.
+**Two honest limits.** The swap-out rail that pays a Lightning invoice is deferred: the only swap-out
+implemented today is an on-chain delivery through a splice
+(`quid-ln/quid-bridge/src/swap_out_onchain.rs:1-3`), and it is off by default. And the whole design
+inherits **SPV's assumptions** — the header source and the confirmation depth — which a design verified
+on Bitcoin itself would not.
+
+## What do I give up by letting an operator run the hop?
+
+You do not hand over a key. In the deployed configuration you keep your half of the two-of-two and run
+`quid-lp-daemon` for it; the operator runs the hop node opposite you. What the operator can do is
+submit, and only submit: opening a channel, splicing it, delivering a swap. Every one of those calls is
+gated on the operator being one of the two immutable hop addresses, and every one of them still needs
+your Bitcoin signature to produce the transaction it proves.
+
+**The payout pin is what makes a compromised operator bounded rather than dangerous.** `btcRecipient` is
+fixed at open and locked, and the EVM will not credit any close paying elsewhere. A fully compromised
+operator can fund positions credited to you, with payouts to you. Bounded, never theft.
+
+**There is no registry to name, and nothing to delegate to.** An earlier version of this document
+described choosing between a specific hop and a "Safe-governed registry" that would attest hops on your
+behalf and let a key rotation propagate without re-signing. **No such registry exists.** Hop authority
+is two immutable addresses set in the constructor, with no setter, so there is nothing to govern and
+nothing to rotate. A second address exists so a dead main operator does not strand anyone — not as a
+partition of authority.
+
+**The residual is operation, not exit.** If the operator is compelled to deny you service or simply
+shuts down, what you lose is the ability to keep transacting. You do not lose the ability to leave: your
+exit ladder is signed, its bytes are public, and once its timelock passes anyone can broadcast it. The
+other residual is institutional custody policy — an entity contractually barred from any third party in
+its custody path. Both are real and neither is mass-market.
 
 **One practical constraint:** the payout address must be a 32-byte x-only taproot key, because every
 payout script is key-path P2TR. A legacy or segwit-v0 exchange withdrawal address will not work.
 
 ## Do Bitcoin depositors' fees compound, and should they?
 
-**They can, and the path is built.** An earlier draft of this answer said Bitcoin fees are a fixed sats
-claim never re-invested, that compounding would expose them to impermanent loss they currently escape,
-and that it could not be done without corrupting per-channel close attribution. **All three were wrong**
-and the source says so directly.
+**They compound, and there is no settlement rail at all.**
 
-BTC-leg fees are not paid out. **They compound into the depositor's own position, and the value is
-realised when that position is resized or closed.** The share count grows by `feeCompounded`, so a
-depositor's claim on the pool rises without any transfer taking place.
+BTC-leg fees are not paid out to anyone. The depositor's share count grows — `lpShares + feeCompounded`
+(`evm/src/Vault.sol:605`) — so their claim on the pool rises with no transfer taking place, and the
+value is realised when the position is resized or closed.
 
-There is no separate settlement rail. An earlier design had the hop settle fees at channel close or
-fund them through a grow-splice, and a third step where the hop sent the same sats over Lightning. None
-of that exists in the code. The parameters and functions it used are gone, and no Lightning send is
-issued anywhere in the fleet.
+That is worth stating flatly because three earlier answers to this question were wrong, in both
+directions.
 
-**Close attribution does not break, and the code states why.** Registration already grows the pooled
-position by the *full* splice delta regardless of how much was fee-funded, **so `delivered` stays
-invariant** (`BTCChannels.sol:784`). The fee marking only clears the owed counter; it does not touch the
-delivery arithmetic.
+**There is no Lightning leg, and there cannot be one.** An earlier design had the hop settle fees at
+close, or fund them through a splice, and then send the same sats over Lightning. None of it exists.
+The hop node explicitly refuses to originate spontaneous payments, and no send call exists anywhere in
+the bridge or the hop (`quid-ln/quid-hop/src/node.rs:358-362`,
+`quid-ln/quid-bridge/src/channel_driver.rs:1271-1277`).
+
+**There is no owed-fee ledger either.** A later draft argued at length that the accrued-fee counter was
+an unfunded liability rather than idle capital. **The counter is deleted.** There is nothing to fund,
+nothing to advance working capital against, and no settler task
+(`quid-ln/quid-bridge/src/daemon.rs:354`).
+
+**Close attribution does not break, and the code states why.** Registration grows the pooled position by
+the *full* splice delta regardless of how much was fee-funded, so the delivered quantity stays invariant
+(`evm/src/BTCChannels.sol:1244`). Compounding touches the share count, never the delivery arithmetic.
 
 **And a hedged depositor's compounded fees are hedged too, with a bounded lag.** The overlay sizes debt
-to `E0`, a base held *fixed between reseats* — deliberately, because sizing to the growing collateral
-produced a `1/(1−t)` over-hedge feedback loop. On every reseat `_reanchorIfReseated` re-anchors `E0` to
-the position's **current net equity**, which picks up whatever compounded since. The range is ±0.2%, so
-reseats are frequent and the lag is short. **So for a protected depositor the "compounding costs you IL"
-objection is close to empty.**
+to a base held fixed between reseats — deliberately, because sizing against collateral that grows as the
+keeper levers produces an over-hedge feedback loop. On every reseat that base is re-anchored to the
+position's current net equity, which picks up whatever compounded since. The band is ±2%, so reseats
+are frequent and the lag is short.
 
-### Compounding is the design, and there is nothing to piggyback on
+**Should it compound? Yes, and no conditional is needed.** The argument for gating it on whether a
+depositor holds an open hedge was that unhedged compounded sats are exposed to impermanent loss they
+would otherwise escape. It collapses, because of the intentional hold: below entry nothing is realised
+at all — the range over-holds the falling asset and the design holds it rather than selling it, and
+impermanent loss lands at withdrawal. Compounded sats simply increase what is held through a fall, and
+what is held through a fall heals. Above entry the hedge picks the compounded value up at the next
+reseat. There is no regime in which compounding creates a realised loss a depositor would otherwise
+have escaped.
 
-**Fees are not settled by any rail. The depositor's share count grows and the value is realised at
-resize or close.** No transfer happens, so there is no cost to piggyback and no settler to schedule.
+⚠️ **One nuance, because it changes what "compound" means today.** The share-count growth is the
+on-chain accounting shape and it is real. The off-chain path that would fund an early fee splice is
+currently **dormant**: the amount it passes is pinned to zero, so every call returns at the
+economic-grow floor and nothing is flushed early
+(`quid-ln/quid-bridge/src/channel_driver.rs:1266-1269`). Compounding at resize or close is the live
+behaviour; compounding *ahead* of one is not.
 
-An earlier design did carry a settlement step. The driver read an owed counter on each grow and passed
-the amount into the splice, and a separate fee-settler task existed before that. **Both are gone.** The
-splice parameter, the vault-side clamp, the settler task and its bookkeeping all have zero references
-in the tree today. Anything describing them is describing a design that was removed, not a path that is
-quiet.
+### And yes, there IS an intentional HODL, tied to the deleted short
 
-One detail the driver corrects: under the delegation model the depositor runs no Lightning node, so
-there is no keysend leg. A bigger pooled share simply grows their cooperative-close payout, and
-`delivered` stays invariant because registration already grew pooled by the full delta.
-
-### What is NOT true: this is not idle capital
-
-An earlier draft called the owed counter dead capital. **It is not, and the correction matters because
-the whole Bitcoin thesis is that locked capital should not be idle.** `btcFeesOwedSats` is a pro-rata
-accrual computed from a fee accumulator, not a segregated pile of sats sitting anywhere. Nothing is
-parked. It is an **unfunded liability** the hop settles, either at close or early via a splice it funds
-itself.
-
-So the real quantity at stake is smaller and different from what "dead capital" implies: the depositor
-forgoes *compounding* on an accrued claim, and funding it early is the hop **advancing working capital**
-to convert an accrual into principal sooner. Worth doing, and not the activation of an idle reserve.
-
-### The hedged-versus-unhedged distinction is not worth a conditional
-
-A draft proposed gating compounding on whether the depositor holds an open leverage position, on the
-grounds that an unhedged sats claim is IL-shielded while a hedged one is not. The distinction collapses,
-though **not for the reason the draft gave** (see the theta answer below — that reason was wrong).
-
-The real reason is the intentional hold. **Below entry nothing is realized at all**, because the design
-holds the range's over-hold rather than selling it, and IL is realized only at withdrawal. Compounded
-sats simply increase what is held through a fall, and what is held through a fall heals. Above entry the
-hedge picks the compounded value up at the next reseat. So there is no regime in which compounding
-creates a realized loss the depositor would otherwise have escaped, and the extra branch buys nothing.
-
-### And yes, there IS an intentional HODL, tied to the short
-
-An earlier answer said there was not. **Wrong, and the source says so in the removal note itself**
-(`LevManager.sol:584-588`): the below-entry short "**sells the over-hold into the fall**, forfeits the
-recovery — down-side IL is IMPERMANENT and heals on its own, so for a long-biased LP **holding strictly
-dominates** over any round-trip."
+An earlier answer said there was not. Wrong, and the source says so in the removal note itself: the
+below-entry short **sells the over-hold into the fall** and forfeits the recovery — down-side
+impermanent loss is genuinely impermanent and heals on its own, so for a long-biased provider holding
+strictly dominates over any round trip.
 
 That is the hold, and it exists *because* the short was deleted. Below entry the range mechanically
 over-holds the falling asset. A short would sell that over-hold to restore delta-one and would realise
 the loss doing it. Removing the short **is** the decision to hold instead, until price recovers or until
-the depositor withdraws, which is the "certain moment" and is where R1 realises IL through the share
-price. Calling it merely a stale comment was the error; the stale comments were adjacent to a live and
-deliberate policy.
-
-So the mechanism is settled: compounding is right for every depositor, it fires only when a splice is
-already happening, and no conditional is needed.
+the depositor withdraws — which is the moment impermanent loss is realised, through the share price.
 
 ## Is a Bitcoin liquidity provider just buying the dip all the way down?
 
@@ -868,38 +1068,48 @@ only by fees. Bitcoin has no yield stack to cushion it the way restaking cushion
 downtrend, in-range Bitcoin provision is structurally a losing position and the fees do not cover a
 trending drawdown.
 
-> **⚠️ CORRECTED 2026-08-01 against the source.** An earlier draft of this answer said the protocol
+> **⚠️ An earlier draft of this answer described a mechanism that does not exist.** It said the protocol
 > delta-hedges Bitcoin depositors back to one-times exposure using its own balance sheet, buying back
-> the Bitcoin the AMM sheds at a cost of roughly a quarter of variance paid from trading fees. **That
-> mechanism was removed as toxic and does not exist.** It is `arbBTC`, the Bitcoin analogue of
-> `refillETH`, and `Aux.sol:862-866` records the removal in exactly the terms Part 4 uses: it spent the
-> **shared** safety margin to deliver WBTC against a usually-impermanent shortfall, compensating the
-> exiting flow at every other claimholder's expense. The draft therefore described as a live feature the
-> precise thing this document elsewhere lists as a mistake we made and reversed.
+> the Bitcoin the range sheds at a cost of roughly a quarter of variance paid from trading fees. That
+> mechanism — `arbBTC`, the Bitcoin analogue of `arbETH` and `refillETH` — was **removed as toxic**, and
+> the tree carries no reference to any of the three today. It spent the **shared** safety margin to
+> deliver WBTC against a usually-impermanent shortfall, compensating the exiting flow at every other
+> claimholder's expense. The draft therefore described as a live feature the precise thing Part 4 lists
+> as a mistake we made and reversed.
 
 **Three things actually bound that risk, and none of them is a protocol-funded hedge.**
 
-**The theta clamp caps how much is exposed at all.** Paired range depth is limited to a live fraction of
-the Bitcoin backing, so most of the deposit sits outside the range and is never short gamma. Note this
-bound is sized on the basis discussed under "Why does the theta clamp pull liquidity in exactly when
-volatility rises?", which matters because this venue's cost is not the adverse selection a public pool
-faces.
+**Only a bounded slice is exposed at all.** Paired range depth is limited by the basket's free surplus,
+by the physical `backing − pooled` headroom, and by θ where θ binds — see "What actually limits how deep
+the range goes?" above. Most of the deposit sits outside the range and is never short gamma.
 
 **The IL protection is an opt-in per-depositor overlay, not a balance-sheet operation.** `BtcLevManager`
-is the Bitcoin analogue of the ETH one, sharing the same economics through the shared library, with
-vBTC-collateral leverage on external isolated venues and the same `1 − √(entry/now)` target that returns
-zero at or below entry. A depositor who wants the up-side loss cancelled opts in and it happens on their
-own external book. A depositor who does not, holds.
+is the Bitcoin analogue of the ETH one, sharing the same economics through the shared library and the
+same `1 − √(entry/now)` target that returns zero at or below entry. A depositor who wants the up-side
+loss cancelled opts in and it happens on their own external book. A depositor who does not, holds.
 
-**And shortfall settlement is settlement, not subsidy.** When the pool owes Bitcoin, the only path is a
-Lightning hop request: real Bitcoin sent on layer one by the hop daemon, **consuming no basket
-stablecoins**. The old WBTC-from-free-backing fallback is gone. With no registered recipient it is a
-no-op and the pool composition reconciles fairly at settlement.
+⚠️ **Two facts about the Bitcoin overlay that a depositor needs before opting in.** There is exactly
+**one** venue: an Aave V3 escrow with WBTC collateral (`evm/script/DeployL1_s.sol:559-567`). And
+because that venue's collateral token is WBTC rather than the internal vBTC, **the depositor brings
+external WBTC as equity** — the manager pulls it from the caller
+(`evm/src/BtcLevManager.sol:171-176`). The contract also supports a vBTC-collateral venue, which would
+let a depositor's own channel bitcoin be the equity, but **no such venue is allowlisted**, by standing
+owner ruling of 2026-09-07: using Lightning-custodied bitcoin as collateral to borrow dollars and then
+buying more Lightning bitcoin makes the collateral and the acquisition target the same asset, so a
+drawdown margin-calls the very thing the borrow bought. The market, its oracle and its escrow were
+**deleted, not disabled** (`evm/script/DeployL1_s.sol:525-533`).
+
+**And shortfall settlement is settlement, not subsidy.** When the range owes Bitcoin, the contract does
+one thing: it emits a request naming the depositor's pinned payout script and the amount
+(`Aux.btcShortfall`, `evm/src/Aux.sol:1052-1058`). It **consumes no basket stablecoins**, and with no
+registered recipient it is a no-op. The old WBTC-from-free-backing fallback is gone. ⚠️ Fulfilling that
+request is an off-chain act by the operator, and the Lightning rail that would pay it is currently
+deferred — the only implemented swap-out is an on-chain delivery.
 
 So the honest answer to the question is that a Bitcoin depositor is exposed to trend risk on the
-*clamped slice only*, can cancel the up-side portion of it on their own book if they choose, and bears
+*ranged slice only*, can cancel the up-side portion of it on their own book if they choose, and bears
 the rest through the share price. Nobody else's capital makes them whole, which is the same principle
-the ETH side settled on after `arbETH` was removed.
+the ETH side settled on when the surplus-funded make-whole was removed.
 
 ## How does this compare to GLOCK, BitVM and the other Bitcoin bridges?
 
@@ -954,18 +1164,24 @@ halt-not-theft, halt is still a failure GLOCK does not have in the same shape.
 
 ### Two things about ours that are weaker than the marketing
 
-**The 2-of-2 genuineness is not proven on-chain.** `BTCChannels.sol:58-63` says it directly: the
-contract byte-matches the committed `Q` and does **not** prove `Q == KeyAgg(lp, hop)`. That rests on the
-off-chain MuSig2 keygen plus the hop gate, and a malicious hop is the residual either way. GLOCK's setup
-is verifiable in a way ours is not.
+**Safety rests on SPV, not on Bitcoin.** Our channel registry is right because an EVM contract read a
+header chain and checked a merkle proof. Header submission is permissionless and an orphaned chain
+cannot vouch for a transaction, but the assumptions are still SPV's — the header source and the
+confirmation depth. GLOCK's peg is checked by Bitcoin itself, which is a stronger place to stand.
 
-**And under the fleet model the hop holds both key halves** (`BTCChannels.sol:257`, Option B). So the
-"depositor holds one of the two keys" property in this file's header describes the **self-host** path
-only. For a fleet depositor, non-custody comes from a different place: the payout script is pinned and
-locked at delegation so a fully compromised hop can only pay the depositor, and the dead-man exit is a
-pre-signed CLTV-locked transaction whose bytes are already public and broadcastable by anyone. That is
-weaker than holding your own key and stronger than a custodian, and it should be described that way
-rather than as self-custody.
+**The two-of-two is genuine but the operator set is small and immutable.** Hop authority is two
+addresses fixed at construction with no setter and no registry, and either may act on any channel, so
+they are one trust boundary rather than two. Enclave migration authority is a compile-time set of three
+owners with a threshold of two, baked into the measurement — which means it cannot be rotated without a
+new build. Neither is a committee whose honesty you can audit the way a BitVM setup's can be, and both
+are named above rather than glossed.
+
+⚠️ **One property listed here as a weakness has since been fixed, and the correction runs the other
+way.** An earlier version said the contract byte-matches the committed `Q` and does not prove it is the
+aggregate of the two keys, so two-of-two genuineness rested on off-chain key generation. **It is proven
+on-chain** — `BitcoinTx.computeOutputKey` / `isTwoOfTwoOutputKey`
+(`evm/src/imports/BitcoinTx.sol:474-491`), pinned against the BIP-327 reference vector. On this
+particular axis we are no longer behind.
 
 > Sourcing: Alpen's announcement describes the mechanism and the adoption but publishes no trust
 > assumptions, operator set, or failure modes. The BitVM-family characterisation above is inference from
@@ -974,77 +1190,79 @@ rather than as self-custody.
 ## Does where I host my node affect anyone else?
 
 No, and this is why "choosy providers" is not a complication. A provider's node only ever holds that
-provider's own half of a two-of-two with the hop, and the on-chain custody is correct by construction.
-Where you host affects the security of your own key and nothing else. Neither the hop nor any other
-provider needs to trust how you host.
+provider's own half of a two-of-two with the hop, and the on-chain custody is correct by construction —
+the contract rebuilds the aggregate key itself. Where you host affects the security of your own key and
+nothing else. Neither the hop nor any other provider needs to trust how you host.
 
 ## What does the quant dashboard actually do?
 
 It characterises the current market state and forecasts nothing, which is written into the source so
-nobody mistakes it.
+nobody mistakes it. It is a browser-side analytic in the front end (`spa/src/lib/kalman.ts`,
+`spa/src/lib/regime.ts`), not a contract and not an input to any on-chain decision.
 
 A bank of Kalman filters, the standard tool for tracking a quantity that drifts, estimates three things:
-volatility in log-variance space for positivity and stability, factor exposure between ETH and BTC, and
-the mean-reversion coefficient. Production rules from the spec are both implemented: an
-innovation-divergence check that flags a filter which has stopped tracking, and a Huber robust gain that
-down-weights innovations beyond three standard deviations so fat tails do not throw it.
+volatility in log-variance space for positivity and stability, factor exposure between ETH and BTC
+(`kalman.ts:103-109`), and the mean-reversion coefficient (`:112-122`). Both production rules from the
+spec are implemented: an innovation-divergence check that flags a filter which has stopped tracking
+(`:48-54`), and a Huber robust gain that down-weights innovations beyond three standard deviations so
+fat tails do not throw it (`:18`, `:40`).
 
-That feeds a regime classifier labelling the present as range-bound, two-way volatile, or trending. It
-is source-agnostic and runs on any log-price series, and it deliberately combines the internal pool ring
-with external market feeds, because reading only your own pool is circular: the pool is the thing you
-are trying to protect.
+That feeds a regime classifier labelling the present as range-bound, two-way volatile, or trending
+(`spa/src/lib/regime.ts:37`, `:49-53`). It is source-agnostic and runs on any log-price series, and it
+deliberately combines internal observations with external market feeds, because reading only your own
+inventory is circular: the position is the thing you are trying to characterise.
 
-## What is the smart order router and what is different about it?
-
-Each path is a chain of v4 hops sharing an entry stablecoin and a source vault, routed through the pool
-manager's unlock, with the terminal always native ETH. Two things distinguish it.
-
-At runtime it picks the source with the **highest live basket concentration fee** first, and only falls
-back to deploy order if that fails. So routing is a function of basket health rather than a static
-preference: the router prefers to spend the stablecoin the basket most wants to shed.
-
-And it accepts caller-funded paths. An external caller can route its own funds through the same real
-Uniswap v4 hops without touching basket backing, which is what lets the leverage overlay swap borrowed
-dollars without spending the reserve. That is also why `SorExchange` drops into Liquity's leverage
-zapper as a compatible exchange, so we earn the spread on both legs of somebody else's trade inside
-their own product.
-
-## How do the off-chain strategies and the Lightning keeper fit together?
+## How do the off-chain daemons and the leverage keeper fit together?
 
 A Rust workspace runs the bridge: the Lightning hop, the mirror reflecting every Bitcoin movement onto
-the contracts, the swap rails in both directions, and the leverage keeper. **The EVM contracts hold the
-accounting authority.** Nothing off-chain can mint or move funds without the on-chain checks passing.
+the contracts, the swap-in rail, and the leverage keeper. **The EVM contracts hold the accounting
+authority.** Nothing off-chain can mint or move funds without the on-chain checks passing.
 
 The hop is protocol-operated and trusted infrastructure in the sense that it co-signs channel operations
-and submits mirrors, but it **cannot steal**: every value path also requires the depositor's signature
-and the Bitcoin two-of-two spend. The worst case for a lost or compromised hop key is halt, not theft,
-and depositors always self-exit.
+and submits proofs, but it **cannot steal**: every value path also requires the depositor's Bitcoin
+signature and the two-of-two spend, and the payout script is pinned on-chain at open. The worst case for
+a lost or compromised hop key is halt, not theft, and depositors always self-exit through the pre-signed
+ladder.
 
 The keeper's entire job is to make a liquidation engine unnecessary. It polls each opted-in levered
-position and holds its loan-to-value inside a range around the target while never letting it reach the
+position and holds its loan-to-value inside a band around the target while never letting it reach the
 external venue's liquidation threshold, always a full safety margin below. So the venue's engine is a
 never-triggered backstop and we never wrote one. It is event-driven rather than a simple poller, because
 an unlevered depositor's withdrawal can force a chained unwind of other levered positions.
 
-The target is `L = 1/α`, where α is the realised range concavity measured from actual flow. Busy flow
-drives α toward one half and leverage toward two, cancelling the loss that flow created. Quiet flow
-drives leverage toward one, because there is no realised loss to cancel. **Pinning a constant two-times
-over-levers in quiet regimes and drains the buffer**, which is the mistake sizing to α avoids.
+**The keeper does not choose the target and does not estimate anything.** The contract publishes
+`1 − √(entry/now)` and the keeper reads it as authoritative
+(`quid-ln/quid-bridge/src/lev_keeper.rs:38-42`, `:118`). An earlier version of this document said the
+target was `L = 1/α` with α "the realised range concavity measured from actual flow"; there is no such
+estimator anywhere, and α was only ever a re-labelling of `√(entry/now)`. The prose survives in the
+keeper's own header and is contradicted four lines below it. The substantive point it was making does
+survive: leverage tracks the loss the range has actually created rather than sitting pinned at two
+times, which is what stops a quiet regime paying carry for nothing.
 
-## What is the multisig for?
+The band the keeper defends is itself derived rather than hand-set — a hand-set 300 bps would need a
+6.3% move off entry before the overlay borrowed at all, arming the hedge only after the move it exists
+to protect against (`evm/src/imports/LevMath.sol:105-128`).
 
-One bounded governance surface, and it moves no money.
+## Is there a multisig, and what does it govern?
 
-Which addresses may act as a Bitcoin hop is gated by an on-chain Intel DCAP attestation, verified by
-Automata's audited verifier, proving the hop's EVM key was born inside a whitelisted enclave
-measurement and is sealed to it, so modified code cannot reach the key. The Safe governs **only** that
-measurement whitelist and the revocation list, meaning which *code* may be a hop. Adding a measurement
-is a public transaction checkable against a reproducible build.
+**Not on the contracts. There is no governance surface on the deployed protocol at all.**
 
-It exists because the Bitcoin swap pool is global, so a malicious hop would dilute every depositor
-rather than harming one. Off-chain per-depositor attestation cannot protect a shared pool; the honesty
-of every hop has to be enforced at the contract, for everyone. Every value-moving contract renounces
-ownership.
+There are no roles, no timelock, no upgrade path and no admin. Authority is expressed as explicit
+address comparisons, and after the deploy ceremony almost all of them are dead. `Aux` renounces at
+`finalize()`, `Basket`'s owner is renounced on the next line, and `Quid` renounces itself inside its own
+setup call.
+
+**Which addresses may act as a Bitcoin hop is two immutable addresses and nothing else.** There is no
+attestation whitelist gating any money path, no revocation list, and no Safe governing either — see
+"Who actually holds the keys?" above. An earlier version of this document described an on-chain Intel
+DCAP attestation, verified by Automata's verifier, with a Safe governing the measurement whitelist. **No
+such contract exists in the tree.** Attestation is real, but it lives off-chain: it protects the
+operator's own seed by sealing it to the enclave measurement, and it gates nothing on Ethereum.
+
+The one multisig that does matter is the operator set that can authorise an enclave seed migration — a
+compile-time set of three, threshold two, described under "The single point of failure, named". It is
+not on-chain, it governs no contract, and compromising it is the sharpest custody risk in the system.
+It is named here rather than presented as a safety feature.
 
 ## Why does Lightning matter beyond our own depositors?
 
@@ -1304,8 +1522,8 @@ to buy the strip.
 redeploy the stablecoins to Morpho or Aave. It has no endogenous yield, meaning it does not trade the
 stablecoins against each other or against ETH and BTC. Good interface on somebody else's strategy.
 
-**Perena** only swaps between stablecoins. There are eleven in our basket and they are swappable against
-ETH and BTC.
+**Perena** only swaps between stablecoins. There are fourteen in our basket and they are swappable
+against ETH and BTC.
 
 **Panoptic** reaches single-sided provision through options machinery. Our bond ladder gets there by
 funding the dollar leg out of scheduled yield, which is a simpler mechanism for the same outcome.
@@ -1763,8 +1981,8 @@ The Act addresses a specific documented failure mode: issuers holding reserve as
 stablecoin itself that could fail to maintain one-to-one backing under stress. The question is not
 whether QU!D qualifies as a permitted issuer, or whether any other design could be better qualified.
 
-The basket generates no endogenous yield, only exogenously through Uniswap, Aave, Morpho and the
-stablecoin vaults. It is closer to an ETF or money market fund share, aggregating existing monetary
+The basket generates no endogenous yield, only exogenously through Aave, Morpho, Liquity's Stability
+Pool and the constituent stablecoins' own vaults. It is closer to an ETF or money market fund share, aggregating existing monetary
 instruments issued by third parties into a redeemable unit. The pass-through yield originates from each
 constituent issuer's own reserve income: a monetary premium here, a savings rate there, a funding basis
 elsewhere. This aligns with the CFTC's historical treatment of basket instruments backed by physical
@@ -1802,7 +2020,7 @@ composition is adequate given current market conditions.
 > would operationalise reserve sufficiency continuously. **That mechanism was removed from the design
 > and the argument should not be revived** — see Part 4 for why it fails on its own merits. The Hayekian
 > point survives as an argument about the limits of periodic attestation; it no longer has a mechanism
-> attached. Depeg protection today is diversification across eleven constituents and nothing else.
+> attached. Depeg protection today is diversification across fourteen constituents and nothing else.
 
 ## What is the tranche, in regulatory terms?
 
@@ -1914,26 +2132,39 @@ judgment of an identifiable manager, the question becomes: **after launch, what 
 call that changes where depositor assets are deployed?** The answer is none, and it is enforced rather
 than promised.
 
-The reserve's setup call renounces ownership. Every discretionary lever sits behind an owner gate, so all
-of them die at that call: evacuation, vault assignment, price feed assignment, venue assignment. The range
-contract renounces the same way. The basket's constituent set is fixed at deployment and cannot be added
-to. The leverage venue allowlist is pin-once then frozen behind a flag the source itself describes as
-matching the renounce-everything posture. The contracts are not upgradeable and have no administrator, so
-changing allocation logic would require a new deployment and a voluntary migration by depositors.
+**The ceremony, precisely.** `Aux.finalize()` (`evm/src/Aux.sol:708`) first asserts that every
+cross-contract linkage equals the owner-set view — which catches a front-runner's malicious-but-non-zero
+pin in an ungated setter — **before** anything is burned, so a mis-wired deploy reverts all-or-nothing
+rather than half-completing. It then burns the committed seed NFT and calls `renounceOwnership()`
+(`:714`). `Basket`'s owner is renounced on the next line of the deploy script
+(`evm/script/DeployL1_s.sol:368`). `Quid` renounces itself inside its own `setup` call
+(`evm/src/Quid.sol:462`). Every discretionary lever behind an owner gate dies at those calls:
+evacuation (`Aux.sol:523`), the wiring setters (`:675`, `:693`), vault-health blocking (`:468`). The
+basket's constituent set is fixed at deployment with no permissionless binder. The leverage venue
+allowlist is pin-once then frozen (`evm/src/LevManager.sol:139`). The contracts are not upgradeable and
+have no administrator, so changing allocation logic would require a new deployment and a voluntary
+migration by depositors. `BTCChannels` has **no owner at all** — it is not `Ownable` and declares no
+owner slot.
 
 **This is the distinction against a curated vault.** A Morpho or Euler curator holds *continuing*
 discretion: they can reallocate tomorrow, into markets nobody has seen yet, and depositors rely on that
-judgment prospectively. QU!D's allocation decision was exercised once, at deployment, and is now
-unreachable by anyone including the deployer. The Howey argument already turns on *ongoing* managerial
-effort, and this framing converges on the same axis from the adviser side rather than the security side.
+judgment prospectively. QU!D's allocation decision was exercised once, at deployment. The Howey argument
+already turns on *ongoing* managerial effort, and this framing converges on the same axis from the
+adviser side rather than the security side.
 
 **Two design decisions were made specifically to remove discretion, and they read as evidence of
 intent.** The vault-health poke is permissionless and reads only ERC-4626 ground truth, comparing
-convertible assets against maximum withdrawable. It can tighten and never loosen and it cannot re-quote
-anyone's value. It replaced a graded haircut lever that was removed *because* it was owner-only. **A
-system that deletes its own discretionary levers before anyone asks is making the rules-based case in the
-strongest available form.** Separately, the yield venue is chosen per deposit by the depositor and there
-is no setter, so what allocation discretion exists belongs to the depositor.
+convertible assets against maximum withdrawable (`evm/src/Aux.sol:493`). It can tighten and never loosen
+and it cannot re-quote anyone's value; it replaced a graded haircut lever that was removed *because* it
+was owner-only. And the ETH venue was collapsed to a single destination with no setter and no dispatch
+(`evm/src/imports/QuidLib.sol:109-113`), which removes the venue choice as a lever rather than merely
+gating it. **A system that deletes its own discretionary levers before anyone asks is making the
+rules-based case in the strongest available form.**
+
+> ⚠️ **An earlier version of this section supported that last point with the opposite fact** — that the
+> yield venue is *chosen per deposit by the depositor*, so the discretion belonged to the depositor. That
+> was true of a design with per-venue deposit codes, which no longer exists. The current answer is
+> stronger, not weaker: there is no choice to make, by anyone.
 
 **A further argument runs from the entity rather than the code.** The Investment Advisers Act definition
 at §202(a)(11) requires acting as an adviser **for compensation**. A memberless Cayman foundation whose
@@ -1941,36 +2172,70 @@ only extraction is a tranche sized to recover a documented accumulated deficit u
 terminates at breakeven, has a weak compensation element. Code facts and entity facts point the same way,
 which neither does alone.
 
-**What survives, and should be disclosed rather than discovered.** The vault contract retains three owner
-setters for the offramp position and the two leverage managers, and no renounce was found on it. **If the
-intent is the renounce-everything posture the rest of the system takes, this is the gap to close before
-launch.** The multisig over the enclave measurement whitelist governs which code may operate the Bitcoin
-hop and moves no funds, a governance surface and not an investment-discretion one. The off-chain keeper
-executes a closed-form target on opt-in positions isolated to the depositor's own external account, so it
-selects nothing.
+### What survives the renounce, stated rather than left to be found
+
+The claim "after launch no function can change where depositor assets are deployed, and it is
+unreachable by anyone including the deployer" is **too strong as written**. Three things outlive the
+ceremony. None of them redirects depositor assets, but counsel should be told about all three rather
+than discover them.
+
+**1. `Core.setObservationSource`** (`evm/src/Core.sol:1651`). Gated on an `immutable DEPLOYER` rather
+than on ownership, so no renounce touches it. It has zero non-test callers and no deploy script calls
+it, so it is **deliberately left unset on both range instances** and the slot is still open after
+finalize. What it can set is where the variance observation ring is fed from — a pricing input to the
+skew and to θ, not an allocation. The bound on the risk is that both consumers move conservatively as
+variance rises and the reading taken is the *larger* of the ring and the Chainlink anchor, so a pinned
+source can only push variance upward, which is the direction that costs whoever does it. It cannot
+suppress the reading. **The contract states plainly that nothing on that path bounds inflation.**
+
+**2. `Quid.setLevManager`** (`Shares.sol:113`, gated by `Quid._onlyPinner` on the same
+`immutable DEPLOYER`, `evm/src/Quid.sol:126`). A one-shot pin, exercised only when the leverage overlay
+is deployed.
+
+**3. `Vault`'s ownership, and this is the sharp one.** `Vault` is `Ownable`
+(`evm/src/Vault.sol:70`) and its renounce sits **inside** the leverage-overlay deploy function, after
+that function's early return when the overlay is disabled (`evm/script/DeployL1_s.sol:506`, renounce at
+`:571`). ⇒ **`Vault` is renounced if and only if the leverage overlay is deployed. On a deploy without
+it, the deploy script remains `Vault`'s owner**, and `Vault.setLevManager` is its remaining owner-gated
+function. This is the gap to close before launch, and the fix is to move the renounce out of the
+conditional rather than to argue about it.
+
+The off-chain keeper executes a closed-form target published by the contract, on opt-in positions
+isolated to the depositor's own external account, so it selects nothing. The operator multisig that can
+authorise an enclave seed migration governs no contract and moves no protocol funds — but, as stated in
+Part 2, compromising it is sufficient to take custody of every Bitcoin channel, and it should be
+disclosed on that basis rather than as a bounded governance surface.
 
 **Summary for counsel:** composition and allocation logic are frozen at deployment, the surviving
-automated paths are permissionless and read objective on-chain state, and the discretion that remains is
-over infrastructure rather than over where depositor money goes. Closing the vault setters would make
-that claim complete.
+automated paths are permissionless and read objective on-chain state, and the three surviving
+deployer-keyed levers are over pricing inputs and one-shot wiring rather than over where depositor money
+goes. Making `Vault`'s renounce unconditional would make the claim complete.
 
-### Verification trail, read from source 2026-08-01
+### Verification trail, read from source 2026-09-08
+
+⚠️ These line numbers were read on 2026-09-08 against a tree under active development. The **symbol
+names** are the durable reference; if a line has moved, grep the name.
 
 | claim | location |
 |---|---|
-| Aux renounces at finalize | `evm/src/Aux.sol:598-604` |
-| Quid renounces at setup | `evm/src/Quid.sol:309-313` |
-| evacuate / setVault / setStableFeed / setAssetFeed are onlyOwner | `evm/src/Aux.sol:487`, `:497`, `:167`, `:191` |
-| basket constituents fixed at deploy, no permissionless binder | `evm/src/Aux.sol:177` |
-| lev venue allowlist pin-once then frozen | `evm/src/LevManager.sol:146`, `:208-210` |
-| pokeVaultHealth permissionless, ERC-4626 ground truth only | `docs/informational/VAULT-WATCHER.md` |
-| graded haircut removed because owner-only | `docs/informational/VAULT-WATCHER.md` |
-| depositor picks venue, no setter | `evm/src/Quid.sol:1277-1281` |
-| Safe governs measurement whitelist only, moves no funds | `evm/src/AttestedHopRegistry.sol:47-53` |
-| **Vault setters with no renounce found** | `evm/src/Vault.sol:355`, `:362`, `:372` |
-| IL target closed-form, zero at or below entry | `evm/src/imports/LevMath.sol:109-125` |
-| range width ±0.2%, not ±2% | `evm/src/imports/SwapLib.sol:831-838` |
-| eleven stablecoins, BOLD last | `evm/test/Alles.t.sol:285-300` |
+| `Aux` renounces at `finalize` | `evm/src/Aux.sol:708`, renounce at `:714` |
+| `Basket` renounced by the deploy script | `evm/script/DeployL1_s.sol:368` |
+| `Quid` renounces itself inside `setup` | `evm/src/Quid.sol:457`, renounce at `:462` |
+| `evacuate`, `configure`, `wire`, `setVaultHealth` are `onlyOwner` | `evm/src/Aux.sol:523`, `:675`, `:693`, `:468` |
+| basket constituents fixed at deploy; 14 is the layout maximum | `evm/script/DeployL1_s.sol:217-226`, `:262` |
+| lev venue allowlist pin-once then frozen | `evm/src/LevManager.sol:139` |
+| `pokeVaultHealth` permissionless, ERC-4626 ground truth only | `evm/src/Aux.sol:493` |
+| one ETH venue, no setter, no dispatch | `evm/src/imports/QuidLib.sol:109-113` |
+| hop authority is two immutables, no registry, no setter | `evm/src/BTCChannels.sol:808-809`, `:837` |
+| no attestation gate on any hop money path | `evm/src/BTCChannels.sol:105-110` |
+| `BTCChannels` has no owner at all | `evm/src/BTCChannels.sol` — no `Ownable`, no owner slot |
+| **`Vault` renounced only when the leverage overlay deploys** | `evm/script/DeployL1_s.sol:506`, `:571` |
+| **`Core.setObservationSource` survives every renounce, and is unset** | `evm/src/Core.sol:1651` |
+| **`Quid.setLevManager` survives every renounce** | `evm/src/Shares.sol:113`, `evm/src/Quid.sol:126` |
+| IL target closed-form, zero at or below entry | `evm/src/imports/LevMath.sol:235-247` |
+| range width ±2% | `evm/src/imports/SwapLib.sol:2878`, `RANGE_DELTA = 200` at `:888` |
+| fourteen stablecoins, BOLD last | `evm/script/DeployL1_s.sol:217-226`, `:262` |
+| two-of-two aggregate proven on-chain | `evm/src/imports/BitcoinTx.sol:474-491` |
 
 ## How does the sequence conclude?
 
@@ -2196,11 +2461,15 @@ having them now rather than after the audit.
 1. **Intent venue listings** (Mach, Khalani, already committed). No licence, no product, no customer
    acquisition. Brings the swap flow that drives the retained scarcity premium straight to depositors.
    Needs a deployment and nothing else. **Fastest provider revenue in the stack.**
-2. **The Liquity zapper.** Built. Earns the router spread on both legs inside someone else's product.
-3. **QD as pledged deposit collateral.** Needs one surety partner and a counsel answer on admitted
+2. **QD as pledged deposit collateral.** Needs one surety partner and a counsel answer on admitted
    assets.
-4. **Exodus.** They hold the rails and the state-by-state licences and are missing yield on unspent
+3. **Exodus.** They hold the rails and the state-by-state licences and are missing yield on unspent
    balances, which is exactly what the basket makes. Enter as the supplier.
+
+> An earlier version of this list carried a fourth item, a Liquity leverage-zapper integration earning a
+> router spread on both legs of someone else's trade. **The smart order router it depended on was
+> deleted**, along with the exchange adapter that dropped into Liquity's tooling. There is no router
+> spread to earn and the item is removed rather than deferred.
 
 ## Does this document set make an undeniably strong investment case?
 
