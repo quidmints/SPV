@@ -710,13 +710,27 @@ library QuidLib {
         address token, uint amount, address to) public returns (uint sent) {
         if (amount == 0) return 0;
         require(token == c.weth, "ethv:notWeth");
-        // Sweep any idle WETH from Aux in first (Aux approved us), preserving the
+        // Sweep idle WETH from Aux in first (Aux approved us), preserving the
         // idle-first order (rangeETH counts Aux idle as backing).
-        uint auxIdle = IERC20(c.weth).balanceOf(c.aux);
-        if (auxIdle > 0) {
-            try IERC20(c.weth).transferFrom(c.aux, address(this), auxIdle) {} catch {}
-        }
+        // §GATE0e — PULL ONLY THE SHORTFALL. This swept Aux's ENTIRE idle balance unconditionally
+        // and then served `amount`, parking `auxIdle − amount` here on every drain that had to
+        // pull. That surplus is what `sendEth` used to unwrap and hand to the next swapper whole
+        // (fixed there too); capping the sweep removes the supply rather than only the symptom.
+        // ⭐ BEHAVIOUR-PRESERVING FOR WHAT IS SERVED, which is why it is safe: both Aux idle and
+        //    this contract's idle are counted by `_rangeETH`, so moving less between them changes
+        //    no book. And the weETH→Curve rung below fires on the same condition either way —
+        //    capped, `wethBal` reaches `min(amount, have + auxIdle)`, so it is short in exactly the
+        //    cases it was short before.
         uint wethBal = IERC20(c.weth).balanceOf(address(this));
+        if (wethBal < amount) {
+            uint want = amount - wethBal;
+            uint auxIdle = IERC20(c.weth).balanceOf(c.aux);
+            uint pull = auxIdle < want ? auxIdle : want;
+            if (pull > 0) {
+                try IERC20(c.weth).transferFrom(c.aux, address(this), pull) {} catch {}
+                wethBal = IERC20(c.weth).balanceOf(address(this));
+            }
+        }
         if (wethBal < amount) {
             // OPPORTUNISTIC, NON-BLOCKING: sell idle ether.fi
             // weETH → WETH on the deep pool. Any failure swallowed (returns 0).
