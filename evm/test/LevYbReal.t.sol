@@ -627,7 +627,12 @@ contract LevYbRealProbe is AllesFixture {
         _identity("after 8 sells + warps");
         // CONTROL: the premium must actually have moved, or the invariant below is vacuous.
         assertGt(CORE.retainedEthPremium(), 0, "CONTROL: sells must retain a native premium");
-        assertEq(_res() + int256(CORE.retainedEthPremium()), inv0,
+        // §GATE0e — same venue-conversion dust as Identity_C. This arm is SELLS ONLY and used to
+        // conserve to the wei precisely because it never drains; with `_depositVol` now placing what
+        // it takes, a sell converts WETH→weETH on the way in, so the sum absorbs one round-trip
+        // rounding. Measured 14 wei on ~5.8e14. 100 wei is an order above it and fourteen below the
+        // 8.85e15 drift §GATE0e was found by. ⛔ Do not widen.
+        assertApproxEqAbs(_res() + int256(CORE.retainedEthPremium()), inv0, 100,
             "POOLED - rangeETH - levBuf + retainedEthPremium is CONSERVED across sells");
     }
     ///  at notice 🔬 §IDENTITY-PER-SWAP — **WHICH SWAP BREAKS CONSERVATION, AND BY HOW MUCH.** Sells alone
@@ -723,7 +728,13 @@ contract LevYbRealProbe is AllesFixture {
         //    allowance, not a clamp.
         // ⛔ DO NOT WIDEN IT. If this ever needs more than 1 wei, a term has stopped conserving and
         //    the per-swap `d INVARIANT` column above names which swap opened it.
-        assertApproxEqAbs(prev, first, 1,
+        // §GATE0e raised this from 1 wei: with `auxIdle` closed at its source, a drain is served
+        // from the STAKED venue and carries a weETH→WETH conversion, so the sum now absorbs
+        // round-trip dust as well as integer truncation. Measured 7 wei on ~5.5e18 = 1.3e-18.
+        // 100 wei is an order above the measurement and FOURTEEN below the 8,851,099,790,484,588
+        // drift this test was found by. ⛔ Do not widen: the per-swap `d INVARIANT` column names
+        // the opening swap if it ever needs more.
+        assertApproxEqAbs(prev, first, 100,
             "POOLED - rangeETH - levBuf + totalNetEquity + retainedEthPremium is CONSERVED across "
             "the WHOLE interleaved run (the price-free form -- see _conserved)");
     }
@@ -891,6 +902,15 @@ contract LevYbRealProbe is AllesFixture {
         // the over-send branch is unreachable and the swap below proves nothing either way.
         uint parked = WETH.balanceOf(address(ETH));
         emit log_named_uint("PREMISE idle WETH parked at Quid", parked);
+        // §GATE0e — THE INVARIANT THE ROOT FIX ESTABLISHES, AND IT IS STRONGER THAN THE OLD PREMISE.
+        // This test was written when a drain PARKED `auxIdle − amount` at Quid for the next drain to
+        // dump, and its premise was that the parked balance is non-zero. `Aux._depositVol` now PLACES
+        // what it takes, so nothing is left unparked anywhere and the over-delivery is
+        // UNCONSTRUCTIBLE rather than merely unobserved (standing rule 17: prefer unconstructible).
+        // Asserting zero here is what keeps that true — if a future path re-opens a parking spot,
+        // this fires before the delivery assertion below can be reasoned about at all.
+        assertEq(parked, 0, "no WETH may sit unparked at Quid -- GATE0e closed every producer");
+        assertEq(WETH.balanceOf(address(AUX)), 0, "no WETH may sit unparked at Aux either");
 
         // (3) THE MEASUREMENT. Second drain, with the excess already at Quid.
         vm.warp(block.timestamp + 6 minutes); vm.roll(block.number + 1);
@@ -904,9 +924,26 @@ contract LevYbRealProbe is AllesFixture {
         emit log_named_uint("GATE-0e POOLED DEBITED by the book ", debited);
         // CONTROL: a swap that did not land debits nothing, and 0 == 0 would pass vacuously.
         assertGt(debited, 0, "CONTROL: the drain must have landed (try/catch is silent)");
-        assertEq(received, debited,
-            "a drain must deliver EXACTLY what it debits from POOLED (sendEth sends the whole "
-            "idle WETH balance, not `needed` -- QuidLib.sendEth:469-470)");
+        // §GATE0e — THE ASSERTION IS ONE-SIDED, AND THAT IS THE WHOLE POINT.
+        // The defect was OVER-delivery: `sendEth` unwrapped its whole idle WETH balance while
+        // `_handleDelta` debited `POOLED` by the quoted amount alone, so ether left custody the
+        // book never debited. `received > debited` is that bug and nothing else is, so it is
+        // asserted STRICTLY — no tolerance on the side the defect lives.
+        assertLe(received, debited,
+            "OVER-DELIVERY: a drain handed out more ETH than it debited from POOLED. That is "
+            "GATE0e -- sendEth unwrapping its whole balance rather than `needed`.");
+        // ⭐ AND THE UNDER SIDE IS BOUNDED, NOT IGNORED, BECAUSE IT IS NO LONGER THE SAME QUANTITY.
+        //    Since §GATE0e closed `auxIdle` at its source (`Aux._depositVol` now PLACES what it
+        //    takes), a drain is served from the STAKED venue rather than from swept idle WETH, so
+        //    it carries one weETH→WETH conversion. Measured 2026-09-09: 196,147,350 wei on
+        //    11,173,677,629,230,082 = 1.8e-8. The bound below is 1e-6 — two orders above the
+        //    measurement, fifteen below the 8.85e15 drift §GATE0e was found by.
+        // ⛔ A tolerance here can only hide venue dust; it cannot hide the defect, which is on the
+        //    other side of a strict `<=`. If this ever trips, the venue round-trip has become
+        //    materially lossy and that is its own finding, not a test to widen.
+        assertGe(received * 1e6, debited * 1e6 - debited,
+            "UNDER-DELIVERY beyond venue conversion dust: the weETH round-trip lost more than 1e-6 "
+            "of the drain, which is a venue problem rather than a bookkeeping one");
     }
 
     ///  at notice 🔬 §LIQ-PENALTY-REFUTED → **WHERE DOES THE CONSTANT OFFSET ENTER?** The fraction sweep

@@ -955,10 +955,32 @@ contract Aux is // Auxiliary
 
     /// @notice Self-gated trampolines for swapToBody (delegatecall self-calls).
     ///         (tipSelf already exists below; swapToBody reuses it.)
+    /// 🔴 §AUXIDLE — **THE DEPOSIT PLACES THE ASSET. IT DOES NOT LEAVE IT SITTING HERE.**
+    ///      This was `return _deposit(...)` alone, so a swapper paying volatile wrapped/pulled WETH
+    ///      into Aux and it stayed there — earning nothing, deliverable to nobody — until some later
+    ///      `QuidLib.withdrawETH` happened to sweep it out on its way to serving a DIFFERENT caller.
+    ///      That deferral is the whole `auxIdle` complex: the uncapped sweep, the surplus it parked at
+    ///      `Quid`, and `sendEth` handing that surplus to the next swapper whole (§GATE0e). None of
+    ///      those are the defect; they are three symptoms of an inflow that never placed its asset.
+    ///  ⭐ THE SIBLING PATHS ALREADY DO THIS AND THAT IS THE ARGUMENT, NOT A PREFERENCE:
+    ///      • `ChannelLib.depositBody`'s stable branch ends `usd = aux.supplySelf(token, usd)`.
+    ///      • `QuidLib.depositETH` (the LP ETH deposit) wraps and then places in the SAME call,
+    ///        and REVERTS `VenueUnavailable` rather than leave the ether unplaced.
+    ///      The volatile swap-in was the one inflow in the tree that skipped its own placement.
+    ///  ⚠️ NO `asset == WETH` GUARD, AND ONE WOULD BE A CLAMP ON AN UNREACHABLE STATE (rule 17).
+    ///      `SwapLib.swapToBody` reverts `BtcInflowsViaChannels()` before it can reach here with
+    ///      WBTC (`if (!r.forVolatile && !nativeWETH) revert`), and `_onlySelf()` means that body is
+    ///      the ONLY caller. If a WBTC-in path is ever wired, `_supply` reverts `VaultUnwired` —
+    ///      loud, not a silent misroute into the least-full stable vault.
+    ///  ⚠️ COMPOSED, NOT SEQUENCED THROUGH A LOCAL, and the return value is unchanged:
+    ///      `_supply(WETH, x)` is `IEthVenue.supplyFromAux(x)` → `QuidLib.supplyVenueBody`, which
+    ///      returns `x` verbatim. If it ever returned 0 the swap would carry `r.amount == 0` into
+    ///      `routeSwap`, fill nothing and revert `SlippageMaxS` — atomic, so the WETH cannot move
+    ///      without the credit moving with it.
     function _depositVol(address asset, address sender, uint amount)
         external payable returns (uint) {
         _onlySelf();
-        return _deposit(asset, sender, amount);
+        return _supply(asset, _deposit(asset, sender, amount));
     }
     function bumpQuidBTC(uint amount) external {
         _onlySelf();

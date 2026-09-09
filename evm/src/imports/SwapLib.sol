@@ -402,6 +402,10 @@ library SwapLib {
         // this local was costing (the note above worried about exactly that) comes back.
         if (!r.forVolatile) {
             if (r.token != c.quid && !stable) revert StableMissingS();
+            // §AUXIDLE — `_depositVol` PLACES what it takes (it composes `_supply(asset, _deposit(…))`),
+            // so this line no longer leaves the swapper's WETH idle at Aux for a later drain to sweep.
+            // The return is unchanged (`supplyVenueBody` returns its argument verbatim). ⛔ Do not
+            // add a placement call here as well — it would double-supply. See `Aux._depositVol`.
             r.amount = aux._depositVol{value: msg.value}(r.asset, msg.sender, r.amount);
             max = ICore(c.core).POOLED_USD();
             // JIT-DEPTH-GUARANTEE.md §2 range site (DEFERRED — design gap, NOT built): this is the
@@ -499,6 +503,20 @@ library SwapLib {
     ///      frame so _finishSwap stays within the legacy stack. r.inToken carries the input: volatile-in is
     ///      NATIVE (r.amount from _depositVol; no conversion); stable-in is 6-dec USD (deposit's scale) →
     ///      native via scaleTokenAmount; QD-in is 0 (skipped — burned). Aux context ⇒ direct withdrawSelf.
+    /// 🔴 §AUXIDLE — **THE VOLATILE-IN REFUND NOW SOURCES FROM THE VENUE, NOT FROM THE INPUT THAT IS
+    ///      STILL SITTING AT AUX.** `_depositVol` used to leave the swapper's WETH idle at Aux for
+    ///      the whole frame, so this `withdrawSelf` was served by `QuidLib.withdrawETH`'s Aux-sweep
+    ///      rung out of the swapper's OWN deposit — exact, to the wei. It now places into the venue
+    ///      in its own call, so `withdrawETH` finds no Aux idle, falls through to the
+    ///      `LevMath.sourceWeth` Curve rung, and serves `min(amount, wethBal)` — a PARTIAL FILL, no
+    ///      revert. ⇒ On a partial-fill volatile-in swap the refund can be short by the Curve
+    ///      round trip (`sourceWeth` sells at a 0.5% floor; measured honest slippage 1.4–3.5 bps),
+    ///      and the shortfall stays at `Quid` as idle WETH, which `_rangeETH` counts — so it is a
+    ///      swapper-vs-LP transfer, NOT a leak, and Σbacking is unchanged.
+    ///      ⚠️ THE SIZING DOES NOT MOVE HERE, AND MOVING THE PLACEMENT LATER WOULD NOT FIX IT: the
+    ///      retained skew premium (`retainSkewPremium` decrements `r.amount` and transfers nothing)
+    ///      also stays as WETH at Aux, so a post-refund placement sized by `consumed` would leave
+    ///      the premium unparked — the same defect, smaller. Place all of it at the deposit.
     function _refundExcess(IAux aux, SwapReq memory r, uint consumed) private {
         if (r.inToken == address(0) || r.amount <= consumed) return;
         uint excess = r.amount - consumed;

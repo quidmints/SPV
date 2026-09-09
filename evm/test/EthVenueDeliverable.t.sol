@@ -48,7 +48,13 @@ contract EthVenueDeliverableProbe is AllesFixture {
         uint range = EV.rangeETH();
         uint deliv = EV.deliverableETH();
 
-        // ── The six terms of `_rangeETH`, read independently ────────────────────────────────
+        // ── The terms of `_rangeETH`, read independently ────────────────────────────────────
+        // 🔴 §AUXIDLE — `_rangeETH` NOW HAS **FIVE** TERMS, NOT SIX: `IERC20(eeth).balanceOf(aux)`
+        //    was deleted (no code path puts eETH at Aux, and Aux has no way to deliver it, so it
+        //    counted phantom backing). `eethAtAux` is KEPT in the recomputation below on purpose —
+        //    it is 0 in every state this contract can reach, so the identity still holds, and if it
+        //    ever becomes non-zero this assert FAILS and that is the signal we want: eETH arrived
+        //    somewhere with no delivery path. Do not "fix" the failure by re-adding the term.
         address weeth = EV.WEETH();
         address eeth  = EV.ETHERFI_EETH();
         uint wBal        = IERC20(weeth).balanceOf(address(EV));
@@ -83,7 +89,7 @@ contract EthVenueDeliverableProbe is AllesFixture {
         //     holder when the code counts it at two — fails here and names itself.
         assertEq(range,
             weethAsEth + idleAtQuid + idleAtAux + eethAtQuid + eethAtAux + netEquity,
-            "rangeETH != its six terms -- a leg was added, dropped, or read at the wrong holder");
+            "rangeETH != its terms -- a leg was added, dropped, or read at the wrong holder");
 
         // (2)+(3) `deliverableETH` = rangeETH − curve deferral − lev net equity, in that order.
         //     The deferral is what makes an unrealisable weETH slice DEFER instead of overstating

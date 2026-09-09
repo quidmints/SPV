@@ -478,6 +478,22 @@ library QuidLib {
             //    `auxIdle − amount` here for the NEXT drain to dump. That is why the defect needed
             //    a SELL (which puts idle WETH at Aux) followed by a DRAIN (the only leg that
             //    delivers) to appear at all, and why a drains-only arm reads −9 wei.
+            // 🔴 §AUXIDLE — **THAT SUPPLY IS NOW CLOSED AT ITS SOURCE, AND THE CAP STILL STAYS.**
+            //    "a SELL, which puts idle WETH at Aux" is no longer true: `Aux._depositVol` composes
+            //    `_supply(asset, _deposit(...))`, so the sell places into the venue in its own call
+            //    and the sweep above finds nothing. ⛔ Do NOT read that as licence to drop the cap.
+            //    The cap is not about where the excess CAME FROM — `inWETH` is this contract's WHOLE
+            //    balance, and `rangeOp` / `deleverEthOnDelivery` each top it up and may each return
+            //    MORE than asked, so an uncapped `withdraw(inWETH)` over-delivers from any source.
+            //    Removing a supply does not remove an unbounded unwrap.
+            // ⚠️ `deleverEthOnDelivery` — CHECKED AT ITS SOURCE, AND IT IS NOT AN OVERSHOOT SITE.
+            //    `LevManager.swapOutDeleverPooled` frees `getWeETHByeETH(askNative·usedUsd/stableUsd)`
+            //    where `usedUsd <= stableUsd` (it is the USD value of what `repayPool` ACTUALLY
+            //    repaid, bounded by the request), and `LevMath.collToWethDeliver` then SELLS that
+            //    weETH — a sale returns less than the mark, never more. So its return is `<= ask`
+            //    up to round-trip dust, and `ask` was itself scaled DOWN from `shortfallEth`.
+            //    ⇒ There is no source-side fix to make there; the overshoot this cap was written
+            //      for came from the uncapped Aux sweep, which is now closed one rung up.
             // ⛔ THE CAP GOES *AFTER* THE TOP-UPS, NOT INSIDE THE BRANCH. `rangeOp` and
             //    `deleverEthOnDelivery` may each return MORE than asked; capping here catches an
             //    overshoot from either, and leaves the remainder as WETH — which `_rangeETH`
@@ -522,14 +538,43 @@ library QuidLib {
             if (w > 0) total += IWeETH(c.weeth).getEETHByWeETH(w);
         }
         // Idle WETH is still ETH backing — count it at BOTH Quid (venue
-        // custody, evacuated remainders) AND Aux (transient swap/deposit legs).
+        // custody, evacuated remainders) AND Aux.
+        // 🔴 §AUXIDLE — **THE AUX TERM STAYS, AND THE REASON IS NOT THE ONE IT USED TO CARRY.** It
+        //    said *"transient swap/deposit legs"*: `Aux._depositVol` wrapped the swapper's ether
+        //    into WETH at Aux and left it there ACROSS TRANSACTIONS, so this term was carrying the
+        //    whole `auxIdle` float. That producer is CLOSED — `_depositVol` now composes
+        //    `_supply(asset, _deposit(...))`, so the swap-in places into the venue in its own call
+        //    and the balance this reads is zero at the end of every swap.
+        //    ⇒ What is LEFT is the one producer no contract change can close: a bare
+        //      `WETH.transfer(aux, x)` by anybody. `Aux.sweep` exists FOR that case (*"donations and
+        //      dust are absorbed into the basket instead of being lost"*), and until someone calls
+        //      it this line is the only thing that counts a donation as backing.
+        //    ⛔ SO DO NOT DELETE IT AS "ALWAYS ZERO". It is zero on every path WE drive, which is a
+        //      different statement, and deleting it would strand donated WETH — counted by nothing,
+        //      while `withdrawETH`'s sweep still hands it out. The term and that sweep are a MATCHED
+        //      PAIR (counted ⇒ deliverable); remove one and you must remove the other.
         total += IERC20(c.weth).balanceOf(address(this));
         total += IERC20(c.weth).balanceOf(c.aux);
-        // Raw eETH transiently sits here mid wait-NFT withdrawal — real backing,
-        // counted at BOTH Quid and Aux so a partial failure never strands it.
+        // Raw eETH transiently sits HERE mid wait-NFT withdrawal — real backing.
+        // 🔴 §AUXIDLE — **THE `balanceOf(c.aux)` TWIN OF THIS LINE IS DELETED, AND IT WAS NOT
+        //    MERELY DEAD — IT COUNTED BACKING NOTHING CAN DELIVER.** It read
+        //    `total += IERC20(c.eeth).balanceOf(c.aux)` under *"counted at BOTH Quid and Aux so a
+        //    partial failure never strands it"*. Checked, not assumed: `ETHERFI_EETH` appears in
+        //    `evm/src` at exactly three sites — its declaration (`Quid:106`), the `EthCfg` build
+        //    (`Quid:183`), and `IERC20(ETHERFI_EETH).approve(ETHERFI_LP, max)` (`Quid:481`). There
+        //    is NO transfer of eETH to Aux anywhere, so the "partial failure" it hedged against has
+        //    no code path that could produce it.
+        //    ⇒ And the hedge was BACKWARDS. Aux can neither stake nor sell eETH: `SwapLib.sweepBody`
+        //      reverts `UnknownStableSweep` for it (not WETH, not WBTC, `toIndex == 0`, not
+        //      GHO/USDG), and `withdrawETH` serves WETH only. Donated eETH is PERMANENTLY STUCK at
+        //      Aux — and this line put it into `_rangeETH`, hence into `deliverableETH`, as though a
+        //      redemption could reach it. That is the same "counted but undeliverable" defect the
+        //      Curve bound above exists to prevent for weETH, and the WETH pair above avoids by
+        //      keeping its sweep. Unlike WETH, there is no sweep to keep — so the term goes.
+        //    ⚠️ If an eETH→Aux leg is ever built, restore the term WITH its delivery path, not
+        //      before: a backing term without one is a phantom.
         if (c.eeth != address(0)) {
             total += IERC20(c.eeth).balanceOf(address(this));
-            total += IERC20(c.eeth).balanceOf(c.aux);
         }
         // IL-protect: count the leveraged book's net-equity (gross collateral - debt), not gross. The buffer
         // half is debt-funded (offset by the LP's borrow), so counting gross would overstate solvency by the debt
@@ -712,6 +757,20 @@ library QuidLib {
         require(token == c.weth, "ethv:notWeth");
         // Sweep idle WETH from Aux in first (Aux approved us), preserving the
         // idle-first order (rangeETH counts Aux idle as backing).
+        // 🔴 §AUXIDLE — **THIS RUNG IS NOW A DONATION HANDLER, NOT A SWAP-FLOAT HANDLER, AND THAT
+        //    IS THE ONLY REASON IT SURVIVES.** Its supply was `Aux._depositVol`, which wrapped a
+        //    volatile-in swapper's ether at Aux and left it unplaced for a later drain to collect;
+        //    that call now composes `_supply(asset, _deposit(...))`, so no swap leaves anything
+        //    here. What remains is a bare `WETH.transfer(aux, x)` from outside, which no contract
+        //    change can prevent — and `_rangeETH` COUNTS that balance as backing, so something has
+        //    to be able to deliver it. `Aux.sweep(WETH)` is the deliberate path; this is the
+        //    opportunistic one that keeps "counted ⇒ deliverable" true without a keeper call.
+        //    ⛔ DELETING THIS WITHOUT ALSO DELETING `_rangeETH`'s `WETH.balanceOf(c.aux)` TERM IS
+        //      THE ONE UNSAFE MOVE HERE: it would leave donated WETH priced into backing and into
+        //      `deliverableETH` with no path that can hand it over — exactly the phantom the eETH
+        //      term was deleted for. They go together or not at all.
+        //    ⇒ In steady state this pulls 0 and costs one `balanceOf`. Measured claim to falsify:
+        //      after this change, a volatile-in swap followed by a drain must find `auxIdle == 0`.
         // §GATE0e — PULL ONLY THE SHORTFALL. This swept Aux's ENTIRE idle balance unconditionally
         // and then served `amount`, parking `auxIdle − amount` here on every drain that had to
         // pull. That surplus is what `sendEth` used to unwrap and hand to the next swapper whole
