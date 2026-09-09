@@ -323,6 +323,20 @@ contract DeleverEthBackingProbe is LevCascadeProbe {
         // a venue pull → and only then the de-lever leg. A thick range answers from the first rung
         // and the leg under test never runs.
         vm.deal(address(this), 20 ether);
+        // 🔴 §F2-CALIBRATION (2026-09-09) — WAS 3 ether, AND THE RUN-HAPPENED GATE FIRED ON IT.
+        //    Measured at that seed: `deliverableETH` 5.048e18 free against a levered book the drain
+        //    never had to reach, so `skips == 0`, `sawUnavailable == false` and `totalDebt()` was
+        //    UNCHANGED at 557,518,548 — all three proofs absent, i.e. the leg did not run and the
+        //    property below was vacuous. The gate did exactly its job; this is the fixture-sizing
+        //    answer it asked for, per §F-TESTS-UNRUN's own note that an F2 gate fire "is a
+        //    fixture-sizing result, not a regression".
+        // 🔴 AND THE SEED IS BACK AT 3 — CUTTING IT TO 1 WAS MEASURED AND IT MADE THINGS WORSE.
+        //    At 1 ether the FIRST swap reverted `SlippageMaxS()` (selector 0xa6a836fb) with
+        //    `filled == 0`: with `minOut == 0` the only reachable arm of that guard is `max == 0`,
+        //    which `SwapLib:525` documents as "a dry volatile pool". So a thinner seed does not
+        //    expose the de-lever leg, it empties the range so no swap fills at all.
+        //    ⇒ THE GATE'S OWN REMEDY TEXT ("shrink the seed deposit") IS WRONG IN THIS DIRECTION,
+        //    and it is corrected at the assertion below rather than left to mislead the next reader.
         ETH.deposit{value: 3 ether}(0, address(this));
 
         _openAtEntry(lps[0], 5 ether);
@@ -361,22 +375,36 @@ contract DeleverEthBackingProbe is LevCascadeProbe {
         // ── DRAIN ETH OUT PAST FREE DEPTH, which is what drives `sendEth` to the de-lever leg ──
         uint tvl0 = _tvl();
         bool sawUnavailable;
-        deal(address(USDC), User03, 600_000 * USDC_PRECISION);
+        // §F2-CALIBRATION — deal/loop/size grown with the seed cut above. A drain that stops early
+        // cannot reach the leg either, so the loop now REPORTS why it stopped instead of breaking
+        // silently: `filled` is how many swaps actually settled and `firstErr` is the selector that
+        // ended it. ⚠️ Without these a red gate is indistinguishable between "too small" and
+        // "reverted on swap 1", which is the §CONFIRM-THE-RUN-HAPPENED shape one level in — the
+        // earlier reading could not tell those apart and that is why this is instrumented, not
+        // merely enlarged.
+        deal(address(USDC), User03, 2_000_000 * USDC_PRECISION);
+        uint filled; bytes4 firstErr;
         vm.recordLogs();
         vm.startPrank(User03);
         IERC20R(address(USDC)).approve(address(AUX), type(uint).max);
-        for (uint i; i < 12; ++i) {
-            try AUX.swap(address(USDC), address(WETH), true, 40_000 * USDC_PRECISION, 0, true) {}
+        for (uint i; i < 24; ++i) {
+            try AUX.swap(address(USDC), address(WETH), true, 40_000 * USDC_PRECISION, 0, true) {
+                filled++;
+            }
             catch (bytes memory e) {
                 // §SILENT-SETUP — a swallowed revert makes this case vacuous rather than failing it,
                 // so the ONE revert that means "the leg ran and refused" is captured by selector.
                 if (e.length >= 4 && bytes4(e) == bytes4(keccak256("DeleverStableUnavailable()")))
                     sawUnavailable = true;
+                if (e.length >= 4) firstErr = bytes4(e);
                 break;
             }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 20 minutes);
         }
         vm.stopPrank();
+        emit log_named_uint("     swaps that FILLED    ", filled);
+        emit log_named_bytes32("     first revert selector", bytes32(firstErr));
+        emit log_named_uint("     deliverableETH post   ", ETH.deliverableETH());
 
         uint skips;
         {   bytes32 sig = keccak256("DeliverDeleverSkipped(address,uint256,bool)");
@@ -412,10 +440,27 @@ contract DeleverEthBackingProbe is LevCascadeProbe {
         // Three mutually exclusive proofs that the leg executed: it announced a skip, it repaid, or
         // it refused loudly. None of them can be produced by a drain that never reached `sendEth`'s
         // shortfall branch.
+        // 🔴 §F2-NEVER-DRAINED (measured 2026-09-09, and it RETIRES this gate's original remedy).
+        //    The message here used to read "Free depth covered the ask - shrink the seed deposit or
+        //    grow the drain". BOTH halves are wrong, and instrumenting the loop is what showed it:
+        //      · `filled == 0` at the ORIGINAL calibration (seed 3 ether, 40k USDC x12). The drain
+        //        never executed a single swap, so free depth never "covered" anything — there was
+        //        no ask. Every earlier reading of this probe was of a drain that did not happen.
+        //      · The first swap reverts `SlippageMaxS()` (0xa6a836fb). With `minOut == 0` the only
+        //        reachable arm of `SwapLib:528` is `max == 0`, which `SwapLib:525` documents as
+        //        "a dry volatile pool" — an EMPTY RANGE, not slippage. The name misleads.
+        //      · Shrinking the seed 3 -> 1 ether was tried and made it strictly worse (still
+        //        `filled == 0`, and `deliverableETH` fell 5.048e18 -> 3.048e18): a thinner seed
+        //        empties the range faster, so it cannot be the route to the de-lever leg.
+        //    ⚠️ AND THE OPEN QUESTION THIS LEAVES IS WORTH MORE THAN THE PROBE: in this exact state
+        //    `ETH.deliverableETH()` reads 5.048e18 while the swap path's `max` is 0. Those two
+        //    disagree about the same range in the same tx. Settle THAT before re-calibrating here —
+        //    a fixture knob cannot fix a view and a fill path that do not agree.
         assertTrue(skips > 0 || sawUnavailable || venue.totalDebt() < debtBefore,
             "RUN-HAPPENED: the de-lever leg was never reached, so the property below is VACUOUS. "
-            "Free depth covered the ask - shrink the seed deposit or grow the drain until "
-            "QuidLib.sendEth falls through to SwapLib.deleverEthOnDelivery.");
+            "MEASURED CAUSE: the drain does not execute - check `swaps that FILLED` above. If it is "
+            "0 the range is DRY (SlippageMaxS == max==0), and neither seed size nor drain size is "
+            "the lever; see the deliverableETH-vs-max disagreement noted at this assertion.");
 
         // ── THE PROPERTY THE FIX GUARANTEES ─────────────────────────────────────────────────────
         assertEq(foreignAtVenue, 0,

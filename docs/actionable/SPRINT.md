@@ -62723,3 +62723,63 @@ The exact aggregate target over a set of entries is `1 − (Σwᵢ√eᵢ)/(√p
 ## 🔓 §PROJECT-45-UNBLOCK — the answer they are waiting on, written down because I could not deliver it
 **project-45 is NOT reachable from this machine** — the only live peers are `project-91` and `project-c5`, both idle; everything else is an offline Remote Control session. So this is booked where they will find it instead.
 **THE ANSWER: the EIP-170 fold is fine to commit, and the one thing that mattered was checked.** The fold collapses two `retainSkewPremium` call sites into one, and **`!r.forVolatile` correctly preserves the native/USD unit discriminator that §PREMIUM-READABLE depends on.** ⚠️ Attribution: the fold is **not** the owner's work — that was verified.
+
+---
+
+# ✅🔴 §F-TESTS-RUN-2026-09-09 — **§F-TESTS-UNRUN IS DISCHARGED: 5 OF 6 PREDICTIONS EXECUTED AND GREEN. THE 6TH WAS NEVER MEASURABLE, AND NOT FOR THE REASON THAT BLOCK GAVE.**
+
+📌 **§SEQ-AUDIT: GATE 0 (the measurement) · single worker, no lanes.** The run: `tools/forge-test.sh`
+over the three impacted suites, pinned. **§CONFIRM-THE-RUN-HAPPENED gate passed BEFORE any result was
+read** — compiler errors **0**, `[PASS` lines **100**, `setUp` failures **0**, RPC markers **0**, log
+51,222 bytes. ⇒ **100 passed / 1 failed**, and the one failure is F2's own run-happened gate.
+
+| # | prediction as written in §F-TESTS-UNRUN | test | result |
+|---|---|---|---|
+| **F9** | `healthy − broken == 0` wei (was `== totalLevPooled`) | `testF9_LevManagerOutageMustNotSilentlyDropTheRecordedLevTerm` | ✅ **PASS** |
+| **F12** | `freed == sinkΔ · 1e12` | `testReal_DeleverToVault_ReportsUsd18_AndNeverPaysTheSinkPastWhatItSized` | ✅ **PASS** |
+| **F13** | `sinkGot <= cap+1 && lpGot > 0` | *(same test — one assertion pair)* | ✅ **PASS** |
+| **F14** | `closeLev` reverts under a neutered flash | `testReal_CloseLev_RefusesToDropTheSlotWhenTheFlashRepaidNothing` | ✅ **PASS** |
+| **F15** | `RepayNotApplied` gone | `testReal_RepayPool_AccruesBeforeReadingDebt_OrdinaryRepayMustNotRevert` | ✅ **PASS** |
+| **F2** | `foreignAtVenue == 0` | `testReal_MEASURE_ProRataFallback_VenueStableVaultPaused_ETH` | 🔴 **UNMEASURED — see below** |
+
+⚠️ **F14's PREDICTION TEXT WAS ALREADY STALE AND THE PROPERTY WAS NOT.** It says the close reverts
+*"`close: no repay`"*; there is no such string — `751b8597` replaced this file's only two revert
+strings with a custom error, so it is **`revert NoRepay()`** (`LevManager.sol:584`, guarded
+`debtBefore > 0 &&`). **Checked against the code rather than against the block that predicted it**,
+per rule 20. The property holds; only its description had rotted.
+
+## 🔴 §F2-NEVER-DRAINED — **the probe has NEVER drained anything, and "calibration risk" was the wrong diagnosis**
+§F-TESTS-UNRUN hedged this as *"if its run-happened gate fires that is a fixture-sizing result, not a
+regression"*, and the gate's own message told the next reader to *"shrink the seed deposit or grow the
+drain"*. **Both are wrong, and instrumenting the drain loop is what showed it in one run:**
+- **`swaps that FILLED: 0` at the ORIGINAL calibration** (seed 3 ether, 40k USDC x 12). Free depth
+  never "covered the ask" because **there was no ask** — the drain executed zero swaps. ⇒ **every
+  earlier reading of this probe, including the one that shipped its calibration warning, was a reading
+  of a drain that did not happen.**
+- **The first swap reverts `SlippageMaxS()` (0xa6a836fb).** With `minOut == 0` the only reachable arm
+  of `SwapLib:528` is **`max == 0`**, which `SwapLib:525` documents as *"a dry volatile pool"*. **An
+  empty range, not slippage — the error's NAME is what makes this read as a price problem.**
+- **Shrinking the seed 3 -> 1 ether was tried and is strictly worse**: still `filled == 0`, and
+  `deliverableETH` fell 5.048e18 -> 3.048e18. A thinner seed empties the range sooner, so the gate's
+  remedy points AWAY from the leg. Corrected in the assertion text rather than left to mislead.
+- **Growing the drain 40k x 12 -> 80k x 24 changed nothing** (`filled == 0` there too). Neither knob is
+  the lever, which is what "a fixture-sizing result" would have had the next thread spend a day on.
+
+> **AND THE QUESTION IT LEAVES IS WORTH MORE THAN THE PROBE, so it is booked as its own row:**
+> **§DELIVERABLE-VS-MAX — in one state, in one tx, `ETH.deliverableETH()` reads
+> `5,048,264,094,489,526,475` while the swap path's `max` is `0`.** Two numbers about the same range
+> that disagree completely. One of them is wrong, and **which one decides whether this is a stale view
+> (a capacity quote nobody can fill) or a dry fill path (inventory the view sees and the router cannot
+> reach)**. Do NOT re-calibrate the F2 fixture before settling it — a fixture knob cannot reconcile a
+> view and a fill path that disagree, and turning the knob until the gate goes green would manufacture
+> exactly the vacuous pass the gate exists to prevent (rule 4).
+
+**THE INSTRUMENTATION STAYS.** `swaps that FILLED` and `first revert selector` are what converted three
+sessions of "it is probably under-sized" into one measured selector. Cost: two lines.
+
+## WHAT THIS SAYS ABOUT THE GATE ITSELF, WHICH IS THE REUSABLE PART
+The run-happened gate **worked perfectly** — it refused to let a vacuous property pass, three times
+across three sessions. **Its REMEDY TEXT was the defect**, and a remedy is prose: it named a cause
+nobody had measured, and each reader trusted it because it sat inside a correct assertion. ⇒ **a gate's
+failure message is as load-bearing as its condition, and it goes stale the same way** — the stale-
+docblock class arriving through an `assert` string. **Instrument the PREMISE, do not narrate it.**
