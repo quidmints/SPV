@@ -59679,3 +59679,79 @@ A–S skew premium.
 ▶️ REMAINING TO CLOSE THE NUMBER: warm σ² per block and re-run the regime sweep for a real distribution
 (how OFTEN coverage is negative, not merely that it can be). That is the last measurement, and it sizes
 the problem rather than deciding it — the −1 bps sample already decided it.
+
+---
+
+## ✅ §GAMMA-TRACE-2026-09-09 — the untraced causal step, traced. **`POOLED` does not rise. `retainedEthPremium` falls, and `POOLED` is defined as the number that is low by exactly that.**
+
+§SESS-117 (and project-91 independently) booked that shrinking Γ from `3e16` to the derived
+`FLOW_HALFLIFE * WAD / 365 days` = **5.48e15** makes `POOLED` **rise**, breaking
+`testReal_Morpho_LiquidationLeavesBasketIntact`, and both booked the causal step as **untraced** —
+leaving open whether this is a Γ consequence or a separate `POOLED` booking bug. **It is neither.**
+
+▶️ **MEASURED**, both arms, same fork block **25938897**, only `SwapLib.GAMMA_WAD` differing:
+
+| quantity | ARM A · Γ=3e16 (PASS) | ARM B · Γ derived (FAIL) | Δ |
+|---|---|---|---|
+| `CORE.POOLED()` | 4,947,720,824,066,337,456 | 4,959,903,282,203,593,362 | **+12,182,458,137,255,906** |
+| `CORE.retainedEthPremium()` | 14,936,318,750,426,827 | 2,753,860,613,170,921 | **−12,182,458,137,255,906** |
+| `AUX.rangeETH()` | 4,846,718,163,898,933,525 | 4,846,718,163,898,933,525 | **0** — byte-identical |
+| `ETH.levBuf(LP)` | 107,664,900,675,399,343 | 107,664,900,675,399,343 | **0** — byte-identical |
+| `rlm.totalNetEquity()` | 2,763,141,896,176,959,470 | 2,763,141,896,176,959,470 | **0** — byte-identical |
+
+⭐ **`ΔPOOLED = −ΔretainedEthPremium`, EXACTLY, TO THE WEI.** The two conserved sums:
+
+- `POOLED + retainedEthPremium` = **4,962,657,142,816,764,283** in BOTH arms — identical.
+- `rangeETH + levBuf` = **4,954,383,064,574,332,868** in BOTH arms — identical.
+
+⇒ **Γ moves NOTHING that the assertion is about.** It moves only the split between two columns whose
+sum is invariant.
+
+## WHY — `Core.sol:600-610` already says it
+`retainedEthPremium` is *"the part of a sell-leg swapper's ether that `SwapLib.retainSkewPremium`
+deducted before Core ever booked it"*, and — **its own words** — ***"POOLED is low by exactly this."***
+It is a **COUNTER, not a booking**. So a smaller Γ retains less premium, less ether is withheld before
+the booking, and `POOLED` sits **higher by precisely the ether that was not withheld**. `rangeETH`
+counts that ether either way, which is why it does not move a single wei. **No ether was created,
+lost, or moved. There is no backing loss and there is no `POOLED` booking bug.** This supplies the
+mechanism behind project-91's *"book-versus-backing divergence, not an outflow"* — they read the shape
+correctly and this is the arithmetic under it.
+
+## ⛔ THE REAL DEFECT IS THE ASSERTION, AND IT IS Γ-INDEPENDENT
+`rangeETH + levBuf >= POOLED` omits `retainedEthPremium` from a comparison in which one side is
+**defined as net of it**. The structural gap it is actually straddling is a CONSTANT:
+
+```
+(POOLED + retained) − (rangeETH + levBuf) = 8,274,078,242,431,415 wei = 0.008274078 ETH   ← same in BOTH arms
+```
+
+The two arms are that one constant compared against the retained premium:
+
+| arm | retained | vs gap 8,274,078,242,431,415 | reported |
+|---|---|---|---|
+| A · 3e16 | 14,936,318,750,426,827 | **exceeds it** by 6,662,240,507,995,412 | PASS, margin **+6,662,240,507,995,412** ✓ |
+| B · derived | 2,753,860,613,170,921 | **short** by 5,520,217,629,260,494 | FAIL by **5,520,217,629,260,494** ✓ |
+
+Both reported figures reproduce from the identity exactly. ⇒ **ARM A WAS NEVER PASSING BECAUSE THE
+BACKING HELD. It passed because an over-large Γ retained enough premium to paper over a fixed 0.00827
+ETH gap that is present in BOTH arms.** The green was the cushion, not the property. Reverting Γ
+restores the cushion and re-hides the gap — **that is the specific wrong fix**, and it would also
+contradict §GAMMA-IS-NOT-A-DIAL (Γ = γ·(T−t) is a derivation, not a parameter; it is not ours to set
+to whatever makes a test green).
+
+▶️ **WHAT THE ASSERTION SHOULD SAY:** account for `retainedEthPremium` on the correct side —
+`rangeETH + levBuf + retainedEthPremium >= POOLED` — which `testReal_Identity_C_PerSwap` **already
+attempts**. Under that form both arms carry the SAME 0.00827 ETH deficit, which is the honest
+statement of what is actually owed.
+⏸️ **STILL OPEN, AND IT IS NOW THE ONLY OPEN QUESTION HERE:** what the residual **0.008274078 ETH** is.
+It is Γ-invariant and it is present when the suite is green, so it predates this thread and is NOT a Γ
+regression. Do not close the assertion by widening it until that number has a name.
+
+## 🧭 METHOD — the probe that lied, and why
+My FIRST Γ probe (`_openLp()` + `_calmVol()`) showed the OPPOSITE direction and a Γ-INVARIANT retained
+premium (50,400,000,000,000 in both arms — `levBuf = 0`, no liquidation). It was a clean, green,
+reproducible measurement **of a different regime**, and it would have sent this the wrong way.
+📌 **THE RULE: to trace why a test fails, instrument THAT test's own path — not a smaller fixture that
+reaches the same function.** A probe that does not reproduce the failure is not a smaller version of
+it; it is a different experiment, and its agreement with nothing is not evidence. Cf.
+[[measurement-scope-is-not-sentence-scope]] — green proves only what ran.
