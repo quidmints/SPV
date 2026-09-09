@@ -62905,3 +62905,38 @@ already built) and *does the pool hold enough* (answered by entry, still gated o
 a cheaper flash must widen the option set, without first checking whether the operation it enables was
 already reachable for free. That is "verified the mechanism, never priced the alternative" — the same
 shape as reading one side of a coupling and inferring the other.**
+
+---
+
+# 🔴 §CATCH-1-PREMISE-WAS-A-TRUNCATED-QUOTE — 2026-09-09, self-corrected within the hour
+
+**§CATCH-SWALLOWS item 1 justified itself with:** *"A zero TWAP is a DOCUMENTED reachable state here
+(`LevCascade.t.sol:~185`: *'once a crash walks the pool to its tick boundary `getTWAPforAsset`
+returns 0'*)"*. **I repeated that in the landed `_payUsdLeg` comment without opening the file.**
+🔎 **THE SOURCE IS CORRECT AND WAS NEVER WRONG. THE CITATION DROPPED ITS PRECONDITION.** The sentence
+at `LevCascade.t.sol:186` OPENS *"**With no anchor**, once a crash walks the pool to its tick boundary
+…"*, and the paragraph above it says why: the fixture maintained `ETH_FEED` but **never registered it
+with Aux**, so `assetPriceFeed(WETH)` was `address(0)` — MEASURED, and the whole point of that comment
+is that registering the feed is what lets the anchor fall-through rescue the fixture.
+⇒ **A SCOPED FACT WAS QUOTED AS A GENERAL ONE.** With an anchor pinned — which the real deploy does,
+`DeployL1_s:326` — **a crash cannot produce a zero TWAP**: `SwapLib.twapResolve:109` says *"`price == 0`
+MUST fall through to the anchor … the Chainlink feed exists exactly for an unusable internal TWAP, and
+price==0 is the MOST unusable state"*, and at `price == 0`, `diff == ext18` trips the 5% deviation test
+and Chainlink's price is returned.
+
+## ⭐ THE OWNER'S POINT IS THE RIGHT FRAME, AND IT RETIRES MY "FOUR SITES, ONE POLICY" FRAMING
+*"The system should always be able to value things."* **It can, and it very nearly does.** The
+`try/catch` and `if (px > 0)` sites were not waiting on a fallback POLICY; they were covering a state
+the anchor already removes. ⇒ **the question is not *what do we do when we cannot value* — it is
+*guarantee the anchor, then delete the branches* (rule 17: unconstructible, not detectable; rule 1:
+a branch that cannot be hit).**
+▶️ **WHAT ACTUALLY REMAINS REACHABLE, and it is INFRASTRUCTURE, not market dynamics:**
+  1. **no feed pinned** for an asset — `assetPriceFeed` is pin-once at deploy (`FeedPinned`), so this
+     is a DEPLOY-TIME invariant, checkable once and never again;
+  2. **Chainlink dead or stale** — reverting, `ans <= 0`, or older than `ASSET_FEED_MAX_AGE` (**4h**).
+⇒ **THE `_payUsdLeg` REVERT STAYS, and its reason changes: it is defence against a DEAD ORACLE, not
+against a crash.** Refusing to pay what cannot be valued is right under a feed outage.
+📌 **AND THE REAL WORK THIS OPENS is narrower and more useful than four fallback decisions: assert at
+deploy that every asset the money path prices has a feed pinned, and decide the 4h staleness posture.
+Then `_pricingBacking`'s `if (px > 0)`, and the sibling catches, are covering an unreachable state and
+come out under rule 1** — instead of each acquiring its own invented fallback.

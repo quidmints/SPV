@@ -716,9 +716,23 @@ contract Quid is Shares,
         // USD/ETH against an actual 1,854, over-pricing a 400-share claim by 73,116 USD).
         // 🔴 §PAYUSD-ZERO-TWAP — **READ THE PRICE *BEFORE* PAYING, AND REFUSE IF IT IS NOT THERE.**
         // This read sat at the END of the function behind `if (px > 0)`, i.e. AFTER the mint and
-        // AFTER `absorbPaidUsd`. A zero TWAP is a DOCUMENTED REACHABLE STATE — `LevCascade.t.sol`
-        // records *"once a crash walks the pool to its tick boundary `getTWAPforAsset` returns 0"* —
-        // and at zero this returned `ethEquiv == 0`, which made the CALLER's `if (usdEq > 0)` guard
+        // AFTER `absorbPaidUsd`.
+        // ⛔ **THE REACHABILITY CLAIM THAT JUSTIFIED THIS WAS A TRUNCATED QUOTE — CORRECTED BY ITS OWN
+        // AUTHOR, SAME DAY, AND THE SOURCE WAS NEVER WRONG.** §CATCH-SWALLOWS cited
+        // `LevCascade.t.sol:186` as *"once a crash walks the pool to its tick boundary
+        // `getTWAPforAsset` returns 0"*, and I repeated it. **The sentence there OPENS with its
+        // precondition — *"With NO ANCHOR, once a crash…"*** — and that clause is the whole content:
+        // the fixture had not registered `ETH_FEED` with Aux, so `assetPriceFeed(WETH)` was
+        // `address(0)`. **The citation dropped the condition and turned a scoped fact into a general
+        // one.** ⇒ **WITH AN ANCHOR PINNED, A CRASH CANNOT PRODUCE A ZERO HERE**:
+        // `SwapLib.twapResolve:109` states it — *"`price == 0` MUST fall through to the anchor … the
+        // Chainlink feed exists exactly for an unusable internal TWAP"* — and at `price == 0`,
+        // `diff == ext18`, so the 5% deviation test trips and Chainlink's price is returned.
+        // ⇒ **WHAT REMAINS REACHABLE IS AN INFRASTRUCTURE OUTAGE, NOT A MARKET MOVE:** no feed pinned
+        //   for the asset (`assetPriceFeed` is pin-once at deploy), or Chainlink reverting / `ans <= 0`
+        //   / staler than `ASSET_FEED_MAX_AGE` (4h). **The guard is kept for exactly that, and refusing
+        //   is right there: do not pay what we cannot value.** Defence against a dead oracle, not a crash.
+        // At zero this returned `ethEquiv == 0`, which made the CALLER's `if (usdEq > 0)` guard
         // skip `_burnInRange`, `_debitShares` AND `amount -= usdEq`.
         // ⇒ **THE LP WAS PAID AND KEPT THE FULL `pooled` CLAIM.** That is verbatim the failure this
         //   file's own §:663-670 says must never happen (*"measured: 12.887 phantom `pooled`,
