@@ -373,7 +373,6 @@ library LevMath {
     // ⛔ §E357 — DO NOT ADD A DIRECT, NON-FLASH WBTC DE-LEVER BACK. It would have to withdraw
     // collateral and THEN sell to repay — the withdraw-before-repay ordering the flash path below
     // exists to dissolve, and under §POOL-VENUE it raises the LTV of a position every LP shares.
-    // `init` refuses a zero `flashProvider`, so there is no state that needs the direct path.
 
 
     /// @notice (WBTC-mode) FLASH-repay-first de-lever settle (mirror of LevManager._deleverSettle) — runs inside the

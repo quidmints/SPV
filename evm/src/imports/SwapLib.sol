@@ -142,25 +142,26 @@ library SwapLib {
     /// emits Swept(token, swept).
     function sweepBody(address token, address weth, address wbtc, address gho, address usdg)
         external returns (uint vbtcDelta, uint swept) {
+        // §EIP-170 fold: the native-ETH arm and the stable arm ran the SAME tail —
+        // `supplySelf(token, swept)` then `return (0, swept)` — and differed only in where `swept`
+        // comes from and in the wrap that precedes it. The ETH arm re-points `token` at WETH (the
+        // thing it now holds) and falls through to the shared tail, so there is one supply call
+        // site instead of two. WBTC still returns early: it is the only arm with a non-zero
+        // `vbtcDelta` and it does NOT supply.
         if (token == address(0)) {
             swept = address(this).balance;
             if (swept == 0) return (0, 0);
             WETH9(payable(weth)).deposit{value: swept}();
-            IAux(address(this)).supplySelf(weth, swept);
-            return (0, swept);
-        }
-        if (token == wbtc) {
+            token = weth;
+        } else if (token == wbtc) {
             swept = IERC20(wbtc).balanceOf(address(this));
             return (swept, swept); // caller adds to rangeBTC inventory
-        }
-        if (token == weth || IAux(address(this)).toIndex(token) != 0
+        } else if (token == weth || IAux(address(this)).toIndex(token) != 0
             || token == gho || token == usdg) {
             swept = IERC20(token).balanceOf(address(this));
             if (swept == 0) return (0, 0);
-            IAux(address(this)).supplySelf(token, swept);
-            return (0, swept);
-        }
-        revert UnknownStableSweep();
+        } else revert UnknownStableSweep();
+        IAux(address(this)).supplySelf(token, swept);
     }
 
     error ZeroAddress();
@@ -221,10 +222,11 @@ library SwapLib {
     ///      so auxSwapBody's 9 params stay within the legacy stack.
     function _convert(IAux aux, address tokenIn, address tokenOut, uint pulled,
         uint idxOut, address linkAddr) private returns (uint) {
-        (uint[16] memory amounts, uint[16] memory yieldW,,) = aux.get_deposits();
+        // §SESS-122 — the `get_deposits()` that used to stand here fed `amounts`/`yieldW` into
+        // parameters `applyFeeAndHaircut` never read. Deleting them deletes a whole 16-slot basket
+        // read per call on this path.
         uint usdIn  = BasketLib.scaleTokenAmount(pulled, tokenIn, true);
-        uint usdOut = FeeLib.applyFeeAndHaircut(
-            tokenOut, idxOut - 1, usdIn, amounts, yieldW, linkAddr);
+        uint usdOut = FeeLib.applyFeeAndHaircut(tokenOut, usdIn, linkAddr);
         return BasketLib.scaleTokenAmount(usdOut, tokenOut, false);
     }
 
@@ -284,14 +286,36 @@ library SwapLib {
         }
     }
 
+    /// @dev REPACK-FIRST, then keep ONLY the 5th return — the resolved oracle price. Every swap body
+    ///      in this file opens by rebalancing its own range and then pricing off that rebalance, and
+    ///      all three wrote the SAME five-element tuple destructure inline, discarding four returns:
+    ///      `swapToBody` (`c.range`), `creditSwapInBody` (`rangeVault`) and `_swapOutPrep`
+    ///      (`address(this)`). ⭐ RULE 23: nothing in the tree held this shape — `_priceOr` resolves a
+    ///      hint that is ALREADY in hand and cannot produce one — and rule 8c's exception applies
+    ///      exactly (N inlined bodies folded into ONE routine). **MEASURED: −201 bytes on `SwapLib`,
+    ///      the binding contract.** The `range` argument stays a parameter and is NOT derived here:
+    ///      the three callers repack three different instances, and which one is the caller's fact.
+    /// ⚠️  NOT `view`. `repack()` MUTATES the range; this frame is the mutation, not a read of it.
+    ///      It also preserves the stack property the inline blocks were written for: the four
+    ///      discarded returns die with this frame, which is why they were block-scoped (`via_ir` is
+    ///      off by policy). @return the repack's resolved price, 0 if it could not resolve one — the
+    ///      sentinel `_priceOr` reads as "live-read instead".
+    function _repackPx(address range) private returns (uint) {
+        (,,,, uint p) = ICore(range).repack();
+        return p;
+    }
     /// @dev Resolve the execution price: the repack-provided core mark if non-zero, else the live oracle TWAP.
-    ///      Factored from the 5 swap-body sites — no-optimizer build ⇒ ONE shared body (jump target), not 5
+    ///      Factored from the swap-body sites — no-optimizer build ⇒ ONE shared body (jump target), not N
     ///      inlined copies of the getTWAPforAsset call, so it genuinely reclaims deployed bytecode (EIP-170).
-    ///      §D3 (2026-07-31): this claim was ASPIRATIONAL until now — two verbatim inline copies survived
+    ///      §D3 (2026-07-31): this claim was ASPIRATIONAL until then — two verbatim inline copies survived
     ///      in `swapToBody`, tagged "stack-tight", because a CALL in argument position blew the no-`via_ir`
     ///      stack. Fixed by resolving once into the `SwapReq.px` STRUCT FIELD (no new stack slot) and
     ///      SEQUENCING the call out of argument position. Freed 197 bytes. `Stack too deep` is a code-shape
     ///      problem, never a licence to duplicate.
+    ///      ⚠️ **THREE CALL SITES REMAIN, NOT FIVE — `swapToBody`, `creditSwapInBody` and
+    ///      `_swapOutPrep`, ONE EACH.** The §EIP-170 pass folded `swapToBody`'s two legs into one
+    ///      shared resolve, and `_finishSwap` stopped re-resolving what its caller had already put
+    ///      in `r.px`. Do not read the "5" this line used to carry as a reason to expect more.
     function _priceOr(uint priceHint, address aux, address asset) internal view returns (uint) {
         return priceHint != 0 ? priceHint : IAux(aux).getTWAPforAsset(asset, 1800);
     }
@@ -338,8 +362,13 @@ library SwapLib {
         bool loadBalance;
         address inToken;   // #105: the actual INPUT token (set inside swapToBody) for the partial-fill refund
         uint px;           // §D3: resolved oracle price, set inside swapToBody. A STRUCT FIELD, not a
-                           // local, so both skew branches share `_priceOr` WITHOUT adding a stack slot —
-                           // that is what makes the dedup fit under the no-`via_ir` stack budget.
+                           // local, so the swap body resolves `_priceOr` ONCE without adding a stack
+                           // slot — that is what makes the dedup fit under the no-`via_ir` stack budget.
+                           // §EIP-170: it now carries that price ACROSS the frame too — `_finishSwap`
+                           // reads `r.px` as its `fillPrice` instead of re-resolving the same
+                           // expression, and `retainSkewPremium` reads it as the sell leg's conversion
+                           // rate. ⛔ It is NOT a discriminator: `px` is non-zero on BOTH legs, so
+                           // nothing may branch on it (that is `nativeAmount`'s job).
     }
 
     function swapToBody(SwapReq memory r, SwapToCfg memory c, address[] memory stables)
@@ -377,13 +406,12 @@ library SwapLib {
         // have ZERO code references in `evm/src`. ⛔ Do not reintroduce a price-limit carrier here:
         // `Core.swap` states the replacement (*"the inventory bound in `_fillDelta` is a PHYSICAL
         // limit instead, and an edge that does not exist cannot be crossed"*).
-        // Block-scoped so `p` is freed at its end: `swapToBody` is stack-tight by design
-        // (`via_ir = false`), and a CALL in argument position is what overflowed it (§D3).
-        uint priceHint;   // 0 ⇒ `_priceOr` live-reads instead
-        {
-            (,,,, uint p) = ICore(c.range).repack();
-            priceHint = p;
-        }
+        // §EIP-170 — the block-scoped `(,,,, uint p) = repack()` destructure is now `_repackPx`, ONE
+        // routine shared with `_swapOutPrep` rather than two inlined five-element tuple decodes. The
+        // stack reasoning it replaces is unchanged and still binds: `swapToBody` is stack-tight by
+        // design (`via_ir = false`), a CALL in argument position is what overflowed it (§D3), and a
+        // separate frame frees the four discarded returns at its end exactly as the block did.
+        uint priceHint = _repackPx(c.range);   // 0 ⇒ `_priceOr` live-reads instead
         {
             // Drain-side backing gate counts standing holdings at PAR (NOT the depeg haircut): the mint/issuance
             // side haircuts depeg (Core range-add + mint-headroom) to block over-mint, but the drain side stays at
@@ -428,17 +456,6 @@ library SwapLib {
             //   (3) this body runs DELEGATECALL'd in Aux context; a mid-swap re-entry into Quid's
             //       onlyUs addLiq/unwindForRedeem on the SHARED range needs its reentrancy + price-
             //       impact interaction with the V4 unlock callback worked out.
-            // SYMMETRIC A-S skew (its own frame ⇒ no via_ir): a sell that pushes the pool's
-            // volatile inventory PAST target is inventory-INCREASING (the self-funded short's
-            // range-leg shed) ⇒ charge the same A-S premium the drain does; a sell that REFILLS
-            // a scarce reservoir REDUCES imbalance ⇒ sellSkew's mirror+flush yields 0 (EXEMPT).
-            // Scale the volatile input DOWN by the premium ⇒ less USD credited out; the
-            // withheld input stays as basket backing (same mechanism as the drain leg).
-            {
-                r.px = _priceOr(priceHint, address(aux), r.asset);
-                uint skew = sellSkew(c.core, r.px, r.amount); // inline (swapToBody stack-tight)
-                retainSkewPremium(c.core, r, skew, true);   // NATIVE volatile input ⇒ the `true` flag says convert; mutates r.amount
-            }
         } else { max = ICore(c.core).POOLED();
             // QD-in valued at the SAME perShare a redeem uses (no-drain: never worth more swapped than redeemed).
             // DESIGN NOTE: unlike redeem, swap-out is NOT capacity-gated / deferred during stable
@@ -450,19 +467,33 @@ library SwapLib {
             // bounded, fair transfer, so it is deliberately left ungated.
             r.amount = _consumeVolInput(aux, r.token, r.amount, c.quid, stable, stables);
             r.token = address(0);
-            // same effective-rate scarcity skew on the volatile-OUT drain as the
-            // native-BTC well (creditSwapOutBody). ETH reuses the IDENTICAL surface (SOR depth
-            // isn't guaranteed); WBTC swap-out drains the same POOLED, so it's skewed too
-            // (else arbers route around the premium). Scale the buy DOWN so a scarce pool hands
-            // out less volatile; the withheld input stays as backing. The swap still executes at
-            // the honest oracle (priceHint) through routeSwap ⇒ no manip-guard exemption.
-            {
-                r.px = _priceOr(priceHint, address(aux), r.asset);
-                uint skew = wellSkew(c.core, r.px, r.amount); // §E68: r.amount IS the 6-dec drain size
-                retainSkewPremium(c.core, r, skew, false);  // buy-driving USD ⇒ already 6-dec, record verbatim; mutates r.amount
-            }
         }
-        max = _finishSwap(ctx, aux, r, r.forVolatile, max, priceHint);
+        // SYMMETRIC A-S skew, ONE SITE FOR BOTH LEGS (§EIP-170 fold): the two branches ran the
+        // IDENTICAL three statements and differed only in WHICH skew producer they read and in the
+        // `nativeAmount` flag, both of which are `r.forVolatile`. Each branch ended with this block,
+        // so hoisting it below the `if` preserves the order exactly — `r.amount`/`r.token` are already
+        // in their post-consume state either way, which is what both producers must see.
+        //   • sell leg (`!forVolatile`, volatile IN): a sell that pushes the pool's volatile inventory
+        //     PAST target is inventory-INCREASING (the self-funded short's range-leg shed) ⇒ charge the
+        //     same A-S premium the drain does; a sell that REFILLS a scarce reservoir REDUCES imbalance
+        //     ⇒ sellSkew's mirror+flush yields 0 (EXEMPT). Scale the volatile input DOWN by the premium
+        //     ⇒ less USD credited out; the withheld input stays as basket backing. `nativeAmount = true`
+        //     ⇒ NATIVE volatile input, so the flag says convert.
+        //   • drain leg (`forVolatile`, volatile OUT): the same effective-rate scarcity skew as the
+        //     native-BTC well (creditSwapOutBody). ETH reuses the IDENTICAL surface (SOR depth isn't
+        //     guaranteed); WBTC swap-out drains the same POOLED, so it's skewed too (else arbers route
+        //     around the premium). Scale the buy DOWN so a scarce pool hands out less volatile; the
+        //     withheld input stays as backing. `nativeAmount = false` ⇒ buy-driving USD, already 6-dec,
+        //     recorded verbatim. `r.amount` IS the 6-dec drain size here (§E68).
+        // Both producers execute at the honest oracle (priceHint) through routeSwap ⇒ no manip-guard
+        // exemption. `retainSkewPremium` mutates `r.amount` in both cases.
+        {
+            r.px = _priceOr(priceHint, address(aux), r.asset);
+            uint skew = r.forVolatile ? wellSkew(c.core, r.px, r.amount)
+                                      : sellSkew(c.core, r.px, r.amount);
+            retainSkewPremium(c.core, r, skew, !r.forVolatile);
+        }
+        max = _finishSwap(ctx, aux, r, r.forVolatile, max);
     }
 
     /// @dev routeSwap (7-field `Types.RouteParams` build) + bumpQuidBTC + the slippage/zero-fill
@@ -470,13 +501,15 @@ library SwapLib {
     ///      no via_ir crutch.
 
     function _finishSwap(Types.AuxContext memory ctx, IAux aux, SwapReq memory r,
-        bool inputIsUsd, uint pooled, uint priceHint) private returns (uint max) {
+        bool inputIsUsd, uint pooled) private returns (uint max) {
         uint poolSupplied;
-        // Reuse the resolved oracle price from the repack-first (priceHint) instead of
-        // re-reading the internal `observe` ring + Chainlink a 2nd time per swap;
-        // fall back to a live read only if the repack couldn't resolve it (priceHint==0,
-        // e.g. a bootstrap pre-history read that try/catch'd to 0).
-        uint fillPrice = _priceOr(priceHint, address(aux), r.asset);
+        // §EIP-170 — READ THE PRICE THE CALLER ALREADY RESOLVED. This re-ran `_priceOr(priceHint, …)`
+        // for the SAME asset in the same transaction; `swapToBody` sets `r.px` from that exact
+        // expression on both legs before it calls here, so the second call could only ever return
+        // the same number (the repack mark if non-zero, else the live TWAP — and `getTWAPforAsset`
+        // is a view over state neither leg has touched in between). `SwapReq.px` is a struct field,
+        // not a stack slot (§D3), so carrying it costs nothing the frame was not already paying.
+        uint fillPrice = r.px;
         uint consumed;
         (max, poolSupplied, consumed) = BasketLib.routeSwap(ctx, Types.RouteParams({
             inputIsUsd: inputIsUsd, token: r.token,
@@ -680,13 +713,11 @@ library SwapLib {
         // ⇒ A reader who trusted this would have converted a price to a tick that nothing unpacks.
         // The "all three producers must agree" instruction survives INTACT, with the subject
         // inverted: this one, `_swapOutPrep` and `_finishSwap` must all pass the PRICE.
-        // Block-scoped: these bodies are stack-tight by design (`via_ir = false`).
-        uint priceHint;
+        // Block-scoped: these bodies are stack-tight by design (`via_ir = false`). §EIP-170 turned
+        // that block into `_repackPx`, the ONE frame all three producers share — same stack effect,
+        // one copy of the five-element tuple decode instead of three.
+        uint priceHint = _repackPx(rangeVault);
         Types.RouteParams memory rp;
-        {
-            (,,,, uint p_) = ICore(rangeVault).repack();
-            priceHint = p_;
-        }
         rp.inputIsUsd   = false;   // BTC→USD: the volatile side is the INPUT (mirror of the buy)
         rp.token        = token;                            // USD-side output stable → seller
         rp.amount       = sats;                             // exact BTC input
@@ -1337,7 +1368,7 @@ library SwapLib {
     error IntentUnfillable();
 
     function skewWad(uint poolVolUsd, uint flowUsd, uint sigmaSqWad, Risk memory rk, uint drainUsd6)
-        public pure returns (uint skew)
+        internal pure returns (uint skew)
     {
         // §E68 — `lockedUsd` and `committedUsd` DELETED FROM THE SIGNATURE, not merely unused. E58
         // removed both from the arithmetic and left the parameters behind; they appeared nowhere but
@@ -1978,7 +2009,7 @@ library SwapLib {
     ///      ⚠️ Still a VIEW over live `Core` state, so a quote is only as fresh as the block it was
     ///      taken in. Whatever binds a quote to a settlement must carry its own staleness bound.
     function sellSkew(address core, uint base, uint addedTok)
-        public view returns (uint)
+        internal view returns (uint)
     {
         // §E58: `target` is FLOW alone — the leverage DEBT is not a constraint on shedding (see
         // skewWad's note). One term, one meaning.
@@ -2178,12 +2209,9 @@ library SwapLib {
         // ⛔ IT IS A PRICE, NOT PACKED TICKS — this line said *"§E9 — packed range ticks, not a
         // price"*, which §DE-TICK reversed and `creditSwapInBody`'s own §E9 block already records:
         // `rangeTicks`/`sqrtPriceLimitX96` have ZERO code references and nothing unpacks a tick.
-        // It flows straight into `rp.fillPrice` below via `_priceOr`. Block-scoped for stack.
-        uint priceHint;
-        {
-            (,,,, uint p_) = ICore(address(this)).repack();
-            priceHint = p_;
-        }
+        // It flows straight into `rp.fillPrice` below via `_priceOr`. `_repackPx` is the shared
+        // frame (§EIP-170) that the block scope used to be — same stack effect, one copy of the decode.
+        uint priceHint = _repackPx(address(this));
         rp.inputIsUsd   = true;    // USD→BTC buy: USD is the INPUT (mirror of the sell)
         rp.token        = address(0);                       // volatile (BTC) output
         rp.pooled       = ICore(core).POOLED();      // BTC inventory bounds the fill
@@ -3201,7 +3229,13 @@ library SwapLib {
     ///         (volatile-OUT drain — A&S's reservation price with the `q/(1−q)` pole, because you CAN
     ///         run out and the last unit is priceless); `sellSkew` measures the ABUNDANT side
     ///         (volatile-IN, LINEAR `Γσ²·q`, no pole, because YOU CANNOT RUN OUT OF SURPLUS — §E54).
-    ///         Both are `public view`, so both directions are readable before settlement.
+    ///         ⚠️ THEY NO LONGER SHARE A VISIBILITY, AND THIS LINE SAID THEY DID (*"Both are
+    ///         `public view`, so both directions are readable before settlement"*). §EIP-170:
+    ///         `wellSkew` is still `public` because `Aux.wellSkewFor` delegatecalls it; `sellSkew`
+    ///         had ZERO callers outside this file, so its dispatcher entry was dead weight on the
+    ///         binding contract and it is `internal`. **Both are still readable before settlement** —
+    ///         an internal library function is callable as `SwapLib.sellSkew(…)` by any importer,
+    ///         which is how every test in `evm/test` reads it.
     ///
     /// 🔴 THE OPEN PIECE — BATCHING MAKES THE COST JOINT, SO ATTRIBUTION NEEDS A RULE.
     ///         The keeper rebalances in BATCHES so gas is amortised (#28). That means the actual Curve

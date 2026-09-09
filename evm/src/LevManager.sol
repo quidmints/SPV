@@ -90,6 +90,13 @@ contract LevManager is LevBase {
     error Slippage();
     error LenMismatch();   // batch arrays differ in length (custom error — no string-revert bytecode, EIP-170)
     error Auth();          // rebalanceOne/deleverOne caller ∉ {self, lp}
+    /// The flash settled without the debt falling — the COMPLETE detector for `LevMath.deleverFlashBody`'s
+    /// three silent returns (`repayUsd == 0`, `flashProvider == address(0)`, `debt == 0`). ONE no-argument
+    /// custom error for both raise sites: `require(..., "delever: no liquidity")` and
+    /// `require(..., "close: no repay")` each carried their own `Error(string)` literal, and this contract
+    /// pays for its bytecode by the byte (EIP-170). The two sites are distinguishable by the selector of the
+    /// call that reverted, which is what a keeper and a trace already key on.
+    error NoRepay();
 
     /// §RULE-8C — a modifier's body is inlined at every use site, so this gate is a FUNCTION: this
     /// exact line has **5** call sites here, and that is 5 jumps rather than 5 copies.
@@ -154,7 +161,7 @@ contract LevManager is LevBase {
             // TRUE for a stable-collateral INVERSE venue mis-pinned as a long; discarding it allowlisted
             // exactly the collateral the comment above says "silently misvalues into phantom ETH
             // backing". Silent misvaluation is why the check earns its place (standing rule 3's inverse).
-            if (LevMath.vetVenue(v, WETH, WETH, address(COLL))) revert VenueNotAllowed();
+            if (LevMath.vetVenue(v, WETH, WETH, _coll())) revert VenueNotAllowed();
             allowedVenue[v] = true; emit VenueAllowed(v, true);
         }
     }
@@ -165,20 +172,33 @@ contract LevManager is LevBase {
     // ether.fi weETH<->WETH mint/redeem legs; every OTHER venue is the existing weETH path, byte-identical (the
     // weETH branch reduces to exactly what it did before this option existed).
 
-    /// @notice ALL COLLATERAL IS weETH — this returns `COLL` unconditionally, and the venue argument
-    ///         is unnamed because nothing selects on it.
+    /// @notice ALL COLLATERAL IS weETH — this returns `COLL` unconditionally. It used to be
+    ///         `_collToken(ILevVenue)`, taking an UNNAMED venue that nothing ever selected on, so
+    ///         every call site had to invent a value for it; the parameter is gone (rule 23).
     /// ⛔ DO NOT RE-ADD A WETH-COLLATERAL BRANCH. Raw WETH is STRICTLY DOMINATED — identical delta and
     ///         identical IL offset, minus the ether.fi ratchet (+2.46%/yr, measured) for every block it
     ///         sits as collateral. It is a worse way to buy the SAME hedge, not a different hedge.
     ///         ⚠️ Anything bought as WETH is minted straight into weETH (`LevMath._stableToWeeth`);
     ///         WETH is a TRANSIT asset here and never rests as collateral.
-    function _collToken(ILevVenue) internal view returns (address) {
-        return address(COLL);
-    }
-    /// @notice Pull `amount` of the venue's equity collateral (weETH — see `_collToken`) from `lp` and supply it as `lp`'s
+    /// 🔴 **AND THE MEASUREMENT THAT CAME WITH THAT RENAME, SO NOBODY RE-DERIVES IT: WRAPPING A BARE
+    ///    `immutable` READ IN AN ACCESSOR SAVES NOTHING HERE.** An immutable read IS a `PUSH32` of the
+    ///    value inlined at the use site — 33 bytes × N — which looks exactly like the N-inlined-bodies
+    ///    shape rule 8c prices, and `LevBase:195` already says as much. **It is not, because the legacy
+    ///    (non-`via_ir`) optimizer INLINES a `return <immutable>` routine straight back.** Measured
+    ///    2026-09-09 on this contract: an `_aux()` and a `_weth()` over 15 call sites left the
+    ///    artifact's `immutableReferences` count UNCHANGED (`AUX` still 10 reads in this file, `WETH`
+    ///    7) and the contract the same size, so both were taken back out rather than left as two
+    ///    declarations that delete nothing.
+    /// ✅ **WHAT DID PAY IS `_px()`, AND THE DIFFERENCE IS THE POINT: IT FOLDS A CALL SEQUENCE, NOT A
+    ///    PUSH.** The same `AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW)` stood at 3 sites; folding the
+    ///    two pushes AND the STATICCALL setup into one routine is where the bytes were. ⇒ **fold
+    ///    repeated CALLS, not repeated constants.**
+    function _coll() private view returns (address) { return address(COLL); }
+    function _px()   private view returns (uint256) { return AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW); }
+    /// @notice Pull `amount` of the venue's equity collateral (weETH — see `_coll`) from `lp` and supply it as `lp`'s
     ///         isolated collateral. Own frame so `openLev` stays under the no-via_ir stack limit.
     function _supplyCollFrom(ILevVenue venue, address lp, uint256 amount) internal {
-        address collTok = _collToken(venue);
+        address collTok = _coll();
         IERC20Min(collTok).transferFrom(lp, address(this), amount);
         IERC20Min(collTok).transfer(address(venue), amount);
         venue.supply(lp, amount);
@@ -195,7 +215,7 @@ contract LevManager is LevBase {
 
     /// @notice `lp`'s net equity in USD (1e18) = collateral − debt, floored at 0. The single clean read the
     ///         off-chain keeper uses to size the economic (gas-vs-benefit) floor.
-    function netEquityUsd(address lp) public view returns (uint256) {
+    function netEquityUsd(address lp) external view returns (uint256) {
         if (!pos[lp].open) return 0;
         ILevVenue v = pos[lp].venue;
         uint256 coll = collValueUsd(v.collateralOf(lp));   // §FOLD-COLL — shared in LevBase
@@ -240,7 +260,7 @@ contract LevManager is LevBase {
         // §DERIVED-BAND — the floor is the position's OWN band, so it is priced off the collateral
         // actually being deposited rather than a constant every position shared.
         // Pin the entry price so the position opens at ZERO leverage and levers only as the range sells.
-        uint256 entryPx = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
+        uint256 entryPx = _px();
         // (A) INTRINSIC deposit model (2026-07-03): the LP's ONE deposit (`collWeeth`) IS the levered position.
         // Its net-equity is synced into the concentrated range (`levPooled`) as delta-1 (IL-free) depth by the 2×
         // leverage — so E0, the FIXED IL base the hedge sizes against, is the DEPOSIT ITSELF (in ETH), NOT a
@@ -334,20 +354,7 @@ contract LevManager is LevBase {
     ///    the `try/catch` below and costs that LP a `RebalanceFailed`, not value.
     function rebalanceMany(address[] calldata lps, uint256[] calldata minOuts, uint256[] calldata dexes,
                            uint256[] calldata dex2s, bytes[] calldata routes) external nonReentrant {
-        if (lps.length != minOuts.length || lps.length != dexes.length) revert LenMismatch();
-        // ⚠️ LENGTH-0 IS THE COMPAT SHAPE, NOT A SKIPPED CHECK: any OTHER length must match, or a
-        //    short array would silently give some LPs the legacy hop and others a route.
-        if ((dex2s.length  != 0 && dex2s.length  != lps.length)
-         || (routes.length != 0 && routes.length != lps.length)) revert LenMismatch();
-        _activeKeeper = msg.sender;
-        for (uint256 i; i < lps.length; i++) {
-            address lp = lps[i];
-            if (!pos[lp].open) continue;
-            try this.rebalanceOne(lp, minOuts[i], dexes[i],
-                                  dex2s.length  == 0 ? 0  : dex2s[i],
-                                  routes.length == 0 ? bytes("") : routes[i]) {}
-            catch { emit RebalanceFailed(lp, getCurrentLtvBps(lp)); }
-        }
+        _batch(lps, minOuts, dexes, dex2s, routes, true);
     }
 
     /// @dev §RULE-8C, APPLIED TO A BODY RATHER THAN A MODIFIER. `find-duplicate-bodies.py` scores
@@ -364,23 +371,21 @@ contract LevManager is LevBase {
     ///      behind one event: `RebalanceFailed` and `DeleverFailed` are separate signals the indexer
     ///      reads, and folding them would trade bytecode for a blind spot in exactly the path that
     ///      only speaks when something has gone wrong.
-    /// ⚠️ **§S15 — THIS IS NOW THE DE-LEVER ARM ONLY, AND THAT REVERSES PART OF THE §RULE-8C DEDUP
-    ///    ABOVE ON PURPOSE.** The note above defends merging the two arms at 86.5% similarity. That
-    ///    was right while both took three arrays; `rebalanceMany` now takes **five**, and `deleverOne`
-    ///    cannot accept `dex2`/`route` at all (`:369-370` drops them before `_deleverFlash`), so the
-    ///    arms no longer have the same argument list. **Keeping one body would have meant carrying two
-    ///    calldata arrays the de-lever arm can never use** — and Solidity cannot synthesise an empty
-    ///    `bytes[] calldata` to pass on its behalf, so the merge is not merely wasteful, it does not
-    ///    typecheck. The `_activeKeeper` write, the `pos[lp].open` guard and the fault-tolerant
-    ///    `try/catch` are duplicated deliberately and stay in sync by review.
-    /// 🔴 **AND THE DE-LEVER ARM'S OWN ROUTE GAP IS NOW THE VISIBLE ONE (booked, NOT fixed here):**
-    ///    `_delever:369` takes `dex2` and `route` and drops both — `_deleverFlash(venue, lp, stable,
-    ///    deleverRepayUsd(lp), minOut, dex)`. So the two-hop is unreachable on the CLOSE leg from
-    ///    **every** entrypoint, direct calls included, which is a strictly larger gap than the batch
-    ///    one this change closes. Threading it touches `deleverFlashBody` and `ExtractCfg`
-    ///    (`dex2: 0` hardcoded at `:538`), which is a separate change.
+    /// ✅ **§S15 IS DISCHARGED, AND ITS TWO REASONS FOR KEEPING TWO BODIES ARE BOTH FALSIFIED BY THE
+    ///    TREE AS IT STANDS.** That note said the arms *"no longer have the same argument list"*
+    ///    because `deleverOne` *"cannot accept `dex2`/`route` at all"*, and concluded the merge *"does
+    ///    not typecheck"*. §SESS-19 then threaded both through `_delever` → `_deleverFlash`, so
+    ///    `rebalanceOne` and `deleverOne` now carry the **identical** `(address,uint256,uint256,
+    ///    uint256,bytes)` signature and the same five calldata arrays serve both. The §RULE-8C dedup
+    ///    the note partially reversed is therefore back in force: ONE body, ONE length triple-check,
+    ///    ONE `_activeKeeper` write, ONE loop.
+    /// ⚠️ **AND THE `try/catch` ARMS ARE STILL NOT COLLAPSED** — `up` selects which entrypoint and
+    ///    which event, exactly as the paragraph above requires. What was deduplicated is the
+    ///    scaffolding around them, never the two signals.
+    /// @param up TRUE ⇒ the rebalance arm (`rebalanceOne`, `RebalanceFailed`); FALSE ⇒ the de-lever
+    ///        arm (`deleverOne`, `DeleverFailed`). Both external entrypoints keep their own selector.
     function _batch(address[] calldata lps, uint256[] calldata minOuts, uint256[] calldata dexes,
-                    uint256[] calldata dex2s, bytes[] calldata routes)
+                    uint256[] calldata dex2s, bytes[] calldata routes, bool up)
         private
     {
         if (lps.length != minOuts.length || lps.length != dexes.length) revert LenMismatch();
@@ -393,10 +398,15 @@ contract LevManager is LevBase {
         for (uint256 i; i < lps.length; i++) {
             address lp = lps[i];
             if (!pos[lp].open) continue;
-            try this.deleverOne(lp, minOuts[i], dexes[i],
-                                dex2s.length  == 0 ? 0 : dex2s[i],
-                                routes.length == 0 ? bytes("") : routes[i]) {}
-            catch { emit DeleverFailed(lp, getCurrentLtvBps(lp)); }
+            uint256 d2  = dex2s.length  == 0 ? 0 : dex2s[i];
+            bytes memory r = routes.length == 0 ? bytes("") : routes[i];
+            if (up) {
+                try this.rebalanceOne(lp, minOuts[i], dexes[i], d2, r) {}
+                catch { emit RebalanceFailed(lp, getCurrentLtvBps(lp)); }
+            } else {
+                try this.deleverOne(lp, minOuts[i], dexes[i], d2, r) {}
+                catch { emit DeleverFailed(lp, getCurrentLtvBps(lp)); }
+            }
         }
     }
 
@@ -461,7 +471,7 @@ contract LevManager is LevBase {
         // genuinely underwater/illiquid the flash can't be repaid → the whole op reverts → `cascadeDelever`
         // catches it and the position falls to the venue's own isolated liquidation.
         _deleverFlash(p.venue, lp, p.venue.stable(), repayUsd, minOut, dex, dex2, route);
-        require(p.venue.debtOf(lp) < debtBefore, "delever: no liquidity");      // sourced nothing → cascade skips it
+        if (p.venue.debtOf(lp) >= debtBefore) revert NoRepay();                 // sourced nothing → cascade skips it
         emit Rebalanced(lp, false, 0, getCurrentLtvBps(lp));
         // full-2×: reconcile the range to the reduced gross/debt (levBufferUsd must not exceed the now-smaller
         // debt) — atomic, so the ≤Σdebt invariant holds continuously even mid-cascade. try/catch: never break it.
@@ -478,7 +488,7 @@ contract LevManager is LevBase {
     ///    it is built to send.
     function cascadeDelever(address[] calldata lps, uint256[] calldata minOuts, uint256[] calldata dexes,
                             uint256[] calldata dex2s, bytes[] calldata routes) external nonReentrant {
-        _batch(lps, minOuts, dexes, dex2s, routes);
+        _batch(lps, minOuts, dexes, dex2s, routes, false);
     }
 
     // ════════════════════════════ CLOSE ════════════════════════════
@@ -571,10 +581,10 @@ contract LevManager is LevBase {
         uint256 debtBefore = venue.debtOf(lp);
         // ⚠️ §SESS-19 — as above: `closeLev`/`closeLevFor` are 2-arg entrypoints. Explicit, not implied.
         if (d > 0) _deleverFlash(venue, lp, stable, d + 1, minOut, dex, 0, "");
-        if (debtBefore > 0) require(venue.debtOf(lp) < debtBefore, "close: no repay");
+        if (debtBefore > 0 && venue.debtOf(lp) >= debtBefore) revert NoRepay();
         uint256 remaining = venue.collateralOf(lp);
         uint256 back = remaining > 0 ? venue.withdraw(lp, remaining) : 0;
-        if (back > 0) IERC20Min(_collToken(venue)).transfer(lp, back); // weETH OR WETH, per the venue (incl. rebuilt short base)
+        if (back > 0) IERC20Min(_coll()).transfer(lp, back); // weETH OR WETH, per the venue (incl. rebuilt short base)
         // A voluntary close DROPS the slot. An involuntary one (closeLevFor, the range covering a lever
         // before its free-ladder burn) RETAINS every field with open=false, because the LP did not choose to
         // exit and must be restorable to the same position after the refill. Safe only because ilLtvBps,
@@ -620,7 +630,7 @@ contract LevManager is LevBase {
 
     /// The manager's runtime addresses + gas-reserve for the mode-2 extraction body (delegatecall → LevMath).
     function _extractCfg() internal view returns (LevMath.ExtractCfg memory) {
-        return LevMath.ExtractCfg({ weth: WETH, weeth: address(COLL), aux: address(AUX),
+        return LevMath.ExtractCfg({ weth: WETH, weeth: _coll(), aux: address(AUX),
             flashProvider: flashProvider, keeper: _activeKeeper, gasReserve: gasReserve,
             // ⚠️ §SESS-19 — these three are the MODE-2 defaults. Mode 0 OVERWRITES all of them in
             //    `_deleverSettle` from the flash payload. `deleverToVault` (mode 2) still cannot route,
@@ -656,19 +666,24 @@ contract LevManager is LevBase {
         if (extractUsd == 0) return 0;
         
         uint256 repayStable = LevMath.sizeRepayStable(// d/netEq/clamp in LevMath 
-            p.venue, lp, extractUsd, debtUsd(lp), AUX.getTWAPforAsset(ORACLE_KEY, 
-                                    TWAP_WINDOW), address(COLL), address(AUX));
+            p.venue, lp, extractUsd, debtUsd(lp), _px(), _coll(), address(AUX));
         if (repayStable == 0) return 0;
 
+        // ⚠️ ONE `stable()` READ, NOT THREE. This asked the venue for the same immutable address at
+        // the flash argument, inside the payload, and again at the `_toUsd18` below — three
+        // STATICCALL sequences in one frame, each ~70 bytes of an EIP-170-critical contract and a
+        // real call at runtime. The address cannot change between them, so the extra two bought
+        // nothing in either currency.
+        address stable = p.venue.stable();
         // mode 2 = flash the debt stable → repay-first → withdraw+sell paired collateral → surplus to `vault`.
-        IMorphoFlash(flashProvider).flashLoan(p.venue.stable(), repayStable,
-            abi.encode(uint8(2), lp, address(p.venue), 
-            p.venue.stable(), extractUsd, vault, minOut));
+        IMorphoFlash(flashProvider).flashLoan(stable, repayStable,
+            abi.encode(uint8(2), lp, address(p.venue),
+            stable, extractUsd, vault, minOut));
 
         // `_lastFreed` is what `LevMath._sellAndPay` handed the sink: `stableOut - assets`, in the venue
         // stable's NATIVE units (6-dec for USDC). USD-1e18 is the unit every caller reads it in — see the
         // `@return` note above — so the conversion happens HERE, at the boundary, exactly once.
-        freed = LevMath._toUsd18(address(AUX), p.venue.stable(), _lastFreed); _lastFreed = 0;
+        freed = LevMath._toUsd18(address(AUX), stable, _lastFreed); _lastFreed = 0;
         // Reconcile the shrunk net-equity into the range slice (try/catch: never block the settle).
         _syncRange(lp);
     }
@@ -765,7 +780,7 @@ contract LevManager is LevBase {
         // even at absurd sizes (1e9 ETH against $1e12) the product is ~1e57 against a 1.15e77
         // ceiling. 512-bit math would cost bytecode on the contract with the least headroom in
         // the tree to buy a bound that cannot bind.
-        uint256 freeWeeth = IWeETH(address(COLL))
+        uint256 freeWeeth = IWeETH(_coll())
             .getWeETHByeETH((askNative * usedUsd) / stableUsd);
         uint256 got = ILevPooled(venue).withdrawPool(freeWeeth);
         if (got > 0) wethDelivered = LevMath.collToWethDeliver(got, recipient, minWethOut, _extractCfg());
@@ -893,7 +908,7 @@ contract LevManager is LevBase {
         //    three `cfg` writes live in `deleverSettleBody` for that reason — the same "body in LevMath"
         //    remedy the rest of this path already uses.
         gasReserve = LevMath.deleverSettleBody(assets, lp, venueAddr, stable, last,
-            AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), _extractCfg(), data);
+            _px(), _extractCfg(), data);
     }
 
     /// The ETH sell/buy machinery lives in LevMath now (delegatecall, bytecode OUTSIDE this contract, so the
@@ -904,7 +919,7 @@ contract LevManager is LevBase {
     ///      empty route, so `stableToColl` → `_stableToWethSor` → `routedSwap` could never execute:
     ///      the lever-up leg was dead at the source, not at the entrypoints.
     function _sellCtx(address keeper, uint256 dex, uint256 dex2, bytes memory route) internal view returns (LevMath.SellCtx memory) {
-        return LevMath.SellCtx({ weth: WETH, weeth: address(COLL), aux: address(AUX), keeper: keeper, reserveIn: gasReserve, dex: dex, dex2: dex2, route: route });
+        return LevMath.SellCtx({ weth: WETH, weeth: _coll(), aux: address(AUX), keeper: keeper, reserveIn: gasReserve, dex: dex, dex2: dex2, route: route });
     }
 
     /// Lever-UP BUY (own frame, no via_ir): borrow `usd` stable, swap → collateral (LevMath.stableToColl), supply
@@ -912,7 +927,7 @@ contract LevManager is LevBase {
     function _leverUpBuy(ILevVenue venue, address who, address stable, uint256 usd, uint256 minOut, uint256 dex, uint256 dex2, bytes memory route) internal {
         uint256 coll = LevMath.stableToColl(
             _sellCtx(address(0), dex, dex2, route), stable, venue.borrow(who, LevMath._fromUsd(address(AUX),stable, usd)), minOut);
-        IERC20Min(_collToken(venue)).transfer(address(venue), coll);
+        IERC20Min(_coll()).transfer(address(venue), coll);
         venue.supply(who, coll);
     }
 

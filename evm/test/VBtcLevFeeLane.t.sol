@@ -1897,7 +1897,7 @@ contract EthLevDeleverLegs is AllesFixture {
         // this is the defect — nothing says so.
         vm.mockCall(MORPHO_E, abi.encodeWithSignature("flashLoan(address,uint256,bytes)"), "");
         vm.prank(LP_A);
-        vm.expectRevert(bytes("close: no repay"));
+        vm.expectRevert(LevManager.NoRepay.selector);   // §EIP-170 — the string literal became a custom error
         elm.closeLev(0, DEX_WETH_USDC);
         vm.clearMockedCalls();
 
