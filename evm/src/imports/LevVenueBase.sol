@@ -344,16 +344,37 @@ contract MorphoEscrowVenue is LevVenueBase {
         uint256 sharesDown;
         uint256 mine = _unitSlice(debtUnits[lp], totalDebtUnits, before);   // this LP's exact share slice
         uint256 need = mine == 0 ? 0 : _sharesToAssetsUp(mine);
+        bool byShares;
         if (mine > 0 && r >= need && IERC20Min(STABLE).balanceOf(address(this)) >= need) {
             IERC20OZ(STABLE).forceApprove(address(MORPHO), need);
             (repaid, sharesDown) = MORPHO.repay(_params(), 0, mine, address(this), "");  // lands on ZERO
             IERC20OZ(STABLE).forceApprove(address(MORPHO), 0);
+            byShares = true;
         } else {
             IERC20OZ(STABLE).forceApprove(address(MORPHO), r);
             (repaid, sharesDown) = MORPHO.repay(_params(), r, 0, address(this), "");     // partial: assets
         }
-        uint256 burn = _burnUnits(sharesDown, totalDebtUnits, before);   // §POOL-UNITS: same conversion as the mint
-        if (burn > debtUnits[lp]) burn = debtUnits[lp];
+        // 🔴 §BY-SHARES-LANDS-ON-ZERO — **ON THIS BRANCH THE LP OWES NOTHING BY CONSTRUCTION, SO SAY
+        //    SO INSTEAD OF RE-DERIVING IT THROUGH A FLOOR.** `mine` is the LP's EXACT share slice and
+        //    the branch repays exactly `mine` shares, so the LP's claim is extinguished. Converting
+        //    `sharesDown` BACK to units with `_burnUnits` is the floor-inverse of the floor that
+        //    produced `mine`, and that round trip can return `debtUnits[lp] − 1` — leaving ONE unit of
+        //    dust on a position that is fully repaid.
+        // ⇒ That residual is exactly why `LevManager._closeLev`'s post-condition is `< debtBefore`
+        //    rather than `== 0`. Removing the residual is what lets that tighten (§F-HANDOFFS 2).
+        // ⚠️ THE INVARIANT IS PRESERVED, WHICH IS THE ONLY THING THAT MATTERS HERE: this burns
+        //    `debtUnits[lp]` from BOTH sides, so `sum(units) == totalDebtUnits` still holds — the
+        //    property this body exists to keep in one place.
+        // ⛔ DO NOT extend this to the `else` arm. A partial repay burns whatever shares Morpho
+        //    actually took, and there `_burnUnits` is the correct conversion — the same one the mint
+        //    used. The shortcut is legitimate ONLY because this branch repaid the whole slice.
+        uint256 burn;
+        if (byShares) {
+            burn = debtUnits[lp];                                       // extinguished, exactly
+        } else {
+            burn = _burnUnits(sharesDown, totalDebtUnits, before);      // §POOL-UNITS: same conversion as the mint
+            if (burn > debtUnits[lp]) burn = debtUnits[lp];
+        }
         debtUnits[lp] -= burn; totalDebtUnits -= burn;
     }
 

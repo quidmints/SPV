@@ -1688,18 +1688,29 @@ library LevMath {
     /// @notice REDEEM/SWAP-OUT value-neutral partial de-lever (§G.3, the ETH analog of BTC `deleverOnDelivery`/#54),
     ///         delegatecall-linked (bytecode OUTSIDE the EIP-170-critical manager, runs in the manager's context).
     ///         Flashed `assets` in hand: REPAY the LP's debt FIRST, withdraw the paired collateral, sell it, return
-    ///         `assets` to the flash, and route the value-neutral SURPLUS to `vault` (the redeem sink) — NOT the LP
+    ///         `assets` to the flash, and route the value-neutral SURPLUS to `recipient` — NOT the LP
     ///         (unlike `closeLev`). `assets = X·debt/netEq` so LTV is PRESERVED; `sellColl`'s oracle floor reverts
     ///         unless the sale covers the flash, so an underwater position can never settle unbacked.
+    /// 🔴 §F-HANDOFF-4 — THE PARAMETER WAS NAMED `vault` AND THE MANAGER DOES NOT PASS ONE.
+    ///      `LevManager._extractSettle` passes `address(this)`: the surplus comes back to the MANAGER,
+    ///      which records it as `_lastFreed` and only THEN splits it between the LP's buffer refund and
+    ///      the redeem sink. So "routed to `vault`" described a hop that no longer happens here, and a
+    ///      reader chasing the sink would look in the wrong frame. `_sellAndPay` — the only consumer —
+    ///      already calls this slot `recipient` in its own docblock, so this adopts the callee's word
+    ///      rather than inventing one (rule 7).
+    /// ⚠️ A PARAMETER RENAME IS NOT AN ABI CHANGE — the selector is derived from TYPES, so
+    ///      `check-client-abis.py` is unaffected. The function name is untouched deliberately:
+    ///      `extractToVaultBody` IS in the ABI, and renaming it would be a client break for a comment fix.
     /// @return newGasReserve gas-reserve after the keeper peel.
-    /// @return freed stable routed to `vault` (≈ extractUsd, less slippage).
-    function extractToVaultBody(uint256 assets, address lp, address venueAddr, address stable, uint256 extractUsd, address vault, uint256 minOut, ExtractCfg memory cfg)
+    /// @return freed stable routed to `recipient` (≈ extractUsd, less slippage), which the manager
+    ///         then splits: the over-withdraw buffer back to the LP, the remainder to the redeem sink.
+    function extractToVaultBody(uint256 assets, address lp, address venueAddr, address stable, uint256 extractUsd, address recipient, uint256 minOut, ExtractCfg memory cfg)
         public returns (uint256 newGasReserve, uint256 freed)
     {
         uint256 pulled = _pullForExtract(assets, lp, venueAddr, stable, extractUsd, cfg);   // repay-first + withdraw (own frame)
         // Sell + return-flash + route-surplus in its OWN frame (non-via_ir stack: keeps `lp`/`venueAddr`/`extractUsd`
         // — dead after the pull — from co-living with the sellColl call args).
-        return _sellAndPay(pulled, stable, minOut, assets, vault, cfg);
+        return _sellAndPay(pulled, stable, minOut, assets, recipient, cfg);
     }
 
     /// @dev Sell the withdrawn/freed collateral (oracle-floored on `assets`: reverts unless stableOut ≥ assets ⇒ the

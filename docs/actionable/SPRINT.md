@@ -62804,3 +62804,104 @@ across three sessions. **Its REMEDY TEXT was the defect**, and a remedy is prose
 nobody had measured, and each reader trusted it because it sat inside a correct assertion. ⇒ **a gate's
 failure message is as load-bearing as its condition, and it goes stale the same way** — the stale-
 docblock class arriving through an `assert` string. **Instrument the PREMISE, do not narrate it.**
+
+---
+
+# 🔧 §IMPL-2026-09-09 — five implementation concerns LANDED, four BOOKED as one unmade decision
+
+⛔ **NO TEST RUN. The owner instructed *"i dont care about tests at all now. dont run any until i
+explicitly tell you"*, so rule 15's verification is DELIBERATELY WAIVED BY THE OWNER on these — not
+skipped, and not forgotten. Every item below is UNVERIFIED BY EXECUTION.** What WAS run: `forge build`
+(0 errors) and `tools/check-contract-sizes.py`.
+📊 **RULE 18③, MEASURED NOT ESTIMATED:** `LevManager` 24,064 → **24,062 (−2)** — `safeTransfer`
+replaced two inline bool-decode sequences and came out SMALLER; `Quid` 23,074 → **23,110 (+36)** for
+the revert; `SwapLib`, `BasketLib`, `LevMath` unchanged. **Tightest is still `LevMath` at 71.**
+
+## ✅ LANDED
+1. **§PAYUSD-ZERO-TWAP — `Quid._payUsdLeg`, the §CATCH-SWALLOWS #1 item, and the worst of the family.**
+   The TWAP read sat at the END of the function behind `if (px > 0)`, AFTER `_mintQuid` and AFTER
+   `absorbPaidUsd`. A zero TWAP is documented-reachable, and at zero the caller's `if (usdEq > 0)`
+   skipped `_burnInRange`, `_debitShares` AND `amount -= usdEq` ⇒ **paid, and still holding the full
+   claim.** Fix: read the price FIRST, `revert ZeroTwap()` if absent. ⭐ **No new declaration and no
+   new policy — `ZeroTwap` is ALREADY this tree's answer to an unpriceable moment (`Quid:1063`,
+   `BtcLib:269`); this helper was the one site that continued silently.** It DELETES the `px > 0`
+   branch rather than adding a guard (rule 18①). ⚠️ Trade-off stated at the site: a silent
+   under-payment becomes a revert, i.e. a **deferral the LP can retry** instead of a permanent
+   phantom claim that dilutes every other LP.
+2. **§USDT-SINK-TRANSFER — `LevManager._extractSettle` (§F-HANDOFFS 5).** Both F13 buffer-split
+   payouts used `IERC20Min.transfer`, declared `returns (bool)`, on the VENUE STABLE — which
+   `LevMath.curveExchange`'s own header says *"may be USDT, which returns no bool"*. ⭐ **The BTC twin
+   already does this safely (`BtcLevManager:379`), so the ETH side was DRIFT, not a per-asset
+   asymmetry** — and it cost **−2 bytes**, not more.
+3. 🔴 **§F-HANDOFFS 3 IS REFUTED, AND ACTING ON IT WOULD HAVE DELETED A TRUE COMMENT.** The item says
+   `LevMath.sol:~375`'s *"init refuses a zero `flashProvider`"* is FALSE, delete under rule 19.
+   **MEASURED: that sentence does not exist in `LevMath` at all** (`flashProvider` appears 7 times,
+   never in it). **It is `BtcLevManager.sol:268`, and it is TRUE THERE** — `BtcLevManager.init` really
+   does `if (flash == address(0)) revert BadAuth();`, while `LevManager.init` assigns with no check.
+   ⇒ **The two managers genuinely differ; the claim was correctly scoped to its own file and only
+   looked false read from the other one.** What was actually wrong is `LevManager:570`'s parenthetical
+   asserting it false and misattributing it — corrected there, and the real asymmetry (BTC forbids the
+   disable switch, ETH permits it and fails loudly at the call) written down as REAL, not drift.
+   📌 **This is the owner's own rule arriving as a worked example: the handoff was prose, and both of
+   its claims — the file and the verdict — were wrong. The code said so in one grep.**
+4. **§F-HANDOFFS 4 — `LevMath.extractToVaultBody`'s `vault` param → `recipient`.** The manager passes
+   `address(this)`, so the surplus returns to the MANAGER, which only then splits buffer-to-LP and
+   remainder-to-sink. "Routed to `vault`" described a hop that does not happen there. Adopts
+   `_sellAndPay`'s own word rather than inventing one. **A parameter rename is not an ABI change** (the
+   selector is type-derived), and the FUNCTION name is deliberately untouched because it IS in the ABI.
+5. **§BY-SHARES-LANDS-ON-ZERO — `LevVenueBase._repayCreditingLp` (§F-HANDOFFS 2).** On the by-shares
+   branch the LP's EXACT slice is repaid, so the claim is extinguished — but `_burnUnits(sharesDown)`
+   is the floor-inverse of the floor that produced `mine`, and that round trip can return
+   `debtUnits[lp] − 1`, leaving one unit of dust on a fully-repaid position. Now burns
+   `debtUnits[lp]` exactly on that branch only. `sum(units) == totalDebtUnits` is preserved (burned
+   from both sides). ⛔ Deliberately NOT extended to the partial arm, where `_burnUnits` is correct.
+   ▶️ **This is the residual that forces `_closeLev`'s post-condition to be `< debtBefore`; with it
+   gone, F14 can tighten to `== 0` — but that is a TEST change and tests are stopped.**
+
+## ⏸️ BOOKED, NOT LANDED — **and they are ONE question, not four patches**
+§CATCH-SWALLOWS items 2–4 plus `_pricingBacking`'s `px` all ask: **what should the system do when it
+CANNOT VALUE something?** I answered that once above, for `_payUsdLeg`: refuse. **That answer does not
+automatically generalise, and guessing per-site is how a fallback policy gets invented four different
+ways.**
+- **`QuidLib._venueBalanceLib:306`** — on catch the plain venue balance is OVERSTATED by the levered
+  net equity, and `rebalanceBody` feeds it to `venueFeesPerShareInc = (current − bookmark)/plainDepth`
+  ⇒ **a manager outage manufactures a one-shot venue-yield distribution roughly the size of the lev
+  book.** The conservative act is to SKIP the accrual, not to distribute a number we know is wrong.
+- **`QuidLib._rangeETH:597` → `Quid.totalAssets:1715`** ⚠️ **NOT the F9 shape, and the §CATCH entry
+  describes it imprecisely.** F9 hoisted `total += totalLevPooled`, a value known OUTSIDE the try, so
+  the hoist was an IDENTITY. Here `n` IS the call's return — on catch there is genuinely no number to
+  add, and bolting on a `levPooled` fallback would **double-count the net leg**, overstating solvency,
+  which is the dangerous direction. ⇒ needs the policy, not a hoist.
+- **`FeeLib:294` / `ChannelLib:241`** — `try convertToAssets … catch {}` leaves the slot at 0, so **a
+  paused vault reads as a zero balance inside a fee-accounting sum.**
+- **`Quid._pricingBacking:~1872`** — the same `if (px > 0)` shape as the one fixed above, but here it
+  is a **VIEW that prices shares**, and *"the read must not be able to halt the range"* is a standing
+  principle in this tree. **So the `_payUsdLeg` answer (revert) is exactly what must NOT be copied
+  here**, which is the clearest evidence that this is a decision and not a sweep.
+
+## 📌 FLASH COSTS, from the owner — **and it bears on the refill, not on the de-lever**
+*"It should be possible to flash repay WBTC with Aave but it has a cost, and there is no cost to do
+this with a Morpho flash borrow."* ⇒ consistent with `LevManager.sol:26` (*"Morpho Blue flash-loan
+surface — FREE (zero-fee), so the ONLY flash source we use"*).
+🔴 **AND THE FLASH-SERVE QUESTION IS MOOT — THE OWNER ANSWERED IT AND THE CODE AGREES: *"swaps can
+delever and immediately go towards relever."*** I had booked the zero-fee flash as something that
+*"could change the buy-back-vs-entry calculus"*. **It does not, because the round trip it would buy is
+ALREADY BUILT and already costs nothing.** Verified, two sites, both explicit:
+- `SwapLib.sol:2560` — *"swapper's input de-levers the pooled position; the keeper re-levers next tick"*.
+- `LevManager.sol:719` — the delivery side: *"`syncLev` reconciles the shrunk net-equity; the keeper
+  re-levers next tick"*, and `QuidLib.sendEth`'s cascade reaches `deleverEthOnDelivery` to source it.
+⇒ **A drain SERVES ITSELF by de-levering — withdrawing collateral and repaying debt — and the keeper
+re-levers afterwards.** That IS *"flash the scarce asset, serve the opposite flow, repay"*, executed
+by the ordinary swap path, with **no flash, no fee and no new mechanism**. A free Morpho flash cannot
+improve on free, so **§UNIT-C-VERIFY / #100 / J.3's flash-serve has nothing left to add** and the
+liquidity question about the singleton's WBTC does not need asking.
+⚠️ **WHAT THIS DOES *NOT* OVERTURN, stated so the two are not merged:** the de-lever/re-lever cycle
+restores **DELIVERABLE CAPACITY** by unlocking collateral the range already owns. It does **not** add
+NET inventory — nothing about it makes the pool hold more ETH or BTC than before. **REFILL-START-HERE's
+*"LP entry is the ONLY refill path"* is about ACQUISITION and still stands.** Two different scarcities
+that the word "refill" has been covering at once: *can we serve this trade* (answered by de-levering,
+already built) and *does the pool hold enough* (answered by entry, still gated on §LINK-2-MEASURED).
+📌 **The correction is booked rather than edited away because the error is instructive: I reasoned that
+a cheaper flash must widen the option set, without first checking whether the operation it enables was
+already reachable for free. That is "verified the mechanism, never priced the alternative" — the same
+shape as reading one side of a coupling and inferring the other.**

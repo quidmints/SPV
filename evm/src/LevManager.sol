@@ -5,6 +5,15 @@ import {AlreadyOpen, NotFlash, VenueNotAllowed, Types} from "./imports/Types.sol
 import {ILevVenue, IERC20Min, ILevPooled, IWeETH, IMorphoBase as IMorphoFlash} from "./imports/Interfaces.sol";
 import {LevMath} from "./imports/LevMath.sol";
 import {LevBase} from "./imports/LevBase.sol";
+/// §USDT-SINK-TRANSFER — the venue stable is paid out with `safeTransfer`, not `transfer`, for the
+/// reason `LevMath.curveExchange`'s header already states about the SAME token set: *"a basket stable
+/// may be USDT, which returns no bool (§NONSTANDARD-ERC20)"*. `IERC20Min.transfer` is declared
+/// `returns (bool)`, so on a no-return token the ABI decoder reverts on empty returndata — the same
+/// trap §SESS-46 measured on Curve's 3pool `exchange`, in a third place.
+/// ⭐ NOT A NEW PATTERN: the BTC twin ALREADY does this (`BtcLevManager:379`,
+/// `IERC20OZ(stable).safeTransfer(...)`), so the ETH side was DRIFT, not a per-asset asymmetry.
+import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 /// @notice The venue's collateral ERC20 — the escrow adapters expose this public immutable,
 ///         so the manager DERIVES the collateral type per position (weETH vs WETH) from the venue itself,
 ///         never storing it on `Pos` (the public struct ABI stays a stable 6-tuple).
@@ -43,6 +52,7 @@ import {LevBase} from "./imports/LevBase.sol";
 ///         isolated liquidation (that LP only, never the basket). No QUI is minted; nothing touches
 ///         `POOLED_USD`. (The old LEVERAGE-ENGINE-SPEC.md is gone; this file is the canonical design.)
 contract LevManager is LevBase {
+    using SafeERC20 for IERC20OZ;   // §USDT-SINK-TRANSFER, see the import header
     // ── immutables ──
     // ether.fi weETH mint (up-leg only — the down-leg is the v3 pool; see the header). NOT our range.
     address   public immutable WETH;    // oracle key (getTWAPforAsset(WETH))
@@ -557,10 +567,22 @@ contract LevManager is LevBase {
         //    it is an EXIT: `venue.withdraw` burns only THIS LP's units while Morpho's health check is
         //    against the POOL, so with other LPs' collateral present it PASSES and the departing LP's
         //    debt stays SOCIALISED across the ones who remain.
-        // ⚠️ `flashProvider == address(0)` is a DOCUMENTED config, not dead code — `init` takes it and
-        //    says so ("`address(0)` disables it"), with no check. (`LevMath.sol`'s "`init` refuses a zero
-        //    `flashProvider`" is therefore FALSE; it is another lane's file to correct.) This makes a
-        //    levered close under that config fail LOUDLY instead of handing the collateral over.
+        // ⚠️ `flashProvider == address(0)` is a DOCUMENTED config HERE, not dead code — THIS `init`
+        //    assigns `flashProvider = flash` with NO zero check (`:150`). That makes a levered close
+        //    under that config fail LOUDLY instead of handing the collateral over.
+        // 🔴 **CORRECTED — THE PARENTHETICAL THAT STOOD HERE SENT A READER TO DELETE A *TRUE*
+        //    COMMENT IN THE WRONG FILE.** It said: *"`LevMath.sol`'s "`init` refuses a zero
+        //    `flashProvider`" is therefore FALSE; it is another lane's file to correct"*, and
+        //    §F-HANDOFFS item 3 duly booked it as `LevMath.sol:~375`, delete under rule 19.
+        //    **MEASURED: `flashProvider` appears in `LevMath.sol` 7 times and NEVER in that sentence
+        //    — the sentence is `BtcLevManager.sol:268`, and it is TRUE THERE**, because
+        //    `BtcLevManager.init` really does `if (flash == address(0)) revert BadAuth();` while
+        //    this one does not. **The two managers differ; the claim was correctly scoped to its own
+        //    file and only looked false read from this one.**
+        // ⇒ THE ASYMMETRY IS REAL, NOT DRIFT, AND IT IS THE THING TO REMEMBER: BTC has no unflashed
+        //    fallback and forbids the disable switch; ETH permits it and fails loudly at the call.
+        //    ⛔ Do NOT "harmonise" them by adding a zero check here — that would delete a documented
+        //    config — and do NOT delete the BTC sentence.
         // ⛔ **IT IS `< debtBefore`, NOT `== 0`, AND THAT IS DELIBERATE — `== 0` IS NOT SATISFIABLE
         //    TODAY WITH MORE THAN ONE LP IN THE POOL.** `LevVenueBase._repayCreditingLp` takes its
         //    by-SHARES branch on a full repay (the branch whose whole purpose is to "land on ZERO"),
@@ -892,10 +914,13 @@ contract LevManager is LevBase {
             _extractCfg());
         extractUsd = LevMath._fromUsd(address(AUX), stable, extractUsd);   // USD 1e18 → the sized cap, native
         if (_lastFreed > extractUsd) {
-            IERC20Min(stable).transfer(lp, _lastFreed - extractUsd);       // the buffer is the LP's, not the sink's
+            // §USDT-SINK-TRANSFER — `safeTransfer`, because `stable` is the VENUE stable and may be
+            // USDT. Both payouts here are the F13 buffer split, so a no-bool token would brick the
+            // LP's refund and the sink payment together.
+            IERC20OZ(stable).safeTransfer(lp, _lastFreed - extractUsd);     // the buffer is the LP's, not the sink's
             _lastFreed = extractUsd;
         }
-        if (_lastFreed > 0) IERC20Min(stable).transfer(vault, _lastFreed);
+        if (_lastFreed > 0) IERC20OZ(stable).safeTransfer(vault, _lastFreed);
     }
 
     /// mode-0 (generic flash-stable) settle in its OWN frame (no via_ir): repay-first → withdraw → sell → return the

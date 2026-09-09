@@ -711,15 +711,34 @@ contract Quid is Shares,
         if (incrPre == 0 || denom == 0 || claimAmt == 0) return 0;
         uint owed6 = claimAmt >= denom ? incrPre : SoladyMath.fullMulDiv(incrPre, claimAmt, denom);
         if (owed6 == 0) return 0;
+        // Valued at the SAME basis the claim was PRICED at — the ORACLE, never the range's leg
+        // ratio, which is not a price for a concentrated position (measured: it implied ~840
+        // USD/ETH against an actual 1,854, over-pricing a 400-share claim by 73,116 USD).
+        // 🔴 §PAYUSD-ZERO-TWAP — **READ THE PRICE *BEFORE* PAYING, AND REFUSE IF IT IS NOT THERE.**
+        // This read sat at the END of the function behind `if (px > 0)`, i.e. AFTER the mint and
+        // AFTER `absorbPaidUsd`. A zero TWAP is a DOCUMENTED REACHABLE STATE — `LevCascade.t.sol`
+        // records *"once a crash walks the pool to its tick boundary `getTWAPforAsset` returns 0"* —
+        // and at zero this returned `ethEquiv == 0`, which made the CALLER's `if (usdEq > 0)` guard
+        // skip `_burnInRange`, `_debitShares` AND `amount -= usdEq`.
+        // ⇒ **THE LP WAS PAID AND KEPT THE FULL `pooled` CLAIM.** That is verbatim the failure this
+        //   file's own §:663-670 says must never happen (*"measured: 12.887 phantom `pooled`,
+        //   un-recoverable by a second exit, inflating `lpShares` and diluting every other LP"*).
+        // ⭐ **NO NEW DECLARATION AND NO NEW POLICY: `ZeroTwap` IS ALREADY THIS TREE'S ANSWER TO AN
+        //   UNPRICEABLE MOMENT** — `Quid.sol:1063` and `BtcLib:269` both refuse on `price == 0`.
+        //   This helper was the one site that instead continued silently, so the fix is CONSISTENCY,
+        //   not a new rule. It also DELETES the `px > 0` branch rather than adding a guard (rule 18①).
+        // ⚠️ **THE TRADE-OFF, STATED: THIS TURNS A SILENT UNDER-PAYMENT INTO A REVERT**, so an exit
+        //   attempted at the exact moment the oracle is unpriceable now fails loudly and must be
+        //   retried. That is the intended direction — a paid-but-not-debited claim is permanent and
+        //   dilutes every other LP, while a revert is a DEFERRAL the LP can repeat. Refusing to
+        //   value a payment is not the same as refusing to make it.
+        uint px = _wethTwap();
+        if (px == 0) revert ZeroTwap();
         _mintQuid(recipient, owed6);
         // Re-anchor the mirror: what the LP still owns is what it owned MINUS what was just paid,
         // NOT whatever the burn happened to release. See `Core.absorbPaidUsd` for the measurement.
         CORE.absorbPaidUsd(incrPre - owed6);
-        // Valued at the SAME basis the claim was PRICED at — the ORACLE, never the range's leg
-        // ratio, which is not a price for a concentrated position (measured: it implied ~840
-        // USD/ETH against an actual 1,854, over-pricing a 400-share claim by 73,116 USD).
-        uint px = _wethTwap();
-        if (px > 0) ethEquiv = SoladyMath.fullMulDiv(owed6 * 1e12, 1e18, px);
+        ethEquiv = SoladyMath.fullMulDiv(owed6 * 1e12, 1e18, px);
     }
 
     function _withdraw(uint amount, address recipient) internal {
