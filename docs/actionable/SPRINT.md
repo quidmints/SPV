@@ -60261,3 +60261,50 @@ already fetch.
    is only that we would remain the CHEAPER venue, which is necessary and not sufficient.
 4. **Uniswap is not the only alternative** — this compares against one 0.05% pool, not against
    aggregated routing, which is what a real taker would actually get.
+
+---
+
+# ⛔ §REFILL-CIRCLING — **STOP MEASURING THE CHARGE. §M0 SETTLED IT THREE DAYS AGO.**
+
+Owner: *"There has been a month of skew related commits, are you sure you arent wandering in circles."*
+Checked, and the answer is yes on one axis.
+
+**§M0 (`4c9083a2`, 2026-09-06):** *"the toll is 0 bps at 1/5/10/25% drain, 1 bps at 50%, 1 bps at 75%,
+and only 96 bps at 90% … The brake exists but engages at ~75–90% depletion: a wipeout guard, not a
+rebalancing incentive."*
+**What I spent today establishing:** the charge is ~4.2 bps flat across the operating range and only
+responds at high q. ⇒ **The same finding, re-derived with two contaminated rounds on the way** (a basis
+artefact, then a `MIN_SWAP_SKEW_WAD` floor artefact). §M0's "0 bps" and my "4.2 bps" differ only because
+§M0 read the toll and I read the floor that sits under it.
+
+## WHAT IS ACTUALLY NEW TODAY, and what was a lap
+| new | lap |
+|---|---|
+| §PAUSED-VAULT-REROUTE — landed, A/B'd, $1,380.60 retired where it previously reverted | re-deriving "the charge is small across the operating range" (§M0 had it) |
+| Γ on its derivation + 7 stale Γ binders fixed | re-confirming it twice more after contamination |
+| The conservation law + `retainedEthPremium` made readable | |
+| **The restoration COST** — genuinely new; §M0 measured the CHARGE, nobody had measured what restoring costs (median −8 bps, 56% negative) | |
+| Uniswap headroom refreshed at the landed Γ: **17–26 bps** | |
+| `MIN_SWAP_SKEW_WAD = 4.2e14` is what binds below q≈55% — explains §M0's "0 bps" | |
+
+## ⇒ THE RULE THIS THREAD EARNED
+**Before measuring anything about the skew's magnitude, grep SPRINT for an existing measurement of it.**
+Three separate "findings" today (§REFILL-SIZE's cliff historically, the sentinel rows, the floor rows)
+were the same class: a constant standing in for a price, read as if it were the price. §M0 is the
+canonical answer and it should be cited, not re-measured.
+
+## WHAT IS GENUINELY OPEN — all of it is DESIGN, none of it is more charge measurement
+1. **Sandwich exposure** — ⭐ **and the owner has supplied the answer: a keeper transporting via
+   Flashbots is not sandwichable.** That materially changes option E's standing: E was rejected on cost
+   and trigger, but it is the only option that is *private in transport*. Options A/B/C execute inside a
+   public swap and cannot be.
+2. **Whether a keeper's gas + cost of capital can be covered** — still the owner's original unanswered
+   question, and now the pivotal one rather than a footnote.
+3. **The elegance question** — the owner is right that A+B is a patch, not a design. §E276's κ (see the
+   peer's note: κ scales the pole's LOCATION where Γ only scales its HEIGHT) is the unexplored axis, and
+   §GAMMA-IS-NOT-A-DIAL's conclusion explicitly does NOT transfer to κ.
+📌 **RETRACTED FROM MY OWN EARLIER FRAMING:** I said declines might "cluster" and that this needed
+measuring. That was speculation stated as a measurement requirement — it only matters under option A and
+I had no evidence for it. Dropped. And `unwindForRedeem` matters ONLY because a *bundled* trigger misses
+it (`Core:218` — redemption sheds inventory exactly as a swap does, but it is a burn); under a keeper
+trigger it is a non-issue. I presented it as a general hole and it is specific to bundling.
