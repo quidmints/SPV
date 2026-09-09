@@ -193,6 +193,56 @@ contract DrainAtomicity is AllesFixture {
         //    would encode the conclusion this test exists to find (§VACUOUS-BOUNDS).
     }
 
+    /// @notice 🔬 §REFILL-G2 — **THE FEASIBILITY SWEEP: does the swapper's own premium cover their own
+    ///   restoration ACROSS SIZES, end to end, on the real path?** G1 settled attribution at ONE size on
+    ///   ONE block and found break-even at ≈ −5.8 bps of adverse basis. That is a single draw and this
+    ///   file's own §E71-r3 warns against reading a rule off one.
+    /// ⭐ **THIS MEASURES THE THING THAT ACTUALLY HAPPENS, NOT A CLEAN BASIS.** Drain the range, THEN buy
+    ///   back with the very dollars the drain paid in. The drain's own pool impact is therefore INSIDE
+    ///   the measurement, which is correct: a refill fires right after a drain, into a pool that drain
+    ///   just moved, and a clean-basis reading would flatter it by exactly that impact.
+    /// ⚠️ **WHY A SIZE SWEEP AND NOT ONE SIZE — THE OVERFIT THIS GUARDS.** Basis is size-dependent
+    ///   (slippage) while the premium is roughly proportional to the drain, so the two scale
+    ///   DIFFERENTLY and a single size cannot tell which wins. Small drains are where the premium
+    ///   looks best; large ones are where restoration actually hurts. Reporting one size would be
+    ///   picking the answer.
+    /// ⚠️ **AND WHY THIS IS STILL NOT THE WHOLE ANSWER (underfit, stated rather than hidden):** every
+    ///   size here runs at ONE block, so this sweeps SIZE, not REGIME. The regime axis needs the same
+    ///   test at several `FORK_BLOCK`s, deliberately including volatile ones — an adverse basis
+    ///   correlates with exactly the conditions that deplete a range, so calm-block sampling
+    ///   UNDERSTATES the adverse tail. Do not quote this as the distribution.
+    /// @dev Emits per size: drained volatile, bought back, net, and net in bps of the drain. NOTHING is
+    ///      asserted about the sign — the sign across sizes IS the result (§VACUOUS-BOUNDS).
+    function test_REFILL_G2_CoverageAcrossSizes() public {
+        _setupRange();
+        uint[4] memory sizes = [uint(2_000e18), 10_000e18, 50_000e18, 200_000e18];
+        for (uint i; i < sizes.length; i++) {
+            uint boldAmt = sizes[i];
+            uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+            uint p0 = CORE.skewPremiumCum();
+            uint ethGot = _drain(boldAmt);
+            uint prem6 = CORE.skewPremiumCum() - p0;
+            if (ethGot == 0) { emit log_named_uint("SIZE SKIPPED (range could not serve)", boldAmt); continue; }
+
+            uint usdcIn = boldAmt / 1e12;
+            deal(address(USDC), address(this), usdcIn);
+            IERC20(address(USDC)).approve(address(AUX), type(uint).max);
+            uint b0 = WETH.balanceOf(address(this));
+            try this.buyBack(usdcIn) returns (uint) {} catch {}
+            uint ethBack = WETH.balanceOf(address(this)) - b0;
+
+            emit log_named_uint("=== drain size (BOLD 18d)", boldAmt);
+            emit log_named_uint("    volatile out          ", ethGot);
+            emit log_named_uint("    volatile bought back  ", ethBack);
+            emit log_named_uint("    premium collected usd6", prem6);
+            int256 net = int256(ethBack) - int256(ethGot);
+            emit log_named_int ("    NET (+ = covers)      ", net);
+            emit log_named_int ("    NET in bps of the drain",
+                ethGot == 0 ? int256(0) : net * 10_000 / int256(ethGot));
+            emit log_named_uint("    net in USD (18d, abs) ", (net < 0 ? uint(-net) : uint(net)) * px / 1e18);
+        }
+    }
+
     /// @notice 🔴 §REFILL-BASIS — **G1, THE CONTROL THAT DECIDES WHETHER THE PREMIUM FUNDS THE REFILL.**
     ///   `test_REFILL_AFFORDABILITY` measured a round-trip surplus of 0.0251 ETH (~$62) against a
     ///   premium of only $8.40. Those cannot both be the premium, and the reason is structural:
