@@ -59831,7 +59831,7 @@ terms, not one.
 | **B · size-aware execution charge** (`_slipBps`-shaped) ON TOP of the skew | funds the actual cost, scales correctly, uses machinery that exists | raises the price of large drains — and the owner's own constraint is *"what maximises revenue is volume and if large swaps can get cheaper execution elsewhere thats where they will go"* |
 | **C · charge an estimate, refill, refund the excess** | swapper pays actual cost, never over-charged | needs a true-up ledger — `4405ed0d` DELETED exactly that (`BatchLedger`) as unjustified complexity |
 | **D · do nothing; let arbitrage restore** | zero mechanism, zero risk | **measured dead**: §M0 says the toll is ~0 bps to 25% drain and the brake engages at 75–90%, so no arbitrageur is paid to come |
-| **E · async keeper funded from accrued premium** | fires on redemption AND when swaps stop — the only option that closes §3 | the economics the owner already rejected (gas + cost of capital from a margin that does not exist), and the premium is measured too small to pay one |
+| **E · async keeper funded from accrued premium** | fires on redemption AND when swaps stop — the only option that closes §3 | ⚠️ **CORRECTION: THE OWNER DID NOT REJECT THIS.** They ASKED *"if we need an async keeper how do they cover gas and cost of capital?"* — an open question I recorded as a rejection, which is my error. It is unanswered, not closed. The premium is measured too small to pay one, which is evidence about the FUNDING, not about the option |
 📌 **A and E are not mutually exclusive and that may be the shape of the answer** — bundled-and-conditional
 for the common case, with something else covering redemption-driven depletion. **Not proposing it as the
 answer; recording it as the combination the constraints do not immediately kill.**
@@ -59842,3 +59842,56 @@ answer; recording it as the combination the constraints do not immediately kill.
 2. **How often coverage is negative** — 2 valid regime samples, one negative. Sizes the problem.
 3. Whether a `_slipBps`-shaped charge drives away the volume it is levied on — the owner's elasticity
    point, and our simulations do not model competing venues.
+
+---
+
+# ⭐ §REFILL-OPTION-F — **A–S ALREADY ANSWERS THIS AND WE BUILT ONLY HALF OF IT.** (§E276, identified, unbuilt)
+
+Correcting my own framing twice over. **(1)** The owner never rejected a keeper — they asked *"if we need
+an async keeper how do they cover gas and cost of capital?"*, which is unanswered, not closed. **(2)** I
+presented five options as if they were the space. **There is a sixth, it is A–S-native, and the tree has
+had it booked as an open row since §E276.**
+
+## WHAT WE BUILT vs WHAT A–S SPECIFIES
+    A–S:  r = s − q·γ·σ²·(T−t)     the RESERVATION PRICE MOVES THE MID.
+                                   The balancing side is quoted BETTER THAN REFERENCE — the restorer is PAID.
+    us:   δ, a SPREAD in r's place. The refill direction is EXEMPT, never PAID.
+                                   "the best a rebalancing counterparty gets is reference"  (§E276)
+⇒ **We implemented the CHARGE and omitted the SHIFT.** `SkewLearningsAreLive:107` pins the current
+behaviour deliberately so that building the shift is a visible act, and records the structural blocker:
+**`skew` is UNSIGNED, so a bid-improving quote is inexpressible.**
+
+## 🔑 WHY THIS REFRAMES EVERY OTHER OPTION
+· **Option D is not "measured dead" — it was never given its mechanism.** §M0's ~0 bps toll means no
+  arbitrageur is PAID to restore, and that is a direct consequence of omitting the shift, not evidence
+  that arbitrage cannot work. **I mis-stated D's con and it is corrected here.**
+· **It answers the owner's keeper question on its own terms.** *"How do they cover gas and cost of
+  capital?"* — A–S's answer is that **you do not need a keeper**: the quote pays the counterparty, and
+  they self-select precisely when the shift exceeds their gas + capital cost. No subsidy, no roster, no
+  liveness assumption about a specific actor.
+· **It closes the redemption hole (§3) that bundling cannot.** A shift is standing, so restoration is
+  available whenever anyone looks — not only inside a swap that happens to occur.
+· **It needs NO external capital and NO borrowing**, same as bundling: the drainer's dollars are already
+  resident and the restorer brings the volatile.
+· **It is the correct SHAPE for the category error.** The shift is a function of `q` — the imbalance —
+  which is exactly the state restoration must clear, and it scales with the imbalance rather than being
+  flat at 4.2 bps.
+
+## ⚠️ THE HONEST COSTS, none of them small
+1. **It spends premium that §E5 routes to LPs.** The owner's constraint is *"always paying all skew
+   premium to our LPs"* — a mid-shift pays part of it to the RESTORER instead. ⇒ this is a genuine
+   tension with a stated goal and the owner must weigh it. Counter-argument worth putting alongside:
+   LPs receive a restored composition in exchange, which is what they wanted; paying nothing and
+   staying mis-composed is not obviously better for them.
+2. **`skew` is unsigned.** A signed quote is a real money-path change to the type every consumer reads.
+3. **It is a QUOTE, not an execution** — it does not guarantee anyone comes. It makes restoration
+   profitable rather than making it happen, so the tail where nobody comes still exists (though it is
+   strictly better than today, where it is unprofitable by construction).
+4. **Grinding surface**: a shift that pays is a shift someone can farm by oscillating around the target.
+   §UNITB and §REFILL-FARM tested the EXEMPTION for farmability; a PAID direction is a different and
+   larger surface and would need its own falsification.
+
+## ⇒ STATUS
+**Not a recommendation — a correction to the option space, plus the observation that the tree already
+booked it (§E276, §UNIT-CURVE-SPEC) and has a test standing guard over its absence.** It should be
+weighed against A/B/C/E rather than assumed superior, and cost 4 above is the one that could kill it.
