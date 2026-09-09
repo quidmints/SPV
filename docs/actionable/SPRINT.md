@@ -59895,3 +59895,96 @@ behaviour deliberately so that building the shift is a visible act, and records 
 **Not a recommendation — a correction to the option space, plus the observation that the tree already
 booked it (§E276, §UNIT-CURVE-SPEC) and has a test standing guard over its absence.** It should be
 weighed against A/B/C/E rather than assumed superior, and cost 4 above is the one that could kill it.
+
+---
+
+## ⭐ §GAMMA-FIRST-PRINCIPLES-2026-09-09 — the "measure before landing" for the dynamic horizon, done. **Γ IS NOT A DERIVATION. THE POLE IS RIGHT FOR A REASON NOBODY WROTE DOWN. κ IS THE PARAMETER THAT IS ACTUALLY WRONG.**
+
+Harness: `sims/kernel_shape.js`. **Four controls reproduce numbers published before the file existed**
+— §E274's crossing at **q = 0.8929** under Γ=3e16/200% vol (to 4 dp), §E289's κ=1e18 refactor identity,
+the integral's Δ→0 limit, and Γ's dimensional check. Nothing below is admissible without them.
+
+## 1 — Γ's derivation is an ASSUMPTION CHAIN, not first principles
+`Γ = FLOW_HALFLIFE·WAD/365 days` (`SwapLib:771`) is **not circular** the way `Γ ≡ MAX_WELL_SKEW` was.
+It is still two unjustified choices multiplied:
+| component | the code's claim | what is actually true |
+|---|---|---|
+| **γ = 1** | *"γ = 1 (dimensionless)"* (`SwapLib:768`) | In A–S γ is ABSOLUTE risk aversion, units 1/wealth. Our σ² is **return** variance, so the skew is a RATE and our γ is RELATIVE risk aversion. **γ = 1 is log utility / Kelly** — a substantive preference, presented as a normalisation. |
+| **T−t = 48h** | *"the ONE window the system already commits to"* | `Core.sol:181` justifies 48h as *"a wide, manipulation-resistant memory"* — a criterion for an **ESTIMATION** window. Reusing it as a **RISK HORIZON** imports a number chosen for an unrelated reason. Same category error as §E79's cap-as-rate, one level up. |
+⇒ **"Γ is a derivation, not a dial" is true only in the weak sense that it is now TIED to another
+constant.** Γ is a DEPENDENT parameter — it must move with whatever sets the horizon — but the horizon
+has never been derived. **The rigidity is unearned; the coupling is real.** Both halves matter.
+
+## 2 — AND THE HORIZON *IS* DERIVABLE, WHICH RETIRES THE 48h ASSUMPTION
+τ = I/F. I = q·target. `target = flowEwmaUsd + redeemEwmaUsd` is a 48h-decayed VOLUME ≈ F·T_flow.
+⇒ **τ = q·target/(target/T_flow) = q·T_flow.** So A–S §2.2's premium `γσ²τ·q` = **Γσ²q², with Γ the
+SAME 5.48e15 the code already ships.** ⭐ The coefficient was right and the q-POWER is what the 48h
+assumption was standing in for. This is the peer's §E274 note (*"it is the flow WINDOW, and the horizon
+is q times it"*) derived rather than observed.
+
+## 3 — ⛔ AND q² IS REFUTED BY MEASUREMENT. I PROPOSED IT AND IT FAILED.
+q² is **bounded** (max Γσ²: 35 bps at 80% vol, 219 at 200%) so it never reaches `SKEW_UNFILLABLE`.
+Under **elastic demand** — an arb fills only while the charge is under willingness W — that is fatal:
+| W (bps) | POLE drain stops at q | q² drain stops at q |
+|---|---|---|
+| 10 | 0.2219 | 0.5340 |
+| 25 | 0.4162 | 0.8443 |
+| **50** | **0.5878** | 🔴 **FULLY DRAINABLE** |
+| 100 | 0.7404 | 🔴 **FULLY DRAINABLE** |
+⇒ **above W ≈ 48 bps the q² range empties at a price arbs will happily pay.** An empty range is the
+state the refill exists for, so the "correct" A–S shape manufactures the emergency it is priced for.
+⚠️ **AND MY FIRST REVENUE TABLE (§3 of the harness) IS WITHDRAWN AS A DECISION INPUT.** It assumed every
+trade fills at any charge under a 100% haircut, i.e. perfectly inelastic demand, and reported the pole
+collecting 8–32× more. **Nobody pays 3471 bps to drain a range.** The elastic table above is the honest
+one and it REVERSES the ranking at low W. Kept in the file, labelled, because the reversal is the point.
+
+## 4 — ⭐ SO THE POLE IS CORRECT, AND ITS STATED JUSTIFICATION IS NOT
+`0505a993` withdrew §E287 by citing A–S §2.3's denominator `2ω − γ²q²σ²`. **That is the STATIONARY
+(infinite-horizon) case.** We are not infinite-horizon: τ = q·T_flow is finite and computable, so §2.2
+applies and §2.2 has **no pole at all**. The real justification is a BOUNDARY CONDITION A–S do not have:
+**their maker may hold NEGATIVE inventory and rebalance outside; ours is floored at zero with no outside
+venue** (§E276: *"nothing currently pulls inventory back"*). The marginal value of the last unit diverges
+because it is the last one. ⇒ **right answer, wrong citation** — and the barrier is not "linear A–S felt
+too flat" (aesthetic, §E286) but the missing boundary condition (derivable). **Write that down at
+`SwapLib:1523`; the current reasoning does not survive reading the paper's section numbers.**
+
+## 5 — 🔴 THE DEFECT IS κ, AND IT IS THE ONE PARAMETER NOBODY HAS QUESTIONED
+In A–S §2.3 the pole sits at `q* = √(2ω)/(γσ)` — **its LOCATION MOVES WITH VOLATILITY.** `KAPPA_WAD`
+is a CONSTANT. Under §2.3's scaling (κ = κ_ref·σ_ref/σ):
+| vol | κ(σ) | reserve held (1−κ) | drain stops at q, W=50bps |
+|---|---|---|---|
+| 60% | 1.667 | 0 | FULLY DRAINABLE |
+| 80% | 1.250 | 0 | 0.6661 |
+| 100% | 1.000 | 0 | 0.4771 |
+| 200% | 0.500 | **0.500** | 0.1567 |
+| 300% | 0.333 | **0.667** | 0.0777 |
+⇒ **a σ-scaled κ tightens the reserve exactly when restoration is most expensive, and relaxes it when
+the market is calm and a refill would be cheap.** Today's constant κ is **loosest precisely when the
+refill can least afford to be called.** ⚠️ ω is still policy (it sets the LEVEL); what A–S gives for
+free is the **1/σ SCALING**, and that is the part to land. ⏸️ Gated as §E289 already says — raising κ
+needs a restoration mechanism; LOWERING it does not, and the σ-scaling does both depending on vol.
+
+## 6 — the refill thread's *"4.2 bps FLAT across 100× of size"* is NOT this kernel
+Both kernels scale with size by construction (POLE 0.0175 → 1.8799 bps over 100×; q² 0.000012 → 0.117).
+**`_maxWellSkew` = σ²·confFrac/8 has no `q` in it and since §E79 it ADDS as a floor — it is the only
+size-independent term on the path.** ⇒ the refill measurement was reading the BASE, and the term that
+responds to scarcity was never in its sample. **This does not overturn "the premium is too small"; it
+changes the fix from "find another funding source" to "the kernel never reached the drain sizes that
+matter, and κ is why."** ▶️ Hand to the refill thread: re-run the sweep reporting base-vs-kernel split.
+
+## 7 — 🔴 NO USABLE VARIANCE SOURCE EXISTS OFF-CHAIN (measured, not recalled)
+`realizedVarianceWad = max(ringVariance, anchorVarianceWad)`. The anchor leg's INPUT is Chainlink but its
+ESTIMATOR is local state (`_varSq`/`_varDt`, `Flow` registers advanced only on swaps), so σ² is
+**path-dependent on who swaps and when**, and 0 (⇒ the 3e16 ceiling) on any range with no flow.
+**Chainlink Realized Volatility feeds are TESTNET-ONLY. Measured against the reference-data directory:
+Ethereum mainnet 290 feeds / 0 volatility · Polygon 125 / 0 · Avalanche 90 / 0.** The 2023 programme
+(Arbitrum Goerli, Avalanche Fuji, Sepolia, Mumbai) never shipped to production.
+▶️ **The only live mainnet alternative found is Volmex EVIV/BVIV — but it is IMPLIED vol, a different
+quantity, and a single provider.** ⚠️ Swapping a local estimator for one third-party oracle trades
+manipulation risk for liveness risk, against `Core`'s own standing rule **THE READ MUST NOT BE ABLE TO
+HALT THE RANGE.** ⇒ §C1 ("which σ² source") **cannot be closed by adopting a feed today.** Booked with
+the measurement so nobody re-derives it.
+
+▶️ **WHAT THIS LEAVES OPEN, IN ORDER:** (1) land κ's σ-scaling with a stated ω and a prediction;
+(2) destale `SwapLib:1523`'s §2.3 justification to the boundary-condition one; (3) refill thread
+re-splits its premium measurement base-vs-kernel; (4) §C1 stays open — no mainnet feed exists.
