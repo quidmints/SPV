@@ -112,14 +112,23 @@ environment actually is*. Every line below was verified in-repo, not recalled.
     from the project's attention while the work is still undone, and the loss is silent — the exact
     failure mode rules 12 and 13 exist to prevent, arriving through the status column instead of prose.
 
-18. **BUILD ONLY THE BEST SOLUTION AVAILABLE — A WORKING FIX IS NOT AUTOMATICALLY THE RIGHT ONE**
-    (owner, 2026-08-25). **Before landing anything, ask explicitly: is there a better version of this?**
-    Not "does it pass" — *is this the best available*. A patch that works, is verified, and is green
-    can still be the WRONG change if a smaller or more structural one exists.
+18. **MAXIMISE SECURITY AND EFFICIENCY WHILE MINIMISING LINES OF CODE, LEANING ON OBJECT-ORIENTED
+    PRINCIPLES** (owner, 2026-08-25; reworded 2026-09-09 because "build the best solution" was a
+    judgment nobody could book or check). **A working fix is not automatically the right one.**
+    ⇒ **THE BOOKABLE FORM — answer these four before landing, in writing:**
+      ① **Lines:** does the change make the tree SMALLER? A fix that adds a site is a clamp; a fix
+        that lets you DELETE a previous one is a root fix (rule 17). State which, and name what it
+        deletes.
+      ② **Callers:** does it make the mistake UNCONSTRUCTIBLE, or merely caught? Deriving a value in
+        one place so no call site can forget it beats N call sites that each remember.
+      ③ **Bytes and gas:** measured, not estimated — `tools/check-contract-sizes.py`, and gas from the
+        suite. A change with no number here is not priced.
+      ④ **Bound:** what is the WORST INPUT that still satisfies the guard you just wrote? "Anything"
+        means it is decorative (see `minReturn = 1`).
     *Worked example (§BURN-RELEASES-NO-USD):* a burn passed `0` for the USD leg, so `committedUsd18`
     could never fall. I fixed it at the call site, measured two tests green, and was ready to ship —
-    **it was the SECOND site-specific patch for the SAME class** (`levBurnAll` was the first). The
-    root was one level down: `modLP` overloads `deltaUSD == 0` as a `keep` flag that is INERT on that
+    **it was the SECOND site-specific patch for the SAME class** (`levBurnAll` was the first).
+    The root was one level down: `modLP` overloads `deltaUSD == 0` as a `keep` flag that is INERT on that
     path (it hardcodes `token = address(0)`, and `keep` only gates `token != address(0)`), so passing
     zero LOOKED deliberate. Deriving the leg in `Core` makes every call site unable to forget and
     makes both patches deletable. **The owner asked "is there a better one?" and there was.**
@@ -623,6 +632,38 @@ git commit
 git merge --no-ff lane/L3
 git worktree remove ../spv-L3 && git branch -d lane/L3
 ```
+
+## ⭐ HOW A DIRECTIVE EARNS ITS PLACE IN THIS FILE (owner, 2026-09-09)
+
+**THE FILE IS ~48,000 TOKENS AND IS RE-READ EVERY SESSION. A directive that cannot change what
+someone DOES is costing that every time and buying nothing.** Measured 2026-09-09: 2,073 lines, 23
+numbered rules plus 152 bold directives; literal duplication is ONE line, and only 8% is incident
+narrative — so the size is not slop, it is 1,892 lines of real rules, which is more than anyone holds.
+⇒ the lever is not cleanup. It is making each rule either **GATED** or **BOOKABLE**, and deleting the
+rest.
+
+▶️ **THREE TESTS, IN ORDER. Apply them to every directive already here and to every one added.**
+1. **CAN IT BE GATED?** If a script can decide it, it belongs in `.claude/settings.json`, not in
+   prose — a gate fires at the moment of the action, costs zero tokens, and needs no recall. Nine are
+   gated today (bulk staging, src-without-tests, cross-session push, concurrent build, raw
+   `forge test`, truncated grep, history rewrites, `vm.skip` without `return`, at-words in NatSpec
+   prose). ⛔ **Never write prose for something a gate can decide.**
+2. **IF NOT GATEABLE, IS IT BOOKABLE?** Reword the judgment as the ARTEFACT it should produce.
+   *"Build the best solution"* is unbookable; **"maximise security and efficiency while minimising
+   lines of code, leaning on object-oriented principles"** — plus the four questions rule 18 now asks
+   in writing — is checkable by a reader who was not there. A directive that survives this test names
+   what you must WRITE DOWN, not what you must feel.
+3. **IF NEITHER, DELETE IT.** ⛔ **If you cannot get a useful angle on PROCESS from a directive,
+   remove it** — it is costing ~48k tokens a session to be unactionable, and it dilutes the ones that
+   are. Deleting a rule nobody can apply is not losing knowledge; the incident that produced it lives
+   in `SPRINT.md` and the lane books, which are read on demand rather than every session.
+
+⚠️ **AND THE SAME TEST KILLS DUPLICATION AT THE SOURCE.** The empty-grep rule reached SIX spellings
+because each author booked a NEW entry rather than finding the existing one. A bookable rule has a
+canonical artefact, so a second copy is visibly the same artefact and folds. ⇒ **fold into the
+canonical entry; never open a section for an instance.**
+
+---
 
 ## 🔴 TWO STANDING RULES ABOUT *CLAIMS* — both cost real money-path exposure on 2026-09-08/09
 
