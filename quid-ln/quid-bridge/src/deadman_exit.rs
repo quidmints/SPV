@@ -184,20 +184,31 @@ fn build_exit_call(
     // because the funding was already proven at open. They are zeroed here deliberately
     // rather than fabricated, and this comment is the reason they may be.
     //
-    // `hop_cp` is the HOP's counterparty = the vault/LP half; `vault_cp` is the VAULT's
-    // counterparty = the hop half. Getting these the wrong way round hashes to a different
-    // `keysHash` and the contract rejects — which is the correct failure, not a silent one.
+    // 🔴 §T9-SORT-NOT-ROLE — **THE PAIR IS BYTE-SORTED ON CHAIN, NOT ROLE-ORDERED.** `hop_cp` is
+    // the HOP's counterparty = the vault/LP half; `vault_cp` is the VAULT's counterparty = the hop
+    // half, so filling `lp_pubkey`/`hop_pubkey` from them ORDERED THE PAIR BY ROLE. The retired
+    // comment here — *"getting these the wrong way round hashes to a different `keysHash` and the
+    // contract rejects — which is the correct failure, not a silent one"* — was right about the
+    // mechanism and wrong about which order is "the right way round": `keysHash` was pinned by the
+    // only submitter (`openChannel` is `_onlyHop()`), and `build_open_params` byte-sorts before
+    // filling the two fields. So on every channel where the LP's key sorts ABOVE the hop's, this
+    // built the reversed pair, `emitDeadManExit` → `_requireChannelKeys` reverted
+    // `ChannelKeysMismatch`, and **the heartbeat could never arm an exit for ~half of all
+    // channels** — silently, because the revert is swallowed as a per-channel failure that "logs
+    // and continues". An unarmable dead-man exit is the §E156 window, reopened by an ordering
+    // convention.
+    // 📌 `funding_taproot` never caught it: `taproot_funding_aggregate_xonly` KeySorts internally
+    // (BIP-327) and is symmetric in its arguments, so it agrees under either order.
+    let (k0, k1) =
+        quid_hop::evm_codec::sort_funding_pubkeys(hop_cp.serialize(), vault_cp.serialize());
     let params = quid_hop::evm_codec::OpenParams {
         funding_block_hash_be: [0u8; 32],
         funding_block_height: 0,
         funding_tx_index: 0,
-        lp_pubkey: hop_cp.serialize(),
-        hop_pubkey: vault_cp.serialize(),
+        lp_pubkey: k0,
+        hop_pubkey: k1,
         amount_sats,
-        funding_taproot: quid_hop::funding::taproot_funding_aggregate_xonly(
-            &hop_cp.serialize(),
-            &vault_cp.serialize(),
-        ),
+        funding_taproot: quid_hop::funding::taproot_funding_aggregate_xonly(&k0, &k1),
     };
     let exit = quid_hop::evm_codec::ExitArming {
         // The contract OVERWRITES the funding entry with what it already knows, and only

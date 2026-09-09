@@ -690,9 +690,24 @@ impl ValidatingChannelSigner {
                     .public_key(&secp)
                     .serialize();
                 let theirs_prev = prev.counterparty_funding_pubkey.serialize();
-                let (lp_prev, hop_prev) = match role {
-                    FundingRole::Lp => (&ours_prev, &theirs_prev),
-                    FundingRole::Hop => (&theirs_prev, &ours_prev),
+                // 🔴 §T9-SORT-NOT-ROLE, SECOND HALF. **THE FIX ABOVE LANDED ON THE PRIMARY CHECK
+                // AND LEFT THIS ONE ROLE-ORDERED — the identical bug, in the identical function,
+                // eight lines down.** The predecessor scope was pinned into `keysHash` by the same
+                // submitter, through the same `build_open_params`/`build_splice_params`, which
+                // byte-sorts; so ordering the predecessor pair by ROLE disagrees with the chain on
+                // exactly the same ~half of channels. The consequence is strictly worse than the
+                // first one's, because this arm is the ONLY escape from `Mismatch`: during a splice
+                // the primary check MUST return `Mismatch` (the mirror has not landed), so a
+                // role-ordered predecessor makes `verify` say `Mismatch` again ⇒ `Err(())` ⇒
+                // **the signer poisons the context and refuses to splice a valid channel at all.**
+                // ⚠️ AND `a_splice_may_run_one_scope_ahead_of_the_chain` COULD NOT SEE IT: its
+                // `FakeTruth` is built `lp: inner, hop: cp` — role order — so it agreed with the
+                // defect for the one key pair it uses. It now runs under BOTH declared roles
+                // against a SORTED comparand, which is what the chain actually holds.
+                let (lp_prev, hop_prev) = if ours_prev <= theirs_prev {
+                    (&ours_prev, &theirs_prev)
+                } else {
+                    (&theirs_prev, &ours_prev)
                 };
                 match truth.verify(lp_prev, hop_prev, prev.funding_value_sat)? {
                     // The chain is one scope behind: the splice is real and unmirrored. Accept the
@@ -2074,39 +2089,81 @@ mod tests {
     /// pair and new funded value, while `BTCChannels` still holds the old ones, because the EVM
     /// mirrors a splice only after it CONFIRMS. So `Mismatch` is the honest state of every splice,
     /// and refusing it kills the protocol's only capacity mechanism.
+    /// 🔴 §T9-SORT-NOT-ROLE (SECOND HALF) — **THIS TEST USED TO BUILD ITS COMPARAND THE SAME WAY
+    /// THE PREDECESSOR CHECK ORDERED IT (`lp: inner, hop: cp` — role order), so it agreed with the
+    /// defect instead of measuring it.** The predecessor scope's `keysHash` was pinned by the same
+    /// byte-SORTING submitter as every other scope, so the comparand here is now built SORTED, and
+    /// the whole window is exercised under BOTH declared roles. Under the old role-ordered
+    /// predecessor branch, one of the two roles necessarily reverses the pair ⇒ `Mismatch` ⇒
+    /// `Err(())` ⇒ poisoned, and this test fails — which is exactly what it must do.
     #[test]
     fn a_splice_may_run_one_scope_ahead_of_the_chain() {
         let secp = Secp256k1::new();
         let inner = make_signer(1);
         let cp = make_signer(2);
-        // The chain holds the PRE-splice scope: base keys, original size.
+        let a = base_funding_pk(&inner, &secp);
+        let b = base_funding_pk(&cp, &secp);
+        assert_ne!(a, b, "PREMISE: the two funding keys must differ for order to mean anything");
+        // The chain holds the PRE-splice scope: base keys IN THE ORDER THE SUBMITTER PINNED THEM
+        // (byte-sorted), original size.
+        let (k0, k1) = if a <= b { (a, b) } else { (b, a) };
+
+        // The role must not be the discriminator on EITHER check — neither the primary one nor the
+        // predecessor one this test exists for.
+        for role in [FundingRole::Lp, FundingRole::Hop] {
+            let truth = std::sync::Arc::new(FakeTruth {
+                lp: k0, hop: k1, sats: FUNDING_SATS, readable: true,
+                not_recorded: std::sync::atomic::AtomicBool::new(false),
+            });
+            let signer = ValidatingChannelSigner::new(inner.clone(), committed_script())
+                .with_truth_source(truth, role);
+
+            give_ctx_round(&signer, &cp, None, 0, &secp);
+            assert!(!signer.ctx_poisoned(),
+                "precondition: the pre-splice context matches the chain under either role");
+
+            // THE SPLICE: a rotated scope — new funding keys on BOTH sides and a new size —
+            // offered before the mirror lands. This is exactly what LDK supplies at `splice_ack`.
+            let parent = bitcoin::Txid::from_raw_hash(
+                bitcoin::hashes::Hash::from_byte_array([7u8; 32]));
+            signer.provide_taproot_context(TaprootSignerContext {
+                counterparty_funding_pubkey: cp.new_funding_pubkey(parent, &secp),
+                funding_value_sat: FUNDING_SATS + 50_000,
+                counterparty_closing_nonce: None,
+                closing_round: 0,
+                splice_parent_funding_txid: Some(parent),
+            });
+            assert!(!signer.ctx_poisoned(),
+                "a splice one scope ahead of the chain must be signable under either declared \
+                 role -- otherwise no channel can ever be spliced once a truth source is attached");
+        }
+    }
+
+    /// ⚠️ THE OTHER HALF, so the fix above is not mistaken for *"stop checking the predecessor"*.
+    /// A comparand holding the predecessor pair in the REVERSED (unsorted) order must still be
+    /// refused: the ORDER remains part of the check, it is simply the SORTED order, and accepting
+    /// both would pin only the SET.
+    #[test]
+    fn the_splice_predecessor_pair_is_still_order_checked() {
+        let secp = Secp256k1::new();
+        let inner = make_signer(1);
+        let cp = make_signer(2);
+        let a = base_funding_pk(&inner, &secp);
+        let b = base_funding_pk(&cp, &secp);
+        let (k0, k1) = if a <= b { (a, b) } else { (b, a) };
+        // REVERSED: not what any submitter ever pinned.
         let truth = std::sync::Arc::new(FakeTruth {
-            lp: base_funding_pk(&inner, &secp),
-            hop: base_funding_pk(&cp, &secp),
-            sats: FUNDING_SATS,
-            readable: true,
+            lp: k1, hop: k0, sats: FUNDING_SATS, readable: true,
             not_recorded: std::sync::atomic::AtomicBool::new(false),
         });
         let signer = ValidatingChannelSigner::new(inner, committed_script())
             .with_truth_source(truth, FundingRole::Lp);
-
+        // The FIRST context already contradicts a reversed comparand, so the signer is poisoned
+        // before any splice is offered — the predecessor branch is never even reachable behind a
+        // pair the chain does not hold.
         give_ctx_round(&signer, &cp, None, 0, &secp);
-        assert!(!signer.ctx_poisoned(), "precondition: the pre-splice context matches the chain");
-
-        // THE SPLICE: a rotated scope — new funding keys on BOTH sides and a new size — offered
-        // before the mirror lands. This is exactly what LDK supplies at `splice_ack`.
-        let parent = bitcoin::Txid::from_raw_hash(
-            bitcoin::hashes::Hash::from_byte_array([7u8; 32]));
-        signer.provide_taproot_context(TaprootSignerContext {
-            counterparty_funding_pubkey: cp.new_funding_pubkey(parent, &secp),
-            funding_value_sat: FUNDING_SATS + 50_000,
-            counterparty_closing_nonce: None,
-            closing_round: 0,
-            splice_parent_funding_txid: Some(parent),
-        });
-        assert!(!signer.ctx_poisoned(),
-            "a splice one scope ahead of the chain must be signable -- otherwise no channel can \
-             ever be spliced once a truth source is attached");
+        assert!(signer.ctx_poisoned(),
+            "a reversed pair must never validate -- the order is still part of the check");
     }
 
     /// ⚠️ THE NEGATIVE THAT MAKES THE WINDOW A WINDOW. Without it, the arm above would be
@@ -2118,9 +2175,16 @@ mod tests {
         let secp = Secp256k1::new();
         let inner = make_signer(1);
         let cp = make_signer(2);
+        // (§T9-SORT-NOT-ROLE) SORTED, like every other comparand a submitter ever pinned. This
+        // read `lp: inner, hop: cp` — role order — which is only ever RIGHT because the fixture
+        // pair happens to satisfy `inner <= cp`; the negative control for the splice window must
+        // not rest on an accident of two hardcoded seeds.
+        let a = base_funding_pk(&inner, &secp);
+        let b = base_funding_pk(&cp, &secp);
+        let (k0, k1) = if a <= b { (a, b) } else { (b, a) };
         let truth = std::sync::Arc::new(FakeTruth {
-            lp: base_funding_pk(&inner, &secp),
-            hop: base_funding_pk(&cp, &secp),
+            lp: k0,
+            hop: k1,
             sats: FUNDING_SATS,
             readable: true,
             not_recorded: std::sync::atomic::AtomicBool::new(false),

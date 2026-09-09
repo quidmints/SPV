@@ -507,14 +507,29 @@ pub async fn drive_close<R: JsonRpc>(cfg: Arc<BridgeConfig>,
         "drive_close: recordClose needs the channel's funding pubkeys (E178) — a taproot \
          key-path close has no witnessScript to recover them from",
     )?;
+    // 🔴 §T9-SORT-NOT-ROLE — **THESE FIELDS CARRY THE BYTE-SORTED PAIR, NOT THE ROLE PAIR, AND
+    // THIS SITE HANDED THEM THE RAW TUPLE.** `recordClose` reaches `_requireNotSplice` →
+    // `_requireChannelKeys`, which compares `keccak256(abi.encode(p.lpPubkey, p.hopPubkey))`
+    // against the `keysHash` pinned at open — and the pin was written by the ONLY submitter
+    // (`openChannel` is `_onlyHop()`), whose `build_open_params` does
+    // `let (k0, k1) = sort_funding_pubkeys(a, b); … lp_pubkey: k0, hop_pubkey: k1`.
+    // So whenever `lp_pk > hop_pk` this built the REVERSED pair, `_requireChannelKeys` reverted
+    // `ChannelKeysMismatch`, and **the close could never be mirrored on ~half of all channels** —
+    // the LP's position stayed counting as QUI backing forever, which is precisely the state
+    // `recordClose` being permissionless exists to prevent.
+    // ⚠️ THE SAME FUNCTION ALREADY KNEW THIS: the `known_cid == None` branch above sorts before
+    // `channel_id(...)`. It sorted for the ID and not for the KEYS — one function, two answers.
+    // 📌 `funding_taproot` is unaffected either way: `taproot_funding_aggregate_xonly` KeySorts
+    // internally (BIP-327) and is symmetric in its arguments, so it never caught this.
+    let (k0, k1) = sort_funding_pubkeys(lp_pk, hop_pk);
     let close_params = quid_hop::evm_codec::OpenParams {
         funding_block_hash_be: [0u8; 32],
         funding_block_height: 0,
         funding_tx_index: 0,
-        lp_pubkey: lp_pk,
-        hop_pubkey: hop_pk,
+        lp_pubkey: k0,
+        hop_pubkey: k1,
         amount_sats: 0,
-        funding_taproot: quid_hop::funding::taproot_funding_aggregate_xonly(&lp_pk, &hop_pk),
+        funding_taproot: quid_hop::funding::taproot_funding_aggregate_xonly(&k0, &k1),
     };
     let calldata = encode_record_close(
         cid,
