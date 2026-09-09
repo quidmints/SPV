@@ -164,10 +164,19 @@ library BitcoinTx {
     uint8 private constant _FIRST_TO    = 1;   // first output paying `spk`, else revert
     uint8 private constant _SUM_FOREIGN = 2;   // sum outputs that are neither `exceptVout` nor `spk`
     /// (R-P2MR) first output paying `spk` OR the SECOND ENUMERATED FUNDING FORM — the same 34
-    /// bytes with witness version `0x52` in place of `0x51`. Else revert. Reachable only through
-    /// `findFundingOutput(…, allowP2mr = true)`, i.e. only after the enclave-image msig has
-    /// flipped `BTCChannels.p2mrEnabled`, because witness v2 is anyone-can-spend until P2MR
-    /// activates and an output anyone can spend must never be credited as channel custody.
+    /// bytes with witness version `0x52` in place of `0x51`. Else revert.
+    /// 🔴🔴 **UNREACHABLE TODAY, AND DELIBERATELY LEFT THAT WAY — DO NOT WIRE A CALLER TO THIS MODE
+    /// WITHOUT READING §R-P2MR-NEEDS-AN-AUTHORITY.** No caller passes this mode; there is no
+    /// `findFundingOutput(…, allowP2mr)` and no `BTCChannels.p2mrEnabled`.
+    /// ⛔ **AN EARLIER DRAFT OF THIS DOCBLOCK DESCRIBED BOTH AS IF THEY EXISTED.** They never did —
+    /// the lane that wrote the matcher was killed before building the gate. **A comment naming a
+    /// flag and a function that are not in the tree is worse than no comment: the next reader
+    /// greps, finds nothing, and cannot tell "deleted" from "never built".**
+    /// ⚠️ **WHY THE GATE IS NOT OPTIONAL: witness v2 is ANYONE-CAN-SPEND until P2MR activates on
+    /// Bitcoin.** An output anyone can spend must never be credited as channel custody, so this
+    /// mode being reachable before activation would let a funding be "proven" against an output
+    /// the hop does not control. **Ungated, this matcher is a custody hole; unreached, it is
+    /// inert.** That is the whole reason it is left unreached rather than half-wired.
     uint8 private constant _FIRST_TO_V1_OR_V2 = 3;
 
 
