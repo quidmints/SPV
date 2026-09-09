@@ -213,35 +213,47 @@ contract DrainAtomicity is AllesFixture {
     ///   UNDERSTATES the adverse tail. Do not quote this as the distribution.
     /// @dev Emits per size: drained volatile, bought back, net, and net in bps of the drain. NOTHING is
     ///      asserted about the sign — the sign across sizes IS the result (§VACUOUS-BOUNDS).
-    function test_REFILL_G2_CoverageAcrossSizes() public {
+    /// ⛔ **THE LOOPED VERSION OF THIS WAS WRONG AND IS DELETED. Recorded because the defect is the
+    ///    kind that produces a confident, plausible, false table.** It swept four sizes inside ONE test,
+    ///    but each iteration DRAINS before it buys, so iteration 4 ran against a pool that iterations
+    ///    1–3 had already moved and partly bought back. The sizes were CUMULATIVE, not independent.
+    ///    ⇒ It reported +32 / +31 / +29 / **+325** bps and the outlier reads as "big drains are hugely
+    ///      profitable to restore". It is not a size effect at all — it is 62,000 of prior drains
+    ///      leaving the range scarce, so the fourth drain paid a 300 bps skew.
+    ///    🔑 **THE TELL THAT CAUGHT IT WAS PHYSICAL, NOT STATISTICAL:** the 200k buy-back cleared at
+    ///      $2,515/ETH while the 20k buy-back cleared at $2,512 — **a 10× larger trade got a BETTER
+    ///      price.** No AMM does that, so the instrument, not the market, had to be wrong.
+    /// ⇒ EACH SIZE NOW GETS A FRESH FIXTURE. `forge` re-runs `setUp` per test function, so four
+    ///   functions is the only way to make the sizes independent. One measurement per test, no loop.
+    function _coverageAtSize(uint boldAmt) internal {
         _setupRange();
-        uint[4] memory sizes = [uint(2_000e18), 10_000e18, 50_000e18, 200_000e18];
-        for (uint i; i < sizes.length; i++) {
-            uint boldAmt = sizes[i];
-            uint px = AUX.getTWAPforAsset(address(WETH), 1800);
-            uint p0 = CORE.skewPremiumCum();
-            uint ethGot = _drain(boldAmt);
-            uint prem6 = CORE.skewPremiumCum() - p0;
-            if (ethGot == 0) { emit log_named_uint("SIZE SKIPPED (range could not serve)", boldAmt); continue; }
+        uint px    = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint p0    = CORE.skewPremiumCum();
+        uint ethGot = _drain(boldAmt);
+        uint prem6 = CORE.skewPremiumCum() - p0;
+        assertGt(ethGot, 0, "CONTROL: the drain must deliver, or the row below is arithmetic on nothing");
 
-            uint usdcIn = boldAmt / 1e12;
-            deal(address(USDC), address(this), usdcIn);
-            IERC20(address(USDC)).approve(address(AUX), type(uint).max);
-            uint b0 = WETH.balanceOf(address(this));
-            try this.buyBack(usdcIn) returns (uint) {} catch {}
-            uint ethBack = WETH.balanceOf(address(this)) - b0;
+        uint usdcIn = boldAmt / 1e12;
+        deal(address(USDC), address(this), usdcIn);
+        IERC20(address(USDC)).approve(address(AUX), type(uint).max);
+        uint b0 = WETH.balanceOf(address(this));
+        try this.buyBack(usdcIn) returns (uint) {} catch {}
+        uint ethBack = WETH.balanceOf(address(this)) - b0;
+        assertGt(ethBack, 0, "CONTROL: the venue must fill, or 'shortfall' is our own routing failure");
 
-            emit log_named_uint("=== drain size (BOLD 18d)", boldAmt);
-            emit log_named_uint("    volatile out          ", ethGot);
-            emit log_named_uint("    volatile bought back  ", ethBack);
-            emit log_named_uint("    premium collected usd6", prem6);
-            int256 net = int256(ethBack) - int256(ethGot);
-            emit log_named_int ("    NET (+ = covers)      ", net);
-            emit log_named_int ("    NET in bps of the drain",
-                ethGot == 0 ? int256(0) : net * 10_000 / int256(ethGot));
-            emit log_named_uint("    net in USD (18d, abs) ", (net < 0 ? uint(-net) : uint(net)) * px / 1e18);
-        }
+        int256 net = int256(ethBack) - int256(ethGot);
+        emit log_named_uint("drain size (BOLD 18d) ", boldAmt);
+        emit log_named_uint("  volatile out        ", ethGot);
+        emit log_named_uint("  volatile bought back", ethBack);
+        emit log_named_uint("  premium usd6        ", prem6);
+        emit log_named_uint("  buy-back USD per ETH", ethBack == 0 ? 0 : usdcIn * 1e12 * 1e18 / ethBack);
+        emit log_named_int ("  NET (+ = covers)    ", net);
+        emit log_named_int ("  NET bps of the drain", net * 10_000 / int256(ethGot));
     }
+    function test_REFILL_G2_Size_A_2k()   public { _coverageAtSize(2_000e18);   }
+    function test_REFILL_G2_Size_B_10k()  public { _coverageAtSize(10_000e18);  }
+    function test_REFILL_G2_Size_C_50k()  public { _coverageAtSize(50_000e18);  }
+    function test_REFILL_G2_Size_D_200k() public { _coverageAtSize(200_000e18); }
 
     /// @notice 🔴 §REFILL-BASIS — **G1, THE CONTROL THAT DECIDES WHETHER THE PREMIUM FUNDS THE REFILL.**
     ///   `test_REFILL_AFFORDABILITY` measured a round-trip surplus of 0.0251 ETH (~$62) against a
