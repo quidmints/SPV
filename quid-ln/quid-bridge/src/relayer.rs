@@ -779,6 +779,7 @@ mod tests {
 
     fn sim_cfg() -> BridgeConfig {
         BridgeConfig {
+            protect_rpc_url: Some(String::new()),   // §SESS-120 — tests broadcast to their mock, not a relay
             rpc_url: String::new(),
             rpc_urls: Vec::new(),
             rpc_quorum: 1,

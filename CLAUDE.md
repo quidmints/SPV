@@ -615,6 +615,40 @@ git merge --no-ff lane/L3
 git worktree remove ../spv-L3 && git branch -d lane/L3
 ```
 
+## 🔴 TWO STANDING RULES ABOUT *CLAIMS* — both cost real money-path exposure on 2026-09-08/09
+
+### ⛔ **A VACUOUS TEST WEARING A SECURITY NAME IS WORSE THAN NO TEST.** No test invites a reader to
+look. A green one named for the property STOPS them looking, forever.
+**MEASURED:** `test_MEV_OracleFloorRejectsSandwich` passed `1e30` as the KEEPER'S OWN `minOut` and
+asserted an impossible floor reverts — no attacker, no price movement, and the ORACLE floor its name
+credits was never touched. Its own inline comment described what it did accurately; **only the NAME
+oversold it**, and the name is what everyone read. The sandwich surface sat "covered" indefinitely.
+▶️ **THE FIX IS A CONTROL ASSERTION, AND IT GOES FIRST:** assert the PREMISE (the attack moved the
+pool) before asserting the PROPERTY (the floor rejected the fill). Without it a revert proves only
+that something failed — which is exactly how the vacuous version was born.
+▶️ **AND WHEN YOU FIND ONE, RENAME RATHER THAN DELETE.** The old assertion was a real property; it was
+mis-named. `test_MEV_KeeperSuppliedMinOutIsEnforced` keeps it and stops it lying.
+⚠️ Sibling of §VACUOUS-BOUNDS and of `assertGt` where `assertEq` was meant. **Ask of every security
+test: what would this look like if the protection were absent?** If the answer is "the same", it is
+this rule.
+
+### ⛔ **A VERIFIED MECHANISM IS NOT A VERIFIED NUMBER.** Auditing that a guard RUNS is not auditing
+that the value flowing through it BINDS.
+**MEASURED, four in one review, all in a path that had been walked repeatedly:**
+· `minReturn = 1` — the mechanism (the router enforces minReturn) works perfectly; the bound says *"any
+  non-zero output is acceptable"*. Written by §SESS-99 to dodge `ZeroMinReturn()`, correct for the
+  liveness bug it targeted, and **nobody then asked whether 1 was a FLOOR**.
+· `prefer_fetched` — a comparison that works, on two QUOTES. It compares promises, never outcomes, so
+  a systematically optimistic quote wins every time and underdelivers every time.
+· `ROUTE_GAS_CAP` — a security bound doing unmeasured duty as a liveness ceiling.
+· `_hubRowOf` — a floor reference that is only as good as its COVERAGE; a stable with no row silently
+  contributes a floor of zero, which reads identically to a floor that passed.
+▶️ **THE QUESTION THAT FINDS THESE: for each constant a guard consumes, what is the WORST INPUT that
+still satisfies it?** If the answer is "anything", the guard is decorative regardless of how correct
+its wiring is.
+
+---
+
 ## 🔴 `main` IS THE ONLY LONG-LIVED BRANCH. A "SHARED WORKING BRANCH" IS THE DIVERGENCE BUG (2026-09-08)
 
 The recipe above says integrate **from the MAIN tree** and rule 15 says `git push origin HEAD:main`.

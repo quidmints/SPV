@@ -22,6 +22,25 @@ pub struct BridgeConfig {
     /// daemon acts on it; below quorum the read fails SAFE (defer/retry). Must be
     /// in `[1, effective_len]`. Serde default = 1 (single-node / self-host-only).
     pub rpc_quorum: usize,
+    /// ⭐ §SESS-120 — **WHERE SIGNED TRANSACTIONS ARE BROADCAST, WHICH IS NOT WHERE READS GO.**
+    ///
+    /// 🔴 **THE KEEPER WAS BROADCASTING INTO THE PUBLIC MEMPOOL AND THE SPA WAS NOT.**
+    ///    `spa/src/lib/protect.ts` has routed USER swaps through Flashbots Protect all along; the
+    ///    keeper had ZERO references to any relay and sent `eth_sendRawTransaction` to whatever
+    ///    endpoint it read from. ⇒ every `rebalanceMany` / `cascadeDelever` / `protectFromQuid`
+    ///    carried its ROUTE IN CALLDATA through the public mempool, which is a searcher's ideal
+    ///    signal: it names the venue, the size and the direction before the trade lands.
+    /// ⚠️ **READS AND SENDS MUST NOT SHARE AN ENDPOINT, AND THAT IS WHY THIS IS A SEPARATE FIELD.**
+    ///    Reads need history and quorum (`rpc_urls`, `rpc_quorum`); a protect relay serves neither and
+    ///    would break `agreed_read_block`. Sends need privacy and nothing else.
+    /// ⛔ **DEFAULTS ON. Opting OUT is the deliberate act, not opting in** — the owner's rule is that
+    ///    the keeper does not use the public mempool, so an unset config must be the SAFE one. Set it
+    ///    to the empty string to deliberately broadcast publicly (a devnet or anvil, where no relay
+    ///    exists); any other value is used verbatim.
+    /// 📌 A relay that is DOWN must not strand the keeper: `send_raw` falls back to the read endpoint
+    ///    and says so loudly, because a stalled de-lever is a liquidation and a public one is a
+    ///    haircut. That trade is deliberate and is stated at the fallback site.
+    pub protect_rpc_url: Option<String>,
     /// EIP-155 chain id (signed-tx replay protection).
     pub chain_id: u64,
     /// The `BTCChannels` contract the hop settles against.
@@ -273,6 +292,7 @@ mod tests {
 
     fn valid() -> BridgeConfig {
         BridgeConfig {
+            protect_rpc_url: Some(String::new()),   // §SESS-120 — tests broadcast to their mock, not a relay
             rpc_url: "http://localhost:8545".into(),
             rpc_urls: Vec::new(),
             rpc_quorum: 1,
