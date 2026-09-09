@@ -59624,3 +59624,58 @@ the break-even, −5.8 bps, and the open question is how often the basis is wors
 📌 §G7 sharpens too: this was measured buying **USDC**, which HAS a `_hubRowOf` row. The drain is
 denominated in **BOLD**, which does NOT — so the leg actually on the refill path has the weaker floor
 (oracle only, no `_selfServableQuote` arm). Re-run against BOLD once project-45's table work lands.
+
+---
+
+# 🔴 §REFILL-G2-VERDICT — **FEASIBILITY IS NOT ESTABLISHED. Coverage goes NEGATIVE, and the premium is too small to be the deciding term.**
+
+Owner: *"settle the feasibility. make sure your tests are accurate … not hypothetical but realistic."*
+Settled in the direction that argues AGAINST the current mechanism, and the instrument was corrected
+twice on the way — both corrections are recorded because each produced a confident, plausible, wrong table.
+
+## THE VALID SAMPLES
+| block | drain | premium | NET |
+|---|---:|---:|---:|
+| ~25934421 | $2,000 | 4.2 bps | **+32 bps** |
+| ~25934421 | $200,000 | 4.2 bps | **+24 bps** |
+| 25934221 | $2,000 | 4.2 bps | **+6 bps** |
+| **25934221** | **$200,000** | **4.2 bps** | **−1 bps — DOES NOT COVER** |
+
+⇒ **COVERAGE IS NEGATIVE IN A REAL, ORDINARY SAMPLE.** Not a stressed block, not a constructed
+scenario — two blocks and ~17 hours from a case that covered by +24.
+
+## THE TWO INSTRUMENT DEFECTS, BOTH CAUGHT BY PHYSICS RATHER THAN STATISTICS
+1. **The looped size sweep was CUMULATIVE.** Four sizes in one test, each draining before it bought, so
+   size 4 measured a pool sizes 1–3 had moved. It reported +32/+31/+29/**+325** bps and the outlier read
+   as *"large drains are hugely profitable to restore"*. **The tell: the 200k buy-back cleared at
+   $2,515/ETH while the 20k cleared at $2,512 — a 10× larger trade got a BETTER price.** No AMM does
+   that. Fixed by giving each size its own `setUp`; buy-back price is now monotone in size (2,511.86 →
+   2,513.75), which is what a real book looks like.
+2. **FOUR OF SIX REGIME SAMPLES WERE THE σ² SENTINEL.** At blocks 25689221 and 25239221 the premium is
+   **$60 on $2,000 and $6,000 on $200,000 — exactly 3.00%**, which is `UNKNOWN_VARIANCE_SKEW` (3e16),
+   i.e. σ² UNMEASURED. Those rows report +297 and +264 bps of "coverage" and measure **the sentinel, not
+   the market.** Quoting them would have been the same vacuous reading that made §REFILL-SIZE look like
+   a cliff. ⇒ the regime sweep must warm variance per block (`warmVarianceFromRealRounds`) before it
+   samples anything; as run, it yields **2 valid regimes, not 5**.
+
+## WHY IT FAILS — the shape, not the draw
+**The premium is 4.2 bps, FLAT across 100× of drain size.** The basis moved **25 bps → ~0 in about 17
+hours.** ⇒ **the basis moves further in a day than the premium is in total**, so coverage is decided by
+the market and not by the mechanism. The premium is a rounding term on the outcome it is supposed to
+fund. G1's break-even (−5.8 bps of adverse basis) is not a remote tail — it is inside ordinary daily
+movement, and the −1 bps sample is that break-even being crossed.
+📌 And restoration cost GROWS with size (slippage: buy-back $/ETH 2,511.86 → 2,513.75 over 100×) while
+the premium stays flat, so the largest drains — the ones that actually deplete a range and trigger a
+refill — are the worst covered. The mechanism is weakest exactly where it is needed.
+
+## ⛔ WHAT THIS MEANS FOR BUILDING
+**Do not wire the refill on the current premium.** It is not that the design is wrong — bundled and
+swapper-funded remains right on every other result (not farmable at 45 bps/cycle, manipulation
+gas-swamped at $0.131, value-neutral to $0.00000133, no keeper needed, 1inch not a dependency). It is
+that **the premium is not sized to fund it**, and §GAMMA-IS-NOT-A-DIAL forecloses fixing that by raising
+Γ. ⇒ The open question is now a DESIGN one, not a measurement one: either the refill must be conditional
+on covering its own cost at execution time, or the charge that funds it must be something other than the
+A–S skew premium.
+▶️ REMAINING TO CLOSE THE NUMBER: warm σ² per block and re-run the regime sweep for a real distribution
+(how OFTEN coverage is negative, not merely that it can be). That is the last measurement, and it sizes
+the problem rather than deciding it — the −1 bps sample already decided it.
