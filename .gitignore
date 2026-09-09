@@ -3,9 +3,18 @@ evm/node_modules/*
 evm/out/*
 evm/.env
 
-# Local Claude Code session state (permissions, worktrees) - machine-local tooling, not
-# project content; ibiza doesn't track this either.
-.claude/
+# Claude Code state. ⛔ NOT a blanket ignore any more (owner, 2026-09-09: "dont git ignore any part
+# of the .claude folder that impacts the productivity of our work"). The blanket rule silently
+# swallowed `.claude/settings.json` — the two PreToolUse GATES that catch a src-change with no test
+# files and a push that would publish another session's commits. Those are project content: they are
+# the enforcement half of CLAUDE.md, and a gate only one machine has is not a gate.
+# ⇒ ignore only the genuinely machine-local state; TRACK anything that changes how the work is done.
+.claude/settings.local.json
+.claude/worktrees/
+.claude/plans/
+.claude/todos/
+.claude/statsig/
+.claude/shell-snapshots/
 
 svm/node_modules/*
 svm/target/*

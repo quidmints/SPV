@@ -1,0 +1,23 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git commit *)",
+            "statusMessage": "checking test population",
+            "command": "f=$(git diff --cached --name-only 2>/dev/null); if echo \"$f\" | grep -qE '(^|/)src/' && ! echo \"$f\" | grep -qiE '(^|/)tests?/'; then printf '%s' '{\"systemMessage\":\"GATE: src/ staged with ZERO test files. CLAUDE.md - a src change whose test population you did not check is the tell that a caller was missed (calcFeeL1 deleted with a live Alles.t.sol caller; BridgeConfig field missing from 3 test fixtures). Check, then proceed.\"}'; fi"
+          },
+          {
+            "type": "command",
+            "if": "Bash(git push *)",
+            "statusMessage": "checking whose commits are about to publish",
+            "command": "d=$(git log origin/main..HEAD --format='%(trailers:key=Claude-Session,valueonly)' 2>/dev/null | sort -u | grep -c .); if [ \"${d:-0}\" -gt 1 ]; then printf '%s' '{\"systemMessage\":\"GATE: origin/main..HEAD holds commits from MORE THAN ONE session. git push HEAD:main publishes ALL of them, not just yours - a shared checkout lets a peer commit between your fetch and your commit. Run: git log --oneline origin/main..HEAD and confirm every commit is yours.\"}'; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
