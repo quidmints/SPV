@@ -60405,3 +60405,64 @@ assumed it did not.
 · ⚠️ **AND THE OWNER'S TRANSPORT POINT MAKES THE KEEPER QUESTION MOOT:** *"swapper already sent in their
   tx with flashbots through our app so we dont need a separate keeper flow."* Correct — and with no
   buy-back to execute, there is no keeper flow to need.
+
+---
+
+# 📚 §SKEW-MONTH-SYNTHESIS — a month of skew design, assembled so the refill decision can be made on it
+
+Owner: *"there is a month of skew design work to synthesize. the refill wasnt built yet because we are
+still trying to figure out how to do it and weighing all the costs."* This assembles it across all
+threads. **Every line cites the commit that established it; nothing here is recalled.**
+
+## 1. THE PRICE, AS SHIPPED TODAY
+    skew = max( amplify( Γ·σ²·q̄  +  base ) , MIN_SWAP_SKEW_WAD )
+      q    = (target − inv)/target,  target = flowEwmaUsd + redeemEwmaUsd
+      q̄    = midpoint integral over the drain (§E68/§E68b), not an endpoint sample
+      kernel = q/(κ − q),  pole at q = κ
+      Γ    = γ·(T−t) = FLOW_HALFLIFE·WAD/365d = 5.479452e15   (§E274-LAND, derived not chosen)
+      κ    = KAPPA_WAD = 1e18, CONSTANT — the pole's LOCATION (§E289)
+      base = σ²·confFrac/8 — size-blind, and since §E79 it ADDS rather than caps
+      floor= MIN_SWAP_SKEW_WAD = 4.2e14 (420 ppm) — binds below q ≈ 55%  (§REFILL-G3)
+      σ²   = max(ringVariance, anchorVarianceWad), advances ONLY on swaps, 0 with no flow
+
+## 2. WHAT THE MONTH SETTLED
+| # | settled | evidence |
+|---|---|---|
+| 1 | **Γ is derived, not a dial** — the old 3e16 was `MAX_WELL_SKEW` under a second name | §E275, §E274-LAND `a4787689` |
+| 2 | …**but it is an assumption CHAIN, not first principles** — γ=1 is log utility presented as normalisation, and 48h was chosen as a manipulation-resistant ESTIMATION window then reused as a RISK HORIZON. Two assumptions multiplied — **yet τ = q·T_flow re-derives the SAME 5.48e15** | `d7122fc1` |
+| 3 | **κ is the real defect** — A–S §2.3 puts the pole at `q* = √(2ω)/(γσ)`, so its LOCATION moves with vol; ours is a constant | `d7122fc1` |
+| 4 | **σ-scaled κ was BUILT, MEASURED, REVERTED** — re-introduces the ceiling §E286 removed; +403 B on the binding contract | `99aaf2d6` |
+| 5 | **ρ (the exponent) has an exact cheap closed form** — `F(q)=u^(1−ρ)[u/(2−ρ)−1/(1−ρ)]`, one `powWad` per endpoint, ≤6.7e-11 error — **and it does not help** | `320fc415` |
+| 6 | **Wash-inflating the target is SELF-DEFEATING** — higher target ⇒ DEARER drain (7.01/35.07/105.21/245.48 bps at target 60/100/200/400). The real vector is PATIENCE, and that VINDICATES the 48h window: wide makes waiting expensive, and Γ=γ·T_flow means a wider window also raises Γ | `b560f57c` |
+| 7 | **The toll is ~0 bps through 75% depletion** — a wipeout guard, not a rebalancing incentive | §M0 `4c9083a2` |
+| 8 | **The premium reaches LPs in full** (charged 3,000,000 → credited 3,000,000, shortfall 0) — except the untested `totalShares == 0` path | §E5, `040c452f` |
+| 9 | **We implement A–S's CHARGE and omit its SHIFT** — the refill direction is exempt, never paid; `skew` is unsigned so a paying quote is inexpressible | §E276 |
+| 10 | **LP entry is the ONLY refill path, by design** — `payRefillBonus` deleted 2026-07-22, and **nothing in `evm/src` executes a buy-back** | `SwapLib:1697-1718`, §REFILL-CONTRADICTION-SETTLED |
+
+## 3. 🔑 THE CONVERGENCE — every thread hit the SAME wall, and it is not where any of us was looking
+· I concluded the premium cannot fund a buy-back. **There is no buy-back** (row 10) — wrong subject.
+· The peer tried **κ(σ)** → reverted (row 4). Then **ρ(σ)** → same failure (row 5).
+· **BOTH fail `test_E287_SkewIsNotPinnedToAConstant`, which asserts LINEARITY IN σ².** κ fails it via a
+  ceiling, ρ via non-linearity; **one assertion forecloses EVERY vol-sensitive shape**, and the test
+  cannot distinguish the two mechanisms.
+⇒ **THE WALL IS A LINEARITY ASSERTION, AND IT IS DEFENSIBLE: A–S §2.2 IS linear in σ²; §2.3 is not. The
+tree cites BOTH in different places.** ⇒ **THE UNASKED QUESTION IS: WHICH A–S SECTION ARE WE
+IMPLEMENTING?** Everything else — κ's constancy, ρ's exponent, whether the pole may move with vol — is
+downstream of that one choice, and nobody has posed it.
+
+## 4. WHAT THAT MEANS FOR THE REFILL DECISION
+The refill is unbuilt because **the shipped design says it needs no machinery: price scarcity, and LP
+entry restores** (row 10). That works **iff the scarcity signal is strong enough to summon entry** — and
+row 7 measures it at ~0 bps through 75% depletion. So:
+    the refill question  ==  is the scarcity signal strong enough?
+    signal strength      ==  set by κ (the pole's LOCATION — it RESHAPES; Γ only SCALES)
+    κ cannot move        ==  blocked by the §2.2-vs-§2.3 choice
+⇒ **The refill is not blocked on funding, execution, keepers, 1inch, or capital. It is blocked on an
+unanswered question about which A–S regime the reserve implements.** That is a design decision for the
+owner, it costs nothing to make, and **it unblocks κ, ρ, and the refill simultaneously.**
+📌 **AND IT IS CHEAP TO DECIDE WELL:** §2.2 (finite horizon, linear in σ², no pole) matches our horizon
+being finite and computable (τ = q·T_flow, row 2). §2.3 (stationary, pole, vol-scaled) is what the code's
+pole actually resembles — but `0505a993` cited §2.3 to justify the pole and **that citation is wrong**:
+our pole comes from a boundary condition A–S do not have (inventory floored at zero, no outside venue),
+not from §2.3's denominator. **Right answer, wrong citation — and correcting it may settle §2.2 vs §2.3
+on its own.**
