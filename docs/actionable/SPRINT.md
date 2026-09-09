@@ -19,6 +19,29 @@ because the three documents that tell you WHAT ORDER to work in are buried at th
 | **Γ, κ, the skew kernel, and whether the refill exists** | **`§SESS-121-INDEX`, at the END of this file** — maps 8 open rows to their evidence | 2026-09-09 changed §E274, §E289, §GAMMA-IS-NOT-A-DIAL, §C1 and §REFILL-G2-VERDICT at once. ⛔ **Three attempts to make the reserve vol-sensitive were BUILT AND REVERTED; read it before trying a fourth.** The controls are `sims/kernel_shape.js` |
 | **50 rows are OWNER-BLOCKED** (was 83 before the dedup — the same rows, counted once) | `grep -n "blocked on a person\|owner decision"` | Do not start these. They move risk and the decision is not an engineer's |
 
+
+## 🗺️ SUBJECT MAP — **WHICH GREP, AND WHERE THE CURRENT STATE IS.** Built 2026-09-09 from what each section CITES, not from its title.
+
+⚠️ **THE COUNTS ARE A READING WITH A TIMESTAMP, exactly like the margin table in CLAUDE.md — re-derive, do not quote.**
+⛔ **AND THE 'START' COLUMN IS A HEURISTIC, NOT A CURATION: it is the LAST TWO OPEN sections a domain
+touches, on the assumption that the most recently booked row carries the current state.** That is usually
+true and is sometimes wrong — a row booked today can be narrower than one booked last week. **Read the
+state column of what you find; do not treat these two as the whole domain.**
+📌 Domains OVERLAP by construction (a section citing `SwapLib` and `LevMath` counts in both), so the
+column does not sum to the file's section count, and **113 sections match no domain at all** — mostly
+process and session close-outs. `grep '^## '` is still the only complete enumeration.
+
+| subject | OPEN | grep for | start at (most recent open) | lane |
+|---|---|---|---|---|
+| **range · skew · pricing** | **125** | `SwapLib` `skewWad` `sellSkew` `Γ` `κ` `POOLED` | `§LEVER-UP-HAS-NO-AGGREGATE-GATE` ~60588 · `THIS SECTION'S CENTRAL CLAIM WAS ATTAC` ~60855 | L5 |
+| **leverage · IL-protect** | **69** | `LevManager` `LevMath` `ilBasisPx` `deleverBook` | `§KEEPER-LIQ-FALLBACK` ~59601 · `§LEVER-UP-HAS-NO-AGGREGATE-GATE` ~60588 | L4 |
+| **bitcoin · lightning** | **80** | `BTCChannels` `ChannelLib` `validating_signer` `splice` | `§7540-CONFORMANCE-IS-DISCHARGED-2026-09-07` ~58169 · `§THE-QUOTE-IS-THE-BUG-2026-09-08` ~58519 | L2/L3 |
+| **basket · redeem · shares** | **84** | `BasketLib` `Vault.sol` `VBtc` `committedUsd` | `§SKEW-COVERAGE-HOLE` ~57549 · `§7540-CONFORMANCE-IS-DISCHARGED-2026-09-07` ~58169 | L1/L5 |
+| **oracle · TWAP · variance** | **40** | `OracleLib` `realizedVariance` `Chainlink` | `§GAMMA-IS-NOT-A-DIAL` ~59390 · `7 —  NO USABLE VARIANCE SOURCE EXISTS` ~60225 | L5/L7 |
+| **routing · 1inch · venues** | **46** | `1inch` `unoswap` `_aggSwap` `routedSwap` | `§SOLVER-IS-A-GLOSS` ~58758 · `WHAT THIS MEANS FOR BUILDING` ~59927 | L4/L7 |
+| **size · EIP-170 · folds** | **24** | `EIP-170` `check-contract-sizes` `to spare` | `§J.2c` ~36082 · `C10 FIX BLOCKED BY EIP-170 — MEASURED,` ~36403 | any |
+| **identity · noir** | **22** | `identity` `Honk` `nullifier` — ⛔ DEFERRED, own TODO.md | `§PLP-6a` ~57669 · `THE REAL DEFECT IS THE ASSERTION, AND` ~59979 | — |
+
 ## ⛔ FIVE TRAPS SPECIFIC TO NAVIGATING **THIS** FILE — each cost a session
 1. **STATUS MARKERS IN THE FOLDED ARCHIVES ARE NOT STATUS.** `§FROM-QUEUE` (:24,088), `§BUILD-QUEUE-FOLD`
    (:24,396) and `§FROM-QUEUE-SECTIONS` (:33,923) are **append-only archives**: their EVIDENCE is
@@ -14527,6 +14550,54 @@ moving it saves no bytecode either — the only gain is one declaration.
 | quote-vs-fill | 🔴 open, mine | keeper-side; `prefer_fetched` compares two QUOTES, never outcomes |
 | freshness bound | ✅ `c3f704d1` | wall-clock vs `block.timestamp`, on both live-route suites |
 | ⑦ per-leg gas cap | ✅ MEASURED, not tight | see the row below — the cap is fine, the FRAME is not |
+
+### 🔴🔴 §PRO-RATA-MAKES-SMALL-CONVERSIONS-NON-VIABLE — **owner, 2026-09-09: *"worse than that it
+### makes small denomination swaps not viable"*. Measured, and it is the sharper half of the gas row
+### below.**
+
+**LEG COUNT IS FIXED AT 14 BY THE PRO-RATA DRAW, SO GAS IS INDEPENDENT OF VALUE.** `AUX.take(…, quid,
+0)` draws PRO-RATA, which by definition gives every basket stable a non-zero slice; `convertTo`'s only
+skip is `amt == 0`, and **there is no minimum-size guard anywhere in the path.** ⇒ a $50 shortfall and
+a $50,000 shortfall both cost fourteen `_retarget`s, fourteen `forceApprove`s and fourteen router
+calls.
+
+| | |
+|---|---:|
+| 14-leg conversion (frame 2,341,107 + 14 × ~119k router/swap) | **≈ 4.0M gas** |
+| at 20 gwei / $3,000 ETH | **≈ $240 — for ANY size** |
+| ⇒ value-destroying below | **~$240 of shortfall** |
+| ⇒ gas under 1% of value only above | **~$24,000** |
+
+⛔ **THE BLOCK-LIMIT FRAMING WAS THE LESS INTERESTING HALF.** The real statement is that **pro-rata is
+the wrong SHAPE for a small conversion.** It is right for COMPOSITION — it is exactly what leaves the
+basket's weights untouched — and it turns a $50 job into fourteen router calls.
+**Composition-preservation and gas-viability are in direct tension and nothing currently arbitrates
+them.**
+
+▶️ **THREE SHAPES, OWNER'S CALL — do not pick one from this file.**
+① **Cap leg count by size:** `legs ≈ clamp(shortfall / MIN_LEG_USD, 1, 14)`, drawing the largest
+  slices first. Gas becomes proportional to value; composition drifts by the amount not drawn.
+② **A floor on the whole operation:** refuse below N dollars and defer to the next one. Composition
+  preserved; costs liveness on small shortfalls, and the deferred dust still has to go somewhere.
+③ **Neither — accept it,** if `convertShortfall` only ever runs at size in practice.
+⚠️ **THE MEASUREMENT THAT DECIDES BETWEEN THEM HAS NOT BEEN TAKEN: the actual distribution of
+shortfall sizes.** ⛔ Do not choose ①–③ without it; each is correct under a different distribution and
+this row cannot tell you which. That measurement is the next action, not the fix.
+
+### ⚠️ §SESS-120 MADE IT ~7.5% WORSE, AND THE REDUNDANCY IS RECOVERABLE — mine, my regression
+`test_ConvertToScalesLinearlyInLegs`: **8,043,692 → 8,642,662** across clean main → now. That is
+**+599k over 29 legs ≈ +20.6k per leg**, from the `_selfServableQuote` I added inside `_retarget`.
+🔑 **AND IT IS PURE WASTE, NOT A COST OF THE FEATURE:** `convertShortfall` ALREADY computes that exact
+quote per leg for its floor (`ref_ += _selfServableQuote(…)`), then `_retarget` computes it a second
+time. **Two `get_dy` external calls per leg, discarded.** ~289k gas recoverable on a full-basket
+conversion by threading the value instead of re-deriving it.
+⛔ **WHY IT HAPPENED, because the mechanism matters more than the number:** I moved the derivation
+INTO `_retarget` to shed a local that broke the legacy stack — and priced the STACK, not the GAS.
+Rule 18 ③ asks for bytes AND gas measured; I answered ③ in that very commit citing bytes only.
+▶️ **THE FIX IS THE STACK PROBLEM AGAIN, so it must be designed, not patched:** threading the quote
+needs a frame that can hold it (`via_ir` is off). Candidates: compute once in `convertShortfall` and
+pass an array; or shed a different local. **Belongs in the SAME `LevMath` pass as the USDE/FRAX rows
+and the aggregate-gas bound** — 71 bytes of margin, and every pass is a full recompile.
 
 ### 🔴 §CONVERTTO-FRAME-IS-THE-CEILING — **the per-leg cap is not tight; the AGGREGATE is unbounded**
 Measured 2026-09-09 (`ProRataConvertGas`, live fork), and it retires ⑦ while opening a smaller one.
