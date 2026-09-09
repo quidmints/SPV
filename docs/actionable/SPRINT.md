@@ -63669,3 +63669,54 @@ describes *"it **re-centers the concentrated liquidity range** — burns the pos
 traversal and CLAUDE.md records *"THERE ARE NO TICKS… ~185 matches and EVERY ONE IS A COMMENT."*
 ⇒ **that file still describes us as a concentrated-liquidity overlay, which is what the owner is
 objecting to.** Destale it in the same pass that writes the measurement above.
+
+---
+
+# 🔴 §UNIT-A-ROOT WAS CLOSED ON A NAME COLLISION — the pole is still in the kernel, and the root fix was deleted with `wip/`
+
+*(owner, 2026-09-09: **"bounding the result? awkward clamps and caps are not preferable to root
+fixes."** — correct, and this file already contained the root fix.)*
+
+## ⛔ MY "BOUND THE RESULT" WAS A CLAMP, AND §UNIT-A-ROOT SAYS SO IN THE OWNER'S OWN WORDS
+> *"THE ROOT IS THE POLE, NOT THE MISSING CAP — AND REMOVING IT BOUNDS THE CURVE BY CONSTRUCTION
+> (owner: **'no artificial shortcuts like floors or clamps or guards if we can fix the problem at
+> root'**). Avellaneda–Stoikov's reservation shift is LINEAR in inventory — `q·γ·σ²·(T−t)`. **THERE IS
+> NO POLE IN A–S.** `skewWad`'s OWN DOC states that form; the IMPLEMENTATION uses `q/(1−q)^ρ`, which
+> diverges. **That divergence is the ONLY reason a cap was ever needed.** … REMOVE THE POLE ⇒ BOUNDED
+> BY ALGEBRA: with `q ≤ 1`, a linear kernel gives **`skew ≤ Γ·σ²`**. No cap, no sentinel, no guard —
+> the bound FALLS OUT rather than being asserted on top."*
+
+## 🔴 IT WAS MARKED DONE BECAUSE A DIFFERENTLY-SHAPED ITEM WITH A SIMILAR NAME LANDED
+`SPRINT.md:24913` closes **six** `UNIT-A` rows as one group — *"the thing landed: `§DERIVED-BAND` is in
+the tree (`LevMath.sol:176` `cbrtWad(hCubedWad)`, `LevBase.sol:48` … *'replaces `RANGE_BPS = 300`'*)"*
+— and `:30375` names the deleted patches *"(`UNIT-A-ROOT-linear-kernel`, `-derive-fee-bound`,
+`-v2-delete-ceilings`, …) are the route taken to get there."*
+⛔ **`§DERIVED-BAND` IS THE LEVERAGE NO-TRADE BAND — A CUBE ROOT IN `LevBase`/`LevMath`. THE POLE IS
+IN `SwapLib`'s SKEW KERNEL. They are different subsystems.**
+✅ **MEASURED, TODAY: THE POLE IS STILL THERE.** `SwapLib:1602` — `uint kMinusQ1 = KAPPA_WAD - q1;`
+followed by the log integral `κ·[κ·ln((κ−q0)/(κ−q1)) − Δ]/Δ`. **A linear kernel never landed**, and
+`UNIT-A-ROOT-linear-kernel.patch` was deleted with `docs/actionable/wip/`.
+⇒ **A ✅ decided what the next thread would not re-read (rule 16), and what it hid was the owner's own
+anti-clamp directive.** This is the *"closing the work is not closing the row"* failure inverted: the
+ROW was closed and the WORK never happened.
+
+## ✅ AND THE ROOT FIX PASSES RULE 17'S ACTUAL TEST — IT DELETES THINGS
+A clamp adds a bound; a root fix makes previous fixes **deletable**. Removing the pole deletes:
+`SKEW_UNFILLABLE` · `_boundToFullHaircut` · the `qBar == type(uint).max` sentinel branch · the
+producers' decline · **`lnWad` leaves the money path entirely** (bytes back on `SwapLib`, which has
+436) · and §E104's overflow **cannot recur** because nothing diverges. **Six removals, no additions.**
+
+## ⚠️ BUT IT IS NOT SUFFICIENT ON ITS OWN, AND SAYING SO IS THE HONEST PART
+A linear kernel bounds the charge at **`Γ·σ²`** — **35 bps at 80% vol, 219 bps at 200% vol**. Against a
+~7 bps venue that is still uncompetitive at the top end. ⇒ the pole is the root of the DIVERGENCE, not
+of the LEVEL. **The level's root is the σ² scaling itself**, and two independent findings already say
+it is the wrong variable:
+1. §SKEW-SYNTHESIS-CORRECTED — *"σ² is not the reserve's driver. What empties a range is DIRECTIONAL
+   FLOW, not price variance."*
+2. §WHY-CHARGE-FOR-VOLATILITY — **oracle settlement (`Core:1022`) structurally removes the LVR
+   pickoff σ² legitimately prices**; the surviving settlement-window term is 0.000233 bps at 70% vol.
+⇒ **THE ROOT-FIX CHAIN, ALL DELETIONS, NO CLAMPS:** ① remove the pole (kernel linear in displacement,
+as A–S §2.2 actually is) ② stop scaling inventory cost by σ² (the cost it prices is one we do not bear)
+③ let **directional flow** drive the target, which is the quantity that actually empties the range.
+**Each step removes a term; none adds a bound.** ⏸️ ③ is still gated by the signed-register blocker,
+which stands.
