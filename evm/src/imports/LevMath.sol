@@ -216,6 +216,28 @@ library LevMath {
     function deliverableDollars(uint256 netEquityUsd, uint256 collValueUsd, uint256 curLtvBps, uint256 lltvBps)
         internal pure returns (uint256)
     {
+        // 🔴 §M.1b — NOTHING IS EXTRACTABLE WITHOUT DEBT TO REPAY, so report ZERO rather than the
+        //    full net equity. Both consumers pair a WITHDRAWAL with a REPAY and are bounded by the
+        //    repay: `LevManager.deleverToVault:613-616` sizes `sizeRepayStable` off `debtUsd(lp)` and
+        //    returns 0 when that is 0, and `deleverBook:756` caps `want` on the book sum and then
+        //    calls it. `LevVenueBase.withdrawPool:449-457` writes no per-LP unit (verified against the
+        //    body — the only `collUnits`/`totalCollUnits` writes are `:293`/`:399-400`), so a
+        //    withdrawal alone has no repay to cancel against per LP.
+        //    ⇒ At `curLtvBps == 0` the repay-paired extraction is 0. Reporting `netEquityUsd` made
+        //      this a cap that could never be met: `deleverBook` sized `want` off it and extracted
+        //      nothing. MEASURED at $13,741.61 counted against 0 wei delivered
+        //      (`LevYbReal.testReal_M1b_...`).
+        //    ⚠️ THIS IS A CAP, NOT BACKING. Nothing in `Aux`/`Core`/`Basket` reads either figure
+        //      (`Aux.deliverableETH()` is an unrelated function), so the over-report wasted gas
+        //      rather than overstating solvency — correcting an earlier claim of mine that it did.
+        //    ⛔ IT DOES NOT SAY 0-DEBT COLLATERAL IS UNREACHABLE IN GENERAL.
+        //      `LevManager.swapOutDeliverUnlevered` delivers exactly that and is proven to
+        //      (`testReal_M1_UnleveredDeliveryClosesTheHole`) — it is simply not wired into
+        //      `SwapLib.deleverEthOnDelivery`, and it is a DIFFERENT bound. If it is ever wired,
+        //      this function is not the place to express its capacity.
+        //    ⭐ Rounding is in the safe direction: a dust debt whose `ltvBps` truncates to 0 reports
+        //      0 capacity, which under-promises rather than over-promises.
+        if (curLtvBps == 0) return 0;
         if (lltvBps <= PROTECT_MARGIN_BPS) return 0;             // venue with no safe headroom below its liq line
         uint256 safeLtv = lltvBps - PROTECT_MARGIN_BPS;         // de-lever ceiling: a full keeper-margin under LLTV
         if (curLtvBps >= safeLtv) return 0;                     // already at/over the ceiling ⇒ no safe capacity

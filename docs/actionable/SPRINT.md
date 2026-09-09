@@ -59419,7 +59419,36 @@ sells**, not drains as such. ▶️ Next: run the drains against a range whose i
 already moved, and check whether a drain that exceeds unlevered inventory pulls from the venue (reducing
 `gross`) by more than it reduces `POOLED`. The instrument is `testReal_Identity_B_Interleaved`, committed.
 
-## 🔴 §M.1b — MEASURED: **100% COUNTED, 0% DELIVERABLE.** No longer a design question; a solvency number.
+## ✅ §M.1b — LANDED 2026-09-09 as option (B): the cap now reports what is actually extractable
+`LevMath.deliverableDollars` returns **0 when `curLtvBps == 0`**. Both consumers pair a WITHDRAWAL
+with a REPAY and are bounded by the repay — `deleverToVault:613-616` sizes `sizeRepayStable` off
+`debtUsd(lp)` and returns 0 when that is 0; `deleverBook:756` caps `want` on the book sum and then
+calls it — and `withdrawPool:449-457` writes no per-LP unit, so a withdrawal alone has nothing to
+cancel against. At zero debt the repay-paired extraction is therefore 0, and reporting the full net
+equity made this a cap that could never be met.
+🔴 **AND A SEVERITY CORRECTION I OWE, because I told the owner otherwise: THIS WAS NEVER A SOLVENCY
+OVERSTATEMENT.** Both figures are used ONLY as caps (`LevManager:608`, `:756`); **nothing in `Aux`,
+`Core` or `Basket` reads either** (`Aux.deliverableETH()` is an unrelated function). The over-report
+made `deleverBook` size `want` off capacity it could not realise — wasted gas, not overstated
+backing. My §M.1b booking said *"overstates solvency by exactly this number"*; **that was wrong**, and
+it is the same class as the other retractions here: a consumer I asserted rather than grepped.
+⛔ **IT DOES NOT SAY 0-DEBT COLLATERAL IS UNREACHABLE.** `swapOutDeliverUnlevered` delivers exactly
+that and is proven to (`testReal_M1_UnleveredDeliveryClosesTheHole`); it is simply not wired into
+`deleverEthOnDelivery`, and it is a DIFFERENT bound. **Option (A) — deliver-and-credit — remains open
+and still needs the entitlement rule §M.1b identified.** (B) does not foreclose it.
+✅ **VERIFIED WITH A MEASURED BASELINE, same worktree, same pin (25938897), fix reverted and re-applied:**
+| suite | baseline | with fix |
+|---|---|---|
+| `LeverageCrossSubsidyProbe` | 2/0 | 2/0 |
+| `LevCascade` | 21/1 (G7, market-state) | 21/1 (same) |
+| `LevYbReal` | 16/**3** | 17/**2** |
+| `VBtcLevFeeLane` | 26/0 | 26/0 |
+**The fix flips exactly one test** — `testReal_M1b_...`, which fails `13,893.13 != 0` in the baseline
+and passes with it. `G7`, `testReal_Identity_C_PerSwap` and `testReal_Morpho_LiquidationLeavesBasketIntact`
+fail in BOTH arms ⇒ pre-existing, not mine. `LevManager` 291 bytes spare (the change is in the linked
+`LevMath`, so the manager's budget is untouched).
+
+### (superseded, kept for the measurement) §M.1b — MEASURED: 100% COUNTED, 0% DELIVERABLE
 `testReal_M1b_ZeroDebtEquityIsCountedDeliverableButIsNot` (real Morpho, green):
 ```
 counted deliverable : 13,741.61 USD      (LevManager.deliverableDollars(LP))

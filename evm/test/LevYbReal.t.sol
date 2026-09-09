@@ -331,9 +331,11 @@ contract LevYbRealProbe is AllesFixture {
         assertGt(rvenue.collateralOf(LP), 0, "premise: and it holds real collateral");
 
         // ── THE BOOKS SAY IT IS DELIVERABLE ──────────────────────────────────────────────────────
+        // §M.1b LANDED: the cap now matches what the repay-paired paths can actually free.
+        // BEFORE the fix this measured $13,741.61 counted against 0 wei delivered.
         uint counted = rlm.deliverableDollars(LP);
-        assertGt(counted, 0, "M.1b: deliverableDollars COUNTS the 0-debt net equity");
-        assertGt(rlm.totalDeliverableDollars(), 0, "M.1b: and the book-wide sum counts it too");
+        assertEq(counted, 0, "M.1b: a 0-debt position reports ZERO repay-paired capacity");
+        assertEq(rlm.totalDeliverableDollars(), 0, "M.1b: and the book-wide sum agrees");
 
         // ── THE DELIVERY PATH DELIVERS NONE OF IT ────────────────────────────────────────────────
         uint px = AUX.getTWAPforAsset(address(WETH), 1800);
