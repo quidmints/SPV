@@ -1,24 +1,27 @@
-
-// Hop API client — the off-chain endpoint that mediates BTC↔USD swaps the EVM
-// can't initiate alone. Two swap-IN rails, both invoice-/wallet-optional for the user:
-//   • on-chain  (POST /swap-in-onchain)  → a Bitcoin ADDRESS to send to + exact sats.
-//                The hop watches the deposit, SPV-proves it, calls settleSwapInOnchain.
-//   • lightning (POST /swap-in)           → a BOLT11 invoice to pay (LN-capable users).
+// Hop API client — the off-chain endpoint that mediates BTC↔USD swaps the EVM can't initiate alone.
 //
-// The hop URL + bearer token are deployment config (see chains.ts HOP_API). Until
-// they're set the client returns null and the UI shows "swap-in coming online".
+// 🔑 **EVERY ROUTE, FIELD NAME AND CASING BELOW IS TRANSCRIBED FROM
+// `quid-ln/quid-bridge/src/swap_in_api.rs`. THERE IS NO SHARED SCHEMA AND NO GATE**, so anything here
+// that was not transcribed is invented, and an invented route fails as a 404 that the UI renders as
+// "still working". `tools/check-client-abis.py` covers Solidity ABIs only — and only under `spa/` —
+// so nothing at all checks this file against the server. Re-read the router in `serve()` before
+// adding a call.
+// ⚠️ **THE SERVER'S WIRE FORMAT IS `serde` DEFAULT snake_case.** camelCase field names deserialize
+// as ABSENT; on a struct with no `#[serde(default)]` that is a 4xx, and on a response it is
+// `undefined` at every read site. Do not "tidy" these names into the app's convention.
+//
+// ⚠️ **THE SPA'S COPY (`spa/src/lib/hop.ts`) STILL CALLS THE OLD, WRONG CONTRACT** — route
+// `/swap-in-onchain`, three of six request fields missing, five camelCase response fields against
+// three snake_case ones, and two poll routes that do not exist. It is not fixed here because the
+// SPA cannot supply `user_refund_pubkey`: a browser session signing through Phantom/Ledger has no
+// x-only BTC refund key and no custody story for one. See `docs/actionable/TODO.md`.
+//
+// The hop URL + bearer token are deployment config (see chains.ts HOP_API). Until they're set every
+// call returns null and the UI shows "coming online".
 
-import { HOP_API } from './chains.ts'
-
-export interface OnchainSwapInQuote {
-  depositAddress: string   // send BTC here
-  exactSats: number        // send EXACTLY this (the low-order nonce is how the hop matches it)
-  minDeliveredUsd: string  // output-token smallest units, net of the amortized fee
-  swapId: string           // 0x… correlation id
-  expiresAt: number        // unix seconds — quote/address validity
-}
-
-export type SwapInStatus = 'awaiting_deposit' | 'confirming' | 'settled' | 'expired' | 'failed'
+import { CONTRACTS, HOP_API } from './chains.ts'
+import { readOne } from './eth.ts'
+import { verifyQuotedDepositAddress } from './taproot.ts'
 
 const headers = () => ({
   'content-type': 'application/json',
@@ -27,91 +30,253 @@ const headers = () => ({
 
 function ready(): boolean { return !!HOP_API.url }
 
-/** Request an on-chain swap-in: returns a Bitcoin address + exact amount to send. */
-export async function requestOnchainSwapIn(seller: string, token: string, sats: number):
+export const hopApiConfigured = ready
+
+// ── swap-in, on-chain rail ───────────────────────────────────────────────────────────────
+//
+// The seller is handed a Bitcoin ADDRESS to pay. The hop watches the deposit, SPV-proves it, and
+// calls `settleSwapInProven`.
+
+/// Exactly `OnchainSwapInReq` (`swap_in_api.rs:314`). All six fields are REQUIRED — `serde` has no
+/// defaults on this struct, so an omitted field is a 4xx, not a defaulted value.
+export interface OnchainSwapInRequest {
+  /// 0x EVM address credited at settle.
+  seller: string
+  /// 0x EVM address of the output stable.
+  token: string
+  sats: number
+  /// ⚠️ A DECIMAL (or 0x-hex) STRING, not a number: it is a u256 — the output stable's smallest
+  /// units per 1 BTC (USDC 6-dec at $50k/BTC = "50000000000"). A JS number loses this silently.
+  price_per_btc: string
+  slippage_bps: number
+  /// 🔑 **THE FIELD THE OLD CLIENT DID NOT SEND, AND THE REASON THE SWAP-IN RAIL COULD NEVER HAVE
+  /// WORKED FROM THIS APP.** The sender's own 32-byte x-only BIP-340 refund key, which spends the
+  /// deposit's CLTV leaf. It is the wallet's, never the hop's — `useLocalKey(...).xOnly` from
+  /// `boot.ts` is exactly this value.
+  /// ⛔ **AN EXTERNAL-WALLET SESSION HAS NO SUCH KEY.** `useExternalWallet` returns nothing
+  /// precisely because Phantom/Ledger will not surrender the private key needed to derive one. Do
+  /// not fabricate one: a refund key the user cannot sign for makes the deposit unreclaimable.
+  user_refund_pubkey: string
+}
+
+/// Exactly `OnchainSwapInResp` (`swap_in_api.rs:325`). THREE fields, snake_case.
+///
+/// ⛔ **DO NOT ADD `exactSats`, `minDeliveredUsd` OR `expiresAt`.** `minDeliveredUsd` above all: §T2 moved the floor to being DERIVED on-chain from the committed RATE and
+/// the SPV-proven sats (`BitcoinTx.settleFloorUsd`), so a hop-quoted floor is a second source of
+/// truth for a number the chain computes.
+export interface OnchainSwapInQuote {
+  deposit_address: string
+  swap_id: string
+  /// The absolute BTC height the refund leaf unlocks at — the hop's tip plus its refund window.
+  /// 🔑 Needed to VERIFY the address: it is committed in the deposit leaf, so
+  /// `verifyQuotedDepositAddress` cannot run without it. Show it to the user as the refund
+  /// deadline they are accepting, and sanity-bound it against a tip you did not get from the hop.
+  cltv_height: number
+}
+
+/// Request an on-chain swap-in: returns a Bitcoin address to send to.
+///
+/// ⚠️ **VERIFY THE RETURNED ADDRESS BEFORE SHOWING IT.**
+/// `taproot.ts::verifyQuotedDepositAddress` recomputes it from the wallet's own values plus the
+/// chain's `BTC_DEPOSIT_KEY`, and a quote that fails that check must not be rendered as payable.
+export async function requestOnchainSwapIn(req: OnchainSwapInRequest):
   Promise<OnchainSwapInQuote | null> {
   if (!ready()) return null
   try {
-    const r = await fetch(`${HOP_API.url}/swap-in-onchain`, {
-      method: 'POST', headers: headers(), body: JSON.stringify({ seller, token, sats }),
-    })
-    if (!r.ok) return null
-    return await r.json()
-  } catch { return null }
-}
-
-/** Poll the hop for a swap-in's progress (deposit seen → confirming → settled). */
-export async function pollSwapIn(swapId: string): Promise<SwapInStatus | null> {
-  if (!ready()) return null
-  try {
-    const r = await fetch(`${HOP_API.url}/swap-in-onchain/${swapId}`, { headers: headers(), cache: 'no-store' })
-    if (!r.ok) return null
-    const j = await r.json()
-    return (j?.status as SwapInStatus) ?? null
-  } catch { return null }
-}
-
-// ── LP onboarding: BTC channel open ──────────────────────────────────────
-// REAL MODEL (Option B, live): the LP runs NOTHING. It deposits BTC to a
-// fleet-derived address and signs ONE cold on-chain delegation (registerDelegation)
-// that pins (a) the authority it trusts to operate its channels and (b) its
-// `btcRecipientOf` payout script. The fleet enclave (which holds BOTH MuSig2 key
-// halves) then opens + operates the 2-of-2 channel on the LP's behalf; every payout
-// (coop-close, splice-out, and the #114 dead-man exit) is pinned on-chain to that
-// `btcRecipientOf`, so the fleet can never redirect funds. There is no per-open
-// `lpAuth` round-trip and no LP-side funding-tx / SPV tooling in the live path.
-//
-// CUSTODY BACKSTOP (#114 dead-man exit): the fleet pre-signs a fully-signed,
-// CLTV-timelocked unilateral-exit tx paying the LP's checkpoint balance →
-// `btcRecipientOf`, emits its raw bytes on-chain (a `DeadManExitEmitted` event), and
-// refreshes it on a heartbeat (each refresh pushes the CLTV forward). An alive fleet
-// keeps the CLTV in the future ⇒ the exit is not broadcastable (no griefing). If the
-// fleet vanishes the heartbeat stops, the last CLTV matures, and ANYONE — a keeper, a
-// watchtower, or the LP via a stateless page hitting a public mempool API — broadcasts
-// the already-public bytes. No key, no signing, no LP tool: Bitcoin's CLTV enforces it.
-// The reference recovery client is the keyless `quid-recover-exit` bin (Rust module
-// `quid_bridge::recovery_broadcast`): given a channelId it reads the latest
-// `DeadManExitEmitted` log via `eth_getLogs` and, once the CLTV has matured, POSTs the
-// raw exit tx to a public Esplora `/tx` endpoint — runnable by the LP, a keeper, or a watchtower.
-//
-// The request shape below is the LEGACY self-host / operator-direct open path, kept for
-// operator tooling; the live delegated flow needs none of it (no `lpAuth`).
-export interface OpenChannelRequest {
-  params: unknown    // OpenParams { fundingBlockHash, fundingBlockHeight, fundingTxIndex, lpPubkey, hopPubkey, amountSats }
-  rawTx: string      // funding tx, raw hex
-  proof: string[]    // SPV merkle proof (block inclusion)
-  lpAuth: string     // LEGACY: LP node signature over the raw openChannelDigest (live path uses on-chain delegatedAuthority)
-  lpBtcPayout: string // LEGACY: LP payout commitment (bytes32) — live path pins btcRecipientOf at registerDelegation
-}
-
-export type OpenChannelStatus = 'submitted' | 'confirming' | 'opened' | 'rejected'
-export interface OpenChannelResult {
-  channelId?: string   // 0x… (keccak of the funding outpoint), once known
-  txHash?: string      // the on-chain openChannel tx the hop relayed
-  status: OpenChannelStatus
-  reason?: string      // populated when status = rejected
-}
-
-/** Hand the channel-open artifacts to the hop for on-chain relay (§9b). */
-export async function submitOpenChannel(req: OpenChannelRequest): Promise<OpenChannelResult | null> {
-  if (!ready()) return null
-  try {
-    const r = await fetch(`${HOP_API.url}/open-channel`, {
+    const r = await fetch(`${HOP_API.url}/swap-in/onchain`, {
       method: 'POST', headers: headers(), body: JSON.stringify(req),
     })
-    if (!r.ok) return { status: 'rejected', reason: `hop ${r.status}` }
-    return await r.json()
-  } catch { return null }
-}
-
-/** Poll the hop for an in-flight channel open (submitted → confirming → opened). */
-export async function pollOpenChannel(channelId: string): Promise<OpenChannelResult | null> {
-  if (!ready()) return null
-  try {
-    const r = await fetch(`${HOP_API.url}/open-channel/${channelId}`, { headers: headers(), cache: 'no-store' })
     if (!r.ok) return null
     return await r.json()
   } catch { return null }
 }
 
-export const hopApiConfigured = ready
+/// (§QR-VERIFIER-UNASSEMBLED) **THE JOIN — request a quote and REFUSE one whose address the terms
+/// do not imply.** Returns the quote only if it verifies; `null` for every other outcome.
+///
+/// 🔑 **`verifyQuotedDepositAddress` HAS BEEN BUILT AND TESTED SINCE 2026-08-31 AND HAD NO CALLER,
+/// AND ITS STATED BLOCKER DOES NOT HOLD IN THIS TREE.** The blocker was an `internalX` the client
+/// could not obtain without asking the hop — which would prove only that the hop is self-consistent.
+/// **`BTCChannels.BTC_DEPOSIT_KEY` is a `public immutable` holding exactly that key**
+/// (`BTCChannels.sol:820`), and it is the same value `_provenDeposit` derives every settle's address
+/// from. So the one input the wallet cannot own comes from the CHAIN, and every other input is the
+/// wallet's or the user's. A hop running unknown code cannot quote an address that survives this.
+///
+/// ⚠️ **`cltv_height` IS THE HOP'S, AND IT IS AN INPUT TO THE ADDRESS.** Verification cannot
+/// falsify it — any height yields a derivable address — so it is returned rather than swallowed:
+/// **the caller MUST show it as the refund deadline the user is accepting.** A UI that hides it lets
+/// the hop pick a refund window nobody agreed to while every check still passes.
+///
+/// ⛔ **A NULL `BTC_DEPOSIT_KEY` READ IS A REFUSAL, NOT A SKIP.** `readOne` answers `null` for an
+/// unconfigured address, an undeployed contract and a dead RPC alike; verifying against a key we
+/// could not read is not verification.
+export async function requestVerifiedOnchainSwapIn(req: OnchainSwapInRequest):
+  Promise<OnchainSwapInQuote | null> {
+  const q = await requestOnchainSwapIn(req)
+  if (!q) return null
+  const internalX: string | null = await readOne(CONTRACTS.btcChannels, 'BTC_DEPOSIT_KEY')
+  if (!internalX) return null
+  const ok = verifyQuotedDepositAddress({
+    quotedAddress: q.deposit_address,
+    internalX,
+    userRefund: req.user_refund_pubkey,
+    cltvHeight: q.cltv_height,
+    seller: req.seller,
+    token: req.token,
+    pricePerBtc: BigInt(req.price_per_btc),
+    slippageBps: req.slippage_bps,
+  })
+  return ok ? q : null
+}
+
+// ⛔ **THERE IS NO SWAP-IN POLL ROUTE. DO NOT ADD A CLIENT FOR ONE.**
+// `serve()`'s router is exactly
+// `/swap-in`, `/swap-in/onchain`, `/lp/onboard`, `/lp/withdraw`, `/lp/consent`, `/lp/heartbeat`.
+// A `pollSwapIn` that 404s forever reads to the UI as "still confirming", which is worse than not
+// polling. Progress is observable WITHOUT the hop: `settleSwapInProven` emits
+// `SwapInSettled(seller, txid, sats, consumed, token)`, so watch the chain — the same reason the
+// dead-man exit needs no hop tool. Do not restore a client for a route until it exists server-side.
+
+// ── LP onboarding ────────────────────────────────────────────────────────────────────────
+//
+// REAL MODEL (Option B, live): the LP runs NOTHING. It deposits BTC to a fleet-derived address; the
+// fleet enclave opens and operates the 2-of-2 on its behalf, and every payout (coop-close,
+// splice-out, and the dead-man exit) is pinned on-chain to `btcRecipientOf`, so the fleet can never
+// redirect funds.
+//
+// CUSTODY BACKSTOP (dead-man exit): the fleet pre-signs a CLTV-timelocked unilateral exit paying
+// the LP's checkpoint balance to `btcRecipientOf`, emits its raw bytes on-chain
+// (`DeadManExitEmitted`) and refreshes it on a heartbeat, each refresh pushing the CLTV forward. An
+// alive fleet keeps the CLTV in the future ⇒ not broadcastable. If the fleet vanishes the last CLTV
+// matures and ANYONE broadcasts the already-public bytes. No key, no signing, no LP tool — the
+// reference client is the keyless `quid-recover-exit` bin.
+//
+// ⛔ **DO NOT ADD `POST /open-channel` OR A POLL FOR IT** — neither is in the router, and the
+// artifacts such a call would carry (`lpAuth`, `lpBtcPayout`) do not exist: §E183 deleted `lp_eth`
+// and `lp_sig` from `OpenAuth`, and `lpEth` is DERIVED on-chain from `lpPubkey` via
+// `ChannelLib.lpEthOf`, because Bitcoin and the EVM share secp256k1. The LP signs NOTHING on the
+// EVM side. What replaced them is `/lp/consent` below.
+
+/// `OnboardReq` (`swap_in_api.rs:485`).
+export interface LpOnboardRequest {
+  lp_eth: string
+  /// The LP's committed key-path P2TR payout: 32-byte x-only OUTPUT key (hex). MUST equal the
+  /// `btcRecipient` the LP pinned on-chain via the BIP-340 PoP in `OpenAuth` — the fleet does not
+  /// re-derive it.
+  btc_recipient: string
+  desired_sats: number
+  /// "invoice" (default) or "raw_btc". An unrecognised value is a 400, never silently coerced.
+  payout_mode?: 'invoice' | 'raw_btc'
+}
+
+/// Claim a watched deposit address for this LP. Returns the address to fund.
+export async function lpOnboard(req: LpOnboardRequest): Promise<{ deposit_address: string } | null> {
+  if (!ready()) return null
+  try {
+    const r = await fetch(`${HOP_API.url}/lp/onboard`, {
+      method: 'POST', headers: headers(), body: JSON.stringify(req),
+    })
+    if (!r.ok) return null
+    return await r.json()
+  } catch { return null }
+}
+
+/// `WithdrawReq` (`swap_in_api.rs:544`). Splice out to the LP's ON-CHAIN-pinned `btcRecipientOf` —
+/// the destination is never a request field, which is what makes a withdrawal safe to expose.
+export async function lpWithdraw(channel_id: string, sats: number):
+  Promise<{ initiated: boolean } | null> {
+  if (!ready()) return null
+  try {
+    const r = await fetch(`${HOP_API.url}/lp/withdraw`, {
+      method: 'POST', headers: headers(), body: JSON.stringify({ channel_id, sats }),
+    })
+    if (!r.ok) return null
+    return await r.json()
+  } catch { return null }
+}
+
+// ── The LP's consent for ONE open ────────────────────────────────────────────────────────
+
+/// One rung of the pre-signed exit ladder (`ExitArmingReq`, `swap_in_api.rs:114`). Hex strings,
+/// because the codec types deliberately derive no `serde`.
+export interface ExitArmingWire {
+  prev_values: number[]
+  /// Same length as `prev_values` — prevout values and scripts are ONE table indexed by input, and
+  /// a length mismatch is refused as malformed rather than surfacing as an opaque sighash failure.
+  prev_scripts: string[]
+  cltv_deadline: number
+  checkpoint_sats: number
+  signed_exit_tx: string
+}
+
+/// `ConsentReq` (`swap_in_api.rs:124`) — keyed by the funding outpoint it authorises.
+export interface LpConsentRequest {
+  funding_txid: string
+  funding_vout: number
+  /// 32-byte x-only payout key.
+  btc_recipient: string
+  /// The LP's BIP-340 Schnorr proof-of-possession over `btcRecipientPoPDigest(lpEth)`. **A BITCOIN
+  /// signature, not an EVM one** — the LP signs nothing on the EVM side.
+  btc_recipient_pop: string
+  /// The LP's 33-byte COMPRESSED Lightning payment basepoint.
+  /// 🔑 It comes from the LP and not the fleet BECAUSE the fleet submits the open: a compromised
+  /// fleet reading it off its own monitor would be choosing the key the force-close check keys on.
+  /// ⚠️ It is an IDENTITY, not consent — it carries no signature of its own, and its integrity
+  /// comes entirely from the PoP beside it, which commits to `keccak256(lp_payment_point)`.
+  lp_payment_point: string
+  /// One pre-signed spend of the 2-of-2 per rung. `_armLadder` rejects fewer than two rungs and a
+  /// ladder sharing one deadline.
+  exits: ExitArmingWire[]
+}
+
+export type LpConsentResult =
+  | { bound: true }
+  /// 🔑 **A CONFLICTING RE-BIND IS REFUSED, NOT OVERWRITTEN** (409). Consent authorises ONE open, so
+  /// letting a re-bind replace it would let whatever relays it swap in a different ladder. An
+  /// IDENTICAL re-bind is idempotent and returns `bound`. Surface this to the user as a refusal to
+  /// be understood, never as a retryable network error.
+  | { bound: false; conflict: true }
+
+/// Post the LP's consent for one open.
+///
+/// ⛔ **NOT WIRED TO A SIGNER YET, AND MUST NOT BE FAKED.** Every `signed_exit_tx` is a MuSig2
+/// partial over a spend of a live 2-of-2, which needs an interactive BIP-327 session
+/// (`@scure/btc-signer`'s `musig2.js`, absent from this wallet's `node_modules`). Producing a
+/// ladder with anything hand-rolled is where nonce reuse silently leaks the LP's funding key. This
+/// function is the transport for a ladder built elsewhere; it does not build one.
+///
+/// ⚠️ **AND `channelTruth.check` MUST HAVE PASSED FIRST.** These rungs ARE the spends §T9 bounds.
+export async function postLpConsent(req: LpConsentRequest): Promise<LpConsentResult | null> {
+  if (!ready()) return null
+  try {
+    const r = await fetch(`${HOP_API.url}/lp/consent`, {
+      method: 'POST', headers: headers(), body: JSON.stringify(req),
+    })
+    if (r.status === 409) return { bound: false, conflict: true }
+    if (!r.ok) return null
+    return await r.json()
+  } catch { return null }
+}
+
+/// `HeartbeatReq` (`swap_in_api.rs:184`). The LP signs `(channel_id, height, seq)` with its CHANNEL
+/// key — the same secp256k1 key the contract derives `lpEth` from — so this needs no new key
+/// material and no MuSig2. `seq` is what makes a captured heartbeat useless later: the book accepts
+/// only a strictly greater one.
+///
+/// ⚠️ **A REJECTED HEARTBEAT IS `{recorded: false}`, NOT AN ERROR PER CAUSE** — bad signature, wrong
+/// signer, replayed sequence and unknown channel are deliberately one answer, so an unauthenticated
+/// caller cannot probe which channels this hop serves. `{recorded: false, gate: "disabled"}` means
+/// the deployment does not gate routing and the posts are pointless, which is worth telling the user
+/// rather than letting them believe the beats landed.
+export async function postLpHeartbeat(req: {
+  channel_id: string; height: number; seq: number; sig: string
+}): Promise<{ recorded: boolean; gate?: string } | null> {
+  if (!ready()) return null
+  try {
+    const r = await fetch(`${HOP_API.url}/lp/heartbeat`, {
+      method: 'POST', headers: headers(), body: JSON.stringify(req),
+    })
+    if (!r.ok) return null
+    return await r.json()
+  } catch { return null }
+}

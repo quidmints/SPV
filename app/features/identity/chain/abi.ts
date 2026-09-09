@@ -240,7 +240,25 @@ export const BTCCHANNELS_ABI = [
   // independently of the funding outpoint, which a splice rotates.
   // (E164) `hop` removed: authority is the immutable MAIN_HOP/FALLBACK_HOP pair, not
   // per-channel state. Which of the two opened a channel survives in ChannelOpened.
-  'function channels(bytes32 channelId) view returns (uint amountSats, bytes32 fundingTxId, address lpEth, uint32 fundingVout, uint8 status, bytes32 keysHash)',
+  // (§FORCE-CLOSE-SKIPS-THE-STALE-GUARD) `lpToRemoteKey` is the LP's `to_remote` taproot output
+  // key, derived at open from its Lightning payment basepoint. A force-close commitment's LP output
+  // is `0x5120 || lpToRemoteKey`, which is how the contract measures what that close actually paid.
+  // 🔴 **THIS DECLARATION WAS SIX WORDS UNTIL 2026-09-09 AND THE CONTRACT HAS RETURNED SEVEN
+  // SINCE `lpToRemoteKey` LANDED.** `spa/src/lib/abi.ts` was updated; this file was not, and nothing
+  // noticed for the reason §T9 keeps rediscovering: `tools/check-client-abis.py` hardcodes the
+  // `spa/` path and has never read `app/` at all, so this fork drifts un-gated. It survived only
+  // because ethers tolerates trailing return data — a decode that ignores a word it does not know
+  // about is right up until the day a field is INSERTED rather than appended.
+  'function channels(bytes32 channelId) view returns (uint amountSats, bytes32 fundingTxId, address lpEth, uint32 fundingVout, uint8 status, bytes32 keysHash, bytes32 lpToRemoteKey)',
+
+  // (§T2) The fleet's PINNED swap-in deposit internal key, `immutable` on `BTCChannels`
+  // (`BTCChannels.sol:820`) and the value `_provenDeposit` derives every settle's address from.
+  // 🔑 **THIS IS WHAT MAKES `verifyQuotedDepositAddress` EXECUTABLE.** That verifier needs an
+  // `internalX` that the hop does not supply, or it proves only that the hop is self-consistent.
+  // Reading it here means the one input the wallet cannot own comes from the CHAIN instead — the
+  // same place the settle path reads it — so a hop running unknown code still cannot quote an
+  // address that survives the check.
+  'function BTC_DEPOSIT_KEY() view returns (bytes32)',
 
   // SELF_REFUND_MIN_SECS / MIN_CONFIRMATIONS are `uint constant` (no `public`),
   // so they have NO on-chain getter — not callable, intentionally omitted.

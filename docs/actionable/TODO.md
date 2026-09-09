@@ -848,9 +848,24 @@ a gap where one used to be.
            as never-recorded, **which is exactly the state a downgrade attack wants to reach.** An
            unwritten mapping entry reads as all-zero words, so `keysHash == 0` is the honest absence.
         2. **The funding PAIR matches: `keysHash == keccak(abi.encode(lpPubkey, hopPubkey))`.**
-           ⚠️ **ORDER IS SIGNIFICANT AND YOU MUST NOT TRY BOTH.** Guessing by attempting each ordering
-           pins only the SET, which is a strictly weaker claim for no gain — the LP knows it is the
-           `lpPubkey` side, so it can order the pair correctly.
+           ⚠️ **ONE ORDERING, NEVER TWO.** Trying both pins only the SET, which is a strictly weaker
+           claim for no gain.
+           🔴 **BUT THE ORDERING IS BYTE-SORTED, NOT ROLE-ASSIGNED — THIS ROW SAID *"the LP knows it
+           is the `lpPubkey` side, so it can order the pair correctly"* AND THAT IS FALSE AGAINST THE
+           CODE THAT SUBMITS THE OPEN** (measured 2026-09-09, `evm_codec.rs:1025,1049-1050`):
+           `build_open_params` does `let (k0, k1) = sort_funding_pubkeys(a, b); … lp_pubkey: k0,
+           hop_pubkey: k1`. **The struct fields NAMED `lpPubkey`/`hopPubkey` carry the byte-sorted
+           pair**, so `ChannelLib.openChannelBody`'s `keccak256(abi.encode(p.lpPubkey, p.hopPubkey))`
+           hashes sorted keys. `openChannel` is `_onlyHop()`, so no other submitter exists.
+           ⇒ **A role-ordered hash cannot match the chain for the ~half of channels where the LP's
+           funding key sorts ABOVE the hop's, and a signer that fails closed on `Mismatch` then
+           refuses that channel entirely.** Sorting is still ONE deterministic order — the warning
+           above stands, only its prescription was wrong. Corroboration: `node.rs::onchain_cid_from_
+           monitor` and three sites in `channel_driver.rs` sort before deriving `channelId`.
+           ⚠️ **SPV's OWN SIGNER HAS THIS BUG AND ITS TEST CANNOT SEE IT** —
+           `validating_signer.rs:636-639` orders by `FundingRole`, and
+           `funding_role_ordering_is_significant` asserts it against a `FakeTruth` built from the SAME
+           role ordering. Two copies of one assumption agree. **Report to the SPV lane; do not copy.**
            🔴 **USE THE CURRENT-SCOPE PAIR, NOT THE BASE ONE.** `splice` RE-PINS `keysHash` to the
            rotated pair (§SPLICE-ROTATES-BOTH-FUNDING-KEYS), so supplying the pair from open for a
            channel that has been spliced yields a mismatch and the app refuses a legitimate splice.
@@ -938,6 +953,93 @@ a gap where one used to be.
       2026-08-16): the LP declares `Individual` so it boots on mainnet, a born seed is written out
       once as a mnemonic, `QUID_SEED` takes it back, and a `family` role gets a K-of-N Shamir split
       instead. ⇒ **Nothing on the SPV side is holding this item up any more; it is waiting on ibiza.**
+- [ ] 🔑 **§T9 CLIENT SIDE — THE CHAIN CHECK IS BUILT; THE SIGNER IT GATES IS NOT** (2026-09-09).
+      The item above specifies the refusal. It is implemented, with tests, at
+      **`app/features/identity/chain/channelTruth.ts`** (+ `channelTruth.test.ts`).
+      ⚠️ **⛔ NOT RUN — builds and tests are serialized elsewhere in this tree, so nothing below has
+      been executed.** Run `node --test app/features/identity/chain/channelTruth.test.ts` before
+      believing any of it; a suite nobody ran is a claim, not a measurement.
+      **What it holds, and the three of the four rules that are executable today:**
+        * `keysHash != 0` is the recorded test, and a test pins that a CLOSED row (`amountSats == 0`,
+          `keysHash` set) does NOT read as never-recorded — the state a downgrade wants.
+        * the pair check, byte-sorted per the correction above, with the `abi.encode` preimage of two
+          DYNAMIC `bytes` built independently in the test rather than by calling the encoder.
+        * the size check against `amountSats`.
+        * the **one-way latch** (`ChannelTruthLatch`), plus the SPLICE arm SPV added — a `Mismatch`
+          is accepted only when the chain confirms the scope this one REPLACES, and that predecessor
+          is the client's own in-force scope, never one a peer supplies.
+      **Design choices worth not re-deriving:** the read is AGREEMENT-classed at `tip − 6` (matching
+      `quid-bridge/src/client.rs::AGREED_READ_DEPTH`, so phone and fleet cannot be shown different
+      rows); it does NOT go through `eth.ts::readOne`, which swallows every failure into `null` —
+      graceful degradation is exactly wrong for a refusal, so every error path throws; and the
+      `channelId` is COMPUTED from the ORIGINAL pair + ORIGINAL outpoint (there is no `CidRegistry`
+      to ask, and a map would need a writer the phone does not run).
+      🔴 **IT HAS NO CALL SITE, AND CANNOT UNTIL THE LADDER EXISTS.** §T9 gates *"before producing
+      ANY MuSig2 partial"* and this tree produces none: `@scure/btc-signer` is still absent from
+      `app/node_modules`. `check()` THROWS rather than returning a boolean precisely so the eventual
+      call site cannot ignore it. ⚠️ **Do not mark this item done on the strength of the file
+      existing** — a verifier with no caller is the same shape as `verifyQuotedDepositAddress` was.
+      ⚠️ **THE LATCH IS IN MEMORY AND A PHONE IS KILLED CONSTANTLY.** `snapshot()`/`restore()` exist
+      so the caller persists it beside the channel; without that, backgrounding the app resets the
+      check. SPV has the same weakness (`nonce_binding_does_not_survive_a_restart`) and a daemon
+      restarts far less often — **this is worse here, not equal.**
+- [ ] 🔑 **THE HOP API CONTRACT — FIXED IN `app/`, STILL WRONG IN `spa/`, AND UNGATED IN BOTH**
+      (2026-09-09). `app/features/identity/chain/hop.ts` is rewritten against
+      `quid-ln/quid-bridge/src/swap_in_api.rs`. The four mismatches it carried, each of which fails
+      as a 404 or a 4xx that a UI renders as "still working":
+        * route `POST /swap-in-onchain` → the server routes **`/swap-in/onchain`**;
+        * the request sent `{seller, token, sats}` against `OnchainSwapInReq`'s SIX required fields —
+          `price_per_btc` (a u256 STRING), `slippage_bps` and `user_refund_pubkey` were all absent,
+          and `serde` has no defaults on that struct;
+        * the response type named five camelCase fields (`depositAddress`, `exactSats`,
+          `minDeliveredUsd`, `swapId`, `expiresAt`) against a three-field snake_case
+          `OnchainSwapInResp` (`deposit_address`, `swap_id`, `cltv_height`). ⚠️ `minDeliveredUsd` is
+          not a value the hop supplies at all any more — §T2 made the floor DERIVED on-chain;
+        * `GET /swap-in-onchain/{swapId}` and both `/open-channel` routes **do not exist**. The full
+          router is `/swap-in`, `/swap-in/onchain`, `/lp/onboard`, `/lp/withdraw`, `/lp/consent`,
+          `/lp/heartbeat`. Clients for the four `/lp/*` routes are added, including **`/lp/consent`**,
+          which is where §T9's ladder lands and which had no producer anywhere.
+      ⛔ **`spa/src/lib/hop.ts` IS NOT FIXED, AND THIS IS THE "STOP AND REPORT" CASE, NOT AN OMISSION.**
+      The corrected request REQUIRES `user_refund_pubkey`, a 32-byte x-only BTC refund key. The app
+      has one for a local-key session (`boot.ts::useLocalKey` → `normaliseKey().xOnly`); **a browser
+      session signing through Phantom/Ledger has none and no custody story for one** — `useExternalWallet`
+      returns nothing for exactly that reason. Fabricating one makes the deposit unreclaimable. ⇒ the
+      SPA's swap-in rail needs a BTC-key decision before its client can be correct at all.
+      🔴 **AND NOTHING GATES EITHER FILE.** `tools/check-client-abis.py` hardcodes `spa/` (so `app/`
+      has never been read) and compares Solidity ABIs only — no tool in this tree compares a TS client
+      against the Rust router. **Both halves need fixing and neither is in this lane's files.**
+- [ ] **`verifyQuotedDepositAddress`'s STATED BLOCKER DOES NOT HOLD — IT IS NOW CALLED** (2026-09-09).
+      It was built and tested 2026-08-31 with zero callers, blocked on an `internalX` the client
+      supposedly could not obtain independently. **Measured: `BTCChannels.BTC_DEPOSIT_KEY` is a
+      `public immutable`** (`BTCChannels.sol:820`) holding exactly that pinned key, and it is the same
+      value `_provenDeposit` feeds `BitcoinTx.verifySwapInDeposit`. So it reads off the CHAIN, not off
+      the hop. `hop.ts::requestVerifiedOnchainSwapIn` is the join, and `BTC_DEPOSIT_KEY()` is added to
+      `app/`'s `BTCCHANNELS_ABI`.
+      ⚠️ **ONE INPUT REMAINS THE HOP'S AND VERIFICATION CANNOT FALSIFY IT: `cltv_height`.** Any height
+      yields a derivable address, so the check passes for a refund window nobody agreed to. It is
+      RETURNED rather than swallowed and **the UI must display it as the deadline being accepted**;
+      bounding it needs a BTC tip source the app does not have. Book that before shipping a screen.
+- [ ] 🔴 **`app/features/identity/chain/abi.ts` HAD DRIFTED AND NOTHING COULD SEE IT** (fixed
+      2026-09-09). `channels(bytes32)` was declared with SIX return words; the contract has returned
+      SEVEN since `lpToRemoteKey` landed (`Types.sol:148-186`). `spa/src/lib/abi.ts` was updated and
+      this fork was not, because `tools/check-client-abis.py` **hardcodes the `spa/` path and has
+      never read `app/`**. It survived only because ethers tolerates trailing return data — which
+      holds until a field is INSERTED rather than appended.
+      ⇒ **The gate is the fix, and it is not in this lane: `check-client-abis.py` must walk `app/`
+      too.** Until it does, every ABI entry in `app/` is unchecked, including the one added today.
+      📌 Also stale, in another lane's file: `channel_truth.rs:40-45` documents *"SIX static words"*
+      and requires only `6*32` bytes. Permissive, so it still works — but the count is wrong and
+      `W_KEYS_HASH = 5` reads as "the last word" when it is now the second-to-last.
+- [ ] 🔴 **REPORT TO THE SPV LANE — `recordClose` MAY SUBMIT AN UNSORTED PAIR** (found 2026-09-09
+      while deriving the ordering above; NOT verified by a run, and Rust builds are serialized).
+      `channel_driver.rs:1159-1174` hands `drive_close` the pair from
+      `original_channel_funding_pubkeys(…)` **unsorted**, and `:510-515` puts it straight into
+      `close_params.lp_pubkey`/`hop_pubkey`. `BTCChannels._requireChannelKeys` (`BTCChannels.sol:1795`)
+      compares `keccak256(abi.encode(p.lpPubkey, p.hopPubkey))` against the `keysHash` pinned from the
+      SORTED pair ⇒ for the ~half of channels where holder > counterparty, the close would revert.
+      ⚠️ Contrast `:456-460` in the same function, which DOES sort — but only for the `channelId`
+      derivation, not for the params. **Same file, both orderings, one of them into calldata.**
+
 - [ ] **Simplify along the `quid` seam.** Measured: quid `Aux+Vogue+VogueCore` = 1,742 lines with **0**
       `isBTC`; SPV `Aux+Vogue+Core` = 4,164 with **358**. quid is a working reference for the §J.2
       consolidation - but it never faced BTC, so it proves the cost, not that one impl serves both.
