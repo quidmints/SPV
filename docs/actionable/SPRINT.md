@@ -62482,3 +62482,65 @@ only because that fixture's drain makes the term small: **a false general proper
 wrong reason.** Removed; the monotonicity check that was always there is TRUE and is the whole claim.
 📌 The lesson is specific: **I strengthened a test by adding a property I had not measured.** The original
 was stale; my replacement was wrong, which is worse than stale because it looks like evidence.
+
+---
+
+## ⭐ §TWO-SOLUTIONS-2026-09-09 — the IL basis and the cross-subsidy, SOLVED on paper and verified numerically. Plus two corrections to my own rows.
+
+### ⛔ FIRST, TWO THINGS I POSED AS OPEN THAT WERE ALREADY ANSWERED
+1. **"What executes the buy-back today, and who pays its gas?"** — I called this *"the question that
+   decides it"*. **`REFILL-START-HERE.md:9` answers it outright: *"Nothing in `evm/src` executes a
+   buy-back, and that is deliberate."*** With the measurement attached — a pool-funded buy-back is
+   **negative in 56% of 18 guarded samples, median −8 bps against a 4.2 bps charge** (§REFILL-G2-VERDICT,
+   `005d6553`). ⇒ **The question is discharged, not open**, and §REFILL-NEEDS-NO-FUNDING was arguing
+   for a conclusion the refill thread had already reached with better evidence.
+2. **"Should the reserve be vol-sensitive at all? — nobody has asked it."** ⛔ **WRONG.** `ca56b335`
+   §SKEW-MONTH-SYNTHESIS assembled a MONTH of this across every thread, cites `d7122fc1`, and names the
+   wall in the same words I reached independently: *"one assertion forecloses EVERY vol-sensitive
+   shape … A–S §2.2 IS linear in σ²; §2.3 is not."* **It also carries the piece I did not have:
+   `0505a993` cited §2.3 to justify the pole and that citation is wrong — correcting it may settle
+   §2.2-vs-§2.3.** ⇒ Read `ca56b335`, not my rows, for the decision.
+
+### ✅ SOLUTION A — the IL basis under multiple entries. **STORE AN EFFECTIVE ENTRY, AND `ilTargetBps` DOES NOT CHANGE AT ALL.**
+The exact aggregate target over tranches `(wᵢ, eᵢ)` is `Σwᵢ(1−√(eᵢ/p))/Σwᵢ = 1 − (Σwᵢ√eᵢ)/(√p·Σwᵢ)`.
+⇒ **keep `ilBasisPx`, and let it hold the EFFECTIVE entry `Ẽ = (Σwᵢ√eᵢ / Σwᵢ)²`.** Then
+`target = 1 − √(Ẽ/p)` — **the formula already in `LevMath.ilTargetBps`, untouched.**
+| p | TRUE size-weighted target | **√-blend (this)** | §E339's basis-blend |
+|---|---|---|---|
+| 3,500 | 0.150799864 | **0.150799864** (err 2.8e-17) | 0.142857143 (**−7.94e-03**) |
+| 5,000 | 0.289508192 | **0.289508192** (err 0) | 0.282862834 (**−6.65e-03**) |
+| 8,000 | 0.438306907 | **0.438306907** (err 5.6e-17) | 0.433053290 (**−5.25e-03**) |
+⭐ **THIS IMPROVES ON §E339's OWN PRESCRIPTION.** That line says *"blend `ilBasisPx` SIZE-WEIGHTED"*.
+Blending the BASIS is an approximation and it is **biased low every time**: `target` is CONVEX in `e`
+(`d²/de²[−√(e/p)] = +1/(4e^{3/2}√p) > 0`), so Jensen gives `target(mean e) ≤ mean target(e)` ⇒ it
+**systematically UNDER-hedges.** Blending `√e` is EXACT.
+✅ **Single entry: `Ẽ = (√e)² = e` exactly** — a drop-in, zero live-path cost (one `sqrt` either way),
+**no new storage** (`ilBasisPx` is reinterpreted, not joined), so rule 23 is satisfied by construction.
+✅ **Dust attack dead:** 100 units @2,000 then 0.01 @1,000 moves `Ẽ` **2000.000 → 1999.883**. Today's
+`pos[lp] = p` overwrite would give **1000.000** — that gap IS the attack.
+▶️ **Land it in the same commit that opens a top-up path**, exactly as §E339 says. Until then no branch
+exists to hold it and rule 1 forbids writing one.
+
+### ✅ SOLUTION B — the cross-subsidy. **THE ROOT IS THAT `openLev` POOLS COLLATERAL A 0-DEBT LP NEVER NEEDED, AND IT IS THE SAME ITEM AS THE UNWIRED ORPHAN.**
+**MEASURED:** `LevManager.openLev` calls `_supplyCollFrom(venue, msg.sender, collWeeth)` **unconditionally**,
+while `_openPos` pins `ilBasisPx = entryPx` so the immediate target is **0**. ⇒ **a zero-debt LP's
+collateral enters the shared Morpho position at open and is seizable for other LPs' debt.**
+🔑 **AND THE ARITHMETIC SHOWS WHO IS SUBSIDISING WHOM.** Pool LTV `ΣD/ΣC` is a COLLATERAL-WEIGHTED MEAN
+of individual LTVs, so it is bounded by the max individual LTV — **individually-safe positions cannot
+compose an unsafe pool.** The zero-debt LP is not a risk; measured on `(100,70) (50,30) (80,0)`:
+pool LTV **0.4348** with them, **0.6667** without. ⇒ **they are PADDING the pool's health and are seized
+for it.** That is the 4,801 bps (`LeverageCrossSubsidyProbe`), stated as a mechanism.
+▶️ **THE FIX IS SUPPLY-ON-DEMAND, NOT AN AGGREGATE GATE.** Supply collateral to the venue when
+`debtDeltaToTarget` first says lever up, not at open. Per rule 17 this makes the bad state
+**UNCONSTRUCTIBLE** rather than detectable: a 0-debt LP has nothing in the pool to seize.
+⭐ **AND IT CLOSES THE ORPHAN — the two items are ONE.** `swapOutDeliverUnlevered` exists precisely to
+serve a 0-debt position and has **zero production callers** (`orphans-allow` CLASS 3); under
+supply-on-demand it is the natural delivery path for exactly those LPs. **Fixing either alone re-opens
+the other**, which is why one model of pooled authorisation settles both.
+⚠️ **THE HONEST COST, STATED BECAUSE IT IS THE REASON THIS IS NOT A FREE WIN:** removing that collateral
+**RAISES pool LTV** (0.4348 → 0.6667 in the fixture). The padding was doing real work — it simply was
+not the zero-debt LPs' job to provide it. ⇒ **supply-on-demand MUST ship with a real aggregate check**,
+and that check is `§LEVER-UP-HAS-NO-AGGREGATE-GATE`, whose fairness ruling (*whose borrow is refused at
+the line*) is GATE 2 and still owner-blocked.
+📌 **BOTH SOLUTIONS ARE DESIGNS WITH ARITHMETIC, NOT LANDED CODE** (rule 15: money path). Solution A is
+blocked on a top-up path existing; Solution B on the GATE 2 fairness ruling.
