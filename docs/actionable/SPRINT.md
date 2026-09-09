@@ -63590,3 +63590,82 @@ the venue.** Both prior rows stand; neither speaks to this.
 ▶️ **WHAT ACTUALLY REMAINS FOR THE OWNER — one question, and it is empirical:** *which venue and which
 size do we benchmark against?* Everything else follows from the measurement. ⏸️ Blocked only on tests
 being re-enabled, because the competitor half must be measured, not assumed.
+
+---
+
+# 🔴 §MIN-CHARGE-MISSES-THE-SWAP-IN-RAIL — the owner's minimum does NOT reach the refill leg
+
+*(owner, 2026-09-09: **"skew yes but also a minimum charge even for imbalance reducing flow"**)* — that
+is `MIN_SWAP_SKEW_WAD` (420 ppm), whose own docblock already quotes the owner: *"the minimum swap fee
+was just the fact that all swaps even balance restoring must pay at least the minimum."*
+**MEASURED: it is enforced at FOUR sites, and all four are inside `wellSkew` / `sellSkew`:**
+`:1984` (`max(_amplify(...), MIN)`), `:2020` (`target == 0`), `:2045` (`over == 0` — refill/at-target),
+`:2165` (`max(_composePrice(...), MIN)`).
+🔴 **AND THE NATIVE SWAP-IN RAIL GOES THROUGH NONE OF THEM.** `creditSwapInBody` (`SwapLib:668`) and its
+tail `_swapInSettle` (`:758`) contain **ZERO** live references to `sellSkew` / `wellSkew` /
+`retainSkewPremium` / `MIN_SWAP_SKEW_WAD` — the only two hits in either body are COMMENTS. Its own
+docblock says so plainly: *"the refill settles at the **honest fillPrice**"*.
+⇒ **A BTC swap-IN — the refill direction, driven by the hop daemon through `BTCChannels.creditSwapIn`
+→ `Vault.creditSwapIn` → `creditSwapInBody` — pays EXACTLY ZERO, not 420 ppm.** That is the same hole
+§MIN-SWAP-FEE was written to close, surviving on the one rail that never routed through the producers.
+⚠️ **NOT the same thing as the refill-direction PREMIUM exemption, and the distinction is the point:**
+`sellSkew:2045` returning `MIN_SWAP_SKEW_WAD` on `over == 0` is correct — free of the *premium*, still
+paying the *floor*. **This rail pays neither.** ⏸️ Not fixed: `SwapLib` is money-path and tests are
+stopped. **The fix is to route the swap-IN settle through the same floor, not to add a fifth site.**
+
+---
+
+# 🔍 §WHY-CHARGE-FOR-VOLATILITY — the owner's question, and a peer already answered half of it
+
+*(owner: **"why should we charge more with more volatility?"**)*
+**§SKEW-SYNTHESIS-CORRECTED (peer, this file) says the quiet part: *"σ² is not the reserve's driver.
+What empties a range is DIRECTIONAL FLOW, not price variance."*** And it shows κ(σ) and ρ(σ) were each
+a **SECOND appearance of the same σ²** — `Γ·σ²·q̄` already carries it once, linearly — so the linearity
+test was catching a **double-count**, not foreclosing a shape.
+⭐ **AND THE OTHER HALF, WHICH FOLLOWS FROM `Core:1022`: WE DO NOT BEAR THE COST σ² USUALLY PRICES.**
+A CFMM charges for volatility because it quotes a **stale curve price** that an informed trader picks
+off — that is LVR, and it scales with σ². **We settle at the ORACLE, one price for the whole size, no
+curve traversal.** So the pickoff term is structurally absent, and what survives is only
+`_maxWellSkew` = σ²·T_settle/8 over the settlement window — **measured at 0.000233 bps at 70% vol on
+ETH**, i.e. nothing.
+⇒ **What the big σ² term (`Γ·σ²·q̄`) actually prices is INVENTORY RISK** — an LP left short volatile
+while price moves, over the horizon Γ folds in. **That is real.** But three things bear on it:
+1. **It is not what empties the range** (the peer's finding) — direction is, and target is blind to it.
+2. **Uniswap does not raise its fee when vol rises.** So scaling with σ² prices us out *exactly* when
+   vol is high — which §THE-BOUND-IS-THE-COMPETITOR measures: at 200% vol we lose the venue at
+   **q ≈ 0.06** against a 7 bps alternative, versus q ≈ 0.82 at 30% vol.
+3. **It is the LP's exposure, not the swapper's action.** Charging the taker for the maker's inventory
+   risk is defensible only while the taker has no cheaper venue.
+📌 **So the honest answer to the owner's question is: on the adverse-selection axis, we should NOT —
+oracle settlement already removed that cost. On the inventory axis we arguably should, and that is
+precisely the term that breaks the competitive requirement at high vol.** ▶️ **The two cannot both be
+satisfied by tuning σ²'s coefficient; they are satisfied by BOUNDING the result.**
+
+---
+
+# ⚠️ §IS-THE-COMPARISON-EVEN-RIGHT — the owner is right to distrust my table, and this is the measurement it needs
+
+*(owner: **"how do you know the comparison is being made right? is the most liquidity on uniswap right
+now at the tick that matches chainlink? otherwise if not how much would it take to move out of that
+price tick and start paying slippage."**)*
+✅ **CONCEDED — §THE-BOUND-IS-THE-COMPETITOR SWEEPS `C` AS A PARAMETER AND DOES NOT MEASURE IT.** That
+is stated in the row, and it is exactly the weak half. **A competitor cost of "7 bps" is an assumption
+about a liquidity distribution nobody here has read.**
+🔑 **AND THE OWNER'S FRAMING IS SHARPER THAN A SINGLE "ALL-IN COST" NUMBER, because v3/v4 liquidity is
+NOT uniform: the cost is ~fee-only while the trade stays inside the active tick, then steps.** So the
+honest competitor curve has a **KINK**, and the quantity that matters is **how much size fits before
+the kink** — which depends on where the pool's active tick sits **relative to the Chainlink price we
+settle at.** If the pool's deepest liquidity is NOT centred on the oracle price, then even a small
+trade there pays displacement we never charge.
+▶️ **WHAT MUST BE MEASURED, DEFINITELY, AND WRITTEN DOWN (not swept):**
+1. Where is the v3/v4 WETH/USDC active tick relative to `getTWAPforAsset(WETH)` / the Chainlink anchor?
+2. How much notional fits inside that tick before the price leaves it (the fee-only band)?
+3. Beyond it, the realised cost curve by size — from `QuoterV2` against the real pool, which
+   `SkewVsUniswapV3.t.sol` already wires (`QUOTER = 0x61fFE014…`, real 0.05% pool).
+⏸️ **Blocked ONLY on tests being re-enabled** — every input is a fork read, and the harness exists.
+🔴 **AND THE STALE DOC THE OWNER NAMED IS REAL:** `docs/informational/IL-VIA-BONDS.md:628` still
+describes *"it **re-centers the concentrated liquidity range** — burns the position"*, and `:659` the
+*"Uniswap v3 weETH/WETH pool"* as an offramp. **§V4-CUT removed the curve** — `Core:1022` has no
+traversal and CLAUDE.md records *"THERE ARE NO TICKS… ~185 matches and EVERY ONE IS A COMMENT."*
+⇒ **that file still describes us as a concentrated-liquidity overlay, which is what the owner is
+objecting to.** Destale it in the same pass that writes the measurement above.
