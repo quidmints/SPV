@@ -48,6 +48,82 @@ because the three documents that tell you WHAT ORDER to work in are buried at th
    turned green weeks earlier. A stale ✅ hides work; **a stale ⛔ SUPPRESSES it, and nothing fails to
    tell you.** When a row forbids something, re-run its evidence before obeying it.
 
+## 🔴🔴🔴 §SEAM-SWEEP-2026-09-09 — **THE SHIPPED ROSTER HAS A ~2x REDEEM OVER-DELIVERY AND NO FIXTURE CAN SEE IT**
+
+Fifteen findings from a seam hunt aimed at the four defect SHAPES that have actually bitten this repo.
+Ranked below by what I VERIFIED MYSELF, not by what was reported. The lane downgraded five of its own
+claims unprompted and refused to vouch for four — that honesty is why the rest is worth acting on.
+
+### 🔴🔴🔴 F1 — BOLD'S SLOT IS HARDCODED TO A ROSTER SIZE NOTHING RUNS. **VERIFIED BY CONSTRUCTION.**
+| site | quoted |
+|---|---|
+| `BasketLib.sol:117` | `uint len = stables.length - 1; // skip last (BOLD)` |
+| `BasketLib.sol:172` | `amounts[i + 1] = balance;` ⇒ slots `1 .. N-1` |
+| `Aux.sol:1180` | `amounts[13] = spTotal;` — hardcoded; `:1171` calls it *"its canonical accounting slot"* |
+| `BasketLib.sol:823` | `for (uint i = 1; i <= fc.stables.length; i++)` ⇒ at N=14, `i` reaches **14** |
+| `DeployL1_s.sol:265` | `require(STABLECOINS.length == 14, ...)` |
+
+**BOLD's natural slot under `i+1` is `N`. Aux hardcodes 13. They coincide IFF N == 13 — and NOTHING
+RUNS 13.**
+· **N=14 (SHIPPED):** `amounts[13]` clobbers `frxUSD`, and `i=14` reads `amounts[14]`, which is the TVL
+  TOTAL ⇒ `slotDep == totalDep` ⇒ `FeeLib.allocate` returns the whole amount. **~2x over-delivery on a
+  pro-rata redeem.** Worked: $100M TVL, 1,000,000 QU!D burned ⇒ **~$1,980,000 delivered.**
+· **N=11 (EVERY FIXTURE):** `amounts[11]`/`[12]` are never written, so the BOLD leg is skipped and BOLD
+  is **phantom backing** — counted in `amounts[14]` and `amounts[0]`, never drawable. Same
+  *counted ⇒ deliverable* violation the eETH term was deleted for.
+⇒ **THE DEFECT EXISTS AT BOTH COUNTS; ONLY THE SIGN FLIPS.** 51 test files inherit the 11-stable
+harness; `DriverE2E.s.sol` is 11; the deploy asserts 14. **Zero fixtures anywhere run 13 or 14, so the
+over-draw branch has never been executed by anything in this repo.**
+▶️ **CHEAPEST CORRECT FIX: make the deploy 13** and drop one entry — then slots `1..12` ← `stables[0..11]`,
+`amounts[13]` = BOLD = `toIndex[BOLD]`, the loop stops at 13, and `Σ amounts[1..13] == amounts[14]`. The
+deploy's own comment *"At 14 stables that is 1..13 — EXACTLY full"* is **off by one: it forgot BOLD needs
+a slot too.** Structural fix is `uint[16]` + `amounts[nStables]`, which also kills the N=11 form.
+⚠️ Bounded, not bottomless: the BOLD leg is clamped to the SP's principal, and strict `checkBacking()`
+bites once the basket nears its commitment line. The bound is "all of BOLD".
+
+### 🔴🔴 F2 / F3 — BASKET STABLES LEAVE CUSTODY TO ADDRESSES THAT CANNOT RETURN THEM. **F3 VERIFIED.**
+**F3:** `SwapLib.sol:2420` passes `address(this)` — **the Vault** — as `refundTo`, and `_consolidateTo`
+refunds every unroutable slice there. **`grep -c "IERC20|safeTransfer" evm/src/Vault.sol` → 0.** The
+Vault cannot move an ERC20; `Aux.sweep` runs on `balanceOf(Aux)` under Aux's own delegatecall and cannot
+reach it. **GHO and BOLD are on no `_hubRowOf` row at any roster size, so their slices are ALWAYS
+refunded.** Permanently stranded and invisible to `get_deposits`. **Fix is one argument: pass `aux`.**
+**F2:** the ETH twin of §PAUSED-VAULT-REROUTE, which the BTC side already fixed after measuring
+*"1,377,974,721,301,924,123,210 of DAI left sitting at the venue"*. `takeToSettle(venue, …)` names the
+stable only as PREFERRED; the pro-rata fallback sends **every basket stable** to the venue, and
+`LevVenueBase` has **zero** `sweep`/`rescue`/`onlyOwner`. Plus the inner `try` swallows AFTER the take
+already moved money. **F15 is its routine trigger:** `repayPool` compares a PRE-accrual `totalDebt()`
+to a POST-accrual one, so `RepayNotApplied` fires on ordinary interest — $80 repay against $110 of
+accrual — and the outer take stands. One line: `MORPHO.accrueInterest(_params());` before `:372`.
+
+### 🔴 VERIFIED, QUEUED BELOW THOSE
+**F12** (confirmed independently): `_sellAndPay:1717` returns NATIVE stable units, `deleverToVault:623`
+passes them out, `BasketLib:1175` adds them into a USD-1e18 accumulator. 1e12 under-count ⇒ the LP's
+leverage is torn down repeatedly and the book credits ~0. `LevManager.sol:710` two functions away is the
+in-tree precedent that converts.
+**F13** mode-2 pays the deliberate +1.0101% over-withdraw buffer to the redeem sink out of LP collateral
+(the WBTC mirror returns it to the LP). **F14** `_closeLev` has no post-condition on the repay while its
+sibling `_deleverOne:464` does — and under §POOL-VENUE an LP can exit with all collateral while its debt
+stays socialised. **F9** `_pricingBacking` leaves `total += totalLevPooled` INSIDE the `try`, so a
+reverting `totalNetEquity` understates by the whole levered book.
+
+### ⚠️ DOWNGRADED BY THE LANE ITSELF — do not spend a build on these without a second read
+**F4** — the harm is seniority DESTRUCTION, not value leaving (a `Math.min` clamp means nothing
+transfers); "1e12 tranche wipe" overstated it. **F5** — inert unless a stable is ACTIVELY depegged.
+**F8** — **RETRACT if the live roster is 11**: `SwapLib.sol:2457`'s `idx >= 12` guard cannot bite below
+12. **F6, F7, F10, F11 — SUBAGENT-SOURCED AND UNVERIFIED**, flagged as such rather than dressed up.
+
+### 🔑 THE TWO STRUCTURAL NOTES, WORTH MORE THAN ANY SINGLE FINDING
+1. **F1, F8 and F12 are one disease: a magic number derived from a roster or a unit that the FIXTURE
+   fixes and PRODUCTION does not.** The suite runs 11, the deploy asserts 14, the layout is
+   self-consistent only at 13. **The entire suite is green about a configuration that is never shipped,
+   and the shipped one has never been executed.**
+2. **Three of the four confirmed class-4 findings are TWINS THAT DISAGREE** — one sibling carries the
+   conversion or the guard and the other does not (`F12` vs `LevManager:710`; `F15` vs `repay:312`;
+   `F14` vs `_deleverOne:464`). **Same shape as §T9-SORT-NOT-ROLE. That is the cheapest place to keep
+   looking.**
+
+---
+
 ## 🔴🔴 §LPETH-FROM-THE-SORTED-FIELD — **THE LP'S ON-CHAIN IDENTITY IS DERIVED FROM A FIELD THAT IS THE HOP'S KEY HALF THE TIME. FAIL-OPEN.**
 
 Found 2026-09-09 sweeping the §T9-SORT-NOT-ROLE seam. **Every other mis-ordering in that family fails
