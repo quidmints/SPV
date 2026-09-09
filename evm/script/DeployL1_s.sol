@@ -229,8 +229,11 @@ contract Deploy is Script {
         // `uint[15]` contract: slot 0 is the yield-weighted sum across all sources (the basket-share
         // "meta"), slots 1..N are the per-token deposits where `N = stables.length - 1` because BOLD
         // is filled in Aux, and slot 14 is the raw TVL total. At 14 stables that is 1..13 — EXACTLY
-        // full. A 15th would write slot 14 and silently overwrite the total `FeeLib.calcFeeL1`
-        // divides by. Do not add one without widening the arrays first.
+        // full. A 15th would write slot 14 and silently overwrite the total that
+        // `BasketLib.computeMetrics` divides by for `metrics.yield`. Do not add one without widening
+        // the arrays first. (This cited `FeeLib.calcFeeL1` as the divisor until that function was
+        // deleted 2026-09-09 for having zero production callers; the CEILING is unchanged — only its
+        // consumer is, and `computeMetrics` is the live one.)
 
         vm.startBroadcast(deployerPrivateKey);
 
@@ -258,7 +261,7 @@ contract Deploy is Script {
         require(STABLECOINS.length == VAULTS.length, "stables/vaults: positional pairing broken");
         // §14-STABLES — the `uint[15]` layout is EXACTLY full at 14 stables (slot 0 = yield-weighted sum,
         // 1..13 per-token, 14 = TVL total). A 15th writes slot 14 and silently overwrites the total that
-        // `FeeLib.calcFeeL1` divides by, so this is the one place the ceiling can be made loud.
+        // `BasketLib.computeMetrics` divides by, so this is the one place the ceiling can be made loud.
         require(STABLECOINS.length == 14, "stables: 14 is the uint[15] layout maximum");
         // GHO and USDG route through AAVE v4 (their native venue), not
         // Morpho 4626 vaults — their slots above are address(0)

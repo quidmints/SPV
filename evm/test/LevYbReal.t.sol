@@ -42,7 +42,7 @@ contract RealRateMorphoOracle {
 // It reads the SAME real Chainlink ETH/USD the crash mock drives, so the short's Morpho health and
 // the sizing move together as the fork feed is stepped.
 
-/// @notice REAL-FORK proof of the YB IL-protect production swap route. Proves the folded `LevManager` legs
+///  at notice REAL-FORK proof of the YB IL-protect production swap route. Proves the folded `LevManager` legs
 ///   perform a genuine stable↔weETH round-trip over LIVE markets — caller-funded SOR (stable→WETH via the
 ///   basket's real Uniswap-ETH hops) + ether.fi adapter mint UP / v3-pool sale DOWN (WETH↔weETH) — NOT our internal
 ///   range. (No sims; the bespoke RealWeethSwapper is gone, folded into LevManager.)
@@ -217,7 +217,7 @@ contract LevYbRealProbe is AllesFixture {
 
     function _entryPrice(LevManager m, address lp) internal view returns (uint s) { ( , , , s, ) = m.pos(lp); }
 
-    /// @notice The OPEN only — no rally, no rebalance, so the position sits at the ZERO LEVERAGE every
+    ///  at notice The OPEN only — no rally, no rebalance, so the position sits at the ZERO LEVERAGE every
     ///         `openLev` starts from (`LevManager.sol:253-258`: the lever-up ladder is unreachable at
     ///         open because `ilBasisPx == pxNow`). Split out of `_openLp` for §M.1, which needs the
     ///         pooled position observable BEFORE anything levers it.
@@ -301,7 +301,7 @@ contract LevYbRealProbe is AllesFixture {
             "control: with debt the call REACHES the try and announces a skip, so the branch keys on debt");
     }
 
-    /// @dev §M.1 discriminator — count `DeliverDeleverSkipped` in a recorded log set.
+    ///  at dev §M.1 discriminator — count `DeliverDeleverSkipped` in a recorded log set.
     function _countSkips(Vm.Log[] memory logs) internal pure returns (uint n) {
         bytes32 sig = keccak256("DeliverDeleverSkipped(address,uint256,bool)");
         for (uint i; i < logs.length; i++) if (logs[i].topics.length > 0 && logs[i].topics[0] == sig) n++;
@@ -346,7 +346,7 @@ contract LevYbRealProbe is AllesFixture {
         emit log_named_uint("M.1b actually deliverable (wei)    ", delivered);
     }
 
-    /// @notice §M.1 second half — the function that closes the hole actually closes it.
+    ///  at notice §M.1 second half — the function that closes the hole actually closes it.
     ///         If this passes, `swapOutDeliverUnlevered` is load-bearing and must NOT be deleted.
     function testReal_M1_UnleveredDeliveryClosesTheHole() public {
         _setupMorpho();
@@ -365,7 +365,7 @@ contract LevYbRealProbe is AllesFixture {
         assertLt(rvenue.collateralOf(LP), coll0, "and it comes out of the LP's own venue collateral");
     }
 
-    /// @notice #55/#1 fork proof: the levered slice is STRUCTURALLY excluded from the VENUE-yield
+    ///  at notice #55/#1 fork proof: the levered slice is STRUCTURALLY excluded from the VENUE-yield
     ///         denominator. Post-fix, Morpho WETH appreciation accrues into a SEPARATE accumulator
     ///         (venueFeesPerShare) over PLAIN depth (lpShares - totalLevPooled), paid on weight
     ///         (pooled - levPooled) -- so the lev slice + debt-funded buffer can never skim plain
@@ -396,7 +396,7 @@ contract LevYbRealProbe is AllesFixture {
         assertGe(AUX.rangeETH(), AUX.deliverableETH(), "rangeETH (incl lev) >= deliverableETH (excl lev)");
     }
 
-    /// @notice FULL real-venue e2e: a real Morpho Blue market (permissionless createMarket + live IRM) +
+    ///  at notice FULL real-venue e2e: a real Morpho Blue market (permissionless createMarket + live IRM) +
     ///   the folded `LevManager` swap legs + `MorphoEscrowVenue`. Opens a weETH-collateral leveraged
     ///   position (real Morpho borrow + real Uniswap weETH buy), then crashes the mark and de-levers — proving
     ///   the adapter's Morpho-authorization + position/borrow/repay/withdraw semantics against the LIVE contract.
@@ -445,10 +445,10 @@ contract LevYbRealProbe is AllesFixture {
         assertLt(rvenue.collateralOf(LP), coll0, "de-lever must withdraw real Morpho collateral");
     }
 
-    /// @notice Capstone #10: real range + real Morpho Blue + REAL liquidation
+    ///  at notice Capstone #10: real range + real Morpho Blue + REAL liquidation
     ///   driven by the live Chainlink feed, basket isolation proven. Morpho liquidation is atomic (no
     ///   liquidator-health deferral, no EVC), so the liquidator just repays + seizes in one call.
-    /// @notice 🔬 §LIQ-PENALTY-PROBE — **DOES THE OVER-CLAIM TRACK THE LIQUIDATED FRACTION?**
+    ///  at notice 🔬 §LIQ-PENALTY-PROBE — **DOES THE OVER-CLAIM TRACK THE LIQUIDATED FRACTION?**
     ///   `testReal_Morpho_LiquidationLeavesBasketIntact` is red by `POOLED − rangeETH − levBuf` =
     ///   0.004915 ETH. Since `rangeETH = tokens + net` and `levBuf = gross − net`, that residual is
     ///   `POOLED − tokens − gross`: the book claiming more than the ETH custodied plus the gross
@@ -459,7 +459,7 @@ contract LevYbRealProbe is AllesFixture {
     ///   liquidation at all, the penalty cannot be the cause and the defect is upstream — in the
     ///   fixture or in the book itself. Owner, 2026-09-08: *"maybe its a problem in the tests
     ///   themselves"*. That arm is the control, and it is why this is four tests and not three.
-    /// @dev Returns SIGNED: negative means slack (the invariant holds), positive means over-claim.
+    ///  at dev Returns SIGNED: negative means slack (the invariant holds), positive means over-claim.
     function _residualAtFraction(uint numer, uint denom) internal returns (int256) {
         _setupMorpho();
         EV.setLevManager(address(rlm));
@@ -492,7 +492,7 @@ contract LevYbRealProbe is AllesFixture {
         emit log_named_int ("  RESIDUAL (+ = over-claim)", residual);
         return residual;
     }
-    /// @notice 🔬 §CALMVOL-LEG-SPLIT — **WHICH OF `_calmVol`'s THREE MOVEMENTS IS UNMATCHED?**
+    ///  at notice 🔬 §CALMVOL-LEG-SPLIT — **WHICH OF `_calmVol`'s THREE MOVEMENTS IS UNMATCHED?**
     ///   `_calmVol` moved the residual by +0.005358 ETH and it does THREE things per iteration, not
     ///   two: a DRAIN (USD in, ETH out), a SELL (ETH in, USD out), and a FEED RESET
     ///   (`_setEthFeed(px/1e10)` after a warp). Each arm below does exactly one of them, from the same
@@ -511,9 +511,9 @@ contract LevYbRealProbe is AllesFixture {
     function _res() internal returns (int256) {
         return int256(CORE.POOLED()) - int256(AUX.rangeETH()) - int256(ETH.levBuf(LP));
     }
-    /// @notice 🔴 §GATE-0d **`_res()` IS NOT CUSTODY-ONLY, AND THAT IS WHY THE "CONSERVATION LAW"
+    ///  at notice 🔴 §GATE-0d **`_res()` IS NOT CUSTODY-ONLY, AND THAT IS WHY THE "CONSERVATION LAW"
     ///   BELOW BREAKS — THE MISSING TERM IS A PRICE, NOT A LEAK.** Measured in the code, not inferred:
-    ///     · `QuidLib._rangeETH` (`imports/QuidLib.sol:511`) ends with
+    ///     · `QuidLib._rangeETH` (`imports/QuidLib.sol:535`) ends with
     ///       `try ILevEquity(c.levManager).totalNetEquity() returns (uint n) { total += n; }`
     ///     · `LevBase.totalNetEquity` (`imports/LevBase.sol:860`) returns
     ///       `LevMath.netEquityBase(coll, debtUsd, AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW))`
@@ -524,22 +524,50 @@ contract LevYbRealProbe is AllesFixture {
     ///   retainedEthPremium` **moves whenever the price moves, with zero custody change and no swap
     ///   at all** — it was never a conservation law, and the docblock two functions up already named
     ///   this as *"a suspect, not a control"* without ever discharging it.
+    /// ⚠️ §GATE-0e — **TRUE, AND NOT THE ANSWER. READ `_conserved`'s §GATE-0e BLOCK BEFORE ACTING ON
+    ///   THIS ONE.** This paragraph is a correct statement about the TWO-TERM form's units. It was
+    ///   then read as a diagnosis of the red, and that step is measured false: the PRICE-FREE form
+    ///   drifts +8,851,099,790,484,588. Removing the price fixed the units and left the defect.
     /// ⭐ **THE FOUR ARM RESULTS ARE ALL EXPLAINED BY THIS ONE TERM, WHICH IS WHY IT IS THE ANSWER
     ///   AND NOT ANOTHER HYPOTHESIS.** `testReal_Identity_A_SellsWithWarps` never calls
     ///   `_setEthFeed`, so its price is FROZEN and it conserved TO THE WEI — that is evidence for a
-    ///   frozen premise, not for a law. `testReal_CalmLeg_C_FeedResetsOnly` read EXACTLY 0 because
+    ///   frozen premise, not for a law. ⚠️ §GATE-0e: "evidence about a frozen premise" is still the
+    ///   right reading of arm A, but it is NOT evidence that the drift elsewhere is a price — the
+    ///   price-free form drifts too (see `_conserved`). Arm A conserves because it never DRAINS, and
+    ///   the leak is on the drain leg. `testReal_CalmLeg_C_FeedResetsOnly` read EXACTLY 0 because
     ///   with no trades the TWAP never moved and the reset was a no-op (§21's classic fixture tell: a
     ///   zero where nothing could move). The drain and sell arms move the price a little and drift a
     ///   little; the INTERLEAVED arm, which re-pins the feed from the live TWAP on every iteration,
     ///   moves it most and drifts most. One term, monotone in how far the price travelled.
-    /// ⇒ **ADDING `totalNetEquity` BACK CANCELS IT EXACTLY**, because it is the same read: the sum is
-    ///   `POOLED − custodiedETH − levBuf + retainedEthPremium`, which contains no price. That IS the
-    ///   conservation law the identity was reaching for, stated in the units it always meant.
-    /// ⚠️ **UNVERIFIED — NOT RUN.** Derived from the three call sites above under a no-build
-    ///   constraint. If it still drifts, the per-swap emits name the residual and `d netEquity` is
-    ///   now among them; do not re-derive "accrual" (`testReal_CalmLeg_D` measured debt IDENTICAL
-    ///   across 96 minutes of warps) or "liquidation penalty" (§LIQ-PENALTY-REFUTED: identical to the
-    ///   wei at 0, 1/4, 1/2 and 3/4 liquidated, the ZERO arm included).
+    /// ⇒ **ADDING `totalNetEquity` BACK REMOVES THE PRICE**, because it is the same read: the sum is
+    ///   `POOLED − custodiedETH − levBuf + retainedEthPremium`, which contains no oracle price. That
+    ///   IS the quantity the identity was reaching for, stated in the units it always meant.
+    /// 🔴 §GATE-0e — **AND IT DOES NOT CANCEL THE DRIFT, SO THE PARAGRAPH ABOVE IS THE UNITS FIX AND
+    ///   NOT THE DIAGNOSIS. RUN, 2026-09-09.** `testReal_Identity_C_PerSwap` on THIS price-free form
+    ///   read `5,541,917,693,727,697,514 != 5,533,066,593,937,212,926` — **a drift of
+    ///   +8,851,099,790,484,588 in a sum with no price in it.** The previous docblock's
+    ///   *"UNVERIFIED — NOT RUN"* is discharged, and it is discharged AGAINST the hypothesis: a form
+    ///   from which the oracle term has been algebraically removed cannot drift *because of* the
+    ///   oracle term. ⛔ Do not re-derive "the identity was never conservable": whatever it is, it is
+    ///   not the price.
+    ///   ⚠️ Do NOT compare this figure to the pre-fix +7,902,915,315,233,459 by subtraction to
+    ///   recover Δ`netEquity`. `ForkPin` leaves `FORK_BLOCK` UNSET by default (latest block), so two
+    ///   runs are two different chain states; the `d netEquity` COLUMN in the loop is the
+    ///   within-run read and is the only admissible one.
+    /// ⭐ **WHAT IT IS INSTEAD — A CUSTODY LEAK ON THE DRAIN LEG, and the exact term is named in
+    ///   `testReal_GATE0e_DrainDeliversExactlyThePooledDebit` below**: `QuidLib.sendEth:469-470`
+    ///   unwraps and sends Quid's WHOLE idle WETH balance rather than `needed`, while `POOLED` is
+    ///   debited only `howMuch` (`Core._handleDelta:1222`). ⇒ ETH LEAVES that the book never
+    ///   debited, so `POOLED − custody` RISES — positive, which is the sign every failing arm has
+    ///   and the sign the retained premium (a monotone ≥ 0 counter) structurally cannot produce.
+    /// ⛔ Do not re-derive "accrual" (`testReal_CalmLeg_D` measured debt IDENTICAL across 96 minutes
+    ///   of warps) or "liquidation penalty" (§LIQ-PENALTY-REFUTED: identical to the wei at 0, 1/4,
+    ///   1/2 and 3/4 liquidated, the ZERO arm included).
+    /// ⚠️ ONE TERM IN HERE IS GENUINELY NOT CONSERVED AND IS THREE ORDERS TOO SMALL TO BE THE RED:
+    ///   `rangeETH` values weETH at `getEETHByWeETH` (`QuidLib:505`), an ether.fi rate that RATCHETS
+    ///   (+0.674 bps/day, `QuidLib.supplyVenueBody:672`). Over this arm's 96 warped minutes that is
+    ///   ~4.5e-6 of the weETH leg — order 1e13 against a 8.85e15 red. Real, expected, not the cause;
+    ///   if this ever lands within an order of magnitude of the drift, THEN it needs a tolerance.
     function _conserved() internal returns (int256) {
         return _res() + int256(rlm.totalNetEquity()) + int256(CORE.retainedEthPremium());
     }
@@ -557,7 +585,7 @@ contract LevYbRealProbe is AllesFixture {
         emit log_named_uint("   retainedEthPremium    ", prem);
         emit log_named_int ("   residual + premium (0?)", res + int256(prem));
     }
-    /// @notice ⭐ §PREMIUM-READABLE — **THE REAL IDENTITY, AND IT IS A CONSERVATION LAW.**
+    ///  at notice ⭐ §PREMIUM-READABLE — **THE REAL IDENTITY, AND IT IS A CONSERVATION LAW.**
     ///   `POOLED − rangeETH − levBuf + retainedEthPremium` is INVARIANT across the sell path.
     ///   MEASURED, to the wei: the residual fell from −577,021,548,053,173 to
     ///   −6,788,994,715,881,832 while `retainedEthPremium` rose 0 → 6,211,973,167,828,659, and the
@@ -567,13 +595,18 @@ contract LevYbRealProbe is AllesFixture {
     ///   retained premium. Every sell widens it, so the assertion measures how much premium has been
     ///   taken, not whether LPs are covered — and Γ moves it because Γ sizes the premium.
     /// 🔴 §GATE-0d **AND THE SLACK HAS A SECOND TERM THIS DOCBLOCK MISSED, WHICH IS A PRICE.**
-    ///   `rangeETH` adds `totalNetEquity` = `coll − debtUsd·1e18/price` (`QuidLib:511` →
+    ///   `rangeETH` adds `totalNetEquity` = `coll − debtUsd·1e18/price` (`QuidLib:535` →
     ///   `LevBase:860` → `LevMath:399`), so the sum above is only invariant while the ORACLE IS
     ///   FROZEN — and this arm never calls `_setEthFeed`, so it is. **"Conserved to the wei" here is
     ///   evidence about the premise, not about the law**, and `testReal_Identity_C_PerSwap`, which
-    ///   re-pins the feed every iteration, breaks it by ~0.0079 ETH for exactly that reason. The
-    ///   price-free form is `_conserved()`; read its docblock before treating any residual on this
-    ///   quantity as a leak.
+    ///   re-pins the feed every iteration, breaks it by ~0.0079 ETH. The price-free form is
+    ///   `_conserved()`; read its docblock before treating any residual on this quantity as a leak.
+    /// 🔴 §GATE-0e — **AND "for exactly that reason", which this line used to claim, IS FALSE.** The
+    ///   price-free form drifts +8,851,099,790,484,588 on the same arm. What actually separates arm
+    ///   A from arm C is not the feed reset but the DRAIN: arm A only sells, and the leak
+    ///   (`QuidLib.sendEth:469-470` over-delivering Quid's parked idle WETH) is on the delivery leg,
+    ///   which a sell never reaches. Arm A conserving to the wei is therefore consistent with the
+    ///   defect, not evidence against it.
     /// ⇒ so `rangeETH + levBuf >= POOLED` is not merely "not a solvency check" — **its margin also
     ///   moves with the ETH price at constant custody**, which is what makes asserting it as a LEVEL
     ///   (as `testReal_Morpho_LiquidationLeavesBasketIntact` does) fail for reasons unrelated to the
@@ -595,7 +628,7 @@ contract LevYbRealProbe is AllesFixture {
         assertEq(_res() + int256(CORE.retainedEthPremium()), inv0,
             "POOLED - rangeETH - levBuf + retainedEthPremium is CONSERVED across sells");
     }
-    /// @notice 🔬 §IDENTITY-PER-SWAP — **WHICH SWAP BREAKS CONSERVATION, AND BY HOW MUCH.** Sells alone
+    ///  at notice 🔬 §IDENTITY-PER-SWAP — **WHICH SWAP BREAKS CONSERVATION, AND BY HOW MUCH.** Sells alone
     ///   conserve `POOLED − rangeETH − levBuf + retainedEthPremium` to the wei; interleaving drains
     ///   with them breaks it by ~0.00808 ETH, yet drains ALONE are −9 wei and drains+warps +376e9.
     ///   ⇒ it is drains in a state the sells created, so the invariant is printed after EVERY swap
@@ -608,10 +641,26 @@ contract LevYbRealProbe is AllesFixture {
     ///   `totalNetEquity = coll − debtUsd·1e18/price` — and **this arm is the only Identity arm that
     ///   re-pins the Chainlink mock from the live TWAP on every iteration** (`_setEthFeed(px/1e10)`,
     ///   in the loop below). Arm A has the same swaps and no feed reset and conserves to the wei.
-    ///   ⇒ **NOT A DEFECT AND NOT A LEAK: the asserted quantity was never conservable.** The
-    ///   assertion below now uses the price-free form; `_conserved()` carries the derivation and the
-    ///   three call sites. The old two-term sum is still emitted per swap so the price term is
-    ///   visible rather than inferred.
+    ///   ⇒ the assertion below uses the price-free form; `_conserved()` carries the derivation and
+    ///   the three call sites, and the old two-term sum is still emitted per swap so the price term
+    ///   is visible rather than inferred.
+    /// 🔴 §GATE-0e — **THE CONCLUSION THAT USED TO END THAT PARAGRAPH — *"NOT A DEFECT AND NOT A
+    ///   LEAK: the asserted quantity was never conservable"* — IS MEASURED FALSE, AND IT IS THE
+    ///   SECOND WRONG MECHANISM THIS ROW HAS PUBLISHED.** Run 2026-09-09 on the price-free form:
+    ///   `5,541,917,693,727,697,514 != 5,533,066,593,937,212,926`, **+8,851,099,790,484,588 of drift
+    ///   in a sum the oracle price has been algebraically removed from.** A price cannot be the cause
+    ///   of a drift in a quantity that contains no price. The feed-reset ASYMMETRY between this arm
+    ///   and arm A is real and was correctly observed; the INFERENCE from it was wrong, because the
+    ///   feed reset is not the only thing the interleave adds — it also alternates a SELL (which
+    ///   parks idle WETH at Aux) with a DRAIN (which sweeps that WETH into Quid and then over-sends
+    ///   the parked remainder on its next pass). See `_conserved`'s §GATE-0e block for the two
+    ///   `src` lines and `testReal_GATE0e_DrainDeliversExactlyThePooledDebit` for the single-swap
+    ///   measurement that decides it without any setup constant in the way.
+    /// ▶️ **LEFT ASSERTING. The assertion is CORRECT and its red is the finding** — the law it states
+    ///   is conservable (custody in, custody out, premium netted) and the protocol is breaking it.
+    ///   ⛔ Do not relax it to a tolerance to green the row: the drift is ~0.0089 ETH, which is
+    ///   400x the only legitimately-unconserved term in the sum (the weETH ratchet, ~1e13 — see
+    ///   `_conserved`), so no honest tolerance covers it.
     function testReal_Identity_C_PerSwap() public {
         _setupToRebalanced();
         deal(address(USDC), address(this), 20_000 * USDC_PRECISION);
@@ -643,6 +692,14 @@ contract LevYbRealProbe is AllesFixture {
             // already wide.
             emit log_named_int("   d netEquity (the price term)", int256(rlm.totalNetEquity()) - int256(pN));
             emit log_named_int("   d INVARIANT (0 = conserved)", _conserved() - prev);
+            // §GATE-0e — WHERE THE ETH ACTUALLY IS, per swap. The drift below is a CUSTODY
+            // movement, so the WETH legs are what name it: a drain that has to pull sweeps ALL of
+            // Aux's idle WETH into Quid (`QuidLib.withdrawETH:698-701`) and serves only `out` from
+            // it, and the NEXT drain unwraps and sends the whole parked remainder
+            // (`QuidLib.sendEth:469-470`). Read as a pair: `WETH @ Aux` collapsing to 0 while
+            // `WETH @ Quid` jumps is the sweep; `WETH @ Quid` collapsing to 0 on a DRAIN whose
+            // invariant line jumps by roughly that same amount is the over-send.
+            _custody(i % 2 == 0 ? "DRAIN" : "SELL ");
             prev = _conserved();
             pP = CORE.POOLED(); pR = AUX.rangeETH(); pB = ETH.levBuf(LP); pX = CORE.retainedEthPremium();
             pN = rlm.totalNetEquity();
@@ -755,7 +812,90 @@ contract LevYbRealProbe is AllesFixture {
         emit log_named_int("FEED ONLY    DELTA          ", _res() - r0);
     }
 
-    /// @notice 🔬 §LIQ-PENALTY-REFUTED → **WHERE DOES THE CONSTANT OFFSET ENTER?** The fraction sweep
+    ///  at notice 🔎 §GATE-0e — **THE CUSTODY INSTRUMENT.** Every identity arm above measures the GAP
+    ///   (`POOLED − rangeETH − levBuf`) and none of them shows WHERE the ETH is, so a gap that opens
+    ///   because ETH LEFT looks identical to one that opens because the book grew. These four
+    ///   numbers separate the two: `rangeETH` is `weETH at Quid + WETH at Quid + WETH at Aux + eETH at both +
+    ///   totalNetEquity` (`QuidLib._rangeETH:502-537`), so printing the raw legs shows the WETH
+    ///   travelling Aux → Quid → out. ⚠️ Quid's NATIVE balance is printed too and it is NOT in
+    ///   `rangeETH` — `_rangeETH` counts the WETH ERC20 only, so any ether left unwrapped at Quid is
+    ///   backing the book cannot see.
+    function _custody(string memory tag) internal {
+        emit log_named_string("CUSTODY at", tag);
+        emit log_named_uint("   WETH @ Aux  ", WETH.balanceOf(address(AUX)));
+        emit log_named_uint("   WETH @ Quid ", WETH.balanceOf(address(ETH)));
+        emit log_named_uint("   native @ Quid (NOT in rangeETH)", address(ETH).balance);
+        emit log_named_uint("   weETH @ Quid", IERC20R(WEETH).balanceOf(address(ETH)));
+    }
+
+    ///  at notice ⭐ §GATE-0e — **THE DECISIVE FALSIFIER FOR BOTH GATE-0 REDS, AND IT IS A DELIVERY
+    ///   MEASUREMENT RATHER THAN AN IDENTITY.** Both reds say one thing in two units: the book
+    ///   (`POOLED`) claims more than the custody behind it. Every arm above measured the GAP; this
+    ///   measures the ONE event that can open it — a drain — and compares what the swapper actually
+    ///   RECEIVED against what `Core._handleDelta` (`Core.sol:1222`) actually DEBITED from `POOLED`.
+    ///   Those two are equal BY CONSTRUCTION on the book's side (`POOLED -= tokAmount;
+    ///   RANGE.deliverVolatile(tokAmount, who)` — one number, used twice), so any difference is the
+    ///   delivery ladder paying out something the book never debited.
+    /// 🔴 **THE MECHANISM THIS IS BUILT TO CATCH, READ OFF THE CODE AND NOT INFERRED FROM THE RED:**
+    ///   `QuidLib.sendEth` (`imports/QuidLib.sol:453-474`) sizes its venue PULL by `needed` but
+    ///   sizes its UNWRAP AND SEND by the whole balance:
+    ///        `if (needed > inWETH) { inWETH += rangeOp(needed - inWETH, 1); ... }`
+    ///        `IWETH9(weth).withdraw(inWETH); sent = inWETH + alreadyInETH;`
+    ///   When Quid already holds `inWETH >= needed` the top-up is skipped and the line after it
+    ///   unwraps and sends **all of it** — `sent > howMuch`, with `POOLED` debited only `howMuch`.
+    /// ⭐ **AND QUID RELIABLY HOLDS THAT EXCESS, WHICH IS WHY THIS NEEDS THE INTERLEAVE:**
+    ///   `QuidLib.withdrawETH:698-701` sweeps the ENTIRE idle WETH balance out of Aux
+    ///   (`transferFrom(c.aux, address(this), auxIdle)`, unconditional and uncapped) and then serves
+    ///   only `amount` from it, so every drain that has to pull leaves `auxIdle − amount` parked at
+    ///   Quid for the NEXT drain to dump. A SELL is what puts idle WETH at Aux in the first place.
+    ///   ⇒ drains alone cannot show it (nothing at Aux to sweep: measured −9 wei), sells alone
+    ///   cannot show it (no delivery at all: measured −450e12, the premium direction), and the
+    ///   INTERLEAVED arm shows it — which is exactly the arm pattern §CALMVOL-LEG-SPLIT recorded and
+    ///   could not explain.
+    /// ⛔ ASSERTED AS AN EQUALITY ON ONE SWAP, NOT AS A LEVEL ON A SUM. There is no setup constant in
+    ///   it, no oracle price in it and no premium in it: a drain's premium is charged in DOLLARS
+    ///   (`retainSkewPremium(..., false)`, `SwapLib:458`) and never touches the wei leg. So unlike
+    ///   the identity arms this cannot fail for a second reason.
+    function testReal_GATE0e_DrainDeliversExactlyThePooledDebit() public {
+        _setupToRebalanced();
+        deal(address(USDC), address(this), 20_000 * USDC_PRECISION);
+        USDC.approve(address(AUX), 20_000 * USDC_PRECISION);
+        vm.deal(address(this), 20 ether);
+        _custody("after setup");
+
+        // (1) A SELL parks idle WETH at Aux. Deliberately larger than a drain's ETH leg, so the
+        //     sweep in step (2) leaves a remainder big enough to be unmistakable.
+        try AUX.swap{value: 0.05 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch {}
+        _custody("after 1 sell (WETH should sit at Aux)");
+
+        // (2) A DRAIN pulls, which sweeps ALL of Aux's idle WETH into Quid and serves `out` from it.
+        vm.warp(block.timestamp + 6 minutes); vm.roll(block.number + 1);
+        try AUX.swap(address(USDC), address(WETH), true, 30 * USDC_PRECISION, 0, true) {} catch {}
+        _custody("after drain #1 (the sweep)");
+
+        // PREMISE (rule 21): the state under test must actually exist. If Quid holds no excess WETH
+        // the over-send branch is unreachable and the swap below proves nothing either way.
+        uint parked = WETH.balanceOf(address(ETH));
+        emit log_named_uint("PREMISE idle WETH parked at Quid", parked);
+
+        // (3) THE MEASUREMENT. Second drain, with the excess already at Quid.
+        vm.warp(block.timestamp + 6 minutes); vm.roll(block.number + 1);
+        uint ethBefore    = address(this).balance;
+        uint pooledBefore = CORE.POOLED();
+        try AUX.swap(address(USDC), address(WETH), true, 30 * USDC_PRECISION, 0, true) {} catch {}
+        uint received = address(this).balance - ethBefore;
+        uint debited  = pooledBefore - CORE.POOLED();
+        _custody("after drain #2 (the measurement)");
+        emit log_named_uint("GATE-0e ETH RECEIVED by the swapper", received);
+        emit log_named_uint("GATE-0e POOLED DEBITED by the book ", debited);
+        // CONTROL: a swap that did not land debits nothing, and 0 == 0 would pass vacuously.
+        assertGt(debited, 0, "CONTROL: the drain must have landed (try/catch is silent)");
+        assertEq(received, debited,
+            "a drain must deliver EXACTLY what it debits from POOLED (sendEth sends the whole "
+            "idle WETH balance, not `needed` -- QuidLib.sendEth:469-470)");
+    }
+
+    ///  at notice 🔬 §LIQ-PENALTY-REFUTED → **WHERE DOES THE CONSTANT OFFSET ENTER?** The fraction sweep
     ///   returned 4,780,507,795,264,422 IDENTICAL TO THE WEI at 0, 1/4, 1/2 and 3/4 liquidated —
     ///   including the zero arm. A penalty must scale; this does not, and it is present with no
     ///   liquidation at all. ⇒ the residual is a FIXED accounting offset introduced during SETUP.
@@ -897,12 +1037,12 @@ contract LevYbRealProbe is AllesFixture {
         //    liquidation test, and it gates GATE 0 on a question this test cannot answer.
         // ⛔ **AND `testReal_Identity_A_SellsWithWarps` ALREADY RULES OUT ASSERTING IT AS A LEVEL:**
         //    *"ASSERTED ON THE DELTA, NOT ON A LEVEL … pinning the level would fold that unknown
-        //    into this one and make the test fail for two reasons at once."* This is that, measured.
-        //    The slack in `rangeETH + levBuf − POOLED` is the retained premium **plus a PRICE** —
-        //    `rangeETH` adds `totalNetEquity = coll − debtUsd·1e18/price` (`QuidLib:511` →
+        //    into this one and make the test fail for two reasons at once."* The slack in
+        //    `rangeETH + levBuf − POOLED` does carry the retained premium **plus a PRICE** —
+        //    `rangeETH` adds `totalNetEquity = coll − debtUsd·1e18/price` (`QuidLib:535` →
         //    `LevBase:860` → `LevMath:399`) — and `_realignRangeToReal()` two lines up re-pins that
-        //    price to whatever the live Chainlink feed says on the fork of the day. **So the margin
-        //    this line asserts moves with the ETH price at constant custody.**
+        //    price to whatever the live Chainlink feed says on the fork of the day, so the margin
+        //    this line asserts does move with the ETH price at constant custody.
         // ▶️ **LEFT ASSERTING, DELIBERATELY, BECAUSE IT IS A MONEY PATH AND WEAKENING IT UNRUN WOULD
         //    BE THE CLAMP RULE 3 FORBIDS.** The one run that resolves it is already instrumented and
         //    is the `LANDED /16` line below: `_calmVol` wraps its 16 swaps in `try {} catch {}`, so a
@@ -910,6 +1050,29 @@ contract LevYbRealProbe is AllesFixture {
         //    `POOLED` by its whole size while venue-held `rangeETH` does not follow. **< 16 ⇒ fixture
         //    artifact of the swallowed revert (§E71-r3's booked class, "NO try/catch and NO minOut=0
         //    mask"). == 16 ⇒ a real book-versus-backing divergence and this red blocks.**
+        // 🔴 §GATE-0e — **THAT RULE HAS FIRED. MEASURED 2026-09-09: `LANDED /16 : 16`. ALL SIXTEEN
+        //    SWAPS LANDED, SO THIS IS THE `== 16` BRANCH AND THIS RED BLOCKS.** The fresh read is
+        //    `4,954,382,427,544,033,255 < 4,959,902,645,173,293,749` — backing short of the claim by
+        //    **5,520,217,629,260,494**. The price defence above does NOT cover it, and the
+        //    falsification is on the sibling row rather than on a story: `testReal_Identity_C_PerSwap`
+        //    drifts +8,851,099,790,484,588 on `_conserved()`, a form the oracle term has been
+        //    ALGEBRAICALLY REMOVED from. Same fixture (`_calmVol`'s interleave), same sign, same
+        //    order of magnitude, and no price in it.
+        // ⭐ **THE TERM, NAMED: `QuidLib.sendEth` (`imports/QuidLib.sol:469-470`) DELIVERS MORE ETH
+        //    THAN THE BOOK DEBITS.** It sizes the venue pull by `needed` but the unwrap and the send
+        //    by the whole balance — `IWETH9(weth).withdraw(inWETH); sent = inWETH + alreadyInETH;`
+        //    with no `min(inWETH, needed)` — so whenever Quid already holds `inWETH >= needed` the
+        //    top-up branch is skipped and the swapper receives Quid's ENTIRE idle WETH balance while
+        //    `Core._handleDelta:1222` debits `POOLED` by `tokAmount` alone. Quid reliably holds that
+        //    excess because `QuidLib.withdrawETH:698-701` sweeps ALL of Aux's idle WETH in
+        //    (uncapped) and serves only `amount` from it. A SELL is what puts idle WETH at Aux ⇒ it
+        //    takes the INTERLEAVE to open, which is exactly why drains-alone read −9 wei and
+        //    sells-alone read the premium direction (§CALMVOL-LEG-SPLIT's unexplained result).
+        // ⇒ **SO THIS ASSERTION IS DOING ITS JOB, NOT FAILING FOR AN UNRELATED REASON.** `POOLED`
+        //    over `rangeETH + levBuf` is real ETH that left custody without leaving the book. The
+        //    single-swap proof, with no setup constant and no price in it, is
+        //    `testReal_GATE0e_DrainDeliversExactlyThePooledDebit`.
+        // ⛔ THE FIX IS A MONEY PATH IN `src` AND IS NOT WRITTEN HERE.
         emit log_named_uint("calmVol swaps LANDED /16  ", _calmOk);
         emit log_named_uint("rangeETH + levBuf (backing)", AUX.rangeETH() + ETH.levBuf(LP));
         emit log_named_uint("POOLED            (claim)  ", CORE.POOLED());

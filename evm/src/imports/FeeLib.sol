@@ -16,13 +16,27 @@ import {IAggregatorV3, IAux} from "./Interfaces.sol";
 //    comment recording where the surface went.
 
 
-/// @title  FeeLib — protocol fee model + depeg-aware haircut helpers
+// ⚠️ NEVER WRITE AN AT-PREFIXED TAG NAME INSIDE THE PROSE OF A DOCBLOCK IN THIS FILE — IT IS HOW
+//    ONE BLOCK HERE BROKE THE BUILD TWICE, THE SECOND TIME IN THE SENTENCE WARNING ABOUT THE FIRST.
+//    solc parses an at-word as a natspec TAG wherever it appears, not only at the start of a line,
+//    and backticks do not escape it: the tag name simply absorbed the closing backtick. The failure
+//    reads `Documentation tag ... not valid for functions` and points at the FIRST line of the
+//    docblock, tens of lines above the offending word, so it names neither the word nor the line.
+//    Spell such tags out in words — write "the notice tag", never the at-prefixed spelling, even
+//    inside backticks and even when warning about this. (Hoisted to file scope when the docblock
+//    that carried it went; the hazard is the file's, not that one declaration's.)
+
+/// @title  FeeLib — depeg-aware haircut helpers + shared fixed-point/withdraw bodies
 /// @notice Stripped of LMSR / prediction-market machinery (was several
 ///         hundred LOC of exp/log internals, market price/cost, weight
 ///         and payout calculations for the now-removed depeg market).
-///         The remaining surface is the fee/haircut math Aux uses on
-///         deposits and pro-rata withdrawals, plus the risk-discount
-///         factor consumed in Aux pricing paths.
+///         ⚠️ THE NAME OUTLIVED THE FEE. There is no outflow fee left in
+///         this library: the only charge on a deposit or a withdrawal is
+///         the depeg HAIRCUT (`grossUpForDepeg` × `calcRisk`), which is
+///         UNCAPPED because it is a pass-through of a realised loss, not
+///         a price. The rest of the surface is the risk-discount factor
+///         Aux prices with, the live depeg read, `decPow` (Core's flow
+///         EWMA decay) and the multi-venue 4626 withdraw body.
 library FeeLib {
 
     /// @dev x^n by binary exponentiation in 1e18 fixed point (Liquity _decPow).
@@ -57,14 +71,15 @@ library FeeLib {
 
     // baseRate (Liquity-style directional redemption velocity toll) + BR_DECAY/BR_MAX_MIN + touchBaseRate
 
+    // ⚠️ `public constant` IN A LIBRARY MINTS A GETTER SELECTOR, i.e. a dispatch entry on every
+    //    deployment. `DEPEG_DEADZONE_BPS` has ZERO `FeeLib.DEPEG_DEADZONE_BPS` reads in `src`,
+    //    `test` or `script` — its one consumer is `liveDepegBps` below, in this same library — so
+    //    `internal constant` would drop that entry with no source change anywhere else. Left
+    //    `public` only because narrowing it is an ABI change and must land under
+    //    `tools/check-client-abis.py`, not chained onto an unrelated commit.
     uint public constant DEPEG_DEADZONE_BPS = 50; // live-feed peg tolerance (bps);
                                             // below this a stable is "healthy" (absorbs
                                             // Chainlink's deviation range + heartbeat noise)
-    uint public constant BASE = 3;          // 0.03% baseline outflow fee (bps)
-    uint public constant MAX_FEE = 30;      // 0.3% cap on the composite outflow fee
-                                            // (the ether.fi-redeem-equivalent ceiling;
-                                            // the depeg HAIRCUT via calcRisk is separate
-                                            // and uncapped — fee ≠ pass-through loss)
 
     /// @notice Per-stable risk score in bps, sourced from the simplified
     ///         Link oracle. 0 if not depegged; otherwise the severity bps
@@ -81,67 +96,6 @@ library FeeLib {
             return 0;
         }
     }
-
-    /// ⚠️ NEVER WRITE AN AT-PREFIXED TAG NAME INSIDE THE PROSE OF A DOCBLOCK — IT IS HOW THIS
-    ///    BLOCK BROKE THE BUILD TWICE, THE SECOND TIME IN THE SENTENCE WARNING ABOUT THE FIRST.
-    ///    solc parses an at-word as a natspec TAG wherever it appears, not only at the start of a
-    ///    line, and backticks do not escape it: the tag name simply absorbed the closing backtick.
-    ///    The failure reads `Documentation tag ... not valid for functions` and points at the FIRST
-    ///    line of the docblock, tens of lines above the offending word, so it names neither the
-    ///    word nor the line. Spell such tags out in words — write "the notice tag", never the
-    ///    at-prefixed spelling, even inside backticks and even when warning about this.
-    /// @notice Composite L1 fee on draining `idx`-th stable, driven by the
-    ///         YIELD-vs-weighted-average BASELINE (this REPLACES the old
-    ///         risk-weighted concentration term).
-    ///
-    ///   baseline = basket weighted-average yield factor  = Σyieldᵢ / Σdepᵢ
-    ///   mine     = this stable's yield factor            = yieldᵢ / depᵢ
-    ///
-    ///         Draining a stable whose factor is ABOVE the basket average
-    ///         lowers that average, so it's taxed in proportion to the
-    ///         excess (the "reduces the weighted-average yield" measure).
-    ///         At/below average → BASE (cheap: draining it heals or is
-    ///         neutral to basket yield). A depegged stable's `yield` is
-    ///         already discounted upstream in get_deposits, which drags
-    ///         `mine` down to/under baseline → it lands at BASE here too,
-    ///         so "cheap to drain the bad collateral" is preserved with no
-    ///         separate risk term. All inputs are in memory (no vault re-
-    ///         read): `yields` is the per-stable yield-weighted array that
-    ///         get_deposits already computed.
-    /// 🔴 **ZERO PRODUCTION CALLERS, AND `public` — DEPLOYED BYTECODE NOTHING CAN REACH.** Every
-    ///     `calcFeeL1` occurrence in `src`/`script` is a COMMENT; the only executable references are
-    ///     in `test/Alles.t.sol`, calling it as a unit under test. Being `public` puts it in
-    ///     `FeeLib`'s `methodIdentifiers`, i.e. a dispatch entry on every deployment.
-    ///     ⇒ **VISIBILITY, NOT CALLER COUNT, IS WHAT MAKES AN UNWIRED FUNCTION COST BYTES**
-    ///     (contrast `SwapLib`'s parked quote surface — entirely `internal`, therefore free).
-    ///   • **TOMBSTONE, NOT A `create_sweep_tx` MARKER — `git log -S` RUN.** Its last production
-    ///     consumer was the concentration SHED-RANK, deleted deliberately by `4583a21e`
-    ///     (§E228/§E229, *"wrong in six ways, not one"*) taking `CONC_GATE_BPS` with it; `09fedf18`
-    ///     then deleted the SOR. A caller removed ON PURPOSE is a tombstone; a caller that is a
-    ///     security feature not yet written is a marker. Only the second is protected.
-    ///   • ▶️ **PLAN, FOR WHOEVER OWNS THE ABI GATE.** Delete `calcFeeL1` with its `Alles.t.sol`
-    ///     call sites and assertions; `BASE`/`MAX_FEE` stay (read by `grossUpForDepeg`'s
-    ///     neighbours). Then let `tools/check-client-abis.py` GATE the commit — a deleted declared
-    ///     name is an `ORPHAN` failure by design (§E154-client-ghosts), which is the signal wanted.
-    ///   • ⚠️ `BASE`, `MAX_FEE`, `DEPEG_DEADZONE_BPS` are `public constant`, which in a library
-    ///     mints a getter selector EACH, and there are ZERO `FeeLib.<name>` reads in `src`, `test`
-    ///     or `script` (tests assert the literal). `internal constant` drops three dispatch entries
-    ///     with no source change elsewhere. Same ABI-gate caveat.
-    function calcFeeL1(uint idx, uint[15] memory deps, uint[15] memory yields)
-        public pure returns (uint)
-    {
-        uint total = deps[14];
-        if (total == 0) return BASE;
-        uint myDep = deps[idx + 1];
-        if (myDep == 0) return BASE;
-        uint baseline = SoladyMath.fullMulDiv(deps[0], WAD, total);
-        uint mine     = SoladyMath.fullMulDiv(yields[idx + 1], WAD, myDep);
-        if (mine <= baseline) return BASE;
-        uint feeBps = SoladyMath.fullMulDiv(mine - baseline, 10000, WAD);
-        if (feeBps < BASE) return BASE;
-        return feeBps > MAX_FEE ? MAX_FEE : feeBps;
-    }
-
 
     // ⛔ A SECOND ORPHANED `@notice` STOOD HERE, AND IT WAS THE FIRST OF TWO ON ONE DECLARATION —
     //    THE EXACT DEFECT THE HEADER OF THIS FILE ALREADY RECORDS, REPEATED 130 LINES LOWER. It read
@@ -171,10 +125,10 @@ library FeeLib {
         return (sev > 0 && sev < 10000) ? SoladyMath.fullMulDiv(amount, 10000, 10000 - sev) : amount;
     }
 
-    /// @notice Gross-up the amount a depositor must send to net the
-    ///         requested amount after fee + depeg haircut. Aux uses this
-    ///         to compute the deposit size needed to honour a mint at
-    ///         book value when the target stable is currently discounted.
+    /// @notice Gross-up the amount a depositor must send to net the requested
+    ///         amount after the depeg haircut — the ONLY charge on this path.
+    ///         Aux uses this to compute the deposit size needed to honour a
+    ///         mint at book value when the target stable is currently discounted.
     function calcNeeded(address token, uint amount,
         uint[15] memory deps, uint[15] memory yields, FeeCtx memory c)
         external view returns (uint needed)
@@ -198,7 +152,12 @@ library FeeLib {
         needed = grossUpForDepeg(amount, calcRisk(token, c.range));
     }
 
-    /// @notice Apply fee + depeg haircut to a paid-out amount in one call.
+    /// @notice Apply the depeg haircut to a paid-out amount.
+    ///         ⚠️ THE NAME IS A HALF-TRUTH AND CANNOT BE FIXED HERE: it applies NO fee, because
+    ///         no outflow fee exists (the composite one this used to compose with was declared,
+    ///         never called, and is now deleted). The body is a single `grossUpForDepeg`.
+    ///         Renaming is an ABI change on an `external` library member, so it lands under
+    ///         `tools/check-client-abis.py` or not at all.
     function applyFeeAndHaircut(address token, uint idx,
         uint amount, uint[15] memory deps, uint[15] memory yields,
         address range) external view returns (uint)
@@ -212,9 +171,10 @@ library FeeLib {
         return grossUpForDepeg(amount, calcRisk(token, range));
     }
 
-    /// @notice Pro-rata allocation + fee + haircut in one call. Computes
+    /// @notice Pro-rata allocation + depeg haircut in one call. Computes
     ///         each slot's share of `totalAmount` proportional to
-    ///         slotDep/totalDep, then applies fee and haircut.
+    ///         slotDep/totalDep, then applies the haircut. No fee — see
+    ///         `applyFeeAndHaircut`'s note on the name.
     function allocate(address token, uint totalAmount, uint slotDep,
         uint totalDep, FeeCtx memory c) external view returns (uint amount)
     {
@@ -223,9 +183,14 @@ library FeeLib {
             SoladyMath.fullMulDiv(WAD, slotDep, totalDep), WAD);
         if (amount == 0) return 0;
         // Pro-rata draws the SAME fraction of every stable → the basket mix (and its weighted-avg yield) is
-        // unchanged → ZERO cherry-pick externality, so NO fee here.
-        // The contrast is WHY there is no fee here: the concentration signal is priced on the
-        // SINGLE-STABLE leg (`calcFeeL1`'s yield-vs-baseline), the only draw that can move the mix.
+        // unchanged → ZERO cherry-pick externality, so nothing to charge here.
+        // ⚠️ DO NOT READ THAT AS A CONTRAST WITH THE SINGLE-STABLE LEG — it used to be one and is
+        // not any more. The single-stable draw DOES move the mix and is ALSO uncharged: the
+        // yield-vs-baseline fee that priced it (`calcFeeL1`) was declared with zero production
+        // callers for its whole life and has been deleted. ⇒ **the cherry-pick externality is
+        // presently UNPRICED ON EVERY LEG**, which is a live product question (SPRINT §C2), not a
+        // property this function relies on. Nothing here needs to change if it is ever answered
+        // "yes, charge one" — the charge would land on the single-stable path, not on pro-rata.
         amount = grossUpForDepeg(amount, calcRisk(token, c.range));
     }
 

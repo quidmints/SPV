@@ -212,7 +212,7 @@ the outstanding senior seed tranche, excluded from redeemable TVL.
 **The basket** is fourteen stablecoins, each paired positionally with a yield venue
 (`DeployL1_s.sol:217-227`, `:236-253`). Fourteen is the layout maximum, not a round number: the
 accounting array is a `uint[15]` where slot 0 is the yield-weighted sum, slots 1..13 are per-token
-deposits and slot 14 is the raw TVL total that `FeeLib.calcFeeL1` divides by. A fifteenth stable
+deposits and slot 14 is the raw TVL total that `BasketLib.computeMetrics` divides by. A fifteenth stable
 would silently overwrite that total, which is why the deploy asserts
 `require(STABLECOINS.length == 14, ...)` at `DeployL1_s.sol:262`. The two arrays are positionally
 paired and **nothing else enforces it** (`:253`). BOLD must stay last — `Aux` pins
@@ -279,8 +279,8 @@ instance that owns that asset. Price comes from the pinned Chainlink anchor cros
 `getTWAPforAsset` (`:746`), and the band is recomputed by `updateBounds`. Fills settle **at oracle
 against inventory** — one price, no traversal, no discovery (`Core.sol:1423-1428`) — which is why a
 swap does not move `poolStats()`. The dynamic axis is `riskFactor`, per-stable depeg severity read
-live from that stable's pinned feed (`Aux.sol:231,240`). ⚠️ `calcFeeL1` is NOT charged anywhere —
-see §4.4. Every in-range USD add is gated by `committedUsd18() <= haircutTvl`, which is what
+live from that stable's pinned feed (`Aux.sol:231,240`). ⚠️ There is no outflow fee on this path at
+all — see §4.4. Every in-range USD add is gated by `committedUsd18() <= haircutTvl`, which is what
 keeps the two ranges jointly bounded. The recipient can be set explicitly so a holder blacklisted by
 a stable issuer can take proceeds at a fresh address (`Aux.sol:880-885`).
 
@@ -299,14 +299,15 @@ burn your own QU!D — the turn burns `msg.sender`'s mature batches (`Basket.tur
 recipient overload only retargets the payout. Redemption is always pro-rata across the basket. The
 only live charge on redemption is the **depeg haircut**, read per stable from its pinned Chainlink
 feed (`getDepegSeverityBps` → `liveDepegBps`, inside `redeemAsBody`). It is uncapped by design.
-⛔ **THERE IS NO OUTFLOW FEE. `FeeLib.calcFeeL1` IS DECLARED AND NEVER CALLED** — every reference to it
-in `evm/src` and `evm/script` is a comment, `FeeLib.sol:112` says so itself, and `:122` carries a plan
-to delete it. `BASE = 3` and `MAX_FEE = 30` (`imports/FeeLib.sol:63-64`) are read **only inside
-`calcFeeL1`**, at `:134-142`, so they are dead with it.
+⛔ **THERE IS NO OUTFLOW FEE, AND AS OF 2026-09-09 THERE IS NO CODE FOR ONE EITHER.** `FeeLib.calcFeeL1`
+was declared and never called — every reference in `evm/src` and `evm/script` was a comment, and the only
+executable callers were a unit test — so it was **deleted**, together with `BASE = 3` and `MAX_FEE = 30`,
+which nothing outside its body read. `grep calcFeeL1 evm/src evm/script` now returns nothing.
 📌 **THIS CORRECTS AN EARLIER VERSION OF THIS FILE, WRITTEN 2026-09-08**, which stated the redemption
-fee as "`BASE = 3` bps → `MAX_FEE = 30` bps plus an uncapped depeg haircut". The constants exist; the
-charge does not. A declared constant with a plausible name is not evidence of a live fee, and this is
-an outward-facing claim about what users pay.
+fee as "`BASE = 3` bps → `MAX_FEE = 30` bps plus an uncapped depeg haircut". The constants existed; the
+charge did not. A declared constant with a plausible name is not evidence of a live fee, and this is
+an outward-facing claim about what users pay. **Whether a drain tax SHOULD exist is open** — it is a
+product question, not a coding one, and it is booked as `SPRINT.md` §C2b.
 
 ### 4.5 Channel close
 

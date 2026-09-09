@@ -284,8 +284,10 @@ confirmations plus an on-chain splice fee, against roughly one block and no spli
 (`evm/src/imports/SwapLib.sol:944-946`). **We buy the service Uniswap gets free from arbitrageurs, at a
 stated price, from willing counterparties.**
 
-Redemptions pay three to thirty basis points (`FeeLib.BASE = 3`, `FeeLib.MAX_FEE = 30`,
-`evm/src/imports/FeeLib.sol:63-64`), shaped so the cheap exit is the one leaving the reserve healthier.
+Redemptions pay no fee. There were two constants named for one — three and thirty basis points — but the
+function that would have charged them was never wired to anything and both were deleted on 2026-09-09.
+The only charge on a redemption is the depeg haircut, which passes through a stablecoin's realised
+discount rather than pricing anything, and it is uncapped for that reason.
 The reserve is lent across Morpho, Aave, sDAI, sUSDe and Liquity's Stability Pool, which earns whether
 or not anyone trades, so a quiet month has no floor to fall through. The deposit-collateral product in
 Part 5 adds a fee shared with the surety, and it is worth more than its margin because it brings
@@ -769,10 +771,10 @@ loss just moves it onto whoever redeems next.
 
 ⛔ **THERE IS NO SECOND TERM, AND AN EARLIER VERSION OF THIS ANSWER SAID THERE WAS.** It described a
 drain tax "bounded between 3 and 30 basis points (`FeeLib.calcFeeL1`)". Measured 2026-09-09:
-**`calcFeeL1` is declared and never called.** Every reference to it in `evm/src` and `evm/script` is a
-comment — `FeeLib.sol:112` says so itself, and `:122` carries a plan to delete it. `BASE = 3` and
-`MAX_FEE = 30` are read **only inside `calcFeeL1`**, so they are dead with it. The constants exist; the
-charge does not, and a declared constant with a plausible name is not evidence of a live fee.
+**`calcFeeL1` was declared and never called** — every reference to it in `evm/src` and `evm/script` was
+a comment, and the only executable callers were a unit test — so it was **deleted the same day**, along
+with the two constants (`BASE = 3`, `MAX_FEE = 30`) that nothing outside its body read. A declared
+constant with a plausible name was never evidence of a live fee, and now there is not even a constant.
 
 A redemption draws pro-rata across
 the basket, so an exit cannot covertly concentrate risk into one collateral. You can only ever burn your

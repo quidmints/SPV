@@ -68,5 +68,10 @@ contract CurveTableResearch is ForkPin {
         _probe("AUSD",   0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a);
         _probe("CRVUSD", 0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E);
         _probe("BOLD",   0x6440f144b7e50D6a8439336510312d2F54beB01D);
+        // §SESS-120 — the two uncovered basket stables this artifact never probed. FRAX is frxUSD
+        // (Frax RENAMED the token at the same address; the deploy comment records it), and cUSD is the
+        // BASE token — `stcUSD` (0x8888…) is its 4626 vault, not a basket stable.
+        _probe("FRAX",   0x853d955aCEf822Db058eb8505911ED77F175b99e);
+        _probe("CUSD",   0xcCcc62962d17b8914c62D74FfB843d73B2a3cccC);
     }
 }

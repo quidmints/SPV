@@ -13210,11 +13210,15 @@ volatile inventory, the flow EWMA, ring variance, this swap's size — so swappi
 NONE of them.** A loop keyed on skew would optimise against a signal that only moves for unrelated
 reasons.
 🔴 **And the objective half is undefined (§E218): the basket has NO TARGET RATIO**, so "imbalance" has
-no referent to correct toward. `calcFeeL1` measures **yield-vs-average**, not concentration.
+no referent to correct toward. The one measure that existed, `calcFeeL1`, measured
+**yield-vs-average** rather than concentration — and it is **DELETED as of 2026-09-09** (§C2), so
+there is no ranking function in the tree at all.
 ⇒ **Restate the objective before building anything.** Live candidates: shed the WEAKEST yielders to
 protect `avgYield` (`SOR-SIGNIFICANCE-DESIGN.md:14-16`), or size the surplus against redeemable claim
-and let EXECUTION pick the leg. Both need §C2's `calcFeeL1` fix first, since the ranking is currently
-inverted, saturating and — pre-§E155 — sorted by token decimals.
+and let EXECUTION pick the leg. ⚠️ **This used to read *"both need §C2's `calcFeeL1` fix first"* — DO
+NOT READ THAT AS STILL BLOCKING.** §C2's fix was a calibration of a function that no longer exists;
+what actually gates this is §C2b (*should a drain tax exist at all*), and only for the first
+candidate — sizing the surplus against redeemable claim needs no fee at all.
 ⚠️ `ROUTING-AGGREGATION.md`'s §V-R1–R11 still specifies router pinning and the four call sites; that
 spec is unaffected by the objective being wrong.
 
@@ -15604,13 +15608,16 @@ which is the §A.50/C2 fix — KEPT, and now on a single line instead of duplica
 ## 🔴 §A.65 — THE ONE ITEM LOST IN THE ARCHIVE→QUEUE TRANSFER (0 prior mentions here)
 Two standing requirements and one security action, none of which had a row.
 
-**1. The basket fee MUST be DIRECTIONAL before `calcFeeL1` is re-wired (§A.64 step 2).**
-🔴 **CHECKED 2026-08-28 — IT IS NOT MERELY UNDONE, IT IS NOT EXPRESSIBLE IN THE CURRENT SIGNATURE.**
-`FeeLib.calcFeeL1(uint idx, uint[15] deps, uint[15] yields) public pure` takes **deposits and yields
-and nothing else** — there is no flow, no delta, no direction anywhere in it. Its whole body is a
-YIELD differential (`mine - baseline`, both `fullMulDiv` ratios), i.e. a pure concentration measure.
-⇒ **Making it directional is a SIGNATURE change, not a formula tweak**, and that is why "before it is
-re-wired" is the right ordering: re-wiring it first bakes in the non-directional call at every site.
+**1. ANY basket fee MUST be DIRECTIONAL before it is wired (§A.64 step 2). 🔴 THE REQUIREMENT IS
+LIVE; ITS SUBJECT IS NOT — RE-POINTED 2026-09-09 TO §C2b.**
+⚠️ This row was written against `FeeLib.calcFeeL1`, which is **deleted** (§C2: zero production callers
+for its whole life). ⛔ **THAT DOES NOT DISCHARGE THIS ROW** — the deletion killed the citation, not
+the constraint. The constraint now binds whatever §C2b decides to build, and the 2026-08-28 finding
+generalises exactly: the old signature `(uint idx, uint[15] deps, uint[15] yields) pure` took
+**deposits and yields and nothing else** — no flow, no delta, no direction — so directionality was a
+SIGNATURE property, not a formula tweak. ⇒ **Any replacement must be TOLD the post-trade composition
+from the start**; a fee designed without it cannot be made directional later without re-touching every
+call site, which is why this ordering was right then and is right now.
 ⭐ **AND THE PROTOCOL ALREADY HAS THE PATTERN ONE LAYER OVER — COPY IT, DO NOT RE-DERIVE IT.**
 `SwapLib.sellSkew` exempts a restoring trade outright: `uint over = inv > target ? inv - target : 0;
 if (over == 0) return 0;  // refill / at-target ⇒ EXEMPT`. That is exactly this row's

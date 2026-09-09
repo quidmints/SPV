@@ -21,7 +21,6 @@ import {Aux} from "../src/Aux.sol";
 import {Quid} from "../src/Quid.sol";
 import {Vault} from "../src/Vault.sol";
 import {Basket} from "../src/Basket.sol";
-import {FeeLib} from "../src/imports/FeeLib.sol";
 import {SwapLib} from "../src/imports/SwapLib.sol";
 
 import {BasketLib} from "../src/imports/BasketLib.sol";
@@ -1285,19 +1284,22 @@ contract AllesFixture is ForkPin, ExitFixture {
 
 
     // ════════════════════════════════════════════════════════════════════
-    //  #2 RUN-SIM (C) - DEPEG / OUTFLOW-FEE EVALUATION (calcRisk)
-    //  Objective: does the stablecoin outflow-fee + depeg-haircut system make
-    //  sense? It has THREE interlocking pieces:
-    //    1. calcFeeL1  - yield-vs-baseline outflow fee, BASE(0.03%)..MAX(0.3%).
-    //                    A depegged stable's yield is pre-discounted upstream
-    //                    so it lands at BASE: CHEAP to drain bad collateral.
-    //    2. riskFactor/_depegLoss - writes the depegged face DOWN on the
+    //  #2 RUN-SIM (C) - DEPEG-HAIRCUT EVALUATION (calcRisk)
+    //  Objective: does the depeg-haircut system make sense? It has TWO
+    //  interlocking pieces, and NO outflow fee:
+    //    1. riskFactor/_depegLoss - writes the depegged face DOWN on the
     //                    redemption total (Sigma face_i x (1 - riskFactor_i)) at
     //                    FULL live severity (#2: the old 6500/35% floor is gone).
     //                    The anti-par-arb spread-the-loss mechanism.
-    //    3. calcRisk   - grosses up DELIVERED units of the depegged token so the
+    //    2. calcRisk   - grosses up DELIVERED units of the depegged token so the
     //                    redeemer nets par VALUE (full severity; div guarded by sev<10000).
-    //  This measures all three across severities: full write-down, no phantom-backing
+    //  ⚠️ THERE IS NO THIRD PIECE. This block listed a yield-vs-baseline outflow
+    //  fee (BASE 0.03% .. MAX 0.3%) as piece 1 for as long as it existed; that
+    //  function was declared with ZERO production callers for its whole life and
+    //  has been deleted, along with both constants. The haircut is the only charge
+    //  on a redemption, and it is UNCAPPED because it passes through a realised
+    //  loss rather than pricing one.
+    //  This measures both across severities: full write-down, no phantom-backing
     //  first-out advantage, and no over-par redemption.
     // ════════════════════════════════════════════════════════════════════
 
@@ -2632,35 +2634,6 @@ contract Alles is AllesFixture {
         assertLt(secBal1,  secBal0,  "second venue drawn down (pro-rata across venues)");
     }
 
-    function testYieldBaselineFee_AboveBaselineTaxedMore() public {
-        // Directly exercise the changed fee path. Craft a basket where
-        // USDC sits AT the baseline and sDAI ABOVE it.
-        uint[15] memory deps;
-        uint[15] memory yields;
-        deps[14] = 1000e18;                     // Σ balance (total)
-        deps[1]  = 600e18;  yields[1] = 600e18; // USDC: factor 1.00
-        deps[7]  = 400e18;  yields[7] = 440e18; // sDAI: factor 1.10
-        deps[0]  = 1040e18;                     // Σ yieldWeighted
-        // baseline = 1040/1000 = 1.04
-        uint feeUsdc = FeeLib.calcFeeL1(0, deps, yields);
-        uint feeSdai = FeeLib.calcFeeL1(6, deps, yields);
-        assertEq(feeUsdc, 3, "at/below-baseline stable -> BASE fee (cheap to drain)");
-        assertGt(feeSdai, feeUsdc, "above-baseline (higher-yield) stable taxed more");
-        // Raw concentration here is (1.10 − 1.04) = 600 bps, but the composite
-        // outflow fee is CAPPED at MAX_FEE = 30 (0.3%) - the ether.fi-redeem
-        // ceiling. So above-baseline taxes more than BASE but saturates at 0.3%;
-        // the depeg HAIRCUT (calcRisk) remains the separate, uncapped axis.
-        assertEq(feeSdai, 30, "above-baseline (raw ~600bps) capped at MAX_FEE=30 (0.3%)");
-
-        // A DEPEGGED stable's yieldWeighted is discounted upstream, dragging
-        // its factor below baseline -> it also lands at BASE (cheap to drain
-        // the bad collateral, preserved with no separate risk term).
-        uint[15] memory yields2 = yields;
-        yields2[7] = 360e18; // sDAI discounted to factor 0.90 (< baseline)
-        uint feeDepegged = FeeLib.calcFeeL1(6, deps, yields2);
-        assertEq(feeDepegged, 3, "below-baseline (discounted) stable -> BASE");
-    }
-
     /// @notice Regression guard: getTWAPforAsset(WBTC) is on a 1e18-RAW basis
     ///         (P*1e28), so valuing raw sats is `*price/WAD` (NOT `/1e8`). Guards
     ///         against a 1e10 over/under-scale in the BTC pairing math.
@@ -3941,16 +3914,21 @@ contract Alles is AllesFixture {
         }
     }
 
-    /// (D) - CONCENTRATION-TILT / pre-emptive-depeg posture. Answers: does the
-    /// fee system pre-emptively brake an outflow that tilts the basket toward
+    /// (D) - CONCENTRATION-TILT / pre-emptive-depeg posture. Answers: does
+    /// anything pre-emptively brake an outflow that tilts the basket toward
     /// concentration in one stable (so a later depeg of that name hurts more)?
     /// Findings it pins (NOW-TODO §9 + the C-sim verdict):
-    ///   - The ONLY outflow accelerator (baseRate) lives in the QUI-redeem path,
-    ///     so a concentration-tilting SWAP drain of ONE stable bypasses it.
-    ///   - calcFeeL1 prices yield-vs-baseline, NOT concentration (the dropped
-    ///     concentration term) -> no per-stable concentration brake on outflow.
+    ///   - The ONLY outflow accelerator (baseRate) lived in the QUI-redeem path,
+    ///     so a concentration-tilting SWAP drain of ONE stable bypassed it.
+    ///   - 🔴 AND THE ANSWER IS NOW UNCONDITIONAL, NOT PARTIAL. This line used to
+    ///     read "calcFeeL1 prices yield-vs-baseline, NOT concentration", i.e. the
+    ///     wrong axis was priced. There is no outflow fee AT ALL: `calcFeeL1` was
+    ///     declared with zero production callers for its whole life and is deleted.
+    ///     ⇒ NOTHING brakes a single-stable drain on any axis — not concentration,
+    ///     not yield-vs-baseline. The test's conclusion is unchanged and stronger.
     ///   => pre-emptive concentration safety rests ENTIRELY on inflow routing;
     ///      the depeg defense is reactive (write-down), amplified by share.
+    ///      Whether a drain tax SHOULD exist is a live product question (SPRINT §C2).
     function test_RunSim_D_ConcentrationTilt() public {
         _stageDepeg();
         address[] memory st = AUX.getStables();
