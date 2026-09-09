@@ -1253,8 +1253,8 @@ contract VBtcLevFeeLane is AllesFixture {
     ///      DOES NOT REVERT, on the stated ground that "its mid-drain instant is offset by an in-tx
     ///      debt-repay". This measures whether that offset actually lands.
     function _backingSnap(string memory tag) internal returns (uint committed, uint liquid) {
-        (uint[15] memory dd,,, uint dpg) = AUX.get_deposits();
-        liquid    = dd[14] > dpg ? dd[14] - dpg : 0;
+        (uint[16] memory dd,,, uint dpg) = AUX.get_deposits();
+        liquid    = dd[15] > dpg ? dd[15] - dpg : 0;
         committed = CORE.committedUsd18();
         emit log_named_string("---- backing @", tag);
         emit log_named_uint("     venue stable      ", IERC20V(venue.stable()).balanceOf(address(venue)));
@@ -1333,9 +1333,9 @@ contract VBtcLevFeeLane is AllesFixture {
         // Both sides of the gate that reverts (`Core.sol:1262`). The revert STRING alone cannot
         // separate "committed grew" from "TVL is smaller"; these four numbers can.
         {
-            (uint[15] memory dd,,, uint dpg) = AUX.get_deposits();
-            uint haircut = dd[14] > dpg ? dd[14] - dpg : 0;
-            emit log_named_uint("  TVL _d[14] (18d)          ", dd[14]);
+            (uint[16] memory dd,,, uint dpg) = AUX.get_deposits();
+            uint haircut = dd[15] > dpg ? dd[15] - dpg : 0;
+            emit log_named_uint("  TVL _d[15] (18d)          ", dd[15]);
             emit log_named_uint("  depegLoss (18d)           ", dpg);
             emit log_named_uint("  haircutTvl (18d)          ", haircut);
             emit log_named_uint("  committedUsd18 (BOTH rng) ", CORE.committedUsd18());
@@ -1487,9 +1487,9 @@ contract VBtcLevFeeLane is AllesFixture {
         // Both sides of the gate that reverts (`Core.sol:1262`). The revert STRING alone cannot
         // separate "committed grew" from "TVL is smaller"; these four numbers can.
         {
-            (uint[15] memory dd,,, uint dpg) = AUX.get_deposits();
-            uint haircut = dd[14] > dpg ? dd[14] - dpg : 0;
-            emit log_named_uint("  TVL _d[14] (18d)          ", dd[14]);
+            (uint[16] memory dd,,, uint dpg) = AUX.get_deposits();
+            uint haircut = dd[15] > dpg ? dd[15] - dpg : 0;
+            emit log_named_uint("  TVL _d[15] (18d)          ", dd[15]);
             emit log_named_uint("  depegLoss (18d)           ", dpg);
             emit log_named_uint("  haircutTvl (18d)          ", haircut);
             emit log_named_uint("  committedUsd18 (BOTH rng) ", CORE.committedUsd18());
@@ -1532,8 +1532,8 @@ contract VBtcLevFeeLane is AllesFixture {
         // BTC range gets the same basketLeg release the ETH range does — which means a surviving
         // ratchet here is a COMMIT WITHOUT A MATCHING BURN, not a missing release.
         {
-            (uint[15] memory dd,,, uint dpg) = AUX.get_deposits();
-            emit log_named_uint("TVL _d[14] (18d)        ", dd[14]);
+            (uint[16] memory dd,,, uint dpg) = AUX.get_deposits();
+            emit log_named_uint("TVL _d[15] (18d)        ", dd[15]);
             emit log_named_uint("depegLoss (18d)         ", dpg);
             // ⚠️ **THE LABELS WERE WRONG, BUT NOT FOR THE REASON I FIRST WROTE — AND THE REPO HAD
             //    ALREADY WARNED ABOUT EXACTLY THIS MISREADING.** `CORE` and `BTC.CORE()` print the

@@ -23,7 +23,7 @@ import {Core} from "../src/Core.sol";
 ///
 /// @dev    ⚠️ This asserts NOTHING about which is true. It is an instrument, and it reads the
 ///         EXACT public quantities the deployed gate uses (`Aux.committedOf`,
-///         `Core.rangeEquityUsd18`, `AUX.get_deposits()[14]`) so its numbers ARE the gate's.
+///         `Core.rangeEquityUsd18`, `AUX.get_deposits()[15]`) so its numbers ARE the gate's.
 ///         Asserting a conclusion here is how a probe stops being able to disprove it.
 contract BackingGateSplit is AllesFixture {
 
@@ -35,12 +35,12 @@ contract BackingGateSplit is AllesFixture {
         // the ETH range by address, the BTC range as the remainder of the same total the bound uses.
 
         // TVL is the gate's ceiling, read from the same accessor `backingCoreBody` uses.
-        (uint[15] memory d,,, uint depegLoss) = AUX.get_deposits();
-        uint totalLiquid = d[14];
+        (uint[16] memory d,,, uint depegLoss) = AUX.get_deposits();
+        uint totalLiquid = d[15];
         uint haircutTvl  = totalLiquid > depegLoss ? totalLiquid - depegLoss : 0;
 
         console.log("--- ceiling ---");
-        console.log("TVL _d[14]        (18d):", totalLiquid);
+        console.log("TVL _d[15]        (18d):", totalLiquid);
         console.log("depegLoss         (18d):", depegLoss);
         console.log("haircutTvl        (18d):", haircutTvl);
 
@@ -84,9 +84,9 @@ contract BackingGateSplit is AllesFixture {
         console.log("ETH range committedOf:", ethAfter);
         console.log("ETH range POOLED_USD :", CORE.POOLED_USD());
         console.log("BTC range (remainder):", totAfter - ethAfter);
-        (uint[15] memory d2,,, uint loss2) = AUX.get_deposits();
-        uint ceil2 = d2[14] > loss2 ? d2[14] - loss2 : 0;
-        console.log("TVL after         :", d2[14]);
+        (uint[16] memory d2,,, uint loss2) = AUX.get_deposits();
+        uint ceil2 = d2[15] > loss2 ? d2[15] - loss2 : 0;
+        console.log("TVL after         :", d2[15]);
         console.log("committed after   :", totAfter);
         if (totAfter > ceil2) console.log("OVER BY           :", totAfter - ceil2);
         else console.log("headroom left     :", ceil2 - totAfter);
@@ -113,10 +113,10 @@ contract BackingGateSplit is AllesFixture {
         }
         vm.stopPrank();
 
-        (uint[15] memory d3,,, uint loss3) = AUX.get_deposits();
-        uint ceil3 = d3[14] > loss3 ? d3[14] - loss3 : 0;
+        (uint[16] memory d3,,, uint loss3) = AUX.get_deposits();
+        uint ceil3 = d3[15] > loss3 ? d3[15] - loss3 : 0;
         uint tot3  = AUX.committedTotal();
-        console.log("TVL after swap    :", d3[14]);
+        console.log("TVL after swap    :", d3[15]);
         console.log("committed after   :", tot3);
         console.log("ETH range POOLED_USD:", CORE.POOLED_USD());
         if (tot3 > ceil3) console.log("OVER BY           :", tot3 - ceil3);
@@ -150,8 +150,8 @@ contract BackingGateSplit is AllesFixture {
             try AUX.swap{value: 1 ether}(address(USDC), address(WETH), false, 0, 0, true) {}
             catch { console.log("swap reverted at iteration", n); break; }
 
-            (uint[15] memory dn,,, uint lossN) = AUX.get_deposits();
-            uint ceilN = dn[14] > lossN ? dn[14] - lossN : 0;
+            (uint[16] memory dn,,, uint lossN) = AUX.get_deposits();
+            uint ceilN = dn[15] > lossN ? dn[15] - lossN : 0;
             uint totN  = AUX.committedTotal();
             uint pooled18 = CORE.POOLED_USD() * 1e12;
             console.log("iter", n);

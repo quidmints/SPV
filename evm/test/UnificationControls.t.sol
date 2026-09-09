@@ -461,8 +461,8 @@ contract UnificationControls is AllesFixture {
         vm.deal(lpA, 900 ether);
         vm.prank(lpA); ETH.deposit{value: 700 ether}(0, lpA);
 
-        (uint[15] memory d0,,,) = AUX.get_deposits();
-        uint tvl0        = d0[14];
+        (uint[16] memory d0,,,) = AUX.get_deposits();
+        uint tvl0        = d0[15];
         uint committed0  = CORE.committedUsd18();
         uint rangeEth0   = AUX.rangeETH();
         uint lpShares0   = ETH.lpShares();
@@ -481,8 +481,8 @@ contract UnificationControls is AllesFixture {
 
         vm.prank(User01); AUX.redeem(1_100_000 * WAD);
 
-        (uint[15] memory d1,,,) = AUX.get_deposits();
-        emit log_named_uint("TVL after         ", d1[14]);
+        (uint[16] memory d1,,,) = AUX.get_deposits();
+        emit log_named_uint("TVL after         ", d1[15]);
         emit log_named_uint("committed after   ", CORE.committedUsd18());
         emit log_named_uint("rangeETH after    ", AUX.rangeETH());
         emit log_named_uint("BTC USD leg after ", CORE.POOLED_USD());
@@ -512,8 +512,8 @@ contract UnificationControls is AllesFixture {
         // cross-range repack coupling (caveat B3) is far weaker than assumed and must be either
         // constructed deliberately or downgraded.
         emit log_named_uint("committed > TVL at any point? (0=no)",
-            CORE.committedUsd18() > d1[14] ? 1 : 0);
-        emit log_named_uint("TVL - committed after", d1[14] > CORE.committedUsd18() ? d1[14] - CORE.committedUsd18() : 0);
+            CORE.committedUsd18() > d1[15] ? 1 : 0);
+        emit log_named_uint("TVL - committed after", d1[15] > CORE.committedUsd18() ? d1[15] - CORE.committedUsd18() : 0);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -619,10 +619,10 @@ contract UnificationControls is AllesFixture {
         // sizes range depth from `liquidTotal - committedBoth`, so a starved curve is only a real
         // deficit if the BASKET is also empty. Comparing against the OTHER CURVE (as the first
         // version of this test did) measures the wrong reservoir by two orders of magnitude.
-        (uint[15] memory dS,,,) = AUX.get_deposits();
+        (uint[16] memory dS,,,) = AUX.get_deposits();
         uint committedNow = CORE.committedUsd18();
-        uint surplus = dS[14] > committedNow ? dS[14] - committedNow : 0;
-        emit log_named_uint("basket TVL at starvation ", dS[14]);
+        uint surplus = dS[15] > committedNow ? dS[15] - committedNow : 0;
+        emit log_named_uint("basket TVL at starvation ", dS[15]);
         emit log_named_uint("committed at starvation  ", committedNow);
         emit log_named_uint("UNCOMMITTED SURPLUS      ", surplus);
         emit log_named_uint("swaps to starve ETH  ", steps);
@@ -650,9 +650,9 @@ contract UnificationControls is AllesFixture {
     ///      The gap between deployed depth and that ceiling IS the inefficiency. This logs both so
     ///      the E6 build has a falsifiable target instead of "top it up".
     function _logDeployGap(string memory tag) internal {
-        (uint[15] memory d,,,) = AUX.get_deposits();
+        (uint[16] memory d,,,) = AUX.get_deposits();
         uint committed = CORE.committedUsd18();
-        uint surplus   = d[14] > committed ? d[14] - committed : 0;
+        uint surplus   = d[15] > committed ? d[15] - committed : 0;
         uint backing   = AUX.rangeETH();
         uint pooledEth = CORE.POOLED();
         uint headroom  = backing > pooledEth ? backing - pooledEth : 0;
@@ -953,8 +953,8 @@ contract UnificationControls is AllesFixture {
         _assertTraded();
         uint oldAfter = CORE.POOLED_USD() + BTC.CORE().POOLED_USD();
         uint newAfter = CORE.basketUsd() + BTC.CORE().basketUsd();
-        (uint[15] memory d,,, ) = AUX.get_deposits();
-        uint tvl = d[14];
+        (uint[16] memory d,,, ) = AUX.get_deposits();
+        uint tvl = d[15];
 
         emit log_named_uint("committed OLD defn (curve)  ", oldAfter);
         emit log_named_uint("committed NEW defn (basket) ", newAfter);
@@ -1002,8 +1002,8 @@ contract UnificationControls is AllesFixture {
         vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         vm.roll(block.number + 1);
 
-        (uint[15] memory d0,,, uint depeg0) = AUX.get_deposits();
-        uint tvl0 = d0[14] > depeg0 ? d0[14] - depeg0 : 0;
+        (uint[16] memory d0,,, uint depeg0) = AUX.get_deposits();
+        uint tvl0 = d0[15] > depeg0 ? d0[15] - depeg0 : 0;
         uint oldCommitted0 = (CORE.POOLED_USD() + BTC.CORE().POOLED_USD()) * 1e12;
         uint newCommitted0 = CORE.committedUsd18();
         assertEq(oldCommitted0, newCommitted0, "PREMISE: pre-flow the two definitions agree");
@@ -1014,8 +1014,8 @@ contract UnificationControls is AllesFixture {
         for (uint i; i < 20; i++) _trade(3_000e18);
 
         _assertTraded();
-        (uint[15] memory d1,,, uint depeg1) = AUX.get_deposits();
-        uint tvl1 = d1[14] > depeg1 ? d1[14] - depeg1 : 0;
+        (uint[16] memory d1,,, uint depeg1) = AUX.get_deposits();
+        uint tvl1 = d1[15] > depeg1 ? d1[15] - depeg1 : 0;
         uint oldCommitted1 = (CORE.POOLED_USD() + BTC.CORE().POOLED_USD()) * 1e12;
         uint newCommitted1 = CORE.committedUsd18();
 
@@ -1081,8 +1081,8 @@ contract UnificationControls is AllesFixture {
         uint ethUsdF0 = ETH.USD_FEES();
         assertGt(btcShares0, 0, "PREMISE: a BTC LP must exist, else attribution is vacuous");
 
-        (uint[15] memory d0,,, uint dp0) = AUX.get_deposits();
-        uint tvl = d0[14] > dp0 ? d0[14] - dp0 : 0;
+        (uint[16] memory d0,,, uint dp0) = AUX.get_deposits();
+        uint tvl = d0[15] > dp0 ? d0[15] - dp0 : 0;
 
         for (uint i; i < 20; i++) _trade(3_000e18);
 

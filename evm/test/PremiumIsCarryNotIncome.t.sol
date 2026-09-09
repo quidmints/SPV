@@ -136,7 +136,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         // RANGE's usd leg and the BASKET's total backing across the same drain settles it by
         // measurement rather than by tracing the delta accounting.
         uint rangeUsd0 = CORE.POOLED_USD();
-        (uint[15] memory d0,,,) = AUX.get_deposits();
+        (uint[16] memory d0,,,) = AUX.get_deposits();
         // DO NOT `break` THE INSTANT THE RANGE TURNS SCARCE — that was this fixture's third
         // zero-premium reading and it was entirely self-inflicted. The premium accrues only on
         // swaps that EXECUTE while `inv < target`; breaking on the transition means every drain
@@ -170,11 +170,11 @@ contract PremiumIsCarryNotIncome is AllesFixture {
         uint ethDrained = CORE.POOLED();
 
         {
-            (uint[15] memory d1,,,) = AUX.get_deposits();
+            (uint[16] memory d1,,,) = AUX.get_deposits();
             emit log_named_uint("range USD leg BEFORE (POOLED_USD)", rangeUsd0);
             emit log_named_uint("range USD leg AFTER                  ", CORE.POOLED_USD());
-            emit log_named_uint("basket backing BEFORE (d[14])       ", d0[14]);
-            emit log_named_uint("basket backing AFTER                ", d1[14]);
+            emit log_named_uint("basket backing BEFORE (d[15])       ", d0[15]);
+            emit log_named_uint("basket backing AFTER                ", d1[15]);
         }
         emit log_named_uint("POOLED quiet      ", ethQuiet);
         emit log_named_uint("POOLED drained    ", ethDrained);

@@ -30,6 +30,9 @@ interface IV3b {function token0() external view returns (address);}
 ///        route choice is made 14 times in a single transaction.
 ///    The generic USDC→WETH sweep below is kept as the CONTROL for the encoder itself.
 contract RouteOptimalityValue is ForkPin {
+    /// @notice `DeployL1_s.sol` ships 14 stables and asserts it; BOLD (last) is Liquity-SP-routed
+    ///         and is never converted, so a pro-rata redeem splits across 13 legs.
+    uint256 constant CONVERTIBLE_STABLES = 14 - 1;
     address constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
     address constant USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
     address constant DAI  = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
@@ -149,10 +152,14 @@ contract RouteOptimalityValue is ForkPin {
     function test_UseSite_RedeemSwapOut_PerLegSizeIsWhatMatters() public {
         uint256[3] memory totals = [uint256(100_000), 1_000_000, 5_000_000];
         for (uint256 i; i < totals.length; ++i) {
-            uint256 perLeg = (totals[i] / 13) * 1e6;         // 13 convertible stables, pro-rata
+            // §ROSTER-ALIGN — CONVERTIBLE_STABLES is `DeployL1_s.sol`'s roster MINUS BOLD, which
+            // is SP-routed and never converted. This suite does not deploy the stack (it prices
+            // pinned pools), so it cannot read `getStables().length`; the constant is named and
+            // sourced so the next roster change has one place to look instead of a bare `/ 13`.
+            uint256 perLeg = (totals[i] / CONVERTIBLE_STABLES) * 1e6;
             (uint256 d, uint256 h) = _legBothWays(USDT, perLeg, P_USDT_WETH_030, P_USDT_USDC_001);
             console2.log("=== REDEEM total USD:", totals[i]);
-            console2.log("   per-leg USD (13 stables):", perLeg / 1e6);
+            console2.log("   per-leg USD (per convertible stable):", perLeg / 1e6);
             console2.log("   USDT direct / viaUSDC   :", d, h);
             uint256 best = d > h ? d : h; uint256 w = d > h ? h : d;
             if (best > 0) console2.log("   best-vs-other bps       :", (best - w) * 10_000 / best);

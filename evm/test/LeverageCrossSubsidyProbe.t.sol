@@ -115,7 +115,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
         _setEthFeed(uint(clp)); ETH.reseat();
     }
 
-    function _tvl() internal returns (uint t) { (uint[15] memory d,,,) = AUX.get_deposits(); t = d[14]; }
+    function _tvl() internal returns (uint t) { (uint[16] memory d,,,) = AUX.get_deposits(); t = d[15]; }
     function _entryPrice(address lp) internal view returns (uint s) { ( , , , s, ) = lm.pos(lp); }
 
     function _rangeE0(address lp, uint sizeEth) internal {

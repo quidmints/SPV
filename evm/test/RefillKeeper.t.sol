@@ -13,7 +13,7 @@ import {IERC20} from "forge-std/interfaces/IERC20.sol";
 contract RefillKeeperProbe is AllesFixture {
     address lp = User01; address adv = User03;
 
-    function _backing() internal returns (uint) { (uint[15] memory d,,,) = AUX.get_deposits(); return d[14]; }
+    function _backing() internal returns (uint) { (uint[16] memory d,,,) = AUX.get_deposits(); return d[15]; }
     function _surplus() internal returns (int) { return int(_backing()) - int(QUID.totalSupply()); }
     function _seedBacking(uint usdcAmt) internal {
         deal(address(USDC), address(this), usdcAmt);

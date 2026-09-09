@@ -977,7 +977,7 @@ contract DrainAtomicity is AllesFixture {
         vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
         _settle();
 
-        (uint[15] memory amts,,,) = AUX.get_deposits();
+        (uint[16] memory amts,,,) = AUX.get_deposits();
         address[] memory ss = AUX.getStables();
         // §E67-r CORRECTED INSTRUMENT: `balanceOf(Aux)` reads ZERO for every stable, because the
         // basket DEPLOYS them into venues (Aave, 4626 vaults, the Stability Pool — the same fact

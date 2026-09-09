@@ -591,14 +591,20 @@ contract AllesFixture is ForkPin, ExitFixture {
     IERC20 public USDS = IERC20(0xdC035D45d973E3EC169d2276DDab16f1e407384F);
     IERC20 public USDE = IERC20(0x4c9EDD5852cd905f086C759E8383e09bff1E68B3);
     IERC20 public CRVUSD = IERC20(0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E);
-    IERC20 public FRAX = IERC20(0xCAcd6fd266aF91b8AeD52aCCc382b4e165586E29);
+    /// @notice frxUSD — Frax RENAMED the token to frxUSD at the SAME address the legacy repo
+    ///         calls FRAX, so this used to be declared here as `FRAX`. Renamed to match
+    ///         `DeployL1_s.sol`, which is now the fixture's source of truth for the roster.
+    IERC20 public FRXUSD = IERC20(0xCAcd6fd266aF91b8AeD52aCCc382b4e165586E29);
+    /// @notice cUSD — Cap USD, deploy slot 10. Native stcUSD 4626 (asset() == cUSD).
+    IERC20 public CUSD = IERC20(0xcCcc62962d17b8914c62D74FfB843d73B2a3cccC);
     IERC20 public BOLD = IERC20(0x6440f144b7e50D6a8439336510312d2F54beB01D);
     IERC20 public USYC = IERC20(0x136471a34f6ef19fE571EFFC1CA711fdb8E49f2b);
 
     address public hashnote = 0xeE35F963BFC71b51eC95147f26c030D674ea30e6;
     address public pyusdMorpho = 0xb576765fB15505433aF24FEe2c0325895C559FB2;
     IERC4626 public SDAI = IERC4626(0x83F20F44975D03b1b09e64809B757c47f942BEeA);
-    IERC4626 public SFRAX = IERC4626(0xcf62F905562626CfcDD2261162a51fd02Fc9c5b6);
+    IERC4626 public SFRXUSD = IERC4626(0xcf62F905562626CfcDD2261162a51fd02Fc9c5b6);
+    IERC4626 public STCUSD  = IERC4626(0x88887bE419578051FF9F4eb6C858A951921D8888);
     IERC4626 public SUSDS = IERC4626(0xa3931d71877C0E7a3148CB7Eb4463524FEc27fbD);
     IERC4626 public SUSDE = IERC4626(0x9D39A5DE30e57443BfF2A8307A4256c8797A3497);
     IERC4626 public SCRVUSD = IERC4626(0x0655977FEb2f289A4aB78af67BAB0d17aAb84367);
@@ -678,7 +684,10 @@ contract AllesFixture is ForkPin, ExitFixture {
     IERC20 public USDG  = IERC20(0xe343167631d89B6Ffc58B88d6b7fB0228795491D);
     IERC20 public RLUSD = IERC20(0x8292Bb45bf1Ee4d140127049757C2E0fF06317eD);
     IERC20 public AUSD  = IERC20(0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a);
-    address public morphoUsdcVault  = 0xA2EAaD0D586cF9FD73bb2c09cF6A7E3e187D68cd;
+    // §ROSTER-ALIGN — Galaxy USDC is the PRIMARY in `DeployL1_s.sol:49`. The fixture pinned a
+    // different curator vault (0xA2EAaD…D68cd), so slot 0's venue in every test was not the
+    // venue production deploys. Taken from the deploy, like the rest of this roster.
+    address public morphoUsdcVault  = 0x91600E31fBeDc72433d4a57F16639cfe661Be7d8;
     address public morphoUsdtVault  = 0x71ffB6a81786eC285D429d531Cf655107B9D878d;
     address public morphoRlusdVault = 0x6dC58a0FdfC8D694e571DC59B9A52EEEa780E6bf;
     address public morphoUsdsVault  = 0xE15fcC81118895b67b6647BBd393182dF44E11E0;
@@ -689,23 +698,41 @@ contract AllesFixture is ForkPin, ExitFixture {
         uint mainnetFork = _forkMainnet();
         vm.selectFork(mainnetFork);
 
-        // New basket constituents (mirrors DeployL1_s.sol ordering).
+        // §ROSTER-ALIGN — THE SHIPPED ROSTER, VERBATIM FROM `script/DeployL1_s.sol:217-255`.
+        // This fixture declared 11 stables while the deploy asserts 14, so NO TEST IN THIS REPO
+        // HAD EVER RUN THE BASKET THAT SHIPS: cUSD, crvUSD and frxUSD (deploy indices 10/11/12)
+        // were absent, and every pro-rata denominator in the 51 suites that inherit this fixture
+        // was computed over a basket three tokens smaller than production's.
+        // 🔴 THE TWO ARRAYS ARE POSITIONALLY PAIRED AND NOTHING ELSE ENFORCES IT (`DeployL1_s.sol`
+        //    says so at its own copy) — `VAULTS[i]` is the venue for `STABLECOINS[i]`. The two
+        //    requires below are the only thing that makes a shift loud instead of silent, and they
+        //    mirror the deploy's.
         STABLECOINS = [
             address(USDC), address(USDT),
             address(PYUSD), address(GHO),
             address(RLUSD), address(USDG),
             address(DAI), address(USDS),
             address(USDE), address(AUSD),
-            address(BOLD)                     // BOLD MUST be last (SP-routed)
+            address(CUSD),                    // 10 cUSD   — native stcUSD 4626
+            address(CRVUSD),                  // 11 crvUSD — native scrvUSD 4626
+            address(FRXUSD),                  // 12 frxUSD — native sfrxUSD 4626
+            address(BOLD)                     // 13 BOLD MUST be last (SP-routed)
         ];
         VAULTS = [
             morphoUsdcVault, morphoUsdtVault,
-            pyusdMorpho, address(0),          // GHO -> AAVE v4
-            morphoRlusdVault, address(0),     // USDG -> AAVE v4
+            pyusdMorpho, address(0),          // GHO -> AAVE v4 (address(0) ON PURPOSE)
+            morphoRlusdVault, address(0),     // USDG -> AAVE v4 (address(0) ON PURPOSE)
             address(SDAI), morphoUsdsVault,
             address(SUSDE), morphoAusdVault,
-            stabilityPool                     // BOLD -> Liquity SP (last)
+            address(STCUSD),                  // 10 cUSD   -> stcUSD
+            address(SCRVUSD),                 // 11 crvUSD -> scrvUSD
+            address(SFRXUSD),                 // 12 frxUSD -> sfrxUSD
+            stabilityPool                     // 13 BOLD   -> Liquity SP (last)
         ];
+        require(STABLECOINS.length == VAULTS.length, "stables/vaults: positional pairing broken");
+        // §14-STABLES — the `uint[16]` layout is EXACTLY full at 14 (slot 0 = yield-weighted sum,
+        // 1..14 per-token, 15 = TVL total). Same assertion the deploy makes, for the same reason.
+        require(STABLECOINS.length == 14, "stables: 14 is the uint[16] layout maximum");
 
         // Fund test users from mainnet whales.
         vm.startPrank(0x37305B1cD40574E4C5Ce33f8e8306Be057fD7341);
@@ -1260,7 +1287,7 @@ contract AllesFixture is ForkPin, ExitFixture {
     ///         LIVE venue sum (`_liveVaultSum`, which is not derived from the cache).
     function _reconcileCache(string memory tag) internal {
         address[] memory st = AUX.getStables();
-        (uint[15] memory amounts,,,) = AUX.get_deposits();
+        (uint[16] memory amounts,,,) = AUX.get_deposits();
         for (uint i; i + 1 < st.length; i++) {        // skip BOLD (last; SP path)
             (uint cb,,,,) = AUX.storedHoldings(st[i]);
             uint live = _liveVaultSum(st[i]);
@@ -2569,8 +2596,8 @@ contract Alles is AllesFixture {
     function testMultiVaultWithdrawal() public {
         vm.startPrank(User01);
 
-        (uint[15] memory deposits,,,) = AUX.get_deposits();
-        uint totalDeposits = deposits[14];
+        (uint[16] memory deposits,,,) = AUX.get_deposits();
+        uint totalDeposits = deposits[15];
         assertGt(totalDeposits, 0, "Should have total deposits");
         assertGt(deposits[1], 0, "USDC vault should have balance");
         assertGt(deposits[7], 0, "DAI vault should have balance"); // DAI now stables[6] -> amounts[7]
@@ -2995,28 +3022,34 @@ contract Alles is AllesFixture {
     }
 
     function testVaultBalanceDistribution() public {
-        (uint[15] memory deposits, ,,) = AUX.get_deposits();
+        (uint[16] memory deposits, ,,) = AUX.get_deposits();
 
         // 🔴 THREE DEFECTS, AND THE FIRST TWO MADE THIS TEST MEASURE HALF THE BASKET AND SAY SO
-        //   INCORRECTLY. `deposits` is `uint[15]` with `[14]` the TOTAL, so the VAULTS are `0..13`
-        //   — both loops ran `i = 1; i < 9`, covering **8 of 14** and silently skipping index 0 and
-        //   9..13. A test named `...AllVaults`-adjacent that inspects 57% of them cannot see a
+        //   INCORRECTLY. Both loops ran `i = 1; i < 9`, covering 8 slots and silently skipping the
+        //   rest. A test named `...AllVaults`-adjacent that inspects 57% of them cannot see a
         //   vault that stopped receiving deposits, which is the only thing it is for.
         // ⚠️ AND THE ASSERTION DISAGREED WITH ITS OWN MESSAGE: it said *"at least 3 vaults"* and
         //   checked `>= 2`. **The message is the claim a reader trusts**, and off-by-one between
         //   the two is the §VACUOUS-BOUNDS shape in miniature — the stated bound was never enforced.
         // ⇒ Widening the loop can only INCREASE the count, so tightening 2 -> 3 to match the message
         //   is safe in the direction it matters. Also folds the two identical loops into one.
-        uint total = deposits[14];
+        // §ROSTER-ALIGN — THE BOUND IS DERIVED, NOT PINNED. `get_deposits` returns `uint[16]` where
+        //   slot 0 is the yield-weighted AGGREGATE (not a vault), slots `1..nStables` are the
+        //   per-token holds, and slot 15 is the TVL total. The old literal `14` both counted the
+        //   aggregate as a vault and re-pins on the next roster change; `getStables().length` is the
+        //   same number production runs on.
+        uint nStables = AUX.getStables().length;
+        uint total = deposits[15];
         uint vaultsWithDeposits = 0;
-        for (uint i = 0; i < 14; i++) {
+        for (uint i = 1; i <= nStables; i++) {
             if (deposits[i] == 0) continue;
             vaultsWithDeposits++;
             console.log("Vault...", i);
             console.log("deposits[i]", deposits[i]);
             console.log("%", (deposits[i] * 100) / total);
         }
-        emit log_named_uint("vaults with deposits (of 14)", vaultsWithDeposits);
+        emit log_named_uint("vaults with deposits (of nStables)", vaultsWithDeposits);
+        emit log_named_uint("nStables", nStables);
         assertGe(vaultsWithDeposits, 3, "Should have deposits in at least 3 vaults");
     }
 
@@ -3029,7 +3062,7 @@ contract Alles is AllesFixture {
         uint quidBefore = QUID.totalSupply();
         QUID.mint(User01, depositAmount, address(USDC), 0);
 
-        (uint[15] memory deposits, ,,) = AUX.get_deposits();
+        (uint[16] memory deposits, ,,) = AUX.get_deposits();
         assertGt(deposits[1], 0, "USDC vault should have deposits");
         assertGt(QUID.totalSupply(), quidBefore, "Should mint QUID");
 
@@ -3065,20 +3098,22 @@ contract Alles is AllesFixture {
         //   from those two and nothing else passed identically to one that drew from all fourteen,
         //   and a vault that silently stopped being drawn from was invisible.
         // ⇒ MEASURE THE VAULTS, NOT TWO OF THE PAYOUT TOKENS. `get_deposits()` reports per-vault
-        //   balances (index 14 is the TOTAL, so vaults are 0..13); count how many FELL across the
+        //   balances (slot 0 is the yield-weighted aggregate and slot 15 the TVL total, so the
+        //   per-token holds are `1..getStables().length`); count how many FELL across the
         //   redemption. ⚠️ It is deliberately called BEFORE and AFTER rather than cached — it is
         //   NOT `view` and refreshes the figures it returns, which is the §CACHE-SENSITIVE note.
-        (uint[15] memory before_, ,,) = AUX.get_deposits();
+        (uint[16] memory before_, ,,) = AUX.get_deposits();
         uint usdcBefore = USDC.balanceOf(User01);
 
         AUX.redeem(redeemAmount);
 
-        (uint[15] memory after_, ,,) = AUX.get_deposits();
+        (uint[16] memory after_, ,,) = AUX.get_deposits();
         uint vaultsUsed = 0;
-        for (uint i = 0; i < 14; i++) if (after_[i] < before_[i]) vaultsUsed++;
-        emit log_named_uint("vaults DRAWN FROM (of 14)", vaultsUsed);
-        emit log_named_uint("total deposits before    ", before_[14]);
-        emit log_named_uint("total deposits after     ", after_[14]);
+        uint nStables_ = AUX.getStables().length;   // §ROSTER-ALIGN: derived, never a literal
+        for (uint i = 1; i <= nStables_; i++) if (after_[i] < before_[i]) vaultsUsed++;
+        emit log_named_uint("vaults DRAWN FROM (of nStables)", vaultsUsed);
+        emit log_named_uint("total deposits before    ", before_[15]);
+        emit log_named_uint("total deposits after     ", after_[15]);
 
         assertGt(USDC.balanceOf(User01), usdcBefore, "PREMISE: the redemption paid out at all");
         assertGe(vaultsUsed, 2, "Large redemption should pull from multiple vaults");
@@ -3281,9 +3316,9 @@ contract Alles is AllesFixture {
         vm.deal(User02, 900 ether);
         vm.prank(User02); ETH.deposit{value: 700 ether}(0, User02);
 
-        (uint[15] memory d0,,,) = AUX.get_deposits();
+        (uint[16] memory d0,,,) = AUX.get_deposits();
         uint committed0 = CORE.committedUsd18();
-        uint usdAvail0  = d0[14] > committed0 ? d0[14] - committed0 : 0;
+        uint usdAvail0  = d0[15] > committed0 ? d0[15] - committed0 : 0;
         uint deliv0     = AUX.deliverableETH();
         emit log_named_uint("usdAvailable (free stables) before redeem (18)", usdAvail0);
         emit log_named_uint("committedUsd18 before redeem (18)", committed0);
@@ -3293,10 +3328,10 @@ contract Alles is AllesFixture {
         vm.prank(User01); AUX.redeem(1_100_000 * WAD);
         uint burned = qdBefore - QUID.balanceOf(User01);
 
-        (uint[15] memory d1,,,) = AUX.get_deposits();
+        (uint[16] memory d1,,,) = AUX.get_deposits();
         emit log_named_uint("QU!D burned (18)", burned);
         emit log_named_uint("committedUsd18 after redeem (18)", CORE.committedUsd18());
-        emit log_named_uint("stables delivered (18)", d0[14] > d1[14] ? d0[14] - d1[14] : 0);
+        emit log_named_uint("stables delivered (18)", d0[15] > d1[15] ? d0[15] - d1[15] : 0);
 
         // (1) redeemed MORE than the free stables -> the range unwind FIRED (couldn't happen under
         //     a naive stables-only redeem; the ETH-leg is gone).
@@ -3304,7 +3339,7 @@ contract Alles is AllesFixture {
         // (2) the range was unwound: committedUsd18 dropped.
         assertLt(CORE.committedUsd18(), committed0, "committedUsd18 dropped (range unwound)");
         // (3) delivered in STABLES ~ the burned value (QU!D paid in dollars).
-        assertApproxEqRel(d0[14] - d1[14], burned, 0.03e18, "stables delivered ~ redeemed value");
+        assertApproxEqRel(d0[15] - d1[15], burned, 0.03e18, "stables delivered ~ redeemed value");
         // (4) LP EQUITY NEUTRAL: the LP's deliverable ETH is untouched (ETH stayed in venue, unsold).
         assertApproxEqRel(AUX.deliverableETH(), deliv0, 0.02e18, "LP ETH untouched (equity neutral)");
     }
@@ -3627,8 +3662,8 @@ contract Alles is AllesFixture {
             uint absorbed = _dipSell(3);
             // SOLVENCY INVARIANT under the drain: committed virtual USD never
             // exceeds basket TVL — QUI stays backed IN AGGREGATE; whoever is LAST OUT absorbs the residual.
-            (uint[15] memory dep,,,) = AUX.get_deposits();
-            assertLe(CORE.committedUsd18(), dep[14], "crash: committedUsd <= TVL (QUI stays backed)");
+            (uint[16] memory dep,,,) = AUX.get_deposits();
+            assertLe(CORE.committedUsd18(), dep[15], "crash: committedUsd <= TVL (QUI stays backed)");
             (bool exhausted, bool alive) = _logTranche(t, absorbed, p0, qdOut);
             if (!alive) { console.log("  (raw-TWAP boundary reached - depth recorded)"); break; }
             if (exhausted && !bufferExhausted) {
@@ -3760,8 +3795,8 @@ contract Alles is AllesFixture {
         assertGt(ETH.balanceOf(lp), 0,
             "chop: the deferred slice is still held as CLAIMABLE shares, not written off");
         assertGt(got, 40 ether, "chop: LP recovers the large majority (not drained/bricked)");
-        (uint[15] memory dep,,,) = AUX.get_deposits();
-        assertLe(CORE.committedUsd18(), dep[14], "chop: QUI stays backed (committedUsd <= TVL)");
+        (uint[16] memory dep,,,) = AUX.get_deposits();
+        assertLe(CORE.committedUsd18(), dep[15], "chop: QUI stays backed (committedUsd <= TVL)");
     }
 
     /// (IL-B) TREND DOWN (bounded, anchor-wired): the in-range LP accumulates the
@@ -3791,8 +3826,8 @@ contract Alles is AllesFixture {
         // SOLVENCY through the drop - the fork-FAITHFUL claim: outstanding QUI
         // stays backed in aggregate even as the LP's leg depreciates.
         {
-            (uint[15] memory dep,,,) = AUX.get_deposits();
-            assertLe(CORE.committedUsd18(), dep[14], "trend: QUI stays backed (committedUsd <= TVL)");
+            (uint[16] memory dep,,,) = AUX.get_deposits();
+            assertLe(CORE.committedUsd18(), dep[15], "trend: QUI stays backed (committedUsd <= TVL)");
         }
 
         // Exit the LP's ACTUAL position (maxWithdraw, not uint.max - see chop).
@@ -3898,13 +3933,18 @@ contract Alles is AllesFixture {
         deal(bold, User01, 50_000e18);
         vm.startPrank(User01);
         IERC20(bold).approve(address(AUX), type(uint).max);
-        (uint[15] memory before,,,) = AUX.get_deposits();
+        (uint[16] memory before,,,) = AUX.get_deposits();
         try QUID.mint(User01, 50_000e18, bold, 0) {
             vm.stopPrank();
-            (uint[15] memory aft,,,) = AUX.get_deposits();
-            // SP leg fired: BOLD's slot (amounts[11]) + TVL grew.
-            console.log("BOLD slot before/after", before[13], aft[13]);
-            assertGt(aft[13], before[13], "SP leg fired (BOLD valued via calcSPValue)");
+            (uint[16] memory aft,,,) = AUX.get_deposits();
+            // SP leg fired: BOLD's slot + TVL grew.
+            // §ROSTER-ALIGN — BOLD's slot is `nStables`, DERIVED. `Aux.get_deposits` writes
+            // `amounts[nStables]` for the SP leg (it used to hardcode 13, which is what this
+            // literal mirrored); at 14 stables that is slot 14, and re-pinning a new literal
+            // would just re-arm the same trap. `st.length` is the same number Aux computes.
+            uint boldSlot = st.length;
+            console.log("BOLD slot before/after", before[boldSlot], aft[boldSlot]);
+            assertGt(aft[boldSlot], before[boldSlot], "SP leg fired (BOLD valued via calcSPValue)");
             // Cache EXCLUDES BOLD: storedHoldings[BOLD] stays 0 (SP-routed).
             (uint cbBold,,,,) = AUX.storedHoldings(bold);
             assertEq(cbBold, 0, "BOLD correctly excluded from the storedHoldings cache");
@@ -3939,9 +3979,9 @@ contract Alles is AllesFixture {
         address elp = makeAddr("d-ethlp"); vm.deal(elp, 200 ether);
         vm.prank(elp); ETH.deposit{value: 100 ether}(0, elp);
 
-        (uint[15] memory dep,,,) = AUX.get_deposits();
+        (uint[16] memory dep,,,) = AUX.get_deposits();
         uint usdcIdx; for (uint i; i < st.length; i++) if (st[i] == address(USDC)) usdcIdx = i;
-        uint shareBps0 = dep[14] == 0 ? 0 : dep[usdcIdx + 1] * 10000 / dep[14];
+        uint shareBps0 = dep[15] == 0 ? 0 : dep[usdcIdx + 1] * 10000 / dep[15];
         console.log("baseline USDC share of stable-TVL bps", shareBps0);
 
         // (A) drain USDC specifically (WETH->USDC swaps pay BTC, take USDC out of the basket -> tilt away from
@@ -3959,8 +3999,8 @@ contract Alles is AllesFixture {
         console.log("USDC-draining swaps that landed", drained);
 
         // The tilt happened, un-braked.
-        (uint[15] memory dep1,,,) = AUX.get_deposits();
-        uint shareBps1 = dep1[14] == 0 ? 0 : dep1[usdcIdx + 1] * 10000 / dep1[14];
+        (uint[16] memory dep1,,,) = AUX.get_deposits();
+        uint shareBps1 = dep1[15] == 0 ? 0 : dep1[usdcIdx + 1] * 10000 / dep1[15];
         console.log("USDC share of stable-TVL bps after swap-drain", shareBps1);
         assertLt(shareBps1, shareBps0,
             "swaps tilted concentration away from USDC, with NO pre-emptive fee brake");

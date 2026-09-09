@@ -821,8 +821,8 @@ contract BtcLpMintStress is AllesFixture {
         assertGt(AUX.aaveBalance(address(USDC)), aBefore, "USDC routed to the AAVE spoke leg (least-full)");
 
         // Valuation/yield folds the AAVE leg in (cache via _valueStable's v==spoke branch).
-        (uint[15] memory deps,,,) = AUX.get_deposits();
-        assertGt(deps[14], 0, "TVL includes the dual-venue USDC");
+        (uint[16] memory deps,,,) = AUX.get_deposits();
+        assertGt(deps[15], 0, "TVL includes the dual-venue USDC");
 
         // Redeem → pro-rata draw can pull USDC from the spoke leg via the dispatch.
         vm.prank(User01); AUX.redeem(10_000e18);

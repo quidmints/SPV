@@ -6,7 +6,7 @@ import {AllesFixture} from "./Alles.t.sol";
 ///         DIMENSIONLESS — a number near 1.0, whatever decimals the stable or its vault happen to use.
 ///         Nothing asserted that, and the consequence was silent: `_valueStable` built the factor as a
 ///         RAW assets-per-share ratio, so an 18-dec MetaMorpho share against a 6-dec asset produced
-///         ~1e-12 instead of ~1.012. Those legs then dragged `amounts[0]` below `amounts[14]`, and
+///         ~1e-12 instead of ~1.012. Those legs then dragged `amounts[0]` below `amounts[15]`, and
 ///         `computeMetrics` floored `metrics.yield` to ZERO — so `calcMintYield` minted exactly
 ///         `principal` at every tenor and the forward-yield bond paid nothing at all.
 ///
@@ -35,7 +35,7 @@ contract YieldFactorDimensions is AllesFixture {
     /// THE INVARIANT. Every stable holding real balance must report a dimensionless factor.
     function test_YieldFactorIsDimensionless_EveryStable() public {
         _seedBasket();
-        (uint[15] memory amounts, uint[15] memory yieldW,,) = AUX.get_deposits();
+        (uint[16] memory amounts, uint[16] memory yieldW,,) = AUX.get_deposits();
 
         address[] memory stables = AUX.getStables();
         uint checked;
@@ -146,7 +146,7 @@ contract YieldFactorDimensions is AllesFixture {
         emit log_named_uint("USDC leg balance      ", bCached);
         assertGt(reserved, 0, "no tranche was created - the assertion would be vacuous");
 
-        (uint[15] memory amounts, uint[15] memory yieldW,,) = AUX.get_deposits();
+        (uint[16] memory amounts, uint[16] memory yieldW,,) = AUX.get_deposits();
         uint idx = AUX.toIndex(address(USDC));       // 1-based
         require(idx > 0 && amounts[idx] > 0, "USDC leg carved to zero - nothing left to measure");
 

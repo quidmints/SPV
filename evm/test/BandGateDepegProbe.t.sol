@@ -5,7 +5,7 @@ import {AllesFixture} from "./Alles.t.sol";
 import {console} from "forge-std/console.sol";
 
 /// Probe: the LP-range backing gate (Core._poolUsdInRange → `committedUsd18() <=
-/// _d[14]`) sized committed range dollars against PAR TVL (`_d[14]`), while
+/// _d[15]`) sized committed range dollars against PAR TVL (`_d[15]`), while
 /// redemption (BasketLib.redeemAsBody:889) and mint (Basket.sol:266/315) size
 /// against par − depegLoss. Under a detected stable depeg the gate therefore
 /// OVER-PERMITS committed dollars by exactly `depegLoss`, so QD's real redeemable
@@ -24,30 +24,30 @@ contract RangeGateDepegProbe is AllesFixture {
         _stageDepeg(); // 100k QUI minted from USDC; all stables healthy
 
         // --- PAR (no depeg): the fix is behaviour-preserving. ---
-        (uint[15] memory dPar,,, uint lossPar) = AUX.get_deposits();
+        (uint[16] memory dPar,,, uint lossPar) = AUX.get_deposits();
         uint committed = CORE.committedUsd18();
         assertEq(lossPar, 0, "healthy: depegLoss == 0 (gate identical to par)");
-        uint oldCeilPar = dPar[14];             // deployed gate ceiling (raw par)
-        uint newCeilPar = dPar[14] - lossPar;   // fixed gate ceiling (haircut)
+        uint oldCeilPar = dPar[15];             // deployed gate ceiling (raw par)
+        uint newCeilPar = dPar[15] - lossPar;   // fixed gate ceiling (haircut)
         assertEq(oldCeilPar, newCeilPar, "no depeg: fixed gate == old gate (no side effect)");
-        console.log("par TVL _d[14] (18d)      :", dPar[14]);
+        console.log("par TVL _d[15] (18d)      :", dPar[15]);
         console.log("committedUsd18 (18d)      :", committed);
 
         // --- DEPEG: USDC (the seed backing) detected 20% down. ---
         _setDepeg(address(USDC), 2000);
-        (uint[15] memory dDep,,, uint lossDep) = AUX.get_deposits();
+        (uint[16] memory dDep,,, uint lossDep) = AUX.get_deposits();
         assertGt(lossDep, 0, "depeg -> depegLoss recognized (redeem/mint haircut basis)");
 
         // FINDING: par TVL barely moves (the gate's basis ignores the depeg)...
-        console.log("par TVL @20%depeg (18d)   :", dDep[14]);
+        console.log("par TVL @20%depeg (18d)   :", dDep[15]);
         console.log("depegLoss @20%depeg (18d) :", lossDep);
-        uint parDrop = dPar[14] > dDep[14] ? dPar[14] - dDep[14] : 0;
+        uint parDrop = dPar[15] > dDep[15] ? dPar[15] - dDep[15] : 0;
         assertLt(parDrop, lossDep / 10,
-            "par TVL _d[14] ignores the depeg (moves ~0 vs the depegLoss haircut)");
+            "par TVL _d[15] ignores the depeg (moves ~0 vs the depegLoss haircut)");
 
         // ...so the two gate ceilings now DIVERGE by exactly depegLoss.
-        uint oldCeil = dDep[14];              // deployed-BEFORE-fix gate ceiling
-        uint newCeil = dDep[14] - lossDep;    // deployed-AFTER-fix gate ceiling (== redeem basis)
+        uint oldCeil = dDep[15];              // deployed-BEFORE-fix gate ceiling
+        uint newCeil = dDep[15] - lossDep;    // deployed-AFTER-fix gate ceiling (== redeem basis)
         uint overPermit = oldCeil - newCeil;
         console.log("OLD gate ceiling (par)    :", oldCeil);
         console.log("NEW gate ceiling (haircut):", newCeil);

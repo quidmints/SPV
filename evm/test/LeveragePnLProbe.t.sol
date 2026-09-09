@@ -83,7 +83,7 @@ contract LeveragePnLProbe is AllesFixture {
     function _spBold() internal view returns (uint) {
         try ISPq(sp).getCompoundedBoldDeposit(address(AUX)) returns (uint v) { return v; } catch { return SP_SENTINEL; }
     }
-    function _tvl() internal returns (uint t) { (uint[15] memory d,,,) = AUX.get_deposits(); t = d[14]; }
+    function _tvl() internal returns (uint t) { (uint[16] memory d,,,) = AUX.get_deposits(); t = d[15]; }
 
     /// @dev Range/basket state at one instant. Emitted rather than returned so the caller
     ///      keeps no locals — this measurement is what decides #12's ownership question.
