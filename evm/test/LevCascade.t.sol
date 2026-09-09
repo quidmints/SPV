@@ -45,6 +45,29 @@ contract RealRateMorphoOracle {
 ///   The mocks (MockWeeth/MockSwapper/MaliciousSwapper/MockRangeHost/MockFlashLender/TestLevVenue) are DELETED; the
 ///   folded LevManager mints/redeems real weETH via ether.fi + routes stable legs through the basket SOR, and the
 ///   venue/flash/liquidation are the LIVE Morpho singleton. Mirrors LevYbReal's real-venue scaffolding.
+interface IUniV3PoolS {
+    function swap(address recipient, bool zeroForOne, int256 amountSpecified,
+                  uint160 sqrtPriceLimitX96, bytes calldata data) external returns (int256, int256);
+    function token0() external view returns (address);
+    function token1() external view returns (address);
+    function slot0() external view returns (uint160, int24, uint16, uint16, uint16, uint8, bool);
+}
+interface IERC20S { function transfer(address, uint256) external returns (bool); }
+
+/// @dev §SESS-120 — a REAL searcher: swaps the live pool and pays through the callback. Deliberately
+///      not a mock, for the reason in `test_MEV_OracleFloorRejectsSandwich`'s header.
+contract V3Sandwicher {
+    uint160 constant MIN_SQRT = 4295128740;   // UniV3 extremes: bound the swap by SIZE, not a guessed tick
+    uint160 constant MAX_SQRT = 1461446703485210103287273052203988822378723970341;
+    function attack(address pool, bool zeroForOne, int256 amt) external {
+        IUniV3PoolS(pool).swap(address(this), zeroForOne, amt, zeroForOne ? MIN_SQRT : MAX_SQRT, "");
+    }
+    function uniswapV3SwapCallback(int256 a0, int256 a1, bytes calldata) external {
+        if (a0 > 0) IERC20S(IUniV3PoolS(msg.sender).token0()).transfer(msg.sender, uint256(a0));
+        if (a1 > 0) IERC20S(IUniV3PoolS(msg.sender).token1()).transfer(msg.sender, uint256(a1));
+    }
+}
+
 contract LevCascadeProbe is AllesFixture {
     // Real mainnet addresses (same fork Alles pins).
     address constant WEETH        = 0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee;
@@ -811,7 +834,14 @@ contract LevCascadeProbe is AllesFixture {
     ///   `if (weethOut < minWeethOut) revert Slippage()`) via an unsatisfiable keeper `minOut` — proving the
     ///   position is NOT levered at a bad price. (The oracle-derived `wethFloor` on `sorSelfFunded` guards the
     ///   minOut=0 case and is exercised on every happy-path rebalance.)
-    function test_MEV_OracleFloorRejectsSandwich() public {
+    /// ⛔ **§SESS-120 — THE NAME OVERSOLD THIS AND THE COMMENT DID NOT.** The body's own note is
+    ///    accurate — *"an impossibly high min-weETH-out (1e30) can never be met"* — but `1e30` is the
+    ///    KEEPER'S OWN `minOut`, so this exercises the keeper's floor, not the ORACLE floor the
+    ///    function name credits. There is no attacker and no price movement anywhere in it. A bound
+    ///    nothing can satisfy is the §VACUOUS-BOUNDS shape, and a security NAME on it made the surface
+    ///    read as covered while nothing checked it.
+    /// ⇒ KEPT AND RENAMED for what it does check, which is a real property worth one line.
+    function test_MEV_KeeperSuppliedMinOutIsEnforced() public {
         _setupLev();
         _openAtEntry(lps[0], 5 ether);
         _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION); // IL accrues ⇒ a rebalance wants to lever
@@ -819,6 +849,45 @@ contract LevCascadeProbe is AllesFixture {
         vm.expectRevert(LevManager.Slippage.selector);
         lm.rebalance(lps[0], 1e30, DEX_WETH_USDC, 0, "");
     }
+
+    /// ⭐ **§SESS-120 — THE ACTUAL SANDWICH: A REAL ATTACKER, A REAL POOL, AND `minOut = 0`.**
+    ///
+    /// 🔴 **THE PROPERTY, WRITTEN SO IT CANNOT PASS VACUOUSLY: with the keeper supplying NO bound of
+    ///    its own, the ORACLE-derived floor ALONE must reject a fill at a manipulated price.**
+    ///    `minOut = 0` is the entire point — it removes the keeper's floor so `swapFloor` is the only
+    ///    thing left standing. The test above passes `1e30`, which makes the keeper's floor do all the
+    ///    work; this is the opposite arm and it is the one the threat model actually rests on.
+    /// ⚠️ **THE ATTACK IS REAL, NOT MOCKED.** `V3Sandwicher` calls `swap()` on the SAME live UniV3
+    ///    pool the route names and pays through the callback, as a searcher would. ⛔ Mocking the
+    ///    oracle would test the mock; mocking the pool would delete the thing under test.
+    /// 🔑 **DIRECTION IS THE EASY THING TO GET BACKWARDS.** A rebalance that levers UP BUYS the
+    ///    volatile, so the searcher front-runs by BUYING WETH (USDC→WETH; USDC is `token0` in the
+    ///    0.05% pool, hence `zeroForOne = true`). That lifts WETH in the pool, our buy fills worse,
+    ///    and the TWAP — which the searcher did NOT move — is what notices.
+    /// ⛔ **IF THIS EVER PASSES WITHOUT REVERTING, THAT IS THE FINDING, NOT A FLAKE:** it means the
+    ///    floor is not binding and the aggregate slack is extractable by anyone watching the mempool.
+    function test_MEV_OracleFloorRejectsSandwich() public {
+        _setupLev();
+        _openAtEntry(lps[0], 5 ether);
+        _rallyRange(_entryPrice(lps[0]), 0.2e18, 20, 8_000 * USDC_PRECISION);
+
+        address pool = address(uint160(DEX_WETH_USDC));      // strip the proto bits off the pool word
+        V3Sandwicher mev = new V3Sandwicher();
+        deal(address(USDC), address(mev), 40_000_000 * USDC_PRECISION);
+
+        uint160 before_ = _poolSqrtPx(pool);
+        mev.attack(pool, true, int256(40_000_000 * USDC_PRECISION));   // USDC → WETH
+        uint160 after_  = _poolSqrtPx(pool);
+        // ⚠️ CONTROL FIRST. If the attack did not move the pool, a revert below proves nothing — it
+        //    would be the ordinary path failing for its own reasons, which is exactly how a vacuous
+        //    security test is born. Assert the premise before asserting the property.
+        assertLt(after_, before_, "premise: the sandwich must actually move the pool against us");
+
+        vm.expectRevert(LevManager.Slippage.selector);
+        lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0, "");       // minOut = 0 ⇒ only the oracle floor
+    }
+
+    function _poolSqrtPx(address pool) internal view returns (uint160 sq) { (sq,,,,,,) = IUniV3PoolS(pool).slot0(); }
 
     /// @notice ECONOMIC linkage: the CONTRACT levers to exactly the PROVEN IL-cancelling target `1 − 1/√r`. At 2x
     ///   the target is 29.3% — confirming the deployed sizing IS the IL-cancelling one, not a fixed knob. Uses the
