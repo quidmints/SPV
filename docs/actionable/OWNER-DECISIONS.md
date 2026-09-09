@@ -75,21 +75,48 @@ counterparty. §HOP-BOND stays deleted. ⇒ §RESERVE-HAS-NO-RETURN-PATH, §LN-S
 ## ⭐ R-17 (was #17) — **THE POOL ACCEPTS ANY DEPOSIT. THE REMAINDER IS NOT A REMAINDER.**
 Owner: *"the pool should be able to accept any deposit even if the deposit doesnt earn in range
 immediately."*
-🔑 **THIS DISSOLVES THE QUESTION RATHER THAN ANSWERING IT, AND IT IS THE BEST OUTCOME AVAILABLE.** All
-four options I offered — fleet's problem, fleet's problem bounded, an on-chain owed ledger, pre-empt at
-quote time — presupposed that `sats − consumed` is BTC *the protocol holds and delivered no USD for*,
-i.e. a stranded balance needing an owner. **Under this ruling there is no stranded balance:** the
-depositor is credited for the WHOLE deposit, and the part the pool cannot convert in range simply sits
-as out-of-range position that is not yet earning. **Nothing to refund, so nothing to strand.**
-⇒ **CONSEQUENCES, and they are deletions:** the CLTV-refund sentence at `BTCChannels.sol:2098-2100` is
-not merely unreachable (the hop key-path-claims the deposit immediately) — **it is describing a
-mechanism the design no longer wants.** The three sub-policies decided in Rust by nobody
-(`quid-bridge/src/swap_in_onchain.rs:331` dust is kept · `client.rs:880` a failed read takes
-everything · silent omission of the refund output) **become dead policy**, because the hop is no longer
-choosing whether to refund. **`§NO-REJECT` is answered by its own name: never reject.**
-⛔ **WHAT MUST STILL BE TRUE, and it is the real work:** the credited position must account for the
-out-of-range part HONESTLY — it earns nothing until it comes into range, and `deliverableBTC` must not
-count it as available. **A deposit that is credited but not deliverable is exactly the shape that
+⛔⛔ **I READ THIS WRONG FIRST AND ALMOST HAD A LANE DELETE THE REFUND MACHINERY. THE CORRECTED RULING
+IS BELOW; THE ERROR IS KEPT BECAUSE IT IS THE INSTRUCTIVE PART.**
+
+**THE RULING, IN TWO HALVES, because the sentence covers two different flows:**
+1. ✅ **DEPOSITS (an LP adding liquidity): accept ANY size.** *"even if the deposit doesnt earn in range
+   immediately"* — the part at ticks away from spot is real position that simply is not working yet.
+   Ordinary concentrated-liquidity behaviour; nothing to refuse and nothing to refund.
+2. 🔴 **SWAP-INs (BTC in, dollars out): IF THE DOLLARS CANNOT BE DELIVERED, THE BTC GOES BACK.**
+   Owner, asked directly: *"if there is no way to get dollars out for the btc we need to send it back."*
+   ⇒ **THE REFUND PATH IS REQUIRED. IT IS NOT DEAD POLICY.**
+
+⭐ **MY ERROR, AND ITS SHAPE IS WORTH MORE THAN THE ANSWER.** I collapsed both flows into the deposit
+reading and wrote that *"there is no stranded balance… nothing to refund, so nothing to strand"*, then
+briefed a lane to delete `build_claim_tx_with_refund` and the dust policy out of `quid-bridge`. **The
+tell I walked past: the owner's sentence says "deposit… earn", which is LP language, but R-17 was asked
+about a SWAP-IN remainder, where the sender wanted USD and never asked to become an LP.** Under my
+reading the sender is handed a position in a different instrument and told it is the same answer.
+⇒ **WHEN A RULING'S WORDS FIT ONE FLOW AND THE QUESTION WAS ABOUT ANOTHER, THAT IS NOT A RULING YOU CAN
+EXTEND — IT IS A SECOND QUESTION.** Ask it. (Nothing was lost: all four lanes hit a rate limit before
+reaching that item.)
+
+🔴 **CONSEQUENCES — AND THEY ARE FIXES, NOT DELETIONS. THE ROW THE OWNER CALLS THE BIGGEST
+VULNERABILITY IS CONFIRMED LIVE, AND NOW HAS A RULING.** Every mechanism below is a way the BTC is
+**not** sent back, so each is a defect against *"send it back"*:
+- `BTCChannels.sol:2098-2100` claims the remainder *"is refundable trustlessly via the deposit's own
+  CLTV leaf."* **FALSE** — `quid-hop/src/swap_in_onchain.rs` builds the hop's **key-path** claim with
+  *"no timelock (the hop claims immediately after settle)"*, so the CLTV leaf is never reached. **The
+  contract documents a refund route that cannot execute.**
+- **Sub-policy 1 — dust is kept.** `quid-bridge/src/swap_in_onchain.rs:~331` takes the whole deposit
+  when the remainder is below `minimal_non_dust()`. ⚠️ **This one may SURVIVE as the single bounded
+  exception** — you cannot send back an output the network will not relay — but it must be stated as a
+  term rather than a `warn!`.
+- **Sub-policy 2 — a failed read keeps everything.** `quid-bridge/src/client.rs:~880`: *"`read_consumed_sats`
+  MUST FAIL TOWARD 'TAKE THE WHOLE DEPOSIT', NEVER TOWARD A REFUND"*, with four tests pinning it.
+  ⛔ **Under the ruling this fails the WRONG WAY: it converts an unreadable log into a kept deposit.**
+- **Sub-policy 3 — silent omission.** The refund output is a `TxOut` the hop *chooses* to add;
+  nothing on-chain requires, observes or penalises its absence. `SwapInSettled` emits `sats` and
+  `consumed`, so the gap is **visible but not enforced.**
+⇒ **`§NO-REJECT` is NOT answered by "never reject". The pool accepts the deposit; what it owes back
+when it cannot pay dollars is the open work.**
+⛔ **AND THE DEPOSIT-SIDE OBLIGATION STILL HOLDS:** an accepted deposit whose out-of-range part is
+credited must not be counted as deliverable. **Credited-but-not-deliverable is exactly the shape that
 produced phantom `pooled` on the ETH side.**
 
 ## ⭐ R-9 + R-vBTC (was #9 + the `redeemVBtc` ⛔) — **ALL CHANNEL-LOCKED BTC IS vBTC. IT IS TRANSFERABLE. THE TOKEN IS THE SHARES.**
