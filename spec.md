@@ -279,8 +279,8 @@ instance that owns that asset. Price comes from the pinned Chainlink anchor cros
 `getTWAPforAsset` (`:746`), and the band is recomputed by `updateBounds`. Fills settle **at oracle
 against inventory** — one price, no traversal, no discovery (`Core.sol:1423-1428`) — which is why a
 swap does not move `poolStats()`. The dynamic axis is `riskFactor`, per-stable depeg severity read
-live from that stable's pinned feed (`Aux.sol:231,240`); the degradation fee `calcFeeL1` is charged on
-redeem, not here. Every in-range USD add is gated by `committedUsd18() <= haircutTvl`, which is what
+live from that stable's pinned feed (`Aux.sol:231,240`). ⚠️ `calcFeeL1` is NOT charged anywhere —
+see §4.4. Every in-range USD add is gated by `committedUsd18() <= haircutTvl`, which is what
 keeps the two ranges jointly bounded. The recipient can be set explicitly so a holder blacklisted by
 a stable issuer can take proceeds at a fresh address (`Aux.sol:880-885`).
 
@@ -297,8 +297,16 @@ burns or backing growth opened (`Basket.sol:287-300`).
 Redemption is `Aux.redeem(amount)` / `redeemTo(amount, recipient)` (`:1043,1054`). You can only ever
 burn your own QU!D — the turn burns `msg.sender`'s mature batches (`Basket.turn`, `:264`) — and the
 recipient overload only retargets the payout. Redemption is always pro-rata across the basket. The
-outflow fee has `BASE = 3` bps and `MAX_FEE = 30` bps (`imports/FeeLib.sol:63-64`), degraded by live
-depeg severity.
+only live charge on redemption is the **depeg haircut**, read per stable from its pinned Chainlink
+feed (`getDepegSeverityBps` → `liveDepegBps`, inside `redeemAsBody`). It is uncapped by design.
+⛔ **THERE IS NO OUTFLOW FEE. `FeeLib.calcFeeL1` IS DECLARED AND NEVER CALLED** — every reference to it
+in `evm/src` and `evm/script` is a comment, `FeeLib.sol:112` says so itself, and `:122` carries a plan
+to delete it. `BASE = 3` and `MAX_FEE = 30` (`imports/FeeLib.sol:63-64`) are read **only inside
+`calcFeeL1`**, at `:134-142`, so they are dead with it.
+📌 **THIS CORRECTS AN EARLIER VERSION OF THIS FILE, WRITTEN 2026-09-08**, which stated the redemption
+fee as "`BASE = 3` bps → `MAX_FEE = 30` bps plus an uncapped depeg haircut". The constants exist; the
+charge does not. A declared constant with a plausible name is not evidence of a live fee, and this is
+an outward-facing claim about what users pay.
 
 ### 4.5 Channel close
 

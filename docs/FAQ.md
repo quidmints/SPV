@@ -761,15 +761,20 @@ in July 2026, so the premium reaches the providers rather than a refiller.
 
 ## How is the redemption fee calculated?
 
-Two terms, not three. A drain tax that rises when you pull out the stablecoin whose yield is above the
-basket's weighted average, scaled convexly by how much of that stablecoin you are draining, bounded
-between 3 and 30 basis points (`FeeLib.calcFeeL1`, `evm/src/imports/FeeLib.sol:130`, with
-`BASE = 3` and `MAX_FEE = 30` at `:63-64`). And a separate, **uncapped** depeg haircut so nobody redeems
-a dollar-booked-but-ninety-five-cent-worth stablecoin at par (`FeeLib.calcRisk`, `:73`). The cap on the
-first term is not a cap on the second: a fee is not a pass-through loss, and the haircut is the loss.
+**One term, and it is not a fee.** An **uncapped depeg haircut**, so nobody redeems a
+dollar-booked-but-ninety-five-cent-worth stablecoin at par. It is read live per stable from that
+stable's pinned Chainlink feed (`getDepegSeverityBps` → `liveDepegBps`, inside `redeemAsBody`). It is
+not capped, and that is deliberate: a fee is a charge, a haircut is a pass-through loss, and capping a
+loss just moves it onto whoever redeems next.
 
-The shape means **the cheap exit is the one that leaves the basket healthier**: shedding a depegged or
-low-yield name costs the floor, draining the yield engine costs more. A redemption draws pro-rata across
+⛔ **THERE IS NO SECOND TERM, AND AN EARLIER VERSION OF THIS ANSWER SAID THERE WAS.** It described a
+drain tax "bounded between 3 and 30 basis points (`FeeLib.calcFeeL1`)". Measured 2026-09-09:
+**`calcFeeL1` is declared and never called.** Every reference to it in `evm/src` and `evm/script` is a
+comment — `FeeLib.sol:112` says so itself, and `:122` carries a plan to delete it. `BASE = 3` and
+`MAX_FEE = 30` are read **only inside `calcFeeL1`**, so they are dead with it. The constants exist; the
+charge does not, and a declared constant with a plausible name is not evidence of a live fee.
+
+A redemption draws pro-rata across
 the basket, so an exit cannot covertly concentrate risk into one collateral. You can only ever burn your
 own QU!D — the redeem path burns the caller's own matured balance (`Basket.turn`,
 `evm/src/Basket.sol:267`) — and the recipient overload on `Aux.redeemTo` (`evm/src/Aux.sol:1095`)
