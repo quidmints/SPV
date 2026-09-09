@@ -131,6 +131,57 @@ passes.**
 
 ---
 
+## 🔑 §MIGRATION-UNLOCKS — **WHAT THE 7540/SHARES REFACTOR MUST NOT CLOSE OFF** (owner-prompted 2026-09-09)
+
+Owner: *"i thought openChannel lazy loads as part of the 7540 deposit … as you are moving things
+around for that refactor you should take note of any unlocks that would make migration by splice
+achievable (why were we interested in it in the first place, i dont recall); there is some prereq
+work around shares that had to be done first."*
+
+**✅ YES, IT LAZY-LOADS, AND THAT IS ALREADY THE 7540 SHAPE.** `openChannel` wraps the credit:
+`try btc.requestDeposit(lpEth, amountSats) { } catch { pendingClaimSats[channelId] = amountSats;
+emit ChannelClaimDeferred(...); }`, with a permissionless `registerChannelClaim` to settle it later.
+⇒ **custody recorded, credit deferred, claimed by anyone afterwards** — request → claimable → claim,
+which is the ERC-7540 lifecycle expressed on the Bitcoin side.
+
+**WHY MIGRATION MATTERED (the answer to "i dont recall"):** `:50239` — *"**The ONLY thing that would
+force every channel closed is the contract.**"* `BTCChannels` has no upgrade path (§BTC-8d), which is
+why GATE 3 is IMMUTABLE-BEFORE-MUTABLE. So any future change to what the contract must *express* —
+a second output form, a signature-scheme enumeration, a new digest field — forces **every live
+channel closed**. Migration-by-splice was the alternative: move channels to a successor deployment
+without an on-chain close per LP.
+
+**MEASURED 2026-09-09: migration-by-splice is NOT achievable today.** The Bitcoin half is fine —
+`openChannel` never inspects the funding tx's inputs, so a splice output is a valid funding tx for a
+successor. All four blockers are EVM-side. ⭐ **AND THE IMPORTANT PART IS THAT THEY ARE NOT ALIKE:**
+
+| # | blocker | fixable in the SUCCESSOR? |
+|---|---|---|
+| 1 | `Vault.setBTCChannels` is one-shot, and `openChannel` **swallows** the resulting `NotBTCChannels` into `pendingClaimSats` — the channel opens with real custody and can never be claimed or redeemed | ✅ yes, plus a Vault redeploy |
+| 2 | the old deployment cannot retire the channel without wiping the LP: a migration splice pays the new 2-of-2, so `_lpFinalBalance` reads **0** and `_finalizeClose` books the LP's whole balance as swap-out proceeds | ✅ yes — an enumerated "paid to a known successor" form, same family as GATE 3 item 1 |
+| 3 | 🔴 **`btcRecipientPoPDigest = sha256(abi.encode(block.chainid, address(this), lpEth, bindHash))` COMMITS TO `address(this)`** — an existing PoP cannot be replayed onto a successor, so a dark LP cannot be migrated at all | ⛔ **NO. This is about what the LP SIGNED against the OLD contract.** |
+| 4 | `freshnessSeq` restarts at zero, weakening §HOP-RCE-2's ratchet for migrated channels | ✅ yes (non-blocking) |
+
+⇒ **BLOCKER 3 IS THE ONLY ONE THAT IS IMMUTABLE-BEFORE-MUTABLE, AND IT IS THEREFORE THE ONLY ONE THAT
+MUST BE DECIDED BEFORE DEPLOY.** Three of the four live in the successor's code, which does not exist
+yet and can be written differently. The digest lives in the signature the LP already gave. **If
+migration is ever wanted, the FIRST deployment's digest must be able to express a successor** — and
+the docblock at `:2503-2508` already states the test any new digest field must pass, so the argument
+is pre-made. ⚠️ Note the digest is deliberately narrow: committing to `address(this)` is what stops
+cross-deployment replay, so the change is *"admit a NAMED successor"*, not *"drop the binding"*.
+
+▶️ **THE HYPOTHESIS THE SHARES WORK SHOULD TEST — NOT YET VERIFIED, DO NOT BUILD ON IT.** Blocker 1
+is a binding between the LP's POSITION and a specific `BTCChannels`+`Vault` pair. GATE 2.3's
+position-token fold moves per-LP state into a token. **If the position becomes a transferable token
+rather than Vault-internal state, it stops being bound to a Vault instance at all, and blocker 1 may
+dissolve as a side effect.** ⚠️ Two reasons to check rather than assume: §VENUE-STATE-HOLE
+(`Shares.sol`) records that `venueBm`/`venueFeesPerShare`/`bookmark`/`totalLevPooled` are **Quid-only
+with no `Vault` counterpart**, so the fold does not currently have a BTC-side story for them; and
+`B8`'s ERC-7540 fold is booked as *"downstream of the 2.3 position-token ruling"*, so the ordering is
+2.3 → 7540 → any migration claim, not the reverse.
+
+---
+
 ## 🧹 §DEDUP-2026-09-08 — **THE FILE CARRIED ITSELF TWICE. THE SECOND COPY IS DELETED.**
 
 Owner, 2026-09-08: *"there should not be two separate copies."*
