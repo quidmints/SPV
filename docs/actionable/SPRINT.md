@@ -63457,3 +63457,35 @@ position with **one health factor and one liquidation**. 🔗 Same root as
 all *"a per-LP operation against a pooled position, with no per-LP unit of consequence"*.
 📌 **The docblock at `LevManager:317` should say so**; left unedited only because that file is in
 another session's collision domain today.
+
+---
+
+# 📒 §WHAT-WE-BORROW-FROM-AAVE — answered from the deploy, and it CORRECTS what I told the owner
+
+I said earlier *"the lev venue is Morpho… so the premise 'the wbtc borrow is always on aavev3' may be
+inaccurate for this tree."* **That was wrong.** `LevVenueBase` declares BOTH classes and I read the
+base instead of the DEPLOY. Measured in `script/DeployL1_s.sol`:
+
+| range | venue class | collateral | **what we borrow** | LT | allowlist |
+|---|---|---|---|---|---|
+| **BTC** (`:592`) | **`AaveV3Venue`** | **WBTC** | **USDC** (`AAVE_V3_WBTC_DEBT`, env-overridable) | 7800 bps | `vsB = [wbtcV]` — **exactly one venue, frozen** |
+| ETH (`:716`) | `AaveV3Venue` | weETH | **USDT** | 7300 bps | `vs[2]` |
+| ETH | `MorphoEscrowVenue` ×2 | weETH | RLUSD (`mvR`), PYUSD (`mvP`) | — | `vs[0]`, `vs[1]` |
+
+⇒ ✅ **THE OWNER'S PREMISE IS CORRECT: the BTC borrow IS always on Aave v3**, and it is the only BTC
+venue in a frozen allowlist of one. **Morpho's role on the BTC side is the FLASH PROVIDER**
+(`bm.init(address(ETH), morpho, vsB)`), not the lending venue — which is what I conflated.
+📌 **And we borrow STABLES everywhere, never the volatile** — consistent with §IL-PROTECT-BORROWS-DOLLARS-ONLY.
+
+## ⚠️ AN ASYMMETRY WORTH THE OWNER'S EYE, AND NEITHER SIDE MEASURED THE OTHER'S MARKET
+**USDC is DE-ALLOWLISTED ON ETH, ON DEPTH GROUNDS, AND IS THE DEFAULT DEBT ASSET ON BTC.**
+`DeployL1_s:738` — *"USDC IS NOT AN ALLOWLISTED BORROW AT ALL. Both USDC markets are gone, not
+demoted: the weETH/USDC 86% market has **$0.17M idle across 100 of 100 weeks under $1M**, so it cannot
+fund a borrow."* Meanwhile `:588` defaults the BTC debt asset to USDC while admitting the
+alternatives were never checked — *"an Aave v3 RLUSD/PYUSD borrow market has **NOT been verified to
+exist with real idle depth**"*.
+⇒ **Not a contradiction — they are different markets (weETH/USDC vs WBTC/USDC on Aave) — but the BTC
+default was chosen WITHOUT the depth measurement the ETH side performed**, and depth is the exact
+axis that disqualified USDC there. 🔗 This is `borrowRateRay(extraBorrow)`'s whole subject, and it is
+the first concrete thing the deferred allocator would answer: **measure WBTC/USDC Aave idle depth at
+our size before trusting the default.**
