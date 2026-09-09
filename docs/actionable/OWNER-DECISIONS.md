@@ -113,8 +113,47 @@ VULNERABILITY IS CONFIRMED LIVE, AND NOW HAS A RULING.** Every mechanism below i
 - **Sub-policy 3 — silent omission.** The refund output is a `TxOut` the hop *chooses* to add;
   nothing on-chain requires, observes or penalises its absence. `SwapInSettled` emits `sats` and
   `consumed`, so the gap is **visible but not enforced.**
-⇒ **`§NO-REJECT` is NOT answered by "never reject". The pool accepts the deposit; what it owes back
-when it cannot pay dollars is the open work.**
+### 🔑 THE MECHANISM, RULED 2026-09-09 — **DON'T TAKE THE SATS UNLESS THE DOLLARS ARE THERE, AND KEEP THE REFUND BECAUSE THAT CHECK CAN BE RACED**
+Owner, in two sentences that are one design:
+> *"just dont take the sats if there are no dollars there before the tx lands"*
+> *"we still have an edge case where the dollar out can be frontran, so the refund needs to work"*
+
+⭐ **THIS IS BELT AND BRACES ON PURPOSE, AND THE SECOND SENTENCE IS THE REASON THE FIRST IS NOT
+SUFFICIENT.** A pre-check on dollar availability is a TOCTOU: between the moment the hop decides the
+dollars are there and the moment the settle lands, another transaction can drain them. **So the check
+is the primary defence and the refund is the backstop, and neither replaces the other.** ⛔ **Do not
+"simplify" this later by deleting one of them — that is the whole content of the ruling.**
+
+🔑 **AND THE ORDERING ALREADY IN THE CODE IS WHAT MAKES THIS BUILDABLE — THE FIX IS SMALLER THAN THE
+PROBLEM LOOKS.** The sequence is: seller's BTC deposit confirms → EVM `settleSwapInProven` credits the
+dollars → **the hop key-path-claims the deposit.** The claim comes LAST. ⇒ **If the settle did not
+deliver dollars, the hop simply must not claim** — the deposit stays unspent, its CLTV leaf matures,
+and the seller recovers trustlessly **exactly as `BTCChannels.sol:2098-2100` already claims.** The
+comment is not describing a fiction; it is describing a path the hop currently walks past.
+⇒ **THE DEFECT RESTATES AS ONE SENTENCE: the hop's claim is UNCONDITIONAL when it should be CONDITIONAL
+ON THE SETTLE HAVING PAID.** (`quid-hop/src/swap_in_onchain.rs` — *"No timelock (the hop claims
+immediately after settle)"*.)
+
+**WHAT THIS MAKES CONCRETE, for whoever takes it:**
+1. **`settleSwapInProven` must be all-or-nothing on the dollar leg** — it either delivers the full
+   amount or it does not consume the deposit. No partial-credit-and-keep.
+2. **The hop claims only on a settle that paid.** Gate the key-path claim on the settle's outcome
+   rather than on the settle having *happened*.
+3. 🔴 **`client.rs:~880` INVERTS.** *"`read_consumed_sats` MUST FAIL TOWARD 'TAKE THE WHOLE DEPOSIT',
+   NEVER TOWARD A REFUND"* is precisely backwards under this ruling: an unreadable log must fail toward
+   **not claiming**, which costs the hop a delay and costs the seller nothing, instead of toward
+   keeping BTC the pool did not pay for. **Its four pinning tests invert with it.**
+4. **Partial fills still need the refund output** (`build_claim_tx_with_refund`), because a settle that
+   pays for `consumed < sats` is a settle that paid — the claim is legitimate and the remainder is not.
+5. **Dust remains the one bounded exception** — an output below `minimal_non_dust()` cannot be relayed,
+   so it cannot be sent back. **Write it as a term, not a `warn!`.**
+⚠️ **The CLTV leaf must actually be reachable for (2) to be a real backstop** — verify the deposit
+script's leaf and its timeout against a matured, unclaimed deposit. That is the same untested surface
+as §BITCOIN-CENSUS's 4j.
+
+⇒ **`§NO-REJECT` is NOT answered by "never reject", and not by "always refund" either. It is: DO NOT
+TAKE WHAT YOU CANNOT PAY FOR, AND MAKE THE UNTAKEN DEPOSIT RECOVERABLE — because the test that decides
+"can pay" is racy, and a racy test needs a path for when it loses.**
 ⛔ **AND THE DEPOSIT-SIDE OBLIGATION STILL HOLDS:** an accepted deposit whose out-of-range part is
 credited must not be counted as deliverable. **Credited-but-not-deliverable is exactly the shape that
 produced phantom `pooled` on the ETH side.**
