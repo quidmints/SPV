@@ -48,6 +48,58 @@ because the three documents that tell you WHAT ORDER to work in are buried at th
    turned green weeks earlier. A stale ✅ hides work; **a stale ⛔ SUPPRESSES it, and nothing fails to
    tell you.** When a row forbids something, re-run its evidence before obeying it.
 
+## 🔴🔴 §LPETH-FROM-THE-SORTED-FIELD — **THE LP'S ON-CHAIN IDENTITY IS DERIVED FROM A FIELD THAT IS THE HOP'S KEY HALF THE TIME. FAIL-OPEN.**
+
+Found 2026-09-09 sweeping the §T9-SORT-NOT-ROLE seam. **Every other mis-ordering in that family fails
+CLOSED (a refusal). This one does not revert — it silently produces a different identity.**
+
+**THE CHAIN, verified end to end:**
+1. `sort_funding_pubkeys` (`evm_codec.rs:619`) returns `(min, max)` by bytes.
+2. `build_open_params` (`:1025`) does `let (k0, k1) = sort_funding_pubkeys(a, b); … lp_pubkey: k0, hop_pubkey: k1`. **The fields NAMED for roles carry the SORTED pair.**
+3. `BTCChannels.sol:951` — `address lpEth = ChannelLib.lpEthOf(p.lpPubkey);` → `BitcoinTx.evmAddressOfCompressed(lpPubkey)`.
+
+⇒ **Whenever the hop's per-channel funding key sorts BELOW the LP's, `p.lpPubkey` IS THE HOP'S KEY and
+`lpEth` is an address the HOP controls.** `hasOpenBtcChannel[lpEth]`, `btcRecipientOf[lpEth]`, the QU!D
+credit and the BTC payout all key on it. `_requireRecipientPoP` proves possession of
+`auth.btcRecipient` — **it does not prove possession of `lpEth`.** So the honest relay path (the real
+LP's PoP over the real LP's registered `lp_eth`) REVERTS, and a self-consistent hop-controlled
+`(lpEth, btcRecipient, PoP)` triple is the only shape that passes.
+
+⚠️ **CURRENTLY MASKED, WHICH IS WHY IT HAS NOT BITTEN: THE PoP PRODUCER DOES NOT EXIST.** The only
+constructions in the tree are `vec![pop_byte; 64]` test placeholders, and `driver_e2e.rs:610` says so
+outright. **It is a latent fail-open behind an unimplemented consent producer — it arms itself the day
+that producer lands.**
+🔑 **AND IT QUIETLY UNDERMINES A SAFETY ARGUMENT ELSEWHERE.** `BitcoinTx.sol:521`'s degenerate-key
+reasoning rests on *"`lpEth` being a FUNCTION of `lpPubkey`, so equal keys collapse the two roles into
+one identity"* — which silently assumes `lpPubkey` is the LP's.
+
+## 🔑 THE ROOT CAUSE IS NOT THE ORDER, IT IS THAT TWO FIELDS CARRY THREE FACTS
+
+Two incompatible requirements sit on the same pair:
+· `channelId` / `keysHash` need **ONE CANONICAL ORDER** ⇒ sorted.
+· `lpEthOf(p.lpPubkey)` needs **THE LP'S KEY SPECIFICALLY** ⇒ role.
+
+**The ABI needs three facts — the canonical pair, plus which half is the LP's — and carries two.**
+`lpPubkey`/`hopPubkey` is the only thing in the system that claims to answer the second, and it does
+not. ⇒ **A rename alone does not fix this.** `k0`/`k1` end-to-end removes the invitation to the bug
+(which has now been taken FOUR times, in two languages), but an explicit LP discriminator is still
+needed: an `lpIsK0` flag, an `lpPubkey` distinct from the funding pair, or moving LP identity off the
+funding key entirely — back to the asserted-address model §E183 deleted.
+⛔ **AND YOU CANNOT SIMPLY STOP SORTING AT OPEN**: every cid recompute in the tree derives from the
+sorted pair, so removing the sort breaks channel identity everywhere.
+
+📌 **WHAT DEPENDS ON READING A ROLE OUT OF THESE FIELDS TODAY: EXACTLY ONE THING, `ChannelLib.lpEthOf`,
+AND IT IS WRONG.** Everything else — thirteen sites, both languages — treats them as an opaque
+canonical pair. That is the measurement that makes the fix tractable.
+⚠️ Also correct regardless of what is decided: `keys_hash()`'s docstring says *"ORDER IS SIGNIFICANT:
+`(lp, hop)`, not sorted. `channelId` sorts its keys; this does not"* — technically true of the function
+and it actively invites the bug at every call site.
+
+▶️ **OWNER DECISION, and it is a deploy gate: `BTCChannels` has no upgrade path, so whatever the ABI
+must EXPRESS has to be right at deploy.** See `docs/actionable/OWNER-DECISIONS.md`.
+
+---
+
 ## 📱 §ONE-WALLET-APP — **CONSOLIDATE THE TWO CLIENT TREES. DEFERRED TO THE FRONTEND PHASE.**
 
 Owner, 2026-09-09: *"its one single wallet app, there should be no split. create a consolidation task
