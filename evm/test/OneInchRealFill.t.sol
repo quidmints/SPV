@@ -38,7 +38,38 @@ contract OneInchRealFillTest is Test {
             uint256(uint160(pool)) | (PROTO_UNIV3 << 253));
     }
 
+    /// ⭐ §SESS-121 — **A STALE FORK IS AN ABSENT PRECONDITION HERE TOO, AND THIS SUITE HAD NO GUARD.**
+    ///
+    /// 🔴 **MEASURED 2026-09-09, and the A/B is the point.** `test_RealFill_UsdcToWeth_1M` went red
+    ///    after §SESS-120 gave `_retarget` a real `minLeg`. It looked like the new floor rejecting a
+    ///    live route. **It was not:** with `minLeg` forced back to 0 the test fails IDENTICALLY —
+    ///    same message, gas 3,923,514 vs 3,930,435. And `minLeg` is provably 0 for this pair anyway
+    ///    (`_selfServableQuote(USDC, amt, WETH)` → `_curveQuote(WETH, …)` → `_hubRowOf(WETH)` has no
+    ///    row → 0 → `swapMin = 1`, byte-identical to before). The route simply did not fill at $1M.
+    /// ⛔ **BUT "did not fill" IS NOT THE MESSAGE IT PRINTED.** It printed *"the generic arm is dead
+    ///    again"* — a CODE diagnosis for a MARKET condition, which is what sent me to a two-run A/B
+    ///    for something no code change caused. §VACUOUS-BOUNDS' sibling: a true failure with a
+    ///    misleading cause attached is a false lead with a green pedigree.
+    /// ⇒ the same wall-clock-vs-`block.timestamp` guard `ConvertToRouted` carries (see its header for
+    ///   why Foundry's fork REUSE makes a long run stale by itself), so an unfillable route on a
+    ///   drifted fork ANNOUNCES and skips instead of accusing the contract.
+    /// ⚠️ 300s ≈ 25 blocks, and a BATCH is what makes this bite: measured, these tests pass alone and
+    ///    fail inside a 7-suite run, because the first suite to fork pins the block for the last.
+    uint256 constant MAX_FORK_LAG = 300;
+
+    function _freshOrSkip() internal returns (bool) {
+        uint256 nowSec = vm.unixTime() / 1000;               // saturating: a fork can lead the clock
+        uint256 lag = nowSec > block.timestamp ? nowSec - block.timestamp : 0;
+        if (lag <= MAX_FORK_LAG) return true;
+        emit log_named_uint("SKIP: fork is stale by (seconds)", lag);
+        emit log("  a live 1inch route cannot execute against a fork this far behind head - ABSENT");
+        emit log("  PRECONDITION, not a routing defect. Run this suite alone, not inside a batch.");
+        vm.skip(true);
+        return false;
+    }
+
     function _run(address dst, address ourPool, uint256 amt, uint8 dec, string memory label) internal {
+        if (!_freshOrSkip()) return;
         bytes memory theirs = _fetch(dst, amt);
         // 🔴 §SESS-111 — **AN ABSENT KEY AND A REJECTED ONE BOTH RETURN `0x`, AND ONLY ONE OF THEM IS
         //    A REASON TO SKIP.** `tools/scan-loose-ends.py` asks of every skip: *can a FAILURE reach

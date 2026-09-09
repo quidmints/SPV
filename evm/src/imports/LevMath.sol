@@ -8,6 +8,7 @@ import {WAD, VenueNotAllowed} from "./Types.sol";
 // §A.52: the canonical view lives in Interfaces.sol — imported, never re-declared file-local.
 import {ICore, IAux, IWeETH, IDepositAdapter, ILevVenue, TWAP_WINDOW_SECS} from "./Interfaces.sol";
 import {IERC20Min, IWETH9} from "../imports/Interfaces.sol";
+import {CURVE_BOLD_USDC, CRV_BOLD_IDX, CRV_BOLD_USDC_IDX, BOLD_TOKEN} from "./Interfaces.sol";
 import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, SWAP_SELECTOR, PROTO_UNIV3, PROTO_UNIV2,
         ZERO_FOR_ONE, DEFAULT_UNWIND_DEX, DEFAULT_WBTC_DEX, WBTC_TOKEN, DAI_USDS, SKY_USDS_TO_DAI, SKY_DAI_TO_USDS, USDS_TOKEN, IUniV3PoolMin, ICurvePool, CURVE_USDC_RLUSD, CRV_RLUSD_IDX, CRV_RLUSD_USDC_IDX, CURVE_PYUSD_USDC, CRV_PYUSD_IDX, CRV_PYUSD_USDC_IDX, USDC, RLUSD_TOKEN, PYUSD_TOKEN, CURVE_3POOL, USDT_TOKEN, CRV_USDT_IDX, CRV_USDT_USDC_IDX, DAI_TOKEN, CRV_DAI_IDX, CRV_DAI_USDC_IDX, USDG_TOKEN, CURVE_USDG_USDC, CRV_USDG_IDX, CRV_USDG_USDC_IDX, CRVUSD_TOKEN, CURVE_CRVUSD_USDC, CRV_CRVUSD_IDX, CRV_CRVUSD_USDC_IDX} from "./Interfaces.sol";
 
@@ -1505,6 +1506,7 @@ library LevMath {
         if (stable == DAI_TOKEN)    return (CURVE_3POOL,        CRV_DAI_IDX,    CRV_DAI_USDC_IDX);
         if (stable == USDG_TOKEN)   return (CURVE_USDG_USDC,    CRV_USDG_IDX,   CRV_USDG_USDC_IDX);
         if (stable == CRVUSD_TOKEN) return (CURVE_CRVUSD_USDC,  CRV_CRVUSD_IDX, CRV_CRVUSD_USDC_IDX);
+        if (stable == BOLD_TOKEN)   return (CURVE_BOLD_USDC,    CRV_BOLD_IDX,   CRV_BOLD_USDC_IDX);
         // Absent ⇒ (0,0,0). On the QUOTE side that contributes NOTHING to the floor — never a revert,
         // never a loosening — and §SESS-92 makes that same zero the SKIP signal, so an absent row and a
         // PAUSED pool now take the identical path. On the EXECUTION side it stays fail-closed:
@@ -1837,8 +1839,22 @@ library LevMath {
     ///    until the delivery-path caller landed, and a right-looking name beats a comment calling it
     ///    wrong. For `protectFromQuid` the stables came from the LP's own QU!D redemption, so an
     ///    unroutable remainder is theirs. On the DELIVERY path they came from the BASKET, and
-    ///    refunding them to the LP would be a leak of pool value — that caller passes the Vault.
+    ///    refunding them to the LP would be a leak of pool value — that caller passes **`aux`**.
     ///    The tail comment at the transfer names both callers.
+    /// 🔴 §REFUND-TO-AUX — **THE DELIVERY CALLER USED TO PASS THE VAULT, AND THAT WAS A SHREDDER.**
+    ///    "Not the LP" is the half of the rule that was always right; "therefore the Vault" is the
+    ///    half that deleted money. `Vault.sol` contains ZERO `IERC20`/`safeTransfer` occurrences, so
+    ///    nothing in the tree can move a token balance off it, and `Aux.sweep` reads
+    ///    `balanceOf(Aux)` under Aux's own delegatecall and cannot reach one. Every slice refunded
+    ///    there was gone — and refunds are ROUTINE, not exotic: the gate below refuses any stable
+    ///    with no `_hubRowOf` row (GHO has none at any roster size), and since §SESS-121's
+    ///    `q >= floor` arm it ALSO refuses any row whose pool is merely THIN at the traded size.
+    ///    ⇒ §SESS-121 makes this destination MORE load-bearing, not less: it deliberately turns a
+    ///      would-be revert into a refund, so every liveness win upstream becomes a leak downstream
+    ///      until the refund lands somewhere that can actually spend it.
+    ///    ⇒ `aux` is where basket-owned dust is RECOVERABLE: the permissionless `Aux.sweep(token)`
+    ///      supplies it back into a vault, so it re-enters `get_deposits` instead of vanishing from
+    ///      it. The destination follows the SOURCE, which is what this parameter has always meant.
     function _consolidateTo(address aux, address target, address refundTo) public {
         address[] memory sts = IAux(aux).getStables();
         for (uint256 i; i < sts.length; i++) {
@@ -1877,7 +1893,22 @@ library LevMath {
             //    — strictly stronger than the two membership checks it replaces, at zero extra calls.
             // ⇒ `_routableStable` is DELETED: its entire meaning is the `q != 0` below.
             uint256 q = _selfServableQuote(s, bal, target);
-            if (q != 0) {
+            // ⭐ §SESS-121 — **GATE EXECUTION ON THE QUOTE, NOT ON ADMISSION TO THE TABLE.**
+            //
+            // 🔴 `q != 0` alone asks only *is this stable ON the table*. A row whose pool is THIN at
+            //    the size being traded then quotes below the oracle floor, `_hubHop` executes anyway,
+            //    delivers less, and REVERTS — taking the whole `protectFromQuid` call and every other
+            //    LP's slice with it, because a library cannot `try this.…`. That is §SESS-92's
+            //    incident exactly: one thin Curve pool bricking a permissionless safety path.
+            // ⇒ **`q >= floor` MAKES DEPTH A RUNTIME QUESTION AT THE ACTUAL SIZE.** Thin ⇒ skip and
+            //   refund, which is the graceful path that already exists for an absent row. Deep ⇒
+            //   execute. **The alternative — admitting rows only if measured deep — compiles a
+            //   POINT-IN-TIME judgment into bytecode, and a pool deep today is thin in a year with
+            //   no way for the constant to notice.**
+            // 🔑 THIS IS WHAT MAKES THE TABLE EXTENSIBLE: with the gate, a row can never be worse
+            //    than no row, so coverage becomes a pure liveness win and `minLeg` (§SESS-120) gains
+            //    a real router-enforced bound for every stable that has a pool at all.
+            if (q != 0 && q >= floor) {
                 { uint256 b2 = (q * (10_000 - CONSOL_SLIP_BPS)) / 10_000;   // ONE budget, both arms
                   if (b2 > floor) floor = b2; }
                 _hubHop(target, _hubHop(s, bal, true, 0), false, floor);
@@ -1888,11 +1919,17 @@ library LevMath {
             //   · `protectFromQuid` (`:1703`) passes the **LP**. The stables came out of that LP's own
             //     QU!D redemption, so an unroutable remainder is theirs; stranding it in the manager
             //     would take the LP's value and only lowers `got`, which the aggregate floor guards.
-            //   · `BtcLevManager.consolidateForRepay` passes the **VAULT**. Those stables came out of
-            //     the BASKET on the delivery path — refunding them to an LP would move pool value to
-            //     one holder, which is a leak, not a refund.
+            //   · `BtcLevManager.consolidateForRepay` passes **`aux`** (`SwapLib._sourceRepayFree` is
+            //     what supplies it). Those stables came out of the BASKET on the delivery path —
+            //     refunding them to an LP would move pool value to one holder, which is a leak, not a
+            //     refund; so they go back to the BASKET, where the permissionless `Aux.sweep(token)`
+            //     re-supplies them and `get_deposits` counts them again.
+            //     ⛔ It USED to pass the Vault, and that stranded them forever: `Vault.sol` has zero
+            //       `IERC20`/`safeTransfer` occurrences and `Aux.sweep` only ever reads
+            //       `balanceOf(Aux)`. §REFUND-TO-AUX in the docblock above has the full reasoning.
             // ⇒ The DESTINATION is the caller's to decide because the SOURCE is; this body only
-            //   guarantees nothing is stranded here. Never re-read this as "the LP".
+            //   guarantees nothing is stranded here. Never re-read this as "the LP" — and never
+            //   "resolve" the basket-owned case to a holder that cannot spend what it is given.
             uint256 rem = IERC20Min(s).balanceOf(address(this));
             if (rem > 0) IERC20OZ(s).safeTransfer(refundTo, rem);
         }

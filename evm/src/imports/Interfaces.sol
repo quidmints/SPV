@@ -315,6 +315,18 @@ address constant CURVE_USDG_USDC       = 0xc061caa073f3d95F80f8e5428d32D2d76F5e1
 int128  constant CRV_USDG_IDX          = 0;
 int128  constant CRV_USDG_USDC_IDX     = 1;
 address constant CRVUSD_TOKEN          = 0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E;
+// ⭐ §SESS-121 — BOLD/USDC. **MEASURED before adding, not assumed** (2026-09-09, MetaRegistry
+// `find_pool_for_coins` + indices VERIFIED against `coins()`, `is_underlying == false`):
+//   $10k → −15.24 bps · $100k → −15.93 · $1M → −24.06.  Flat across three decades, which is what a
+//   row needs — the six pre-existing rows are all deep and the requirement was never written down.
+// 🔴 **BOLD WAS THE MOST EXPENSIVE STABLE TO LACK A ROW.** It is pinned LAST in the basket
+//   (`Aux.sol:316`), it is the ONLY basket stable with no depeg feed by design (Liquity redemption
+//   floor), and it is the denomination of the refill-affordability drain — so the one path measured
+//   there had `_selfServableQuote == 0`, i.e. no self-servable arm on its floor at all.
+address constant CURVE_BOLD_USDC       = 0xEFc6516323FbD28e80B85A497B65A86243a54B3E;
+int128  constant CRV_BOLD_IDX          = 0;
+int128  constant CRV_BOLD_USDC_IDX     = 1;
+address constant BOLD_TOKEN            = 0x6440f144b7e50D6a8439336510312d2F54beB01D;
 address constant CURVE_CRVUSD_USDC     = 0x4DEcE678ceceb27446b35C672dC7d61F30bAD69E;
 int128  constant CRV_CRVUSD_IDX        = 1;
 int128  constant CRV_CRVUSD_USDC_IDX   = 0;
