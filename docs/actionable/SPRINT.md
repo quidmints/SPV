@@ -14505,6 +14505,47 @@ the practice exists in this tree and would bite here).
 change in two live contracts. Standing rule 8c also applies: a modifier INLINES at every use site, so
 moving it saves no bytecode either — the only gain is one declaration.
 
+## 🟢 §1INCH-LANE-STATUS — **CLAIMED AND IN PROGRESS BY THE 1inch LANE (project-bc), 2026-09-09.**
+## ⛔ DO NOT START ANY ROW BELOW WITHOUT SAYING SO — a second session on these re-reads the same code.
+
+**Read this before opening `LevMath.convertTo` / `_retarget` / `_hubRowOf` or the keeper's
+`oneinch.rs` / `prefer_fetched`.** Status is CODE-VERIFIED, not remembered; each ✅ names its commit.
+
+| item | state | evidence |
+|---|---|---|
+| §SESS-65 row 1 (Curve in the planner) | ✅ CLOSED | planner half deleted (§SESS-113/115); the measured win (USDT→USDC 3pool) was already the contract's unconditional default |
+| §SESS-65 row 3 (partial fill consent) | ✅ BUILT | `Quid.fillIntent` reverts `PartialFillNotConsented()`; the bool was already in the EIP-712 typehash and the fill frame never read it |
+| §SESS-65 generic `swap()` descriptor | ✅ CLOSED | already built §SESS-69/99 — `dstReceiver` forced, tail-offset checked; the row was stale by two sessions |
+| §SESS-65 row 2 (cheapest-dollar borrow) | 🔴 **OWNER DECISION, NOT UNBUILT** | the keeper never OPENS positions, so a keeper-side stable chooser has no call site; `STABLE` immutable was never the blocker (`MARKET_ID` is separate — mutating it strands the position). ⛔ do not reopen by writing another scorer; that has been tried twice |
+| `minReturn = 1` → real router-enforced floor | ✅ `ed8f00c4` | `_retarget` derives `_selfServableQuote` per leg; a hostile executor's dust leg is now refused BY THE ROUTER, not netted against honest legs |
+| observability (`LegSkipped`) | ✅ `ed8f00c4` | the library emitted NOTHING before; `minLeg` in the event separates a thin venue from a broken keeper |
+| sandwich: on-chain floor | ✅ `f262bb46` | real `V3Sandwicher` moves the live pool, `minOut = 0`, floor alone reverts. ⚠️ proves a $40M manipulation is refused — says nothing about extraction INSIDE `_slipBps` |
+| sandwich: private relay | ✅ pre-existing | `daemon.rs:87` has defaulted to Flashbots all along via `QuorumJsonRpc::with_send_endpoints`. ⛔ I built a duplicate and reverted it (`cdec4868`) — do not build a second one |
+| Curve coverage / the six rowless stables | ◐ **BOLD LANDED; measured, see below** | |
+| quote-gate (`q >= floor`) | ✅ this commit | makes a row's DEPTH a runtime question, so a row can never be worse than no row |
+| quote-vs-fill, freshness, gas cap | 🔴 open, mine | |
+
+### 📊 CURVE DEPTH FOR EVERY ROWLESS BASKET STABLE — measured 2026-09-09, do not re-measure
+Indices verified against `coins()`, `is_underlying` checked (a metapool quotes a price `curveExchange`
+cannot execute, since it calls `exchange`, not `exchange_underlying`).
+
+| stable | pool | $10k | $100k | $1M | verdict |
+|---|---|---|---|---|---|
+| **BOLD** | `0xEFc65163…` | −15.24 | −15.93 | −24.06 | ✅ **row added** — flat across three decades |
+| USDE | `0x02950460…` | −2.46 | −8.45 | **−7,608** | thin above ~$100k |
+| FRAX | `0xDcEF968d…` | −86.22 | −159.98 | **−8,002** | thin, and wide even small |
+| GHO | — | best candidate returns 418 USDC per 10k | | | no usable pool (routes via Aave by design) |
+| AUSD | `0xE79C1C7E…` | returns 150 USDC at EVERY size | | | pool is dry |
+| cUSD | — | none | | | no pool exists |
+⚠️ **FRAX WAS NEARLY MISSED AND THE REASON IS REUSABLE:** the registry's candidate **index 0** is a
+metapool; the usable direct pool is at a later index. `find_pool_for_coins(…, 0)` alone is not an
+answer — enumerate the candidates, as `CurveTableResearch` does.
+⇒ **USDE and FRAX are not disqualified, they are THIN**, which the quote-gate now handles at runtime.
+They are unlanded only because `LevMath` has **71 bytes** left; they need the in-place library move
+first, and they buy only small-size coverage.
+
+---
+
 ## 🟡 §SCAN-2026-09-08 — **RE-RUN AT THREAD CLOSE. EVERY COUNT GREW, AND THAT IS THE FINDING.**
 
 ⛔ **THIS IS A DELTA, NOT A THIRD BOOKING OF THE SAME FIVE CLASSES.** They are already booked twice —
