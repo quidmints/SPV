@@ -1686,11 +1686,25 @@ sats**. The real underlying is LN-custodied native BTC. So "one instance = one `
    invariant (`sats <= plainNet(pooled, levPooled)`), not a redeem-side one. **The objection was aimed
    at the wrong end of the pipe.** The other blocker is independently void: §NO-VBTC-MORPHO-MARKET
    deleted the market (`3440c742`), so there is no liquidator with no exit.
-⚠️ **WHAT SURVIVES THE RULING, AND IS NOW LOAD-BEARING RATHER THAN DECORATIVE: `Σ outstanding vBTC ≤ Σ
-free channel capacity`.** BTC promised to a vBTC holder is not free channel capacity, so
-**`deliverableBTC` must SUBTRACT outstanding vBTC** or redemption and swapper delivery draw on the same
-sats. That invariant is named two paragraphs down as a feature of a rejected design; it is now the
-guard the accepted one rests on.
+⛔ **AN INVARIANT THAT DIED WITH THE OLD DESIGN, AND I TRIED TO CARRY IT ACROSS — `Σ outstanding vBTC ≤
+Σ free channel capacity`. DO NOT REINSTATE IT.** I wrote that it was "now load-bearing" and instructed a
+lane to make `deliverableBTC` SUBTRACT outstanding vBTC. **The owner caught it: *"redemption and
+swapouts do actually draw on the same sats."***
+🔑 **THE REDUCTIO, which is one line and which I should have run before writing it down: under this
+ruling ALL channel-locked BTC IS vBTC, so `Σ outstanding vBTC` EQUALS `Σ channel-locked BTC`. Subtracting
+it drives `deliverableBTC` to ZERO in the normal case** — a contract that delivers nothing, wearing the
+costume of a conservative safety check.
+⭐ **THE GENERAL LESSON, and it is the reusable one: that invariant was TRUE of the design where vBTC was
+a SUBSET (the levered slice only) and therefore a claim COMPETING with a larger pool. Under "the token
+is the shares" vBTC does not compete with the sats — it IS the sats' representation. There are not two
+quantities, so there is nothing to subtract.** ⇒ **WHEN A RULING DISSOLVES A DISTINCTION, THE INVARIANTS
+WRITTEN IN TERMS OF THAT DISTINCTION DO NOT SURVIVE IT — they read as prudent and are degenerate.**
+✅ **WHAT IS ACTUALLY TRUE:** redemption and swap-out **both** draw on free channel capacity, by design —
+one pool, two exit paths, exactly as an AMM's withdrawals and swaps both consume the same depth.
+**Solvency is protected on the MINT side** (`sats <= plainNet(pooled, levPooled)`, which must survive
+generalisation), and the exit side is bounded by **capacity, not ownership**: whoever draws first gets
+the sats and the other waits. ⛔ **Do not add a reservation, a subtraction or a pending-claim variable to
+arbitrate that — rule 23, and the same shape as the `auxIdle` the owner had deleted.**
 📌 **The `VBtc` MUST SURVIVE argument above is UNAFFECTED and still correct** — the BTC range has no
 underlying unless it mints one. The ruling strengthens it: vBTC is not merely a synthetic underlying,
 it is the share token itself.

@@ -113,12 +113,21 @@ Theft would require minting vBTC not backed by locked BTC, which is a MINT-side 
 (`sats <= plainNet(pooled, levPooled)`), not a redeem-side one. **The objection was aimed at the wrong
 end of the pipe.** The other recorded blocker is independently void: `§NO-VBTC-MORPHO-MARKET-2026-09-07`
 deleted the market (`3440c742`), so there is no liquidator with no exit.
-⚠️ **AND THE DOUBLE-COUNT WORRY I RAISED IS REAL BUT RE-AIMED:** I argued widening needs a second subset
-marker because an LP could be lev-exposed AND lent-out while `plainNet` assumes one. Under "the token
-is the shares" there is only ONE claim instrument, so there is nothing to double-count — **but
-`deliverableBTC` must now subtract outstanding vBTC**, because BTC promised to a vBTC holder is not
-free channel capacity. **That is the `Σ outstanding vBTC ≤ Σ free channel capacity` invariant
-`CLAUDE.md:1657` already names, and it is now load-bearing rather than hypothetical.**
+⛔ **MY DOUBLE-COUNT WORRY WAS WRONG TWICE, AND THE SECOND TIME I WROTE IT INTO A LANE BRIEF.**
+I first argued widening needs a second subset marker (an LP could be lev-exposed AND lent-out while
+`plainNet` assumes one). Under "the token is the shares" there is only ONE claim instrument, so that
+dissolves. I then re-aimed it as *"`deliverableBTC` must now subtract outstanding vBTC"* and briefed a
+lane to implement it. **Owner: *"redemption and swapouts do actually draw on the same sats."***
+🔑 **THE REDUCTIO: all channel-locked BTC IS vBTC, so `Σ outstanding vBTC` EQUALS `Σ channel-locked
+BTC`. The subtraction drives `deliverableBTC` to ZERO** — an undeliverable contract that reads as a
+prudent guard. Retracted to the lane mid-flight.
+⭐ **WHY IT LOOKED RIGHT: `Σ outstanding vBTC ≤ Σ free channel capacity` is a TRUE invariant of the OLD
+design, where vBTC was a SUBSET — the levered slice — and therefore a claim competing with a larger
+pool. The ruling dissolves the subset, and an invariant written in terms of a dissolved distinction does
+not survive it.** ⇒ **Solvency lives on the MINT side (`sats <= plainNet(pooled, levPooled)`, which must
+survive generalisation). The exit side is bounded by CAPACITY, not ownership — one pool, two exit paths,
+whoever draws first gets the sats.** ⛔ No reservation, no subtraction, no pending-claim variable
+(rule 23 — the `auxIdle` shape).
 
 ## ✅ R-10 (was #10) — **KEY RECOVERY IS A SECOND REGISTERED BIP-340 KEY.**
 Committed at open, usable ONLY to re-point `btcRecipientOf`. The LP keeps two keys. This preserves the
