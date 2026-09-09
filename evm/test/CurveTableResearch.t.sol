@@ -27,8 +27,14 @@ contract CurveTableResearch is ForkPin {
 
     function setUp() public { vm.selectFork(_forkMainnet()); }
 
+    /// ⚠️ §SESS-120 — **A TOKEN WITH NO CURVE POOL MUST NOT REVERT THE WHOLE ENUMERATION.** Adding a
+    ///    cUSD probe took the run down with `EvmError: Revert` BEFORE it printed the stables after it,
+    ///    so the failure destroyed the evidence for every later token rather than just its own row.
+    ///    A research artifact that enumerates must degrade per-row, never abort the sweep.
     function _probe(string memory name, address tok) internal view {
-        uint8 dec = IERC20R(tok).decimals();
+        uint8 dec;
+        try IERC20R(tok).decimals() returns (uint8 d) { dec = d; }
+        catch { console2.log("=====", name); console2.log("  NO TOKEN / not ERC20 at this address"); return; }
         uint256 dx = 10_000 * (10 ** dec);
         console2.log("=====", name);
         for (uint256 c; c < 6; ++c) {

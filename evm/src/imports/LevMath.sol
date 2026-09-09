@@ -488,6 +488,12 @@ library LevMath {
     error Slippage();
     /// §SESS-22 — a route CONSUMED an input leg and delivered NOTHING to `outToken`.
     error RouteTookAndGaveNothing();
+    /// §SESS-120 — the ONLY event in this library, and it exists because its absence was a blind spot
+    /// rather than a simplification. `minLeg` is included deliberately: it distinguishes "the router
+    /// refused our own floor" from "the route reverted for its own reasons", which is the difference
+    /// between a thin venue and a broken keeper.
+    event LegSkipped(address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 minLeg);
+
     error BadRoute();   // §SESS-65 — a supplied route whose selector or length we do not recognise
     error NotNearLiq();
     error NoDebt();
@@ -785,9 +791,44 @@ library LevMath {
     ///    this contract computes itself. `1` is the smallest value the router accepts, not a floor;
     ///    writing a real per-leg floor here would add a second bound a multi-input conversion cannot
     ///    size correctly, and the file's rule is ONE floor on the whole conversion.
+    /// ⭐ §SESS-120 — **`minLeg` IS A REAL NUMBER NOW, AND `1` WAS A BOUND THAT BOUNDED NOTHING.**
+    ///
+    /// 🔴 §SESS-99 wrote `minReturnAmount = 1` to dodge the router's `ZeroMinReturn()` revert, and that
+    ///    fixed the liveness bug it was aimed at. **Nobody then asked whether 1 was a BOUND.** It is
+    ///    not: it tells the router *"any non-zero output is acceptable"*, so every protection on this
+    ///    path collapsed onto `convertTo`'s AGGREGATE floor — which has slack by construction
+    ///    (`_slipBps`) and is measured over ALL legs at once.
+    /// ⛔ **THE GAP THAT OPENED, and `w0` is the reason it is not theoretical: WE NEVER OVERWRITE OR
+    ///    WHITELIST THE EXECUTOR.** `_retarget` rewrites srcToken, dstToken, dstReceiver, amount and
+    ///    minReturn — the executor word is whatever the keeper named. A hostile executor returns DUST
+    ///    on one leg: `spent > 0 ⇒ delivered > 0` passes (1 wei is delivered), and the aggregate floor
+    ///    absorbs it inside the other legs' slack. With M legs, up to the floor's slack walks per call.
+    /// ⇒ **PASS THE ROUTER A FLOOR IT CAN ENFORCE ITSELF.** `minLeg` is the caller's own
+    ///   `_selfServableQuote` for THIS leg, haircut by the same budget — so the leg reverts INSIDE the
+    ///   router and `convertTo` skips it, instead of the loss being netted against legs that behaved.
+    /// ⚠️ **ZERO STILL MEANS "NO OPINION", AND THAT MATTERS FOR THE STABLES WITH NO TABLE ROW.** Where
+    ///    `_selfServableQuote` returns 0 (no `_hubRowOf` row) we fall back to the old `1`, because a
+    ///    floor we cannot derive must not become a floor of zero — that is the `ZeroMinReturn` bug
+    ///    again. ⇒ every row added to the table tightens this bound as a side effect, which is the
+    ///    second reason the table's coverage is a SECURITY question and not only a liveness one.
+    /// @dev §SESS-120 — the skip notice, in its OWN frame for the stack reason above. The quote is
+    ///      re-read rather than threaded: the skip path is the rare one, so two `get_dy` reads are the
+    ///      cheap side, and `minLeg` in the log is what separates "the router refused OUR floor" (a
+    ///      thin venue) from "the route reverted for its own reasons" (a broken keeper).
+    function _noteSkip(address tokenIn, address tokenOut, uint256 amt) private {
+        emit LegSkipped(tokenIn, tokenOut, amt, _selfServableQuote(tokenIn, amt, tokenOut));
+    }
+
+    /// ⛔ **`minLeg` IS DERIVED HERE, NOT PASSED. THAT IS A STACK CONSTRAINT, NOT A PREFERENCE.**
+    ///    Threading it as a parameter cost one local in `convertTo` and the frame went `Stack too
+    ///    deep` at the `forceApprove` below — `via_ir` is off by policy, and the standing remedy is to
+    ///    shed locals into another frame. This function already holds `tokenIn`/`tokenOut`/`amountIn`,
+    ///    so it can derive the same number without the caller carrying it.
     function _retarget(bytes memory route, address tokenIn, address tokenOut, uint256 amountIn)
         internal view
     {
+        uint256 minLeg = _selfServableQuote(tokenIn, amountIn, tokenOut);
+        if (minLeg != 0) minLeg = (minLeg * (10_000 - CONSOL_SLIP_BPS)) / 10_000;
         uint256 len = route.length;
         if (len == 0) return;                                  // pool-word arm; nothing to retarget
         if (len < 4) revert BadRoute();
@@ -801,7 +842,7 @@ library LevMath {
             assembly {
                 mstore(add(route, 0x24), tokenIn)              // word 0 — what we are selling
                 mstore(add(route, 0x44), amountIn)             // word 1 — how much, computed on-chain
-                mstore(add(route, 0x64), 0)                    // word 2 — the aggregate floor decides
+                mstore(add(route, 0x64), minLeg)               // word 2 — §SESS-120: a real floor when we have one, else 0
             }
             // ⭐ §SESS-84 — **DERIVE THE DIRECTION BITS HERE, FOR BOTH ARMS.** This was `routedSwap`'s
             //    real job — *"the keeper names a POOL; which way we cross it is a fact about
@@ -843,6 +884,9 @@ library LevMath {
         //    the offset word must equal the head size exactly. A crafted blob that moved it would put
         //    our amount somewhere that is not the amount field — the same failure the arity check
         //    prevents for the unoswap family, expressed the only way a dynamic call allows.
+        // ⚠️ NEVER 0 ON THIS ARM — the router reverts `ZeroMinReturn()`, which is the bug §SESS-99
+        //    spent a day on. `minLeg` of 0 means "we could not derive one", not "zero is acceptable".
+        uint256 swapMin = minLeg == 0 ? 1 : minLeg;
         if (sel != SWAP_SELECTOR) revert BadRoute();
         if (len < 4 + 10 * 32) revert BadRoute();              // 9 head words + at least a length word
         uint256 dataOff;
@@ -855,6 +899,8 @@ library LevMath {
             mstore(add(route, 0xC4), amountIn)                 // w5 amount
             // 🔴 §SESS-99 — **ONE, NOT ZERO, AND THIS IS WHY THE WHOLE `swap()` ARM NEVER EXECUTED.**
             //    1inch's AggregationRouterV6 reverts **`ZeroMinReturn()`** on a zero `minReturnAmount`.
+            // ⭐ §SESS-120 — and `minLeg` replaces the literal 1 wherever we can derive one; see the
+            //    header. A leg the router itself refuses is skipped by `convertTo`, not netted.
             //    We zeroed it on purpose — *"the aggregate delta floor is the bound"* — which is the
             //    right SECURITY design and an impossible CALL. ⇒ every generic-descriptor route
             //    reverted at the router, `convertTo` skipped the leg, and the conversion returned 0.
@@ -866,7 +912,7 @@ library LevMath {
             // 🔑 `1` keeps the design intact: it satisfies the router's sanity check while leaving the
             //    real bound where it belongs — on the MEASURED balance delta across the whole
             //    conversion, which a per-leg minReturn cannot express anyway.
-            mstore(add(route, 0xE4), 1)                        // w6 minReturnAmount — 1, see above
+            mstore(add(route, 0xE4), swapMin)                  // w6 minReturnAmount — §SESS-120, never 0
         }
         // ⚠️ **`flags` (w7) IS DELIBERATELY LEFT ALONE, AND IT IS A BOOKED GAP, NOT AN OVERSIGHT.**
         //    1inch's flag word carries a PARTIAL-FILL bit, and the owner's rule is *"no partial fill
@@ -899,6 +945,8 @@ library LevMath {
             //    note said full calldata *"embeds an `amount`… unknowable off-chain to the wei"*. True —
             //    and irrelevant once the amount is written HERE, from a borrow return this transaction
             //    just computed. ⇒ the pool-word arm is no longer the only amount-safe one.
+            // ⭐ §SESS-120 — `_retarget` now derives THIS LEG's own floor and writes it into the
+            //    route, so the router enforces a real bound instead of `1`. See its header.
             _retarget(routes[k], inTokens[k], outToken, amt);
             // 🔴 **`forceApprove`, NOT `approve` — AND THIS WAS A LATENT BUG, NOT A NEW NEED.**
             //    `IERC20Min.approve` declares `returns (bool)`, and **USDT RETURNS NOTHING**, so the
@@ -932,7 +980,16 @@ library LevMath {
             //    the TOTAL is the bound that matters. **The 1-input case is unchanged** — a failed
             //    single leg yields `got == 0`, below any non-zero floor, so `routedSwap` reverts
             //    exactly as it always did.
-            if (!ok) continue;
+            // ⭐ §SESS-120 — **A SKIPPED LEG WAS COMPLETELY SILENT, AND THAT IS ITS OWN DEFECT.**
+            //    This library emitted NOTHING (`grep -c 'event ' LevMath.sol` was 0), so a keeper
+            //    sending routes that never fill degraded service indefinitely with no signal — and
+            //    "1inch is down", "the keeper is broken" and "nothing needed doing" all looked
+            //    identical from outside. ⛔ It does not revert and must not: the skip is the liveness
+            //    the aggregate floor is designed around. It just stops being invisible.
+            //    ⚠️ OWN FRAME (`_noteSkip`), not an inline `emit`. Measured: this frame is at the
+            //    legacy stack limit and even the emit's ARGUMENT EXPRESSION broke it — `via_ir` is off
+            //    by policy and shedding into another frame is the standing remedy.
+            if (!ok) { _noteSkip(inTokens[k], outToken, amt); continue; }
             // 🔴 **§SESS-22 — A LEG THAT TOOK OUR TOKENS MUST HAVE GIVEN US TOKENS.**
             //    The aggregate floor does NOT catch a route that SUCCEEDS while sending its output
             //    elsewhere: 1inch's `swap` descriptor names a `dstReceiver`, so a hacked keeper can have
