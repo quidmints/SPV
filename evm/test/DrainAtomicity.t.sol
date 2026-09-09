@@ -227,11 +227,26 @@ contract DrainAtomicity is AllesFixture {
     ///   functions is the only way to make the sizes independent. One measurement per test, no loop.
     function _coverageAtSize(uint boldAmt) internal {
         _setupRange();
+        // 🔴 §SENTINEL-GUARD — **WITHOUT THIS THE REGIME SWEEP SILENTLY MEASURES NOTHING.** The first
+        //    regime run reported +297 and +264 bps of "coverage" at two older blocks. Both were the
+        //    σ² sentinel: `premium == 3.00%` EXACTLY is `UNKNOWN_VARIANCE_SKEW` (3e16), i.e. σ² was
+        //    never measured there, so the premium is a constant and the row describes the fallback
+        //    rather than the market. It is the same vacuous reading that made §REFILL-SIZE look like
+        //    a cliff, and it PASSED as a green test both times.
+        //    ⇒ Warm from REAL Chainlink history, then REFUSE to measure if σ² is still unmeasured.
+        //      A contaminated sample must fail loudly, never report a number.
+        warmVarianceFromRealRounds(12);
+        assertGt(CORE.realizedVarianceWad(), 0,
+            "CONTROL: sigma^2 must be LIVE — at zero the premium is the sentinel, not a price");
         uint px    = AUX.getTWAPforAsset(address(WETH), 1800);
         uint p0    = CORE.skewPremiumCum();
         uint ethGot = _drain(boldAmt);
         uint prem6 = CORE.skewPremiumCum() - p0;
         assertGt(ethGot, 0, "CONTROL: the drain must deliver, or the row below is arithmetic on nothing");
+        // The sentinel is exactly 3% of the drain. Catch it directly as well as via σ², because σ²
+        // could be non-zero while some other path still returns the constant.
+        assertTrue(prem6 * 1e12 != boldAmt * 3 / 100,
+            "CONTROL: premium is EXACTLY 3% — that is UNKNOWN_VARIANCE_SKEW, not a measured price");
 
         uint usdcIn = boldAmt / 1e12;
         deal(address(USDC), address(this), usdcIn);
