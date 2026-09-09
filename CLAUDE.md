@@ -238,6 +238,26 @@ environment actually is*. Every line below was verified in-repo, not recalled.
     tables to two tables, plus a mapping, a setter, an event, an interface member, two offset constants,
     deploy seeding, and an `aux` parameter threaded through three functions. **Nothing was deleted; a
     table was MOVED and a second one grown beside it.** The owner spotted it from the name alone.
+    ⭐ **AND THE COROLLARY, WHICH THE RULE ABOVE DID NOT COVER — STATE IS A VARIABLE TOO** (owner,
+    2026-09-09: *"auxIdle shouldnt really be a thing at all. why would assets ever be unparked in any
+    situation? anything that leads to that should be dealt with on site not delayed to create an extra
+    variable"*).
+    **An asset left sitting somewhere is a variable you did not declare — and it is worse than one you
+    did, because nothing names it and every reader has to rediscover that it can be non-zero.** The
+    test is the same: what already holds this, and why is it not enough? If a call leaves value parked
+    for a LATER call to deal with, the fix belongs at the site that parked it, not in the site that
+    finds it.
+    *Worked example — 2026-09-09, and I fixed it twice at the wrong end before the owner named it:*
+    a swapper paying volatile lands WETH at `Aux` (`SwapLib:405`, `_depositVol`); nothing places it, so
+    it idles. `QuidLib.withdrawETH` then swept **all** of it in and served only `amount`, parking the
+    difference at `Quid`; `QuidLib.sendEth` then unwrapped its **whole** balance and handed the surplus
+    to the next swapper while `Core._handleDelta` debited `POOLED` by the quoted amount alone — **real
+    ether leaving custody the book never debited** (§GATE0e). I capped the send, then capped the sweep.
+    Both were right and both were downstream: the idle balance should not exist, and with it gone the
+    `auxIdle` local, the sweep, both caps, and possibly two `_rangeETH` terms all delete.
+    ⚠️ **THE TELL THAT YOU ARE FIXING THE WRONG END: your fix reads `balanceOf(someoneElse)`.** A
+    contract asking what another contract happens to be holding is a contract recovering from a
+    decision made elsewhere.
     ⚠️ **THE GENERALITY TRAP IS THE SAME ERROR ONE LEVEL UP, AND IT IS MEASURABLE:** the first version
     of that change also added a `PROTO_CURVE` dispatch so the new variable could name either protocol —
     **462 bytes on the second-tightest contract**, buying a capability the keeper's existing `dex2`
