@@ -78,3 +78,105 @@ so an LP can never set a basis lower than where they actually re-entered.
 ⚠️ `RangeLib.reanchorIfReseated` carries the mirror hazard and is already guarded: §C19,
 **DO NOT write `q.ilBasisPx` on a reseat** — it would cap accumulable IL at one half-range (98.5 bps
 at `RANGE_DELTA = 200`) and make `venue.borrow` unreachable by construction, silently.
+
+---
+
+# §RHO-AND-THE-LINEARITY-WALL — 2026-09-09. **I was wrong about the integral. And the wall is neither κ nor ρ.**
+
+## ⛔ CORRECTION TO `99aaf2d6`'s COMMIT MESSAGE, MADE BY ITS AUTHOR
+That message says *"the integral has no cheap closed form"*. **FALSE.** `∫ q/(κ−q)^ρ dq` is exact and
+cheap. With `u = κ−q`:
+```
+F(q) = u^(1−ρ) · [ u/(2−ρ) − 1/(1−ρ) ]        qBar = (F(q1) − F(q0)) / Δ
+```
+**ONE `powWad` per endpoint** (because `u^(2−ρ) = u^(1−ρ)·u`), i.e. two per swap — not four, and not
+a series approximation. Verified against numeric integration at ρ ∈ {1.2, 1.5, 2.5, 3.0} over
+q ∈ {[0.1,0.5], [0.6,0.9], [0.8,0.95]}: **relative error ≤ 6.7e-11 in all twelve cells.**
+⚠️ ρ = 1 is a genuine pole in the formula (`1/(1−ρ)`), so the existing `ln` branch stays as the ρ=1
+case. That is a branch, not an obstacle.
+
+## 🔴 AND IT DOES NOT MATTER, BECAUSE ρ(σ) HITS THE SAME WALL κ(σ) DID — MEASURED
+`test_E287_SkewIsNotPinnedToAConstant` asserts **skew is LINEAR in σ²** (doubling σ² doubles the
+reading, 2% tolerance). A σ-dependent ρ is not linear in σ²:
+| probe | q | ρ 1.000 → 1.500 | ratio TODAY | ratio with ρ(σ) |
+|---|---|---|---|---|
+| a | 0.850 | | 2.0000 ✅ | **3.7027 🔴** |
+| b | 0.700 | | 2.0000 ✅ | **2.9642 🔴** |
+| c | 0.550 | | 2.0000 ✅ | **2.6000 🔴** |
+
+⇒ **THE BLOCKER IS NOT THE POLE'S LOCATION AND NOT THE BARRIER'S EXPONENT. IT IS THAT ONE TEST
+FORECLOSES EVERY VOL-SENSITIVE SHAPE.** κ(σ) fails it by re-introducing a ceiling; ρ(σ) fails it by
+breaking linearity. **Different mechanisms, same assertion, and the test cannot tell them apart** —
+it uses linearity as a scale-free PROXY for "no ceiling", and its false-positive class (a DELIBERATE
+σ-dependent shape) is unnamed. Per the standing sweep rule, a guard whose false-positive class is
+unnamed is not yet a finding about the code.
+
+## ⭐ AND THE TEST IS DEFENSIBLE, WHICH IS WHY THIS IS A FORK AND NOT A BUG
+**A–S §2.2 IS linear in σ²** (`r = s − qγσ²(T−t)`), so the test encodes §2.2 faithfully. **A–S §2.3 is
+NOT** — its pole at `2ω − γ²q²σ²` moves with σ. The tree cites BOTH sections in different places
+(`SwapLib:766-770` is §2.2's finite-horizon form, `:1030-1031` is §2.3's stationary one, per
+`0505a993`). ⇒ **"should the reserve be vol-sensitive at all?" is a question about WHICH SECTION WE
+ARE IMPLEMENTING, and it has never been asked.** Everything else here is downstream of it.
+⛔ **DO NOT "FIX" THE TEST TO LAND A SHAPE.** Its docblock names the discharge: measure the premium
+against §E68's integral at q=0.6–0.95 and show the clamp does not void it. Any change to it must
+carry that measurement.
+
+---
+
+# 🔴 §WASH-INFLATES-THE-TARGET — the manipulation answer, and the discriminator is BUILT BUT UNREAD
+
+`skewWad`'s `q = (target − inv)/target` where **`target = Core.skewTargetUsd() = flowEwmaUsd() +
+redeemEwmaUsd()` — GROSS flow only** (`Core.sol:272-276`). A higher `target` gives a LOWER `q`, which
+gives a **CHEAPER DRAIN**. `Core.sol:246-251` states the vector and the fix in one breath:
+
+> *"`flowEwmaUsd` (GROSS) and `netFlowUsd` (SIGNED) are a **matched pair, and the pair IS the
+> wash-trading discriminator** — §E326 measured it: over a round trip `flowEwmaUsd` went
+> `0 → 49,999,999,999 → 99,994,054,053` while the position netted to ~$6, so a one-directional drain
+> and a balanced round trip look identical to gross alone."*
+
+⇒ **A ROUND TRIP NEARLY DOUBLES `target` WHILE NETTING ~$6.** ⛔ **AND `netFlowUsd` IS NEVER READ BY
+THE SKEW.** The same docblock says the check is *"before it is built"* — so the counter exists, the
+measurement exists, and nothing consumes it. `skewTargetUsd` is by its own docblock *"the ONE place
+the two flow sources are composed"*, which makes it the one place a fix lands.
+⏸️ **NOT LANDED — money path, rule 15.** What it needs first: price the attack. Cost = two swaps'
+fees + the round-trip skew premium; benefit = the drain discount from the inflated `target`, persisting
+for a 48h half-life. **If the premium on the round trip exceeds the discount it buys, this is
+self-defeating and the row closes.** That is one measurement and it decides the whole item.
+
+## 📌 CONSEQUENCE FOR "REMOVE THE 48h CONSTANT" — IT CANNOT BE REMOVED, AND HERE IS WHY
+`τ = I/F`. `I` is observable (`target − inv`). **`F` is NOT**: the register holds a decayed VOLUME,
+and `T_flow` is the units bridge that turns that stock into a rate (`F ≈ flowEwma/T_flow`). Substituting
+gives `τ = q·T_flow` — **`T_flow` does not cancel.** ⇒ 48h is not a free parameter standing in for an
+observation; it is the DIMENSION that makes the observation a rate. It can be made honest, not deleted.
+⭐ **What IS removable is the second-guessing: it is already ONE window** (`FLOW_HALFLIFE` =
+`Core.FLOW_DECAY`'s half-life = Γ's horizon), so there is no drift to fix — only the §WASH row above,
+which is about the window's CONTENTS rather than its width.
+
+---
+
+# ✅ §REFILL-NEEDS-NO-FUNDING — answered from the code's own design statement, `SwapLib:1697-1718`
+
+**The question "how do we fund the refill" may not have a referent.** The shipped design says there is
+no funded refill:
+
+> *"RESERVOIR REFILL DESIGN (the pump) — how the reservoir refills, and **why the skew is all that is
+> needed**: 1. PRIMARY REFILL — LPs stake, pulled in when the pool is scarce because scarcity ⇒ more fee
+> capture. **This mechanism already exists; the reservoir self-refills through ordinary LP entry — no
+> bespoke machinery, no keeper, no RFQ, no external-MM solicitation.** 2. FAST TOP-UP — LP entry is the
+> ONLY refill path. … So the skew's whole job is to PRICE the scarcity. **The refill is a PERMISSIONLESS
+> response to a public on-chain price**: the skew is our reservation price, captured by whoever refills
+> first (a gas race), never an operator-tuned or bid mechanism."*
+
+⛔ **AND IT NAMES THE ANTI-PATTERN EXPLICITLY:** `payRefillBonus` was DELETED 2026-07-22 and the
+docblock says *"Paying a swapper a bonus is precisely what the removal stopped — do NOT rebuild it."*
+⇒ **An imbalanced range is a PRICED STATE, not an emergency.** Nothing is insolvent: the drainer paid
+a premium that reached LPs (`ISkewSink.creditSkewPremium` → `USD_FEES`, §E5/§E132), the range settles
+at oracle, and scarcity raises the reward for the next entrant. The protocol does not buy inventory
+back, so it has no cost to fund.
+🔴 **THIS CONTRADICTS THE ACTIVE REFILL WORK AND THE CONTRADICTION IS THE ITEM.** §REFILL-G2-VERDICT
+concludes *"the premium is not sized to fund the refill"* — a true statement about a mechanism this
+docblock says should not exist. **One of the two is stale and they are in the same tree.** ▶️ Settle
+WHICH before either thread builds further: is the refill (a) LP entry responding to a public price
+(shipped design, needs no funding), or (b) a protocol-executed buy-back (needs funding, and §E276's
+*"the refill direction is exempt rather than paid"* is the gap)? **Do not answer it from either
+docblock — both are prose. Ask what executes the buy-back today and who pays its gas.**

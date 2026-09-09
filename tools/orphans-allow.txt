@@ -30,4 +30,15 @@ levClaimUsd6             # Core public view; read off-chain and by SkewCalibrati
 #
 # CLASS 3: KNOWN DEFECT, HELD OPEN DELIBERATELY. This is NOT an acceptable state — it is a bug
 # whose fix needs evidence this gate cannot supply. Removing the entry must mean FIXING it.
-swapOutDeliverUnlevered  # 🔴 UNREACHABLE: §POOL-VENUE collapsed the per-LP walk in deleverEthOnDelivery and took the 0-debt branch with it. 0 callers, 0 tests. SPRINT §M.1 — needs a fork test, not a guess.
+swapOutDeliverUnlevered  # 🔴 STILL UNREACHABLE IN PRODUCTION, BUT NO LONGER UNTESTED — re-measured 2026-09-09.
+#   §POOL-VENUE collapsed the per-LP walk in deleverEthOnDelivery and took the 0-debt branch with it.
+#   ⏸ §M.1 IS ANSWERED: the fork test this line asked for EXISTS and is green —
+#     LevYbReal.testReal_M1_UnleveredDeliveryClosesTheHole (the function's ONLY caller, LevYbReal.t.sol:363),
+#     plus testReal_M1_ZeroDebtPoolIsReachableAndItsEquityIsUndeliverable. Verdict: KEEP, the 0-debt state
+#     is reachable at EVERY open and the delivery path refuses it. So "0 tests" was TRUE when written and
+#     is FALSE now; "0 production callers" is still true and is the whole remaining defect.
+#   ⛔ THE WIRE IS NOT ONE LINE, WHICH IS WHY IT IS STILL HERE. deleverEthOnDelivery is POOLED and
+#     swapOutDeliverUnleveredBody takes an LP (venue.collateralOf(lp) / venue.withdraw(lp, pull)).
+#     Under §POOL-VENUE withdrawPool writes NO per-LP units, so withdrawing against one LP with no debt
+#     to pair the repay against dilutes EVERY LP pro-rata — the 4,801 bps cross-subsidy
+#     (LeverageCrossSubsidyProbe) arriving through a second door. Needs its own fork test; do not guess.
