@@ -63061,3 +63061,51 @@ SHORT and would double the loss, not offset it.**
 📌 **CONSEQUENCE FOR ITEM 3: the search space is PAIRS, not assets** — every candidate venue must accept
 our volatile as collateral AND lend a stable we already hold. That is a much smaller set than "cheapest
 borrow of any asset", and it is the set the allocator must actually walk.
+
+---
+
+# ⛔ §NO-POST-QUANTUM-ANYWHERE IS **RETRACTED BY ITS AUTHOR** — the grep was truncated and the ranking was backwards
+
+**I published *"ZERO hits in our code"* for post-quantum an hour ago. IT IS FALSE.** Re-measured with
+`grep -c` and no truncation, vendored trees excluded: **`p2mr` 37 · `quantum` 43 · `post-quantum` 10 ·
+`winternitz` 7 · `sphincs` 2 · `P2QRH` 1 · `dilithium` 1 · `falcon` 1 · `ML-DSA` 1**, across
+`SPRINT.md`, `docs/FAQ.md`, `docs/identity/TODO-ARCHIVE.md`, `BitcoinTx.sol` and `ChannelLib.sol`.
+
+## 🔴 HOW — AND IT IS THE TRAP THIS FILE ALREADY DOCUMENTS, COMMITTED BY SOMEONE WHO HAD READ IT TODAY
+I ran the search piped through **`head -20`**, and the term `lamport` matched **hundreds of Solana
+`lamports` lines** which consumed the entire budget before any real hit could print. **A truncated grep
+proves less than an empty one and looks identical** — CLAUDE.md's canonical entry says exactly this,
+with the `flashbots|protect|private | head -8` case that caused a duplicate private relay to be BUILT.
+⇒ **Same instrument, same shape, same session in which I quoted the rule at the owner.** The discipline
+is not "know the rule"; it is `grep -c` or read it all, every time absence is the conclusion.
+
+## 🔴 AND THE SUBSTANCE WAS WORSE THAN THE COUNT — **§BTC-4 ALREADY RANKS THIS, AND MY RANKING WAS INVERTED**
+I answered *"three signature layers rest on pre-quantum assumptions: MuSig2 taproot, `ecrecover`, and
+Noir/Honk BN254"*, and offered that as the exposure. **§BTC-4.5 says the opposite, and it is measured:**
+> **"Signatures have no HNDL exposure. Recorded encrypted traffic does."**
+- 🔑 **THE REAL EXPOSURE IS THE TRANSPORT, NOT TAPROOT.** `quid-tls-core/src/lib.rs:40-42` pins exactly
+  one key-exchange group — **`kx_group::X25519`** — and `QUID_CRYPTO_PROVIDER` is a **single shared
+  provider** consumed by BOTH `client_config_builder()` and `server_config_builder()`, so **every TLS
+  connection in the system inherits it.** That is where a CRQC **harvests today and spends later**;
+  every Bitcoin-side item is *"exposure the attacker must act on in real time"*.
+- **It is NOT a config change:** the provider is `ring`, and **`ring` has no ML-KEM**. rustls ships
+  hybrid `X25519MLKEM768` under `aws-lc-rs`, whose C/assembly may not build under `target_env = "sgx"`
+  — **very likely why `ring` was chosen.** Two routes are already written up, with the instruction to
+  add `X25519MLKEM768` **alongside** X25519 so there is no downgrade risk.
+- ⚠️ **§BTC-4.5-bis narrows it correctly:** the seed is **born in the enclave** by default, so it does
+  not cross the network on the default path — **the HNDL exposure is on the MIGRATION path.**
+- ⛔ **AND MY "the Bitcoin layer cannot move ahead of Bitcoin" WAS TOO STRONG, exactly as §BTC-4.6b
+  already self-corrected:** hash-based signatures (Lamport/Winternitz) need only **hashing and
+  equality, both of which tapscript has**, so **a PQ signature CAN be verified in a tapleaf today with
+  no consensus change.** What kills it is **LIGHTNING, not the script path** — witness size (kilobytes),
+  **one-time keys that leak catastrophically on reuse** while a channel signs many commitments against
+  one funding output, no aggregation, and P2MR being unactivated.
+
+⇒ **NOTHING IN §KEEPER-PQ-VENUE ITEM 2️⃣ SHOULD BE READ OR CITED.** The correct entry point is **§BTC-4**
+(and §BTC-3c for the P2MR migration path). ⚠️ **Note for the next reader: §BTC-4's own opening line
+— *"Measured: zero hits for `quantum`, `CRQC`, `post-quantum` or `Shor`"* — is the HISTORICAL state
+that motivated the block, not a current fact. I did not read past the heading, and the heading agreed
+with my broken grep**, which is how two independent errors confirmed each other.
+📌 **THE REUSABLE LESSON, and it is not about greps:** a truncated search and a stale heading AGREED,
+and agreement between two sources felt like corroboration. **Two instruments sharing one blind spot is
+not a control** — the control was reading the block, which took one `sed`.
