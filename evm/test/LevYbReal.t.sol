@@ -711,7 +711,19 @@ contract LevYbRealProbe is AllesFixture {
         // that is precisely why arm A passes. The interleaved arm exists to move it, so require it.
         assertTrue(rlm.totalNetEquity() != uint(0),
             "CONTROL: no levered net-equity, so the price term this test corrects for is absent");
-        assertEq(prev, first,
+        // §GATE0e — ONE WEI, AND THE TOLERANCE IS JUSTIFIED BY THE SIGNAL IT STILL CATCHES.
+        // `_conserved()` sums quantities that each pass through integer division (`_rangeETH`'s
+        // `getEETHByWeETH`, `netEquityBase`'s `debtUsd*1e18/px`), so an EXACT equality is not
+        // satisfiable by a correct implementation — it demands that every truncation cancel.
+        // ⚠️ THIS IS A TOLERANCE ON A CONSERVATION LAW, WHICH IS THE SHAPE STANDING RULE 3 WARNS
+        //    ABOUT, SO THE RATIO IS RECORDED RATHER THAN ASSERTED: the defect this test caught
+        //    (§GATE0e, `QuidLib.sendEth` unwrapping its whole WETH balance instead of `needed`)
+        //    drifted **8,851,099,790,484,588 wei**. One wei is FIFTEEN ORDERS OF MAGNITUDE below
+        //    that. A tolerance that cannot hide the thing the test exists to find is a rounding
+        //    allowance, not a clamp.
+        // ⛔ DO NOT WIDEN IT. If this ever needs more than 1 wei, a term has stopped conserving and
+        //    the per-swap `d INVARIANT` column above names which swap opened it.
+        assertApproxEqAbs(prev, first, 1,
             "POOLED - rangeETH - levBuf + totalNetEquity + retainedEthPremium is CONSERVED across "
             "the WHOLE interleaved run (the price-free form -- see _conserved)");
     }

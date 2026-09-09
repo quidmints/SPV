@@ -466,8 +466,25 @@ library QuidLib {
                             mgr, aux, px, needed - inWETH, address(this));
                     }
                 }
-            }  IWETH9(weth).withdraw(inWETH);
-            sent = inWETH + alreadyInETH;
+            }
+            // §GATE0e — CAP THE UNWRAP AT WHAT WAS ASKED FOR. `inWETH` is this contract's WHOLE
+            // WETH balance, not the shortfall: the top-up above only runs when `needed > inWETH`,
+            // so whenever Quid already holds enough, `withdraw(inWETH)` unwrapped everything and
+            // `sent` exceeded `howMuch`. The swapper received Quid's entire idle WETH while
+            // `Core._handleDelta` debited `POOLED` by `tokAmount` alone — real ether leaving
+            // custody that the book never debited.
+            // ⭐ WHY QUID RELIABLY HELD THE EXCESS: `withdrawETH` sweeps ALL of Aux's idle WETH in
+            //    (uncapped) and then serves only `amount`, so every drain that has to pull parks
+            //    `auxIdle − amount` here for the NEXT drain to dump. That is why the defect needed
+            //    a SELL (which puts idle WETH at Aux) followed by a DRAIN (the only leg that
+            //    delivers) to appear at all, and why a drains-only arm reads −9 wei.
+            // ⛔ THE CAP GOES *AFTER* THE TOP-UPS, NOT INSIDE THE BRANCH. `rangeOp` and
+            //    `deleverEthOnDelivery` may each return MORE than asked; capping here catches an
+            //    overshoot from either, and leaves the remainder as WETH — which `_rangeETH`
+            //    counts (`WETH.balanceOf(this)`), so the book stays whole.
+            uint take = inWETH < needed ? inWETH : needed;
+            IWETH9(weth).withdraw(take);
+            sent = take + alreadyInETH;
         }
         (bool success, ) = payable(toWhom).call{value: sent}("");
         require(success, "ethSend");
