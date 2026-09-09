@@ -123,7 +123,32 @@ carry that measurement.
 
 ---
 
-# 🔴 §WASH-INFLATES-THE-TARGET — the manipulation answer, and the discriminator is BUILT BUT UNREAD
+# ⛔ §WASH-INFLATES-THE-TARGET IS **RETRACTED BY ITS AUTHOR, ONE COMMIT LATER — THE SIGN IS BACKWARDS**
+
+I wrote *"higher `target` ⇒ lower q ⇒ CHEAPER drain"* in `320fc415`. **It is the opposite, and
+`Core.sol:240` said so in plain words while I was reading the same file:** *"higher `target` ⇒ lower
+`inv/target` ⇒ scarcity actually prices."* Measured from `SwapLib:1519`'s own expression
+`q1 = (target − inv1)·1e18/target`, inventory fixed at 50:
+
+| target | q | qBar | skew |
+|---|---|---|---|
+| 60 | 0.1667 | 0.200 | 7.01 bps |
+| 100 | 0.5000 | 1.000 | 35.07 bps |
+| 200 | 0.7500 | 3.000 | 105.21 bps |
+| 400 | 0.8750 | 7.000 | 245.48 bps |
+
+⇒ **HIGHER TARGET ⇒ HIGHER q ⇒ DEARER DRAIN.** So a wash trade that inflates gross flow makes the
+attacker's own drain MORE expensive. **It is self-defeating, and the row as written was wrong.**
+⭐ **THE REAL VECTOR IS THE MIRROR IMAGE: PATIENCE.** Stop trading, let the 48h EWMA decay, drain
+against a small `target`. Same shape as §UNIT-B-PATIENCE, which the tree already booked for σ².
+📌 **AND THAT VINDICATES THE 48h CONSTANT I CRITICISED.** `Core.sol:181` picks a *"wide,
+manipulation-resistant memory"* — and WIDE is exactly what makes the wait expensive. Since
+`Γ = γ·T_flow`, a wider window also raises Γ, so manipulation-resistance and the risk horizon pull the
+SAME direction. **The 48h reuse is better justified than §GAMMA-FIRST-PRINCIPLES gave it credit for**;
+what stands from that row is only that γ = 1 is log utility presented as a normalisation.
+
+## (the retracted row follows, kept because the mechanism half is still true)
+# ~~§WASH-INFLATES-THE-TARGET~~ — the discriminator is BUILT BUT UNREAD
 
 `skewWad`'s `q = (target − inv)/target` where **`target = Core.skewTargetUsd() = flowEwmaUsd() +
 redeemEwmaUsd()` — GROSS flow only** (`Core.sol:272-276`). A higher `target` gives a LOWER `q`, which
@@ -138,10 +163,19 @@ gives a **CHEAPER DRAIN**. `Core.sol:246-251` states the vector and the fix in o
 THE SKEW.** The same docblock says the check is *"before it is built"* — so the counter exists, the
 measurement exists, and nothing consumes it. `skewTargetUsd` is by its own docblock *"the ONE place
 the two flow sources are composed"*, which makes it the one place a fix lands.
-⏸️ **NOT LANDED — money path, rule 15.** What it needs first: price the attack. Cost = two swaps'
-fees + the round-trip skew premium; benefit = the drain discount from the inflated `target`, persisting
-for a 48h half-life. **If the premium on the round trip exceeds the discount it buys, this is
-self-defeating and the row closes.** That is one measurement and it decides the whole item.
+⛔ **AND `netFlowUsd` CANNOT BE WIRED AS I IMPLIED — TWO BLOCKERS, BOTH IN ITS OWN DECLARATION.**
+1. **IT IS CUMULATIVE, NOT DECAYED.** One write site (`Core.sol:1091`, `netFlowUsd += usdLeg`) and no
+   decay anywhere. The gross leg is a 48h EWMA. **A ratio of a lifetime total to a decayed window is
+   unit-incoherent** — there is no existing decayed SIGNED register to pair with.
+2. **ITS DOCBLOCK FORBIDS THE USE:** *"THIS IS AN INSTRUMENT, NOT A PRICE. Nothing reads it on the
+   money path and nothing should until the mapping is derived on OUR balance sheet — their risky asset
+   sits OUTSIDE the reserve and ours sits INSIDE it, so travel changes the basket's COMPOSITION rather
+   than its size and their eq. (15) cannot be lifted."*
+✅ **WHAT SURVIVES, AND IT IS THE USEFUL HALF — the same docblock names the real gap outright:**
+*"the failure it exposes is SILENT: a basket draining steadily in one direction reads, today, exactly
+like a balanced one."* ⇒ **`target` cannot tell CHURN from DRAIN.** Heavy two-sided flow inflates gross
+and makes drains dearer although inventory never moved; a steady one-directional drain looks the same.
+**That is the mispricing the κ/ρ work was groping at from the wrong end.**
 
 ## 📌 CONSEQUENCE FOR "REMOVE THE 48h CONSTANT" — IT CANNOT BE REMOVED, AND HERE IS WHY
 `τ = I/F`. `I` is observable (`target − inv`). **`F` is NOT**: the register holds a decayed VOLUME,
@@ -180,3 +214,53 @@ WHICH before either thread builds further: is the refill (a) LP entry responding
 (shipped design, needs no funding), or (b) a protocol-executed buy-back (needs funding, and §E276's
 *"the refill direction is exempt rather than paid"* is the gap)? **Do not answer it from either
 docblock — both are prose. Ask what executes the buy-back today and who pays its gas.**
+
+---
+
+# ⭐ §THE-THIRD-OPTION — **put the vol-sensitivity in the TARGET, not the kernel. And the deeper point: σ² was never the reserve's driver.**
+
+## WHY EVERY SHAPE ATTEMPT COLLIDED WITH ONE TEST
+κ(σ) and ρ(σ) both fail `test_E287_SkewIsNotPinnedToAConstant`. I read that as the test over-reaching.
+**It is not.** `skew = Γ·σ²·qBar(q)` already carries σ² **once, linearly** — which is A–S §2.2 exactly.
+Every attempt to make the SHAPE vol-sensitive was a **SECOND appearance of the same σ²**, and the
+linearity assertion is precisely what detects a double-count. ⇒ **The test was right to reject all of
+them, and for a better reason than the one it states** (it says "a ceiling"; the general case is "σ²
+used twice").
+
+## AND THE REAL DRIVER IS NOT PRICE VARIANCE AT ALL
+**What empties a range is DIRECTIONAL FLOW, not price variance.** Price variance is already priced,
+linearly, in `Γσ²`. Reaching for it again to size a reserve is reaching for the signal we have because
+the one we need is unmeasured. `netFlowUsd`'s docblock names the missing quantity exactly: *"a basket
+draining steadily in one direction reads, today, exactly like a balanced one."*
+
+## THE SHAPE, AND WHY IT DODGES EVERY WALL THE OTHER TWO HIT
+`skewWad(poolVolUsd, **flowUsd**, sigmaSqWad, rk, drainUsd6)` — **`target` is a PARAMETER**, and the
+linearity test supplies it directly (`TARGET = 2_000_000e6`). So changing how `Core.skewTargetUsd()`
+COMPUTES it is invisible to that test, and the kernel stays exactly linear in σ² for a fixed target.
+| wall | κ(σ) | ρ(σ) | target-side |
+|---|---|---|---|
+| linearity test | 🔴 ceiling | 🔴 non-linear | ✅ invisible — target is an argument |
+| §E68's integral | 🔴 voided above σ_ref | ✅ | ✅ untouched |
+| new sentinel branch | 🔴 required | ✅ | ✅ none |
+| `SwapLib` bytes (577 left) | 🔴 +403 measured | 🔴 2 `powWad`/swap | ✅ **zero — SwapLib untouched** |
+| §E289's κ gate | 🔴 engages | ✅ | ✅ κ stays 1e18 |
+⭐ And it lands in `skewTargetUsd()`, which its OWN docblock calls *"the ONE place the two flow sources
+are composed … so if the two sources are ever to be weighted differently that is a change to one
+function rather than to two money-path call sites that could drift apart."* **Purpose-built for this.**
+✅ **THE SIGN IS RIGHT, which is what the retraction above establishes:** higher `target` ⇒ dearer
+drain. So "more reserve when the world is riskier" means **`target` RISES with risk** — the newsvendor
+safety-stock shape, and the current target is pure mean flow with **no safety term at all**.
+
+## ⏸️ WHAT BLOCKS IT — one derivation and one register, both named
+1. **A DECAYED SIGNED REGISTER.** `netFlowUsd` is cumulative; gross is a 48h EWMA; the ratio is
+   incoherent. ⚠️ **This is a rule-23 declaration and must answer rule 23's third question — what does
+   it let me DELETE? Answer: the entire vol-sensitive-SHAPE line of work** (κ(σ), ρ(σ), the σ-scaled
+   sentinel branch, and the +403 bytes), because the reserve then comes from the quantity that actually
+   drives it. That is a real deletion, not a nicety.
+2. **THE MAPPING `netFlowUsd`'s DOCBLOCK DEMANDS** — *"their risky asset sits OUTSIDE the reserve and
+   ours sits INSIDE it … their eq. (15) cannot be lifted."* Until that is derived on our own balance
+   sheet, nothing may read it on the money path. **That gate is correct and I am not arguing with it.**
+▶️ **SO THIS IS THE NEXT MEASUREMENT, NOT THE NEXT COMMIT.** It is also the FIRST framing in which the
+reserve question and the "does the refill exist" question are the same question: if `target` priced
+directional drain, scarcity would price itself correctly and LP entry — the only refill path the
+shipped design has — would be pulled in at the right moment by construction.
