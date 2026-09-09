@@ -520,17 +520,29 @@ impl<R: JsonRpc, S: TxSigner> JsonRpcEvmClient<R, S> {
     /// `[from_block, to_block]`. ⚠️ On the proven rail that indexed word is the DEPOSIT TXID —
     /// what the contract writes into `swapInUsed` and emits here — not a hop-chosen hash.
     ///
-    /// Returns `sats` — i.e. "the pool converted everything, refund nothing" — whenever the
-    /// log can't be found or decoded (RPC error, empty range, garbage data). That fallback
-    /// is deliberately the SAFE direction: it can only make the hop take the WHOLE deposit,
-    /// never refund more than the deposit (an over-refund would give away the hop's BTC).
+    /// 🔴 **§R-17 — RETURNS `None` WHEN THE LOG CANNOT BE READ, AND THE CALLER MUST NOT CLAIM ON
+    /// `None`. THIS DIRECTION IS INVERTED FROM WHAT IT WAS, ON AN OWNER RULING, AND REVERSING IT
+    /// AGAIN WOULD RE-CREATE THE BUG.**
+    ///
+    /// It used to return `sats` — *"the pool converted everything, refund nothing"* — on any RPC
+    /// error, empty range or garbage data, and its docblock called that "the SAFE direction"
+    /// because over-refunding gives away the hop's BTC while over-taking cannot. **That argument
+    /// weighs the hop's risk and never weighs the seller's.** Owner, 2026-09-09: *"if there is no
+    /// way to get dollars out for the btc we need to send it back"*, and *"just dont take the sats
+    /// if there are no dollars there before the tx lands."*
+    ///
+    /// ⭐ **THE REAL DEFECT WAS A TYPE, NOT A POLICY: `u64` cannot say "I don't know", so an
+    /// unreadable log had to be spelled as some NUMBER of sats, and the only number that protected
+    /// the hop was the whole deposit.** An unreadable log is TRANSIENT ignorance — an RPC hiccup,
+    /// a lagging index — and it must never harden into a permanent taking of the seller's BTC.
+    /// `Option` lets the caller retry, which costs the hop a delay and costs the seller nothing.
     fn read_consumed_sats(
         &self,
         payment_hash: B256,
         from_block: u64,
         to_block: u64,
         sats: u64,
-    ) -> u64 {
+    ) -> Option<u64> {
         let topic0 = keccak256(SWAP_IN_SETTLED_SIG.as_bytes());
         let params = json!([{
             "fromBlock": format!("0x{from_block:x}"),
@@ -546,8 +558,8 @@ impl<R: JsonRpc, S: TxSigner> JsonRpcEvmClient<R, S> {
         match self.rpc.call("eth_getLogs", params) {
             Ok(v) => decode_consumed_from_logs(&v, sats),
             Err(e) => {
-                warn!(error = %e, "SwapInSettled log read failed — taking the whole deposit (safe)");
-                sats
+                warn!(error = %e, "SwapInSettled log read failed — NOT claiming; will retry (§R-17)");
+                None
             }
         }
     }
@@ -668,21 +680,27 @@ impl<R: JsonRpc, S: TxSigner> crate::evm::ProvenSwapInSettler for JsonRpcEvmClie
         // writes into `swapInUsed`. Gating on a hop-chosen swap id here would read a slot that
         // is never set and report every settle as unconfirmed.
         if self.swap_in_used_buried(deposit_txid, depth, mined.block)? {
+            // §R-17 — a settle that landed but whose `SwapInSettled` we cannot READ is not a
+            // licence to claim. `None` is transient (RPC/index lag), so bail and retry: the hop
+            // waits, the seller's deposit stays spendable by its own refund path meanwhile.
             return Ok(if mined.success {
                 SettleOutcome::Delivered {
-                    consumed_sats: self.read_consumed_sats(
-                        deposit_txid,
-                        mined.block,
-                        mined.block,
-                        deposited_sats,
-                    ),
+                    consumed_sats: self
+                        .read_consumed_sats(deposit_txid, mined.block, mined.block, deposited_sats)
+                        .ok_or_else(|| anyhow::anyhow!(
+                            "settle delivered but SwapInSettled unreadable — not claiming, retry (§R-17)"
+                        ))?,
                 }
             } else {
                 warn!("settleSwapInProven reverted but swapInUsed set — already settled");
                 let tip = self.block_number().unwrap_or(mined.block);
                 let from = tip.saturating_sub(SWAP_IN_SETTLED_LOOKBACK_BLOCKS);
                 SettleOutcome::AlreadySettled {
-                    consumed_sats: self.read_consumed_sats(deposit_txid, from, tip, deposited_sats),
+                    consumed_sats: self
+                        .read_consumed_sats(deposit_txid, from, tip, deposited_sats)
+                        .ok_or_else(|| anyhow::anyhow!(
+                            "prior settle's SwapInSettled unreadable — not claiming, retry (§R-17)"
+                        ))?,
                 }
             });
         }
@@ -735,18 +753,20 @@ impl<R: JsonRpc, S: TxSigner> EvmClient for JsonRpcEvmClient<R, S> {
 /// (take the whole deposit — the safe direction) on an empty array or any malformed/short/
 /// oversized word: this decodes UNTRUSTED RPC JSON and must never panic. `consumedSats` is
 /// clamped to `sats` (it can never exceed the deposited amount on-chain).
-fn decode_consumed_from_logs(logs: &Value, sats: u64) -> u64 {
-    let Some(arr) = logs.as_array() else { return sats };
+/// `None` means **"I could not read how much was converted"** — NOT "everything was".
+/// See [`Client::read_consumed_sats`] for why that distinction is the whole point.
+fn decode_consumed_from_logs(logs: &Value, sats: u64) -> Option<u64> {
+    let arr = logs.as_array()?;
     for log in arr.iter().rev() {
         let Some(data_str) = log.get("data").and_then(Value::as_str) else { continue };
         let Some(data) = crate::hexutil::hex_bytes(data_str) else { continue };
         // consumedSats is the 2nd 32-byte word — bytes [32..64].
         let Some(word) = data.get(32..64) else { continue };
         if let Ok(c) = word_to_uint::<u64>(word, "consumedSats") {
-            return c.min(sats);
+            return Some(c.min(sats));
         }
     }
-    sats
+    None
 }
 
 /// Parse a `0x`-prefixed hex quantity (e.g. `"0x1a"`) into u64 from a JSON value.
@@ -877,39 +897,46 @@ mod tests {
 
 
 
-    /// 🔴 **`read_consumed_sats` MUST FAIL TOWARD "TAKE THE WHOLE DEPOSIT", NEVER TOWARD A REFUND.**
+    /// 🔴 **§R-17 — `read_consumed_sats` MUST RETURN `None` ON AN UNREADABLE LOG, SO THE CALLER DOES
+    /// NOT CLAIM. THIS TEST WAS INVERTED 2026-09-09; ITS PREVIOUS FORM PINNED THE BUG.**
     ///
-    /// Its docblock states the property: an undecodable, missing or erroring log returns `sats`,
-    /// because over-refunding gives away the hop's BTC while over-taking cannot. That direction is
-    /// the safety argument for the whole fallback, and it was UNTESTED — `with_settled_logs`, the
-    /// mock builder written to test exactly this, sat unused and `cargo` warned about it. The
-    /// warning was the finding: not dead code, a missing test.
+    /// It used to be `consumed_sats_falls_back_to_the_whole_deposit_on_every_bad_log`, and every
+    /// case asserted `== sats` — "take all". The docblock justified that as "the SAFE direction",
+    /// because over-refunding gives away the hop's BTC while over-taking cannot. ⛔ **That argument
+    /// weighs the hop's risk and never weighs the seller's**, and the owner ruled the other way:
+    /// *"if there is no way to get dollars out for the btc we need to send it back."*
     ///
-    /// ⚠️ Each case below must fail in the SAME direction. A test that only checks the happy path
-    /// would pass against a fallback that refunds everything on a malformed log.
+    /// ⭐ **The test was not wrong about its own property — it was faithfully pinning a policy
+    /// chosen by a TYPE.** `u64` cannot say "I don't know", so an unreadable log had to be spelled
+    /// as a number of sats, and the only number that protected the hop was the whole deposit.
+    /// **A well-tested wrong answer is what this looked like from inside.**
+    ///
+    /// ⚠️ Each case must still fail in the SAME direction — now `None`, meaning "retry, do not
+    /// claim". The last case is the discriminator and is unchanged in spirit: a WELL-FORMED zero is
+    /// a real reading, not a failure.
     #[test]
-    fn consumed_sats_falls_back_to_the_whole_deposit_on_every_bad_log() {
+    fn consumed_sats_returns_none_on_every_unreadable_log() {
         let (_, _, _, hash, _) = args();
         let sats = 500_000u64;
 
         // 1. no log at all (the default) — the settle happened but the range returned nothing.
         let c = client(MockRpc::new(Some("0x1"), ONE_WORD));
-        assert_eq!(c.read_consumed_sats(hash, 0, 100, sats), sats, "empty log set must take all");
+        assert_eq!(c.read_consumed_sats(hash, 0, 100, sats), None, "empty log set must NOT claim");
 
         // 2. a log with EMPTY data — present, but nothing to decode.
         let c = client(MockRpc::new(Some("0x1"), ONE_WORD)
             .with_settled_logs(json!([{ "data": "0x" }])));
-        assert_eq!(c.read_consumed_sats(hash, 0, 100, sats), sats, "empty data must take all");
+        assert_eq!(c.read_consumed_sats(hash, 0, 100, sats), None, "empty data must NOT claim");
 
         // 3. a log whose data is SHORT — a truncated word cannot be a consumedSats.
         let c = client(MockRpc::new(Some("0x1"), ONE_WORD)
             .with_settled_logs(json!([{ "data": "0xdeadbeef" }])));
-        assert_eq!(c.read_consumed_sats(hash, 0, 100, sats), sats, "short data must take all");
+        assert_eq!(c.read_consumed_sats(hash, 0, 100, sats), None, "short data must NOT claim");
 
         // 4. outright garbage where the array should be.
         let c = client(MockRpc::new(Some("0x1"), ONE_WORD)
             .with_settled_logs(json!("not-an-array")));
-        assert_eq!(c.read_consumed_sats(hash, 0, 100, sats), sats, "garbage must take all");
+        assert_eq!(c.read_consumed_sats(hash, 0, 100, sats), None, "garbage must NOT claim");
 
         // ⚠️ A SINGLE ZERO WORD IS *SHORT DATA*, NOT A ZERO READING — and I got this wrong first
         // time. `consumedSats` is the SECOND word (`data[32..64]`), so a 32-byte blob has no
@@ -917,16 +944,17 @@ mod tests {
         // misreading of the layout, not the contract.
         let c = client(MockRpc::new(Some("0x1"), ONE_WORD)
             .with_settled_logs(json!([{ "data": ZERO_WORD }])));
-        assert_eq!(c.read_consumed_sats(hash, 0, 100, sats), sats,
+        assert_eq!(c.read_consumed_sats(hash, 0, 100, sats), None,
                    "one word is short data - consumedSats is the SECOND word");
 
-        // The boundary the fallback must NOT swallow: a WELL-FORMED log that genuinely decodes
-        // to 0 is a real answer ("the pool converted nothing, refund everything") and must be
-        // returned as 0. This is the one case where falling back to `sats` would be WRONG, and
-        // it is the direction that costs the depositor rather than the hop.
+        // The boundary neither direction may swallow: a WELL-FORMED log that genuinely decodes
+        // to 0 is a real answer ("the pool converted nothing, refund everything") and must come
+        // back as `Some(0)`, NOT `None`. ⭐ This case is why the fix is `Option` and not "refund
+        // everything on doubt": a real zero and an unreadable log are different facts, and the old
+        // `u64` return could not tell them apart in EITHER direction.
         let c = client(MockRpc::new(Some("0x1"), ONE_WORD)
             .with_settled_logs(settled_log(sats, 0)));
-        assert_eq!(c.read_consumed_sats(hash, 0, 100, sats), 0,
+        assert_eq!(c.read_consumed_sats(hash, 0, 100, sats), Some(0),
                    "a well-formed zero is a real reading, not a decode failure");
     }
 
@@ -997,18 +1025,15 @@ mod tests {
     #[test]
     fn decode_consumed_from_logs_handles_partial_full_and_garbage() {
         // Partial: word[1] < sats ⇒ that value.
-        assert_eq!(decode_consumed_from_logs(&settled_log(100_000, 40_000), 100_000), 40_000);
-        // Empty array ⇒ take-all fallback.
-        assert_eq!(decode_consumed_from_logs(&json!([]), 100_000), 100_000);
-        // Non-array / malformed ⇒ fallback.
-        assert_eq!(decode_consumed_from_logs(&json!("nope"), 100_000), 100_000);
-        // Short data (< 64 bytes) ⇒ fallback.
-        assert_eq!(
-            decode_consumed_from_logs(&json!([{ "data": "0x1234" }]), 100_000),
-            100_000
-        );
-        // consumedSats reported above the deposit ⇒ clamped to sats (never over-take math).
-        assert_eq!(decode_consumed_from_logs(&settled_log(100_000, 999_999), 100_000), 100_000);
+        assert_eq!(decode_consumed_from_logs(&settled_log(100_000, 40_000), 100_000), Some(40_000));
+        // §R-17: every unreadable shape is `None` — "I don't know", never "it took everything".
+        assert_eq!(decode_consumed_from_logs(&json!([]), 100_000), None);
+        assert_eq!(decode_consumed_from_logs(&json!("nope"), 100_000), None);
+        assert_eq!(decode_consumed_from_logs(&json!([{ "data": "0x1234" }]), 100_000), None);
+        // A READABLE log stays readable: consumedSats above the deposit is a real reading that is
+        // clamped, not a failure. The clamp is what stops over-take MATH; `None` is what stops an
+        // over-take DECISION. Two different guards, and the fix must not collapse them.
+        assert_eq!(decode_consumed_from_logs(&settled_log(100_000, 999_999), 100_000), Some(100_000));
     }
 
     #[test]

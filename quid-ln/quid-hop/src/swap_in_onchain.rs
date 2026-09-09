@@ -139,8 +139,20 @@ pub fn deposit_address(spend_info: &TaprootSpendInfo, network: Network) -> Addre
 }
 
 /// Build the hop's KEY-PATH claim tx: spends the deposit `outpoint` (worth `value`) to
-/// `dest_spk` (the hop's own wallet), paying `fee`. No timelock (the hop claims
-/// immediately after settle); RBF-enabled so the hop can bump if the mempool is full.
+/// `dest_spk` (the hop's own wallet), paying `fee`. No timelock; RBF-enabled so the hop can bump
+/// if the mempool is full.
+///
+/// 🔴 **§R-17 — "IMMEDIATELY AFTER SETTLE" USED TO BE WRITTEN HERE AND IT WAS THE BUG.** Claiming
+/// is a KEY-PATH spend, so it bypasses the deposit's CLTV refund leaf — and `BTCChannels`
+/// `settleSwapInProven` tells the seller that leaf is their trustless remedy. **A claim on a settle
+/// that did not PAY therefore deletes the only refund route the contract promises.**
+///
+/// ⇒ **THE CALLER OWNS THE CONDITION, BECAUSE THIS MODULE IS PURE:** claim only on
+/// `SettleOutcome::Delivered` / `AlreadySettled`, never on `Undeliverable`, and never when
+/// `consumed_sats` could not be READ (`Client::read_consumed_sats` returns `None` for that, and it
+/// is `None` precisely so this decision cannot be made on a guess). On a partial, use
+/// [`build_claim_tx_with_refund`] with the `deposited − consumed` output — this single-output form
+/// is only correct when the settle consumed everything.
 pub fn build_claim_tx(
     outpoint: OutPoint,
     value: Amount,

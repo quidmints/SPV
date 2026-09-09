@@ -2098,6 +2098,25 @@ contract BTCChannels {
         // Partials are accepted on this rail: the seller's remainder is refundable trustlessly via
         // the deposit's own CLTV leaf, which is exactly why the on-chain rail can take them and the
         // all-or-nothing LN rail cannot.
+        // ⚠️ §R-17 — **THAT SENTENCE DESCRIBES A ROUTE THE HOP CAN WALK PAST, AND FOR A WHILE IT
+        //    DID. READ IT AS A REQUIREMENT ON THE HOP, NOT AS A PROPERTY OF THIS CONTRACT.** The
+        //    CLTV leaf is only reachable while the deposit is UNSPENT, and the hop's claim is a
+        //    KEY-PATH spend that does not touch the leaf. So a hop that claims regardless of what
+        //    this function paid makes the refund unreachable and the sentence false — which is
+        //    exactly what it used to do (`quid-hop/src/swap_in_onchain.rs`: *"No timelock (the hop
+        //    claims immediately after settle)"*).
+        // ✅ WHAT MAKES IT TRUE, and it is an ordering that already existed rather than new
+        //    machinery: the claim comes AFTER this settle. ⇒ the hop must claim only on a settle
+        //    that PAID, and must include the `sats − consumed` refund output when it does.
+        //    `quid-bridge` now returns `None` rather than "consumed everything" when it cannot read
+        //    `SwapInSettled`, so an unreadable log defers the claim instead of taking the deposit.
+        // 🔑 OWNER, 2026-09-09: *"just dont take the sats if there are no dollars there before the
+        //    tx lands"* AND *"we still have an edge case where the dollar out can be frontran, so
+        //    the refund needs to work."* **Both, deliberately: the availability check is a TOCTOU
+        //    and the refund is its backstop. Do not delete one as redundant.**
+        // ⛔ UNVERIFIED, and it is the load-bearing gap: NOTHING HAS EVER BROADCAST A MATURED
+        //    UNCLAIMED DEPOSIT against this leaf (§BITCOIN-CENSUS 4j). Until that runs, "refundable
+        //    trustlessly" is a design intention, not a measured property.
         // (§T2) The floor is DERIVED from the committed rate and the proven sats — never supplied.
         uint consumed = btc.creditSwapIn(
             terms.seller, sats, terms.token, BitcoinTx.settleFloorUsd(terms, sats));
