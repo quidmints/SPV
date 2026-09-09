@@ -251,50 +251,129 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         btcChannels = b;
     }
 
-    // ═══════════════════════ vBTC — the TOKEN face now lives in `VBtc` (§J.2) ═══════════════════════
-    // The EVM representation of LN-custodied BTC used as the BTC IL-protect collateral. The ERC-20 + 4626
-    // face (supply, balances, transferability) was SEGREGATED out of this contract into `VBtc.sol`; what
-    // stays HERE is the RANGE ACCOUNTING (`autoManaged`, `levPooled`) plus the expose/unexpose gate.
-    // THE SPLIT IS EXACT, not a redesign: `exposeBtcToLev` still performs the whole funded→lev
-    // reclassification and its `InsufficientChannelBtc` check — it delegates ONLY the supply mutation, so
-    // `LP.pooled` stays untouched and the single-count property that made the original merge worth having
-    // is preserved. WHY: supply-level invariants (a future `redeemVBtc(sats, p2trScript)`, and
-    // `Σ outstanding vBTC ≤ Σ free channel capacity`) belong WITH supply, not buried in range accounting.
+    // ═══════════════════ vBTC — THE TOKEN IS THE SHARES (⭐ §R-9 + §R-vBTC) ═══════════════════
+    // Owner ruling, 2026-09-09: *"there really is no `asset()` and shares dichotomy in the 4626 sense.
+    // the token is the shares."* ⇒ `VBtc` keeps NO balances and NO supply. It PROJECTS this contract's
+    // book — `totalSupply() == lpShares`, `balanceOf(u) == autoManaged[u].pooled` — exactly as `Quid`'s
+    // ERC-20 face projects the ETH range's, and `VBtc.transfer` calls `transferShares` below, so
+    // transferring vBTC moves the FEE STREAM with the claim. That is the ruling's own test of itself:
+    // *"if you transfer the vbtc to someone else, the share of fees transfers with it."*
+    //
+    // ⇒ THREE THINGS DELETE THEMSELVES, and they are the point (standing rule 17 — a root fix makes the
+    //   previous fix deletable):
+    //   • `mintTo`/`burnFrom` and every call to them. Supply is not a second quantity that can drift
+    //     from the range, so `Σ outstanding vBTC == Σ channel-locked BTC` holds BY CONSTRUCTION.
+    //   • the mint destination bug. vBTC was minted ONLY in `exposeBtcToLev` and ONLY to `LEV_MANAGER`,
+    //     so the whole supply sat with the lev manager and no LP ever held any. There is no destination
+    //     left to get wrong: the LP holds its own position, and the manager holds NOTHING at any point
+    //     (owner: *"why would lev manager ever hold shares? or tokens at all?"*).
+    //   • the eligibility narrowing. vBTC was the LEVERED SLICE only; it is now every sat of
+    //     channel-locked BTC, because it is every share.
+    //
+    // ⛔ AND ONE THING MUST NOT BE ADDED BACK: a `deliverableBTC` that SUBTRACTS outstanding vBTC.
+    //   `Σ outstanding vBTC ≤ Σ free channel capacity` was a real invariant of the OLD design, where
+    //   vBTC was a SUBSET and therefore a competing claim on a larger pool. Under this ruling the two
+    //   sides of it are THE SAME QUANTITY, so the subtraction drives deliverable capacity to zero while
+    //   reading like a conservative safety check. Redemption and swap-out DO draw on the same sats
+    //   (owner, 2026-09-09) — one pool, two exit paths — and whoever draws first gets them.
 
-    /// The vBTC token. Deployed BY this contract, so `VBtc.VAULT == address(this)` holds BY CONSTRUCTION —
-    /// no setter, no deploy-ordering hazard, and supply authority can never be misconfigured. Venues and
-    /// the Morpho market take THIS address as `collateralToken` (it is the token; the Vault is not).
+    /// The vBTC token face. Deployed BY this contract, so `VBtc.VAULT == address(this)` holds BY
+    /// CONSTRUCTION — no setter, no deploy-ordering hazard, and share authority can never be
+    /// misconfigured. Venues and integrators take THIS address because they take a token address; it
+    /// owns nothing this contract does not.
     VBtc public immutable VBTC;
 
     error NotLevManagerBtc();
     error InsufficientChannelBtc();
 
-    /// @notice SAME-BTC leverage (replaces the "LP pre-holds vBTC + transferFrom" roundtrip): reclassify
-    ///   `sats` of the LP's FREE channel range BTC — already POOLED depth via `requestDeposit` — as the
-    ///   levered slice, and mint the matching vBTC face to the LevManager for venue collateral. NO new BTC
-    ///   enters the pool: the channel BTC was already banked, so `LP.pooled` is UNCHANGED (no double-count) —
-    ///   only `levPooled` grows (funded→lev, withdrawal-excluded). vBTC is thus only ever "minted" against
-    ///   real channel BTC (here), never conjured. Inverse of
-    ///   `unexposeBtcFromLev`. Gated to the pinned LevManager (the sole leverage authority).
+    /// @notice SAME-BTC leverage: mark `sats` of the LP's FREE channel range BTC — already POOLED depth via
+    ///   `requestDeposit` — as the LEVERED slice. NO new BTC enters the pool and NO token moves: the channel
+    ///   BTC was already banked, `LP.pooled` is UNCHANGED (no double-count), and under §R-vBTC the LP already
+    ///   holds the matching vBTC because its shares ARE the vBTC. Only `levPooled` grows (funded→lev), which
+    ///   makes that slice withdrawal-excluded and non-transferable until it unwinds.
+    /// 🔴 IT USED TO MINT A FRESH `sats` TO `msg.sender`, i.e. to the LEV MANAGER, and that ONE LINE is the
+    ///   whole of the §MASTER-ORDER 2.3 / B8 blocker: it put the entire vBTC supply in the lev manager, from
+    ///   which `VBtc.sol` then concluded *"NOBODY EVER HOLDS vBTC"* — the premise ibiza's §2.4d used to rule
+    ///   vBTC out as a bearer instrument, which was the reason `redeemVBtc` was forbidden. A mint destination
+    ///   chosen to save one `transferFrom` became a design prohibition. Both are gone.
+    /// ⛔ DO NOT ROUTE ANY TOKEN THROUGH THE LEV MANAGER HERE, not even for one statement (owner,
+    ///   2026-09-09). If a venue needs collateral, it takes it from whoever owns it.
+    ///   Inverse of `unexposeBtcFromLev`. Gated to the pinned LevManager (the sole leverage authority).
     function exposeBtcToLev(address lp, uint sats) external returns (bool) {
         if (msg.sender != LEV_MANAGER) revert NotLevManagerBtc();
-        // Storage-mutation body in BtcLib.vbtcExposeBody (delegatecall — EIP-170); gate + the vBTC supply call stay here.
+        // Storage-mutation body in BtcLib.vbtcExposeBody (delegatecall — EIP-170); the gate stays here.
         BtcLib.vbtcExposeBody(autoManaged, levPooled, lp, sats);
-        VBTC.mintTo(msg.sender, sats);   // the Transfer event is the TOKEN's to emit, not ours
         return true;
     }
 
-    /// @notice Close-side inverse: burn the `sats` vBTC the manager withdrew from the venue and convert the
-    ///   LP's levered slice back to FREE channel range depth (lev→funded). `LP.pooled` is UNCHANGED, so the
-    ///   LP's range position simply un-freezes — grown by leverage gain / shrunk by loss (the LP bears its
-    ///   own leverage P&L), since a preceding `syncLev` marked `levPooled` to the live net-equity == `sats`.
-    ///   The LP never receives loose vBTC (that would double-claim the same channel BTC).
+    /// @notice Close-side inverse: convert the LP's levered slice back to FREE channel range depth
+    ///   (lev→funded). `LP.pooled` is UNCHANGED, so the LP's range position simply un-freezes — grown by
+    ///   leverage gain / shrunk by loss (the LP bears its own leverage P&L), since a preceding `syncLev`
+    ///   marked `levPooled` to the live net-equity == `sats`.
+    /// 🔴 IT USED TO OPEN WITH `VBTC.burnFrom(msg.sender, sats)` — burn from the LEV MANAGER — which is why
+    ///   the withdrawn collateral had to be routed back to the manager before every unwind, and why
+    ///   `BtcLevManager` grew two guards for the case where it was not (a WBTC-mode position, whose burn
+    ///   then failed with the token's own `InsufficientBalance()`). There is no burn here now: the LP held
+    ///   its own shares the whole time, so un-levering only un-marks them.
     function unexposeBtcFromLev(address lp, uint sats) external returns (bool) {
         if (msg.sender != LEV_MANAGER) revert NotLevManagerBtc();
-        // Storage-mutation body in BtcLib.vbtcUnexposeBody (delegatecall — EIP-170); gate + the vBTC supply call stay here.
-        VBTC.burnFrom(msg.sender, sats);   // reverts if the manager lacks the sats — checked BEFORE the range moves
+        // Storage-mutation body in BtcLib.vbtcUnexposeBody (delegatecall — EIP-170); the gate stays here.
         BtcLib.vbtcUnexposeBody(levPooled, lp, sats);
         return true;
+    }
+
+    // ─────────────────── the vBTC token face's four members (⭐ §R-vBTC) ───────────────────
+    // `VBtc` projects the book rather than copying it, so these are the whole of its balance, supply,
+    // transfer and redeem. The two mutating ones are gated to the token address: the projection may be
+    // WRITTEN only through the face it is projected onto, or it stops being a projection.
+
+    /// @notice `VBtc.balanceOf`. The already-compounded position; `pendingRewards` discloses the rest.
+    ///         Mirrors `Quid.balanceOf`, including that the levered slice IS counted — it is the LP's
+    ///         depth and earns its fees; what it may not do is MOVE, which `transferShares` enforces.
+    function sharesOf(address lp) external view returns (uint) { return autoManaged[lp].pooled; }
+
+    /// @notice `VBtc.transfer` / `transferFrom`. Fat body in `BtcLib.transferSharesBody` (delegatecall —
+    ///         EIP-170); the value-type `lpShares` delta comes back here, exactly like every other
+    ///         forwarder in this file. `_rebalance()` FIRST is a precondition, not an optimisation: the
+    ///         body settles both parties against `feesPerShare`/`USD_FEES` and re-stamps both bookmarks
+    ///         to them, so an un-harvested accumulator silently reassigns the window's fees (§VENUE-XFER).
+    function transferShares(address from, address to, uint amount) external nonReentrant {
+        if (msg.sender != address(VBTC)) revert Unauthorized();
+        if (amount > 0) _rebalance();
+        // 🔴 THE CAP LIVES HERE, and it is load-bearing: the levered slice is unwind-only and
+        //    NON-TRANSFERABLE, or it could be moved to a fresh address while the venue still holds the
+        //    debt it was posted against. It sits at the CALL SITE rather than in the body only because
+        //    `levPooled` as a tenth parameter made `transferSharesBody` fail `Stack too deep` (no
+        //    via_ir), and it was the one mapping read exactly once. Any future caller must repeat it.
+        if (amount > SwapLib.plainNet(autoManaged[from].pooled, levPooled[from]))
+            revert InsufficientChannelBtc();
+        lpShares += BtcLib.transferSharesBody(
+            autoManaged, levBuf, from, to, amount, feesPerShare, USD_FEES, address(QUID));
+    }
+
+    /// @notice `VBtc.redeemVBtc` — retire `sats` of `holder`'s shares against a Bitcoin payout. ⭐ §R-vBTC
+    ///         AUTHORISES THIS; the ⛔ that stood in `VBtc.sol` is deleted, not moved.
+    /// @dev    THE SETTLEMENT IS `_resize` UNCHANGED, and that is the whole implementation: a redemption is
+    ///         an LP-withdrawal splice-out whose payout script the holder names, so it is
+    ///         `(shrink = sats, lpPayout = sats, exactUsd = 0)` — all native, no QUI proceeds, no
+    ///         pendingSwapOut. `_resize` already syncs the levered mirror first, crystallises fees, burns
+    ///         exactly `sats` of in-range depth and retires the slot when nothing is left. Reusing it is
+    ///         also what keeps the two exits from diverging (standing rule 8).
+    /// @dev    THE GUARD IS LOUD BECAUSE `_resize` IS QUIET: it CLAMPS an over-large shrink to `funded` and
+    ///         returns a smaller move. That is right for a channel event the chain has already witnessed and
+    ///         wrong for a redemption request, where a silent partial burn is plausible-but-wrong output
+    ///         (rule 3's inverse). `plainNet` is the same cap `transferShares` and `vbtcExposeBody` apply —
+    ///         the levered slice is unwind-only, so it cannot be redeemed out from under its own debt.
+    /// ⛔      NO RESERVATION IS TAKEN AND NONE MAY BE ADDED. Redemption and swap-out delivery draw on the
+    ///         same free channel capacity BY DESIGN (owner, 2026-09-09), the way an AMM's withdrawals and
+    ///         its swaps both consume the same depth; whoever draws first gets the sats and the other waits.
+    ///         The BITCOIN leg is the hop's, driven off `VBtc.Redeemed` exactly as it is driven off
+    ///         `SwapOutRequestedOnchain` — see §HANDOFF-REDEEM-DELIVERY.
+    function redeemVBtc(address holder, uint sats) external nonReentrant {
+        if (msg.sender != address(VBTC)) revert Unauthorized();
+        if (sats == 0 || sats > SwapLib.plainNet(autoManaged[holder].pooled, levPooled[holder]))
+            revert InsufficientChannelBtc();
+        _resize(holder, sats, sats, false, 0);
     }
 
     /// @notice BTC-side parallel of Quid.totalShares — a VIEW over lpShares.
@@ -389,7 +468,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         // owed ledger, so `lpShares` — the SUM of every LP's `pooled` — must absorb it here
         // or the two drift apart. The backing is already in `POOLED` (see settleBtcLp).
         lpShares += BtcLib.settleBtcLp(autoManaged[lpEth],
-            lpEth, payTo, address(QUID), feesPerShare, USD_FEES,
+            payTo, address(QUID), feesPerShare, USD_FEES,
             autoManaged[lpEth].pooled + levBuf[lpEth]); // GROSS fee weight = net pooled + buffer
     }
 

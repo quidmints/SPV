@@ -895,6 +895,19 @@ interface IVaultExposeB {
 
 interface IVBtcToken { function VAULT() external view returns (address); }
 
+/// @notice ⭐ §R-vBTC — THE BTC RANGE'S SHARE SURFACE, as the vBTC token face reads and moves it.
+///         vBTC IS the shares (owner, 2026-09-09), so `VBtc` holds no balances: it projects these
+///         four members off the range manager. `totalShares`/`sharesOf` are the ERC-20 supply and
+///         balance; `transferShares` is the whole of `transfer`; `redeemVBtc` retires shares against
+///         a Bitcoin payout. All four are implemented by `Vault`, and the mutating two are gated to
+///         the token address so the projection cannot be written from anywhere else.
+interface IVBtcRange {
+    function totalShares() external view returns (uint);
+    function sharesOf(address lp) external view returns (uint);
+    function transferShares(address from, address to, uint amount) external;
+    function redeemVBtc(address holder, uint sats) external;
+}
+
 
 /// @notice §E297 — the last five interfaces that lived outside this file (standing rule 2).
 ///         `ISwap.sol`/`ILevVenue.sol` were deleted by §E296 because they held nothing else;

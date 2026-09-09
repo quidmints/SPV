@@ -38,10 +38,16 @@ library BtcLib {
     /// @notice Body of Vault._settleBtcLp. Per-LP pro-rata: USD-leg → QUID (or banked to `usd_owed`
     ///         when payTo==0); BTC-leg → COMPOUNDED INTO `LP.pooled` in native sats, as the body
     ///         below does and explains (E145).
+    /// ⚠️ §V4-RESIDUE CLOSED 2026-09-09 — **the `lpEth` parameter is GONE, not commented out.** It sat
+    ///    here unread from 2026-08-18 behind `address /*lpEth*/` with a note saying the attribution it
+    ///    carried is done by the CALLER. A parameter nothing reads is a parameter (rule 23), and this one
+    ///    was not free: `transferSharesBody` needs SEVEN arguments here on top of its own frame, and with
+    ///    the dead slot it did not compile at all — `Stack too deep`, no `via_ir`. **The unread argument
+    ///    was the stack budget that the vBTC transfer path needed.** ⇒ a commented-out parameter is not
+    ///    documentation, it is a cost nobody was pricing.
     function settleBtcLp(
         Types.Deposit storage LP,
-        address /*lpEth*/, address payTo, address quid,   // §V4-RESIDUE 2026-08-18: `lpEth` unread
-        // here — the attribution it carried is done by the CALLER before this body runs.
+        address payTo, address quid,
         uint feesPerShare, uint usdFees, uint weight
     ) public returns (uint compoundedSats) {
         // `weight` is the GROSS fee depth: net pooled + the debt-funded levered buffer (levBuf).
@@ -149,7 +155,7 @@ library BtcLib {
         Types.Deposit storage LP = autoManaged[a.lpEth];
         {   // settlement + native burn scoped so its locals free before the tail
             // GROSS fee weight = net pooled + the debt-funded buffer (levBuf).
-            o.feeCompounded = settleBtcLp(LP, a.lpEth, a.lpEth, quid, a.feesPerShare, a.usdFees, LP.pooled + a.buf); // (E145)
+            o.feeCompounded = settleBtcLp(LP, a.lpEth, quid, a.feesPerShare, a.usdFees, LP.pooled + a.buf); // (E145)
             uint deliveredRaw = a.shrinkSats > a.lpPayoutSats ? a.shrinkSats - a.lpPayoutSats : 0;
             uint deliveredSlice = settleDelivered(a.lpEth, deliveredRaw, a.exactUsd, core, quid);
             uint nativeSlice = a.shrinkSats - deliveredSlice;
@@ -262,7 +268,7 @@ library BtcLib {
         p.feesPerShare = ICore(address(this)).feesPerShare();
         p.usdFees = ICore(address(this)).USD_FEES();
         p.buf = weight - LP.pooled;
-        sharesAdded += settleBtcLp(LP, lpEth, address(0), quid, p.feesPerShare, p.usdFees, weight); // (E145) fee compounds into pooled
+        sharesAdded += settleBtcLp(LP, address(0), quid, p.feesPerShare, p.usdFees, weight); // (E145) fee compounds into pooled
         // price computed AFTER the settle so it isn't live across it (legacy-pipeline stack). A price==0
         // revert here still rolls back the settle's state, so behavior is unchanged.
         uint price = IAux(c.aux).getTWAPforAsset(IAux(c.aux).WBTC(), 1800);
@@ -349,25 +355,30 @@ library BtcLib {
         //    drifts below the sum of positions it totals").
         //    ⚠️ The `+=` on the first line is what makes the bug invisible: it LOOKS accumulative, and
         //    the overwrite is three lines away on a tuple destructure, which cannot be written as `+=`.
-        uint feeCompounded = settleBtcLp(LP, lp, address(0), quid, p.feesPerShare, p.usdFees, w);
+        uint feeCompounded = settleBtcLp(LP, address(0), quid, p.feesPerShare, p.usdFees, w);
         (d.burnedNet, d.bufBurned) = RangeLib.levBurnAll(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
         (d.addedNet, d.bufAdded)   = RangeLib.levAddGross(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
         d.addedNet += feeCompounded;   // restore the term the destructure above cannot carry
     }
 
     // ════════════════════════════════════════════════════════════════════
-    //  vBTC RANGE BODIES (BTC-lev collateral). The ERC-20 face lives in `VBtc.sol`
-    //  (§J.2) and owns its own balances, so nothing token-side is delegatecall'd:
-    //  what is here is range accounting ONLY, the funded↔lev reclassification.
+    //  vBTC RANGE BODIES. ⭐ §R-vBTC — `VBtc` HOLDS NO BALANCES: it PROJECTS `LP.pooled` and
+    //  `lpShares`, so there is no supply to mutate alongside the range and nothing token-side is
+    //  delegatecall'd. What these two bodies do is the whole of expose/unexpose: move the
+    //  NON-TRANSFERABLE subset marker `levPooled` over a position that does not otherwise change.
     //  DELEGATECALL'd, so the passed-by-STORAGE-REF mappings are the Vault's real slots.
-    //  vBTC is sats-denominated (8-dec); supply moves only via the SAME-BTC
-    //  expose/unexpose path, gated to the LevManager in the Vault forwarder.
+    //  ⛔ NEITHER BODY MOVES A TOKEN TO THE LEV MANAGER, AND NOTHING HERE MAY START DOING SO
+    //  (owner, 2026-09-09: *"why would lev manager ever hold shares? or tokens at all?"*). The
+    //  manager's job is to record leverage, not to custody the LP's position for it.
     // ════════════════════════════════════════════════════════════════════
 
     /// @notice Body of Vault.exposeBtcToLev — reclassify `sats` of the LP's FREE channel range BTC as the levered
-    ///         slice (funded→lev; LP.pooled untouched, single-count). The matching vBTC SUPPLY mutation is the
-    ///         token's own (`VBtc.mintTo`, called by the Vault forwarder right after this) — this body owns range
-    ///         state only. The `NotLevManagerBtc` gate stays in the Vault forwarder.
+    ///         slice (funded→lev; LP.pooled untouched, single-count). The LP KEEPS ITS OWN vBTC throughout: the
+    ///         shares never leave it, they are only marked non-transferable and withdrawal-excluded while levered.
+    /// 🔴 THE `plainNet` GUARD BELOW IS THE MINT-SIDE INVARIANT IN ITS GENERALISED FORM, and it is the one
+    ///         invariant §R-vBTC leaves load-bearing: no slice of a position may be levered twice, and no
+    ///         position may be levered that channel BTC does not back. Everything the redeem side used to be
+    ///         asked to police is settled HERE, at the end of the pipe where the claim is created.
     function vbtcExposeBody(
         mapping(address => Types.Deposit) storage autoManaged,
         mapping(address => uint) storage levPooled,
@@ -380,14 +391,56 @@ library BtcLib {
     }
 
     /// @notice Body of Vault.unexposeBtcFromLev — convert the LP's levered slice back to FREE channel range depth
-    ///         (lev→funded; LP.pooled untouched). The burn is the token's own (`VBtc.burnFrom`), and the Vault
-    ///         forwarder runs it BEFORE this so an under-funded manager reverts without the range having moved.
+    ///         (lev→funded; LP.pooled untouched). There is no burn to pair with it: the LP held its own shares
+    ///         the whole time, so un-levering only un-marks them and the position is transferable again.
     function vbtcUnexposeBody(
         mapping(address => uint) storage levPooled,
         address lp, uint sats
     ) public {
         uint lev = levPooled[lp];
         levPooled[lp] = sats >= lev ? 0 : lev - sats;      // lev → funded; LP.pooled untouched
+    }
+
+    /// @notice ⭐ §R-vBTC — BODY OF `Vault.transferShares`, i.e. of `VBtc.transfer`. The BTC mirror of
+    ///         `QuidLib.transferSharesBody`, and it exists for the owner's sentence: *"if you transfer the
+    ///         vbtc to someone else, the share of fees transfers with it."* Moving `pooled` IS moving the fee
+    ///         stream, because the fee stream is computed off `pooled` — which is only true while the token
+    ///         has no balances of its own to drift from it.
+    /// @dev    ORDER IS LOAD-BEARING: crystallise BOTH sides' pending fees against their CURRENT weights
+    ///         first, then move principal, then re-stamp both bookmarks. Settling after the move would pay
+    ///         `to` for a window it did not hold and short `from` for one it did.
+    /// @dev    THE USD LEG BANKS TO `usd_owed` (`payTo == 0`) rather than minting QUI: a transfer is not a
+    ///         claim, and minting to `from` mid-transfer would make an ERC-20 move a payout event.
+    /// 🔴 THE CAP IS `plainNet`, NOT `pooled` — the levered slice is unwind-only and NON-TRANSFERABLE, or it
+    ///         could be drained to a fresh address while the venue still holds its debt. Same cap, same
+    ///         reason, as `vbtcExposeBody` above and as the ETH side's `_withdraw`.
+    /// ⚠️      **THE CAP IS ENFORCED BY THE CALLER (`Vault.transferShares`), NOT HERE, AND THAT IS A STACK
+    ///         BUDGET DECISION, NOT A RELAXATION.** With `levPooled` as a tenth parameter this function did
+    ///         not compile — `Stack too deep` at the first `settleBtcLp` call, which needs seven arguments of
+    ///         its own on top of this frame (no `via_ir`). Dropping the mapping that was read EXACTLY ONCE
+    ///         was cheaper than a struct. ⛔ **The check is therefore not optional at the call site: any new
+    ///         caller MUST apply `plainNet(pooled, levPooled[from])` before calling, or the levered slice
+    ///         becomes transferable and the venue is left holding debt against depth that walked away.**
+    /// ⚠️      THE CALLER MUST HAVE HARVESTED FIRST (`Vault._rebalance`), for the reason §VENUE-XFER gives on
+    ///         the ETH twin: an un-harvested `feesPerShare` makes the settle a no-op while the re-stamp still
+    ///         lands, so the window's fees are handed to `to` and lost to `from`.
+    function transferSharesBody(
+        mapping(address => Types.Deposit) storage autoManaged,
+        mapping(address => uint) storage levBuf,
+        address from, address to, uint amount,
+        uint feesPerShare, uint usdFees, address quid
+    ) public returns (uint lpSharesDelta) {
+        if (to == address(0) || from == to) revert BadTarget();
+        if (amount == 0) return 0;
+        Types.Deposit storage L = autoManaged[from];
+        // GROSS fee weight on each side = net pooled + that account's debt-funded buffer.
+        lpSharesDelta = settleBtcLp(L, address(0), quid, feesPerShare, usdFees, L.pooled + levBuf[from]);
+        Types.Deposit storage R = autoManaged[to];
+        if (R.pooled > 0)
+            lpSharesDelta += settleBtcLp(R, address(0), quid, feesPerShare, usdFees, R.pooled + levBuf[to]);
+        L.pooled -= amount; R.pooled += amount;
+        SwapLib.refreshBookmarks(L, L.pooled + levBuf[from], feesPerShare, usdFees);
+        SwapLib.refreshBookmarks(R, R.pooled + levBuf[to], feesPerShare, usdFees);
     }
 
     /// @dev rebalanceBody output — the 5 caller returns + the fee increments the forwarder adds to

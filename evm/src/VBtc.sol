@@ -1,109 +1,105 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
-import {Types, InsufficientAllowance} from "./imports/Types.sol";  // §E299: file-level errors
+import {InsufficientAllowance} from "./imports/Types.sol";  // §E299: file-level errors
+import {IVBtcRange} from "./imports/Interfaces.sol";
+import {BitcoinTx} from "./imports/BitcoinTx.sol";
 
-/// @title  VBtc — the EVM face of LN-custodied BTC, segregated out of `Vault` (§J.2).
+/// @title  VBtc — the ERC-20 face of the BTC range's shares. vBTC IS sats AND vBTC IS the share.
 ///
-/// @notice WHAT MOVED AND WHY. `Vault` used to carry this ERC-20 face itself ("vBTC == the merged
-///         Vault"), which made the Morpho market's `collateralToken` the Vault address. That merge was
-///         a deliberate optimisation — `exposeBtcToLev` reclassifies the LP's ALREADY-BANKED channel
-///         BTC in one frame with no mint/transferFrom roundtrip — but it also fused two unrelated
-///         responsibilities: the TOKEN (supply, balances, transferability) and the RANGE ACCOUNTING
-///         (`autoManaged`, `levPooled`). This contract owns the first; `Vault` keeps the second.
+/// @notice ⭐ §R-9 + §R-vBTC (owner ruling, 2026-09-09) — **THE TOKEN IS THE SHARES.** *"this is a
+///         strange 7540 where there really is no `asset()` and shares dichotomy in the 4626 sense.
+///         the token is the shares… as an lp you have lp shares as well, that is a share of fees.
+///         so as long as the btc is locked its earning fees. if you transfer the vbtc to someone
+///         else, the share of fees transfers with it."*
 ///
-///         THE SPLIT IS EXACT, not a re-design. `Vault.exposeBtcToLev` still performs the whole
-///         funded→lev reclassification and its `InsufficientChannelBtc` check — the ONLY thing it
-///         delegates here is the supply mutation. `LP.pooled` remains untouched, so the single-count
-///         property that made the merge worth having is preserved.
+///         ⇒ **THIS CONTRACT HOLDS NO BALANCES.** `balanceOf` and `totalSupply` are PROJECTIONS of
+///         the BTC range's own book (`Vault.autoManaged[u].pooled` and `Vault.lpShares`), exactly as
+///         `Quid`'s ERC-20 face projects the ETH range's, and `transfer` MOVES THE POSITION — which
+///         is the only way the owner's sentence above can be true: a balances mapping beside
+///         `pooled` would be one quantity written twice, and a transfer of it would move the claim
+///         while leaving the fee stream behind. The only state left here is `allowance`, which is
+///         genuinely the token's (it authorises a spender, not a position).
 ///
-///         WHY THIS CONTRACT EXISTS, and it is NOT the reason the header used to give (§ETHVENUE-GHOSTS). The
-///         discriminator between `VEth` — deleted — and `VBtc` — kept — is simply WHETHER AN ERC-20
-///         UNDERLYING ALREADY EXISTS. On the ETH side one does: WETH is a real token, independently
-///         held and redeemable, so the ETH range names `asset() = WETH` and IS the 4626 outright,
-///         leaving `VEth` no job. On the BTC side there is none: the underlying is LN-custodied
-///         NATIVE BTC, which has no EVM token, and WBTC is only a pricing handle the venue reads
-///         through `getTWAPforAsset` — it is never held. So the BTC range must MINT the synthetic
-///         underlying it points `asset()` at, and that is what vBTC is.
-///         ⇒ `VBtc` survives because THE BTC RANGE HAS NO UNDERLYING UNLESS IT MINTS ONE — not
-///         because anyone holds it, custodies it, or anonymises it. An asymmetry with a real
-///         reason, and one that survives the §J.2 one-implementation-two-instances merge rather
-///         than being dissolved by it. ⚠️ Follow-on to settle when that merge lands: `asset()`
-///         below returns WBTC as a pricing handle, but under this design vBTC IS the range's asset
-///         rather than having one. Do not carry that accessor across unexamined.
+///         ⇒ **AND THE MINT/BURN PAIR IS GONE WITH THE BALANCES.** There is no `mintTo`/`burnFrom`
+///         to point at the wrong account, because supply is not a second thing that has to be kept
+///         in step with the range: every sat of channel-locked BTC is credited as `pooled` by
+///         `Vault.requestDeposit` and retired by `Vault.resize`/`requestRedeem`, so
+///         `Σ outstanding vBTC == Σ channel-locked BTC` HOLDS BY CONSTRUCTION rather than by a
+///         guard that could be forgotten at a new call site (standing rule 17: make the bad state
+///         unconstructible, don't make it detectable).
 ///
-/// ⛔ DO NOT BUILD `redeemVBtc(sats, p2trScript)`. This header used to propose it (on privacy
-///    grounds); the consuming repo analysed exactly that design and rejected it as a THEFT VECTOR.
-///    Originally `../ibiza/TODO.md` §2.4d — ⚠️ THAT COORDINATE NO LONGER RESOLVES ANYWHERE THIS
-///    TREE CAN CHECK: the file was relocated to `docs/actionable/TODO.md` (2026-08-30) and the
-///    current copy contains no `vBTC` text at all, so THE VERBATIM QUOTE BELOW IS THE RECORD, not
-///    the pointer. It quotes this repo's `BTCChannels._lpFinalBalance` docblock (cited there as
-///    `BTCChannels.sol:477-496`, since drifted — grep the symbol):
-///      "We REJECT any other output: without this, a malicious LP could route its withdrawal to a
-///       script != btcRecipientOf, making `_lpFinalBalance` read 0 -> `delivered = shrinkSats` ->
-///       OVER-CLAIM THE SHARED SWAP-OUT PROCEEDS POOL (CROSS-LP THEFT)."
-///    The chain sees only HOW MUCH reached the committed script, never WHO was paid, so
-///    `btcRecipientOf` is ONE source of truth for both cooperative-close attribution and the splice
-///    path; a caller-supplied script makes `delivered` forgeable.
-///    ⚠️ AND THE PROPOSAL'S PREMISE WAS NEVER CHECKED — "swap-out already pays an arbitrary P2TR,
-///    so only an ENTRYPOINT is missing" assumes the swap-out and LP-WITHDRAWAL paths have the same
-///    attribution guarantees. That was never established, and the quote above suggests they differ.
-///    ⛔ THE PRIVACY MOTIVE IS ALSO DEAD: `exposeBtcToLev` mints to the LevManager, not the LP, so
-///    NOBODY EVER HOLDS vBTC (ibiza §2.4d) — there is no holder population to anonymise.
+///         ⇒ **ELIGIBILITY IS ALL CHANNEL-LOCKED BTC, NOT THE LEVERED SLICE.** vBTC used to be
+///         minted ONLY inside `exposeBtcToLev`, and only to `LEV_MANAGER`. Both are fixed: the
+///         levered slice is now just a non-transferable SUBSET MARKER over the LP's own shares
+///         (`levPooled`, enforced by the `plainNet` cap in `BtcLib.transferSharesBody`), and the
+///         lev manager holds nothing at any point.
 ///
-///    ⇒ ONE BLOCKER FROM that paragraph is still live: an open Morpho market, where a
-///    liquidator who seizes vBTC has no way to exit. Solve it on its own terms. Do NOT delete
-///    `VBtc` on privacy grounds either — the mint-the-underlying reason above is independent.
-///    Neither repo references the other, so this is SPV's only record of ibiza's verdict.
+/// @notice WHY THIS CONTRACT STILL EXISTS AT ALL, and it is NOT privacy (§ETHVENUE-GHOSTS). The
+///         discriminator between `VEth` — deleted — and `VBtc` — kept — is WHETHER AN ERC-20
+///         UNDERLYING ALREADY EXISTS. On the ETH side one does: WETH is a real token, so the ETH
+///         range names `asset() = WETH` and IS the 4626 outright. On the BTC side there is none —
+///         the underlying is LN-custodied NATIVE BTC, which has no EVM token — so the BTC range
+///         needs an ERC-20 face of its own. `Quid` can BE its face because it is itself a contract
+///         LPs address; the BTC range's face has to be a separate address only because venues and
+///         integrators take a token address, not because it owns anything the range does not.
+///
+/// @dev    `asset()` returns WBTC and that is still honest: it is a PRICING HANDLE (the venue
+///         prices sats via `getTWAPforAsset(WBTC)`), never a redeemable underlying and never held.
+///         The conversions are the identity because vBTC IS sats, which is also why `decimals` is 8.
 contract VBtc {
     string public constant name     = "QuidMint vBTC";
     string public constant symbol   = "vBTC";
     /// vBTC IS sats, so the 4626 valuation below is a pure identity and this must stay 8.
     uint8  public constant decimals = 8;
 
-    uint public totalSupply;
-    mapping(address => uint) public balanceOf;
-    mapping(address => mapping(address => uint)) public allowance;
-
-    /// The ONLY address permitted to move supply. Immutable: supply authority is not a runtime setting.
+    /// The BTC range manager. It owns the book this token is a face over, so it is the ONLY address
+    /// permitted to move a position. Immutable: share authority is not a runtime setting.
     address public immutable VAULT;
     /// `asset()` handle for the 4626 face — the venue prices vBTC against WBTC via `getTWAPforAsset`.
     address public immutable WBTC;
 
+    /// The token's ONE piece of own state: who may spend on whose behalf. Balances are the range's.
+    mapping(address => mapping(address => uint)) public allowance;
+
     event Transfer(address indexed from, address indexed to, uint value);
     event Approval(address indexed owner, address indexed spender, uint value);
+    /// @notice §R-vBTC — a holder retired `sats` of shares against a Bitcoin payout to `p2trScript`.
+    ///         The script is emitted rather than stored: the obligation is the hop's to fulfil from
+    ///         channel capacity, and an on-chain claim ledger would be the reservation variable the
+    ///         owner refused (rule 23). The burn is what bounds it — you cannot retire shares twice.
+    event Redeemed(address indexed holder, uint sats, bytes p2trScript);
 
-    error NotVault();
-    error InsufficientBalance();
-    /// §E254 (2026-08-18) — `transferFrom` reverted `InsufficientBalance()` when the ALLOWANCE was
-    /// short, and this error did not exist. A caller holding plenty of tokens but under-approved was
-    /// told their BALANCE was insufficient: a diagnosis that is not merely unhelpful but points the
-    /// reader at the wrong account. `Quid` already distinguishes the two.
+    /// §E254 (2026-08-18) — a short ALLOWANCE must not be reported as a short BALANCE: a diagnosis
+    /// that points the reader at the wrong account. `InsufficientAllowance` is the file-level one.
+    error BadPayoutKey();
 
     constructor(address vault, address wbtc) { VAULT = vault; WBTC = wbtc; }
 
-    /// @dev §MODFOLD — body in a `private view` helper, modifier kept as the jump. A modifier is
-    ///      INLINED at every use site, so the two supply mutators carried two copies of the
-    ///      immutable load + compare + revert; now one routine and two jumps (CLAUDE.md rule 8c).
-    ///      Two sites is the break-even end of that trade, not the profitable end — it is done for
-    ///      the same reason as `Vault`'s: ONE declaration of the rule, in one place, so the gate
-    ///      cannot drift between mint and burn. The MODIFIER stays rather than calling
-    ///      `_onlyVault()` from each body, because a modifier is positionally first by
-    ///      construction and `burnFrom` reads `balanceOf[from]` immediately.
-    function _onlyVault() private view { if (msg.sender != VAULT) revert NotVault(); }
-    modifier onlyVault() { _onlyVault(); _; }
+    // ─────────────────────── the projection (no balances live here) ───────────────────────
 
-    /// @notice 4626 valuation face. vBTC IS sats => shares == assets, a pure identity; the venue applies
-    ///         the BTC price itself. Kept as a face (not a real vault) because there is nothing to
-    ///         convert — the "shares" ARE the underlying unit.
+    /// @notice Supply == the range's share total. One number, read where it is written.
+    function totalSupply() public view returns (uint) { return IVBtcRange(VAULT).totalShares(); }
+
+    /// @notice Balance == the holder's position, fees already compounded in. `pendingRewards` on the
+    ///         range is the disclosure surface for what has accrued but not yet been crystallised.
+    function balanceOf(address user) public view returns (uint) {
+        return IVBtcRange(VAULT).sharesOf(user);
+    }
+
+    /// @notice 4626 valuation face. vBTC IS sats => shares == assets, a pure identity; the venue
+    ///         applies the BTC price itself. `asset()` is a pricing handle (see the header), which
+    ///         is the whole of what a `asset()`-less 7540 can honestly return.
     function asset() external view returns (address) { return WBTC; }
     function convertToAssets(uint shares) external pure returns (uint) { return shares; }
     function convertToShares(uint assets) external pure returns (uint) { return assets; }
 
+    // ─────────────────────────────────── movement ───────────────────────────────────
+    // Both entrypoints delegate the whole move to the range, which crystallises BOTH parties' fees
+    // before principal moves (so the moved sats carry no past claim) and caps the amount at the
+    // FREE, non-levered slice. The range reverts on a short balance; nothing is checked twice here.
+
     function transfer(address to, uint amt) external returns (bool) {
-        uint bal = balanceOf[msg.sender];
-        if (bal < amt) revert InsufficientBalance();
-        unchecked { balanceOf[msg.sender] = bal - amt; }
-        balanceOf[to] += amt;
+        IVBtcRange(VAULT).transferShares(msg.sender, to, amt);
         emit Transfer(msg.sender, to, amt);
         return true;
     }
@@ -114,10 +110,7 @@ contract VBtc {
             if (allowed < amt) revert InsufficientAllowance();
             unchecked { allowance[from][msg.sender] = allowed - amt; }
         }
-        uint bal = balanceOf[from];
-        if (bal < amt) revert InsufficientBalance();
-        unchecked { balanceOf[from] = bal - amt; }
-        balanceOf[to] += amt;
+        IVBtcRange(VAULT).transferShares(from, to, amt);
         emit Transfer(from, to, amt);
         return true;
     }
@@ -128,19 +121,35 @@ contract VBtc {
         return true;
     }
 
-    /// @notice Supply mutations — Vault-only. The Vault performs the funded->lev range reclassification
-    ///         and its channel-depth check FIRST; these only move the token face, so vBTC is still only
-    ///         ever minted against real, already-banked channel BTC and never conjured.
-    function mintTo(address to, uint sats) external onlyVault {
-        balanceOf[to] += sats;
-        totalSupply   += sats;
-        emit Transfer(address(0), to, sats);
-    }
-
-    function burnFrom(address from, uint sats) external onlyVault {
-        uint bal = balanceOf[from];
-        if (bal < sats) revert InsufficientBalance();
-        unchecked { balanceOf[from] = bal - sats; totalSupply -= sats; }
-        emit Transfer(from, address(0), sats);
+    /// @notice ⭐ §R-vBTC — RETIRE `sats` OF SHARES AGAINST A BITCOIN PAYOUT TO `p2trKey`.
+    ///
+    ///         This is the entrypoint the header used to forbid, and the owner lifted the ⛔:
+    ///         *"claim is fungible but the amount is the amount… how could it ever possibly
+    ///         overclaim?"* The old objection was cross-LP theft through over-claiming the shared
+    ///         swap-out proceeds pool. It was aimed at the wrong end of the pipe: vBTC is a
+    ///         pro-rata claim on ONE pool of channel-locked BTC, so redeeming against any channel's
+    ///         BTC is the DESIGN. Theft would require vBTC that no locked BTC backs, and that is a
+    ///         MINT-side property — here, the fact that shares only ever come from a channel
+    ///         funding transaction `BTCChannels` observed.
+    ///
+    ///         Redemption and swap-out delivery DO draw on the same sats, and that is also the
+    ///         design (owner, 2026-09-09): one pool, two exit paths, the way an AMM's withdrawals
+    ///         and its swaps both consume the same depth. Whoever draws first gets the sats; the
+    ///         other waits for capacity. ⛔ Do NOT add a reservation, a pending-claim ledger or a
+    ///         `deliverableBTC` subtraction to arbitrate that — the burn already bounds it, and the
+    ///         extra variable is what rule 23 refuses.
+    ///
+    /// @param  p2trKey the x-only BIP-340 key to pay. VERIFIED ON THE CURVE, because ~half of all
+    ///         32-byte typos land on a valid x-coordinate and the other half do not: an off-curve
+    ///         destination is BTC paid to a script nobody can ever spend, and the failure is
+    ///         otherwise silent (§E130 established exactly this for `setBtcRecipient`). The
+    ///         scriptPubKey is BUILT here from the proven key — `0x5120||Q`, the same one
+    ///         `BitcoinTx` builds everywhere else — so there is no caller-supplied blob to shape-check.
+    function redeemVBtc(uint sats, bytes32 p2trKey) external returns (bool) {
+        if (!BitcoinTx.isValidXOnlyKey(p2trKey)) revert BadPayoutKey();
+        IVBtcRange(VAULT).redeemVBtc(msg.sender, sats);
+        emit Transfer(msg.sender, address(0), sats);
+        emit Redeemed(msg.sender, sats, BitcoinTx.buildTaprootScriptPubKey(p2trKey));
+        return true;
     }
 }

@@ -2270,8 +2270,10 @@ contract BTCChannels {
         // §SESS-114 — DUST, not replay. The revert still unwinds the used-mark (state rolls back
         // with it), so the mechanics were always right; only the name was wrong.
         if (sats == 0) revert SwapOutDust();
-        // uint96 packing self-evidently safe (BTC supply ≪ 2^96; 6-dec usd ≪ 2^96/1e6).
-        if (sats > type(uint96).max || usd6 > type(uint96).max) revert InvalidParam();
+        // (R-7f / §BTC-2.5a-quinquies) EACH GUARD IS THE WIDTH THE FIELD IS STORED AT — `sats`
+        // is written `uint64(sats)` below, `usd` is `uint96(usd6)`. Guarding `sats` at uint96 let
+        // (2^64, 2^96] pass and truncate on store; the reject is now at the door and loud.
+        if (sats > type(uint64).max || usd6 > type(uint96).max) revert InvalidParam();
         pendingOnchainSwapOut[swapId] = PendingOnchainSwapOut({
             swapper:           msg.sender,
             sats:              uint64(sats),

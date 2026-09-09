@@ -163,6 +163,12 @@ library BitcoinTx {
     uint8 private constant _SUM_TO      = 0;   // sum every output paying `spk`
     uint8 private constant _FIRST_TO    = 1;   // first output paying `spk`, else revert
     uint8 private constant _SUM_FOREIGN = 2;   // sum outputs that are neither `exceptVout` nor `spk`
+    /// (R-P2MR) first output paying `spk` OR the SECOND ENUMERATED FUNDING FORM — the same 34
+    /// bytes with witness version `0x52` in place of `0x51`. Else revert. Reachable only through
+    /// `findFundingOutput(…, allowP2mr = true)`, i.e. only after the enclave-image msig has
+    /// flipped `BTCChannels.p2mrEnabled`, because witness v2 is anyone-can-spend until P2MR
+    /// activates and an output anyone can spend must never be credited as channel custody.
+    uint8 private constant _FIRST_TO_V1_OR_V2 = 3;
 
 
     /// @dev THE ONE OUTPUT WALKER behind all three searches below. The parse loop
@@ -191,24 +197,38 @@ library BitcoinTx {
             if (offset + 8 > raw.length) revert TruncatedTx();
             uint value = _readLE(raw, offset, 8);
             offset += 8;
-            (uint scriptLen, uint sLenBytes) = readVarInt(raw, offset);
-            offset += sLenBytes;
+            // §STACK-REUSE — `sLenBytes` is BLOCK-SCOPED because it dies on the next line, and the
+            // (R-P2MR) packed return below needs the slot: with it function-scoped this loop does not
+            // compile at all (`Stack too deep`, no `via_ir`).
+            uint scriptLen;
+            {   uint sLenBytes;
+                (scriptLen, sLenBytes) = readVarInt(raw, offset);
+                offset += sLenBytes;   }
             if (offset + scriptLen > raw.length) revert TruncatedTx();
             bool match_ = scriptLen == spk.length;
             if (match_) {
                 for (uint j = 0; j < scriptLen; j++) {
-                    if (raw[offset + j] != spk[j]) { match_ = false; break; }
+                    // (R-P2MR) TWO ENUMERATED LITERAL FORMS, NOT A PARAMETERISED VERSION BYTE:
+                    // under `_FIRST_TO_V1_OR_V2` the leading byte may also be the literal `0x52`,
+                    // and every other byte — the `0x20` push and all 32 program bytes — is
+                    // byte-matched exactly as it always was.
+                    if (raw[offset + j] != spk[j] &&
+                        !(j == 0 && mode == _FIRST_TO_V1_OR_V2 && raw[offset] == 0x52))
+                    { match_ = false; break; }
                 }
             }
             if (mode == _SUM_FOREIGN) {
                 if (i != exceptVout && !match_) packed += value;   // a foreign (non-payout, non-funding) output
             } else if (match_) {
-                if (mode == _FIRST_TO) return (uint256(i) << 64) | value;
+                // The matched witness version rides in bits 96+ so the caller can tell WHICH of
+                // the two forms it found without re-reading the tx (0x51 = P2TR, 0x52 = P2MR).
+                if (mode != _SUM_TO)
+                    return (uint256(uint8(raw[offset])) << 96) | (uint256(i) << 64) | value;
                 packed += value;
             }
             offset += scriptLen;
         }
-        if (mode == _FIRST_TO) revert OutputNotFound();
+        if (mode != _SUM_TO && mode != _SUM_FOREIGN) revert OutputNotFound();
     }
 
     /// @notice Sum of the values of ALL outputs paying `spk` (0 if none). Summing every
