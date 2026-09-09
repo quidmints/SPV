@@ -750,7 +750,7 @@ library BasketLib {
             bool done;
             (sent, a.amount, done) = _takePreferred(aux, a.who, skip,
                 viaToken ? a.amount : scaleTokenAmount(a.amount, skip, false),
-                a.seed, amounts, yieldW, fc);
+                a.seed, fc);
             if (done) return sent;
         }
         if (amounts[15] == 0 || a.amount == 0) { _finalBacking(aux, a.softBacking); return sent; }
@@ -786,9 +786,9 @@ library BasketLib {
     ///      the swap call site already holds native units.
     function _takePreferred(
         IAux aux, address who, address token, uint amount, uint seed,
-        uint[16] memory amounts, uint[16] memory yieldW, FeeLib.FeeCtx memory fc
+        FeeLib.FeeCtx memory fc
     ) private returns (uint sent, uint remaining, bool done) {
-        uint needed = FeeLib.calcNeeded(token, amount, amounts, yieldW, fc);
+        uint needed = FeeLib.calcNeeded(token, amount, fc);
         if (seed > 0) {
             aux.tipSelf(seed, token, -1);
             sent = aux.withdrawSelf(token, needed, who);

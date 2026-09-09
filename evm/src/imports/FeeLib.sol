@@ -129,26 +129,12 @@ library FeeLib {
     ///         amount after the depeg haircut — the ONLY charge on this path.
     ///         Aux uses this to compute the deposit size needed to honour a
     ///         mint at book value when the target stable is currently discounted.
-    function calcNeeded(address token, uint amount,
-        uint[16] memory deps, uint[16] memory yields, FeeCtx memory c)
+    function calcNeeded(address token, uint amount, FeeCtx memory c)
         external view returns (uint needed)
     {
-        // The sole outflow COST is the depeg haircut, and only during an actual depeg — the
-        // concentration/cherry-pick fee is NOT charged (baseRate already removed).
-        // ⛔ Do not restore *"the concentration signal survives as a SOR ROUTING input"*: `Aux`'s
-        // §E233-sor block is headed "THE SOR IS DELETED: PLUMBING FOR A CAPABILITY THAT WAS ALREADY
-        // GONE", and `_pickBestPath` has ZERO references in `evm/src` (every hit is a comment here).
-        // The signal survives as NOTHING. `deps`/`yields` are held open for the LENS seam alone.
-        // 📌 PLAN, MEASURED 2026-08-23 — and one of the three named parameters is NOT dead, which is
-        // why the obvious edit breaks the caller:
-        //   • `deps`, `yields` LEAVE — unread here and through this frame. `FeeLib.calcNeeded` has
-        //     exactly ONE production call site (`BasketLib._takePreferred`): one decl, one call.
-        //   • `c` **STAYS** — `c.range` is read below, and `c.stables` is live AT THE CALLER
-        //     (`BasketLib._takeProRata` iterates it). ⇒ "unused in this body" ≠ "unused"; the
-        //     control is grepping the STRUCT MEMBER at every consumer, not the parameter here.
-        // ⇒ Target: `calcNeeded(address token, uint amount, FeeCtx memory c)` — an ABI change on an
-        //   `external`, so land it with `tools/check-client-abis.py` GATING the commit, not chained.
-        deps; yields;
+        // The sole outflow COST is the depeg haircut, and only during an actual depeg. There is no
+        // concentration or cherry-pick fee, and no routing signal: §SESS-122 deleted the `deps` /
+        // `yields` parameters that were held open for a SOR whose `_pickBestPath` had ZERO references.
         needed = grossUpForDepeg(amount, calcRisk(token, c.range));
     }
 
@@ -158,16 +144,9 @@ library FeeLib {
     ///         never called, and is now deleted). The body is a single `grossUpForDepeg`.
     ///         Renaming is an ABI change on an `external` library member, so it lands under
     ///         `tools/check-client-abis.py` or not at all.
-    function applyFeeAndHaircut(address token, uint idx,
-        uint amount, uint[16] memory deps, uint[16] memory yields,
-        address range) external view returns (uint)
+    function applyFeeAndHaircut(address token, uint amount, address range)
+        external view returns (uint)
     {
-        // Concentration/cherry-pick fee no longer charged (only the depeg haircut is);
-        // `idx`/`deps`/`yields` are held open for the LENS seam alone, exactly as in `calcNeeded`.
-        // ⛔ Same struck claim as next door — do not restore *"concentration survives as a SOR
-        // routing signal"*. ⚠️ This twin went uncorrected when `calcNeeded` was fixed, so the file
-        // asserted the SOR both dead and live forty lines apart. Fix the class, not the instance.
-        idx; deps; yields;
         return grossUpForDepeg(amount, calcRisk(token, range));
     }
 
