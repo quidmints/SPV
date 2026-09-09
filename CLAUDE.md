@@ -1664,7 +1664,38 @@ is Lightning channels (`BTCChannels`). That is the settlement asymmetry, and it 
 vBTC against WBTC via `getTWAPforAsset`) and `convertToAssets` is a pure identity because **vBTC IS
 sats**. The real underlying is LN-custodied native BTC. So "one instance = one `asset()` = an honest
 4626" holds for ETH (WETH is genuinely held and redeemable) and only **nominally** for BTC.
-⚠️ **THE PRIVACY JUSTIFICATION FOR KEEPING `VBtc` IS DEAD — and `VBtc.sol:18-28` still asserts it.**
+🔴🔴 **OWNER RULING 2026-09-09 — §VBTC-IS-THE-SHARES. READ THIS BEFORE THE THREE PARAGRAPHS BELOW IT, WHICH IT OVERTURNS IN PART.**
+> *"claim is fungible but the amount is the amount… how could it ever possibly overclaim? as an lp you
+> have lp shares as well, that is a share of fees. so as long as the btc is locked its earning fees. if
+> you transfer the vbtc to someone else, the share of fees transfers with it. **this is a strange 7540
+> where there really is no `asset()` and shares dichotomy in the 4626 sense. the token is the shares.**"*
+
+**What this settles, and each of these was an open question in this file minutes before it:**
+1. ⛔ **"NOBODY EVER HOLDS vBTC … there is no vBTC holder population" IS NO LONGER TRUE.** It was a
+   correct reading of the code as it stood — the sole `mintTo` call site is inside `exposeBtcToLev`,
+   gated to `LEV_MANAGER` — but it is now a description of a DEFECT, not of the design. **vBTC is
+   transferable and the fee share transfers with it**, so there is a holder population by construction.
+2. ✅ **The `asset()` follow-on below is ANSWERED: there is no `asset()`/shares dichotomy.** Do not
+   "revisit the accessor's meaning" — the question was premised on the pair existing.
+3. 🔑 **THIS IS THE GATE 2.3 POSITION-TOKEN RULING, SO `B8` IS UNBLOCKED.** `§MASTER-ORDER` 2.3 stated
+   the obstruction as *"the vault must BE the share token, and on the BTC leg vBTC is minted to
+   `LEV_MANAGER`, never to an LP."* The first half is now decided; the second half is the work.
+4. ✅ **`redeemVBtc(sats, p2trScript)` IS AUTHORISED — the ⛔ below is LIFTED.** The cross-LP-theft
+   objection assumed vBTC could claim MORE than it represents. **It cannot: "the amount is the
+   amount."** Over-claiming would require minting vBTC unbacked by locked BTC — a **MINT-side**
+   invariant (`sats <= plainNet(pooled, levPooled)`), not a redeem-side one. **The objection was aimed
+   at the wrong end of the pipe.** The other blocker is independently void: §NO-VBTC-MORPHO-MARKET
+   deleted the market (`3440c742`), so there is no liquidator with no exit.
+⚠️ **WHAT SURVIVES THE RULING, AND IS NOW LOAD-BEARING RATHER THAN DECORATIVE: `Σ outstanding vBTC ≤ Σ
+free channel capacity`.** BTC promised to a vBTC holder is not free channel capacity, so
+**`deliverableBTC` must SUBTRACT outstanding vBTC** or redemption and swapper delivery draw on the same
+sats. That invariant is named two paragraphs down as a feature of a rejected design; it is now the
+guard the accepted one rests on.
+📌 **The `VBtc` MUST SURVIVE argument above is UNAFFECTED and still correct** — the BTC range has no
+underlying unless it mints one. The ruling strengthens it: vBTC is not merely a synthetic underlying,
+it is the share token itself.
+
+⚠️ **(SUPERSEDED IN PART — see the ruling above) THE PRIVACY JUSTIFICATION FOR KEEPING `VBtc` IS DEAD — and `VBtc.sol:18-28` still asserts it.**
 That header calls segregation *"a prerequisite, not cosmetics"* for the privacy story, naming a future
 `redeemVBtc(sats, p2trScript)` and the `Σ outstanding vBTC ≤ Σ free channel capacity` invariant. But
 `../ibiza` **already ruled that out** — `docs/actionable/TODO.md` (was `ibiza/TODO.md:2097`; RELOCATED 2026-08-30, line numbers shifted by the +39-line header — grep the quoted text, not the line): *"**2.4d vBTC through PP — RULED OUT.** It
@@ -1700,7 +1731,8 @@ instantiation rather than being dissolved by it.
 this design vBTC IS the range's asset rather than having one, so that accessor's meaning has to be
 revisited — do not carry it across unexamined.
 
-🔴 **AND IT IS WORSE THAN STALE — `VBtc.sol:18-28` PROPOSES A FEATURE ibiza ANALYSED AS CROSS-LP THEFT.**
+✅ **(LIFTED 2026-09-09 BY §VBTC-IS-THE-SHARES ABOVE — kept because the ANALYSIS below is still the reason the mint-side invariant matters, and because a reader who finds only the lift will not know what it was protecting against.)**
+🔴 **(WAS) AND IT IS WORSE THAN STALE — `VBtc.sol:18-28` PROPOSES A FEATURE ibiza ANALYSED AS CROSS-LP THEFT.**
 That header argues *"swap-out already proves the protocol can pay an arbitrary P2TR address whose owner
 has no channel — so what is missing is an ENTRYPOINT plus a source-of-funds rule, not a capability"*,
 and names `redeemVBtc(sats, p2trScript)`. `docs/actionable/TODO.md` (was `ibiza/TODO.md:2118-2132`; RELOCATED — grep the quote) rejects precisely that, quoting
