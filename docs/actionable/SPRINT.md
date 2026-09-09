@@ -60084,3 +60084,54 @@ the measurement so nobody re-derives it.
 ▶️ **WHAT THIS LEAVES OPEN, IN ORDER:** (1) land κ's σ-scaling with a stated ω and a prediction;
 (2) destale `SwapLib:1523`'s §2.3 justification to the boundary-condition one; (3) refill thread
 re-splits its premium measurement base-vs-kernel; (4) §C1 stays open — no mainnet feed exists.
+
+---
+
+# 🔴🔴 §REFILL-FEASIBILITY-SETTLED — **18 guarded samples: coverage is NEGATIVE 56% of the time. Median shortfall is 2× the premium.**
+
+Owner: *"without requiring arbitragers that bring external capital, we must make this work in the best
+possible way for LPs. do all the measurements, make no guesses."* Measured, guarded, and settled.
+
+## THE DISTRIBUTION (10 blocks × 2 sizes, every sample σ²-verified)
+    VALID 18   NEGATIVE 10 = 56%   min −66 bps   max +110 bps   MEDIAN −8 bps
+    premium: 4.2 bps, FLAT at every size and every block
+    ⇒ median shortfall 8 bps = 2.0× the premium; worst case 66 bps = 16× the premium
+
+**Every sample carries the §SENTINEL-GUARD**, so a σ²-unmeasured block now FAILS instead of reporting a
+favourable constant. That guard changed the answer: the unguarded first sweep reported +297 and +264 bps
+and would have said "comfortably feasible". **It was measuring `UNKNOWN_VARIANCE_SKEW`.**
+
+## ⇒ THE VERDICT
+**An unconditional bundled refill LOSES MONEY FOR LPs MORE OFTEN THAN NOT.** The swapper's premium does
+not fund their own restoration in the majority of real regimes. This is not a tuning gap — the premium is
+4.2 bps flat while the shortfall ranges to 66 bps, and §GAMMA-IS-NOT-A-DIAL forecloses raising it.
+
+## THE OPTION SPACE, AFTER THE OWNER'S NO-EXTERNAL-CAPITAL CONSTRAINT
+| | status |
+|---|---|
+| **D · let arbitrage restore** | ⛔ **RULED OUT BY THE CONSTRAINT** — needs a counterparty bringing volatile |
+| **F · A–S mid-shift (pay the restorer)** | ⛔ **RULED OUT BY THE CONSTRAINT** — same; it pays an external party to bring volatile. §E276 stays open as a *pricing* question, not as a refill answer |
+| **B · size-aware charge on top** | 🟡 would need ~2× the premium at the median and **16× at the tail**; collides head-on with the owner's *"large swaps will go where execution is cheaper"* |
+| **C · estimate then refund** | 🟡 does not fix the shortfall — only its over-collection; still needs B's charge, plus the true-up `4405ed0d` deleted |
+| **E · async keeper** | 🟡 solves the TRIGGER (incl. redemption), **not the COST.** The keeper still buys at the same adverse price. Funding question still unanswered |
+| **A · conditional refill** | ⭐ **THE ONLY OPTION THAT SATISFIES "NEVER AT A LOSS TO THE POOL" UNDER THE CONSTRAINT** |
+
+## ⭐ WHY A IS THE ANSWER FOR LPs SPECIFICALLY, stated as a trade and not a win
+The measurement forces a choice and there is no third branch:
+· **Unconditional refill** → composition restored always, **LPs lose in 56% of regimes** (median −8 bps).
+· **Conditional refill** (fire only when the live quote covers) → **LPs never lose**, composition stays
+  broken in the 56% where restoring would cost more than the swapper paid.
+⇒ For LPs, **not-losing dominates**: a mis-composed range is an exposure they still own at full value,
+while a negative refill is value permanently gone. And the 44% where it fires is not nothing — it is
+exactly the regimes where restoration is cheap, which is when it is worth doing.
+🔑 **AND IT NEEDS NO NEW MACHINERY.** The comparison is a live quote against premium held, and the tree
+already has the quote: `_selfServableQuote` / `swapFloor` / `_slipBps` are the same oracle-derived,
+size-aware curve every routed conversion is already floored against.
+
+## ⛔ WHAT MUST STILL BE MEASURED BEFORE BUILDING EVEN A
+1. **The sandwich exposure** — a conditional refill is still a predictable buy of known size; an attacker
+   who moves the venue can flip the condition on OR off. **Unmeasured, and it is the last blocker.**
+2. **How often A would decline in a row** — 56% per sample says nothing about persistence. If declines
+   cluster, the range stays broken for long stretches and that is a different product.
+3. **Redemption-driven depletion** — A is bundled, so it inherits §3's hole: `unwindForRedeem` is a burn,
+   not a swap, and never triggers anything.
