@@ -872,10 +872,49 @@ if I were wrong?" before reading any compiler error as a code defect in a tree y
 below: on a CLEAN log it exits non-zero, so the harness reports the whole command as failed while the
 build was green. **Read the captured count, never the pipeline's exit code.**
 
-### 🔴 SUBAGENTS MUST BE READ-ONLY HERE, AND THE REASON IS THE MACHINE, NOT TASTE
+### 🔴 MULTILANE ORCHESTRATION — SERIALIZE THE BUILD, NOT THE WRITE
 
-**Fan-out is the right instinct for a 400-item census and the wrong one for anything that compiles.**
-Two limits, both hit in this tree on 2026-09-06:
+⛔ **THIS SECTION USED TO SAY "SUBAGENTS MUST BE READ-ONLY HERE." THE OWNER OVERRULED THAT ON
+2026-09-08 AND WAS RIGHT:** *"they are not read only. they can do writes, just wait for builds. do
+one build that gets multiple tasks done. i dont have two days to wait. everything gets done
+tonight."* **The two limits below are real and are unchanged — but they are limits on BUILDING, and
+I had attributed them to WRITING.** Read-only lanes did not make the machine safer; they made the
+parent the sole writer, so every lane's finding queued behind one process applying it by hand, and
+the lanes burned their tokens on reads that had to be redone by whoever finally did the work.
+⇒ **THE SCARCE RESOURCE IS THE BUILD. WRITE ACCESS IS FREE.** A lane that returns a finding has
+spent its context and left you the job; a lane that returns a landed diff has done the job.
+
+**THE PRINCIPLE, in the order the decisions actually have to be made:**
+1. **PARTITION ON COLLISION DOMAIN, NOT ON TOPIC.** Two lanes may not stage the same file. Topic is
+   irrelevant — "all the fee work" spans six files and three lanes want two of them.
+2. **THEN ORDER THE PARTITION BY §MASTER-ORDER.** ⚠️ **This is the step I skipped on 2026-09-08 and
+   it is the expensive one.** A disjoint file set is not a runnable plan: a decision gate upstream
+   of a lane means that lane builds on a premise that is still being decided, and lands work that
+   the gate then invalidates. **Disjointness prevents merge conflicts; ordering prevents building
+   the wrong thing.** A T9 hop-side lane and a T9 client-side lane touch different files and are
+   still not parallel.
+3. **GIVE EACH LANE THE WHOLE NEIGHBOURHOOD, NOT ONE ROW.** Batch every task that reads the same
+   code into one lane so the file is read once (owner: *"try not to reread the same thing over and
+   over again by grouping tasks together"*). N lanes each opening `LevMath.sol` is the read-only
+   failure wearing a different hat.
+4. **TELL EVERY LANE, IN THE PROMPT, THAT IT MAY EDIT AND MAY NOT BUILD.** An agent cannot infer
+   that another agent is compiling. This is the only thing standing between you and exit 137.
+5. **ONE BATCHED BUILD COVERS ALL LANDED LANES** — but ⚠️ **rule 10 still caps how much MONEY-PATH
+   change can share one TEST run**, because a batched red tells you which file, not which change.
+   Non-money-path work (comments, docs, tests, `SPRINT.md` rows) batches freely. **Batching buys
+   hours, not weeks.**
+6. **§COMPILE-COUPLING IS THE LEAK IN THE PARTITION.** Disjoint staging does not mean disjoint
+   compiling: `imports/Interfaces.sol` (21 importers), `Types.sol` (20), `LevMath.sol` (8) belong to
+   **no lane**. A signature change there merges clean and breaks the parent. **Lanes flag; they
+   never assume.** A lane needing a hunk in a shared header returns it as a handoff.
+7. **COMMIT BY PATHSPEC, NEVER `git add <dir>`** (rule 14). With lanes live in the same checkout,
+   `git add evm/test/` swept another lane's in-flight edits — measured, twice. `git commit -- <path>`
+   is the form that cannot do that.
+8. **COLLECT THE HANDOFFS BEFORE DECLARING DONE.** Lanes finish holding hunks they were forbidden to
+   apply. Those are not notes; they are unlanded work, and they are the most common way a "finished"
+   sprint is not finished.
+
+**The two machine limits, which are about builds and only builds:**
 1. **A SECOND BUILD OOMs THE BOX.** `forge build` plus its `solc` children is already most of the
    RAM here; a concurrent one gets **killed at exit 137**, which reads like a crash and is not.
    This file already says *"run ONE build at a time"* — **N agents make that N times easier to
@@ -884,13 +923,15 @@ Two limits, both hit in this tree on 2026-09-06:
    **zero files**, took `No files changed` once and **2m22s** the next time purely because other
    builds were running. **A number taken while agents are fanned out is a number about the load.**
 
-⇒ **GIVE SUBAGENTS: greps, file reads, `git log`/`show`, classification, census work.**
-⇒ **NEVER GIVE THEM: `forge build`/`test`, `cargo build/test`, or any git WRITE.** State it in the
-prompt as a hard constraint — an agent that does not know another is building has no way to infer it.
-📌 **And a fan-out is only safe because the work is read-only, not because it is small:** six agents
-each grepping `evm/src` cost nothing, while six agents each building would take the machine down.
-**Partition on what the work TOUCHES, exactly as §LANES partitions on collision domain.**
-⚠️ **The parent writes.** Agents return findings; one process folds them into a file. That keeps
+⇒ **GIVE LANES: greps, file reads, `git log`/`show`, classification, census work — AND THE EDIT.**
+⇒ **NEVER GIVE THEM: `forge build`/`test`, `cargo build/test`, or `git commit`/`push`.** State it in
+the prompt as a hard constraint — an agent that does not know another is building has no way to infer
+it. **The build and the commit are the parent's, because both are global; the edit is local and is
+the lane's.**
+📌 **A fan-out is safe because the work is PARTITIONED, not because it is read-only:** six agents each
+grepping `evm/src` cost nothing, and six agents each editing six disjoint files cost nothing either,
+while six agents each building would take the machine down.
+⚠️ **The parent stages.** Lanes edit the working tree; one process commits, by pathspec. That keeps
 rule 14 satisfiable — nobody can stage over anybody, because only one process stages at all.
 
 🔴 **AND THE PARENT MUST PERSIST AN ANCHOR, NOT A LABEL — THIS COST 48 ROWS ON 2026-09-06 AND THE
