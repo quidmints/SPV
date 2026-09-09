@@ -63265,3 +63265,75 @@ already clean on this axis.**
 🔴 **ONE STALE FOUND WHILE LOOKING:** CLAUDE.md's fold table still says *"`SwapLib.quoteFill` still has
 zero callers in `src`, `test` and `script`"*. **`quoteFill`, `quoteDrain` and `enforce` no longer exist
 at all** — grep returns nothing. The row describes a deletion that has since happened.
+
+---
+
+# ⛔ §MIGRATION-NOT-ALLOCATION IS **WRONG** — simultaneous multi-venue is the design, and the aggregation layer is already built for it
+
+*(owner, 2026-09-09: **"what if simultaneous multivenue is actually the only practical way to optimise
+costs"** — it is, on two independent grounds, and the code agrees with the owner rather than with me.)*
+
+## 1️⃣ THE ECONOMICS: A SINGLE VENUE IS A CORNER SOLUTION TO A CONVEX PROBLEM, SO IT IS SUBOPTIMAL BY CONSTRUCTION
+`borrowRateRay`'s own docblock supplies the refutation of my design: **Aave v3 USDT 4.08% → 4.45% at
++$25M → 7.49% at +$100M.** The borrow-rate curve is **convex in size**. Minimising total interest
+across venues under a fixed borrow requirement is therefore a convex program whose optimum
+**equalises MARGINAL rates across venues** — a water-filling solution, and it is an **INTERIOR point**.
+⇒ **A single venue is optimal only if one venue's curve dominates every other over our WHOLE size**,
+which is precisely what those measured numbers say is false at our scale. **Migration can only ever
+choose the least-bad corner of a problem whose optimum is not at a corner.** My framing optimised
+implementation cost and called it a design.
+
+## 2️⃣ AND THE HARDER ONE: SINGLE-VENUE MAKES THE DEEPEST VENUE'S DEPTH THE PROTOCOL'S DEBT CEILING
+`borrowRateRay` *"**MAY REVERT** when `extraBorrow` exceeds what the venue can fund; that is a feature"*.
+⇒ under one venue, **the protocol cannot borrow more than the single deepest market can fund**, at any
+price. That is not a cost difference, it is a **scaling cap**, and no amount of migrating relieves it.
+**This alone settles it**: IL-protect must scale with the range, and the range is not bounded by one
+lending market's depth.
+
+## 3️⃣ 🔴 AND THE CODE WAS BUILT FOR THIS — I ASSERTED A BLOCKER THAT DOES NOT EXIST
+I twice cited *"the per-venue walk (`LevBase._pool()`, 5 sites)"* as the blocker, from
+`tools/orphans-allow.txt:27`. **MEASURED: `_pool(` has ZERO occurrences in `LevBase.sol` and
+`LevVenueBase.sol`** — the symbol does not exist — **and the walk it says is missing is ALREADY THERE
+at three sites**, each iterating `poolVenues[]` through `ILevVenue.position()`:
+| site | what it aggregates | what its comment already assumes |
+|---|---|---|
+| `LevBase:538` | per-venue `deliverableDollars`, floored per venue | *"Venue A's spare collateral cannot unlock a withdrawal from venue B; they are **separate lending positions with separate liquidation engines**"* |
+| `LevBase:700` | `poolLtvBps` | *"venues with **different thresholds** do not have one meaningful pooled LTV … any per-venue liquidation decision must read that venue's own `position()`"* |
+| `LevBase:791` | `totalDebtUsd` | `_toUsd18` is **inside the loop** because *"venues denominated in **different stables** cannot share one conversion"* |
+⇒ **The aggregation layer is not merely present, it is written for HETEROGENEOUS SIMULTANEOUS venues** —
+different stables, different liquidation thresholds, independent liquidation engines. **Someone designed
+exactly the owner's model and it was then pinned off by ONE guard**, `LevBase:422-423`:
+`else if (poolVenue != address(venue)) revert VenueNotPooled()`.
+✅ **AND THE PER-LP LEDGERS NEED NO WORK EITHER: `debtUnits` / `collUnits` / `totalDebtUnits` live in
+`LevVenueBase`, which is ONE CONTRACT PER VENUE.** Each venue already keeps its own unit book, so
+N venues is N independent ledgers **by construction, today**. There is no shared-ledger refactor.
+📌 `orphans-allow.txt` corrected in this commit: `borrowRateRay` and `supplyHeadroom` are **not blocked
+on a missing walk** — they are blocked only by the pin.
+
+## 4️⃣ WHAT I HAD RIGHT AND WHAT IT BECOMES
+✅ **VERIFY, DON'T SEARCH** survives intact and generalises: the caller proposes an **ALLOCATION VECTOR**
+instead of a single venue, and the contract refuses a bad one. ⭐ **AND THE CONDITION TO VERIFY IS THE
+OPTIMALITY CONDITION ITSELF, WHICH IS CHEAP:** at the water-filling optimum **all funded venues share
+the same marginal rate**, so the check is *"after this move, no funded venue's `borrowRateRay(0)`
+exceeds another's by more than a band"* — **O(N) view reads, N bounded by the frozen allowlist**, and a
+caller proposing anything non-optimal is refused by the same line that makes the optimum reachable.
+✅ **The `liqThresholdBps` guard stays**, and ⭐ **multi-venue IMPROVES the thing I used it to argue
+against**: splitting diversifies liquidation risk, so one venue's oracle or LLTV problem no longer
+takes the whole book. **That is a third argument for the owner's position and against mine.**
+⛔ **AND I OVER-CLAIMED THE §POOL-VENUE TENSION.** What that collapse removed was a **per-LP** loop
+(*"No per-LP write and no loop"*, the swap-size ceiling). **Per-VENUE is a different axis and N is the
+allowlist size** — `repayPool` across 3 venues is 3 calls, not thousands. **O(N-venues) was never what
+§POOL-VENUE bought.**
+
+## ⏸️ WHAT GENUINELY GETS HARDER — the honest cost, since this is now the direction
+- **Liquidation is per-venue with separate engines** (the code says so at `:533`). N pooled positions
+  ⇒ **N cross-subsidy surfaces**, and `cascadeDelever` must know WHICH venue is stressed rather than
+  treating "the pool" as one thing. 🔗 This compounds §LEVER-UP-SUPPLY-ON-DEMAND rather than replacing it.
+- **`repayPool` must acquire an allocation rule** — repaying pro-rata across venues is not the same as
+  repaying the cheapest first, and the two differ in who bears the rate change.
+- **The switching-cost amortisation still applies**, now per-leg: a rebalance between venues with
+  different loan tokens pays a stable→stable hop each time the allocator moves, so the water-filling
+  band must be wide enough that ordinary rate drift does not churn the book.
+▶️ **NEXT IS A DECISION, NOT CODE (rule 16):** the allocator's objective is *minimise total interest
+subject to a headroom floor* — but *"pro-rata repay"* vs *"cheapest-first repay"* and the width of the
+marginal-rate band are owner rulings, and everything downstream of them is ⏸️.
