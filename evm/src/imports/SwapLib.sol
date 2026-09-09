@@ -221,7 +221,7 @@ library SwapLib {
     ///      so auxSwapBody's 9 params stay within the legacy stack.
     function _convert(IAux aux, address tokenIn, address tokenOut, uint pulled,
         uint idxOut, address linkAddr) private returns (uint) {
-        (uint[15] memory amounts, uint[15] memory yieldW,,) = aux.get_deposits();
+        (uint[16] memory amounts, uint[16] memory yieldW,,) = aux.get_deposits();
         uint usdIn  = BasketLib.scaleTokenAmount(pulled, tokenIn, true);
         uint usdOut = FeeLib.applyFeeAndHaircut(
             tokenOut, idxOut - 1, usdIn, amounts, yieldW, linkAddr);
@@ -389,8 +389,8 @@ library SwapLib {
             // side haircuts depeg (Core range-add + mint-headroom) to block over-mint, but the drain side stays at
             // par so a transient depeg can't brick redeems/swaps for existing holders (intentional asymmetry;
             // redeem VALUE is separately haircut in _redeemQuote). See DepegBackingProbe.
-            (uint[15] memory _deposits,,,) = aux.get_deposits();
-            if (ICore(c.core).committedUsd18() > _deposits[14]) revert UnderBackedS();
+            (uint[16] memory _deposits,,,) = aux.get_deposits();
+            if (ICore(c.core).committedUsd18() > _deposits[15]) revert UnderBackedS();
         }
         // token1is inlined per-branch (not a local) — frees a stack slot so
         // swapToBody stays within the legacy pipeline (no via_ir) after threading
@@ -563,9 +563,9 @@ library SwapLib {
         private returns (uint) {
         (uint burned, uint seedBurned) = IBasket(quid).turn(msg.sender, amount);
         uint solvent;
-        {   (uint[15] memory d, uint[15] memory yW,, uint dl) = aux.get_deposits();
+        {   (uint[16] memory d, uint[16] memory yW,, uint dl) = aux.get_deposits();
             // yW[0] = Σ balance×rate (the annualised-rate numerator), NOT d[0] = Σ yieldWeighted.
-            (solvent,) = aux.get_metricsWith(d[14], yW[0]);
+            (solvent,) = aux.get_metricsWith(d[15], yW[0]);
             solvent = solvent > dl ? solvent - dl : 0; }
         amount = BasketLib.qdShareValue(burned, solvent, IBasket(quid).matureSupply() + burned) / 1e12;
         if (seedBurned > 0) {
@@ -2367,11 +2367,11 @@ library SwapLib {
         //      are freed regardless; see `swapOutDelever` below).
         //    ⛔ Do NOT "restore" this to the soft check alone: a non-reverting solvency probe sizes
         //       nothing, and this is the ONLY drain in the tree without a hard bound.
-        //    📌 READS THE SAME TWO QUANTITIES `Core._poolUsdInRange`'s gate compares — `_d[14]`
+        //    📌 READS THE SAME TWO QUANTITIES `Core._poolUsdInRange`'s gate compares — `_d[15]`
         //       (18-dec TVL) less `depegLoss`, against `committedUsd18()` — so the bound and the gate
         //       cannot disagree about what "backed" means.
-        {   (uint[15] memory amts,,, uint depeg) = IAux(aux).get_deposits();
-            uint liquid = amts[14] > depeg ? amts[14] - depeg : 0;
+        {   (uint[16] memory amts,,, uint depeg) = IAux(aux).get_deposits();
+            uint liquid = amts[15] > depeg ? amts[15] - depeg : 0;
             uint committed = ICore(core).committedUsd18();
             uint headroom = liquid > committed ? liquid - committed : 0;
             if (takeUsd18 > headroom) takeUsd18 = headroom;
@@ -2446,16 +2446,16 @@ library SwapLib {
         ILevManagerDeliver(mgr).swapOutDelever(lp, LevMath._toUsd18(aux,stable, got), want);
     }
 
-    /// @dev Held USD (18-dec) of a single basket stable = its get_deposits slot. In the uint[15] vector,
+    /// @dev Held USD (18-dec) of a single basket stable = its get_deposits slot. In the uint[16] vector,
     ///   `amounts[i+1] = balance` is the depeg-adjusted per-stable hold (BasketLib:247; BOLD → [11]), while
-    ///   `amounts[0]` is the yield-weighted aggregate and `amounts[14]` the TVL total. So a real stable's
+    ///   `amounts[0]` is the yield-weighted aggregate and `amounts[15]` the TVL total. So a real stable's
     ///   `toIndex` is in [1,11] (11 stables, BOLD last — `DriverE2E.s.sol:85-88`); the guard rejects the
     ///   aggregate (0), everything from slot 12 up (12-13 unused, 14 the TVL total), and unknown
     ///   stables (toIndex 0).
     function _heldUsd18(address aux, address stable) private returns (uint) {
         uint idx = IAux(aux).toIndex(stable);
         if (idx == 0 || idx >= 12) return 0;
-        (uint[15] memory amts,,,) = IAux(aux).get_deposits();
+        (uint[16] memory amts,,,) = IAux(aux).get_deposits();
         return amts[idx];
     }
 
@@ -2631,7 +2631,7 @@ library SwapLib {
     ///      ⛔ THERE IS NO BTC POLICY CAP IN THIS BODY — this said *"optionally apply the BTC policy
     ///      cap"*, and §H deleted `btcShareBps`/`btcCapClamp` (the note above records it). The only
     ///      bounds are the surplus here and `clampByBacking`'s headroom/θ pair at the call site.
-    ///      ⚠️ `liquidTotal` (`get_deposits[14]`) and `committedBoth` (`committedUsd18`) are now read
+    ///      ⚠️ `liquidTotal` (`get_deposits[15]`) and `committedBoth` (`committedUsd18`) are now read
     ///      by `addLiqBody`, NOT by its callers — the §DELTATOK-FOLD moved that read in, which is what
     ///      let both ranges lose their copies. `surplus == 0` ⇒ `addLiqBody` early-returns. Every
     ///      mulDiv floors → commits ≤ requested, never more.
@@ -2781,9 +2781,9 @@ library SwapLib {
     function addLiqBody(address core, address aux, uint want, uint price,
         uint thetaWad, uint backing) public returns (uint usdOut, uint outDelta)
     {
-        (uint[15] memory deposits,,,) = IAux(aux).get_deposits();
+        (uint[16] memory deposits,,,) = IAux(aux).get_deposits();
         (uint deltaTok, uint targetUSD, uint surplus) =
-            sizeBySurplus(deposits[14], ICore(core).committedUsd18(), want, price);
+            sizeBySurplus(deposits[15], ICore(core).committedUsd18(), want, price);
         if (surplus == 0) return (0, 0);
         // ONE principle: bound by the physical backing HEADROOM (backing − pooled) AND the θ
         // risk-budget (θ·backing − pooled). Shared verbatim by both ranges — it always was, via two

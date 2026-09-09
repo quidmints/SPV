@@ -84,7 +84,7 @@ library BasketLib {
     function get_deposits(address aux, address[] memory stables,
         mapping(address => Holding) storage storedHoldings,
         mapping(address => uint) storage tranche) external
-        returns (uint[15] memory amounts, uint[15] memory yieldW, uint depegLossOut) {
+        returns (uint[16] memory amounts, uint[16] memory yieldW, uint depegLossOut) {
         // GAS: the per-stable seed-reserve (tranche) is a direct SLOAD through
         // a storage-reference param (this runs in Aux's context via delegatecall) —
         // NOT an external IAux(aux) self-call. Depeg severity is read via the SINGLE
@@ -97,10 +97,10 @@ library BasketLib {
         //   discount). Same number that's summed into amounts[0]; exposed
         //   per-stable so the fee model can compute each stable's yield
         //   rate (yieldW[i]/amounts[i]) vs the basket baseline
-        //   (amounts[0]/amounts[14]) WITHOUT re-reading any vault.
+        //   (amounts[0]/amounts[15]) WITHOUT re-reading any vault.
         // amounts[1..N]  = per-token deposit values (18 dec)
         //   N = stables.length - 1 (last slot is BOLD, filled in Aux)
-        // amounts[14]    = raw TVL total (all sources)
+        // amounts[15]    = raw TVL total (all sources)
         //
         // ROUTING DISPATCH (token identity, not slot position):
         //   AAVE  : GHO, USDG → IAux(aux).aaveBalance(token)
@@ -170,13 +170,13 @@ library BasketLib {
                                    // so _depegLoss needn't re-loop the feeds (2nd pass).
             }
             amounts[i + 1] = balance;
-            amounts[14] += balance;
+            amounts[15] += balance;
             amounts[0] += yieldWeighted;
             yieldW[i + 1] = yieldWeighted;
             // yieldW[0] = Σ balanceᵢ × rateᵢ — the balance-weighted ANNUALISED rate numerator, which
-            // `computeMetrics` divides by amounts[14] to get `metrics.yield`. Slot 0 of `yieldW` was
+            // `computeMetrics` divides by amounts[15] to get `metrics.yield`. Slot 0 of `yieldW` was
             // the only unwritten cell in either vector, so this needs no new return value. Weighted by
-            // `balance` (post-tranche), the same quantity that lands in amounts[14], so the ratio is a
+            // `balance` (post-tranche), the same quantity that lands in amounts[15], so the ratio is a
             // true weighted mean. `amounts[0]` is UNCHANGED — it is `calcFeeL1`'s baseline and moving
             // it would be a second money-path change in one run.
             yieldW[0] += SoladyMath.fullMulDiv(balance, h.rate, WAD);
@@ -293,7 +293,7 @@ library BasketLib {
     ///      DIMENSIONLESS. `b/shares` is raw-assets-per-raw-SHARE and equals the share price
     ///      only when the two carry the same decimals. MetaMorpho issues an 18-dec share
     ///      against a 6-dec asset, so the raw ratio came out 1e-12 too small and EVERY 6-dec
-    ///      leg valued at zero yield — dragging `amounts[0]` under `amounts[14]` and pinning
+    ///      leg valued at zero yield — dragging `amounts[0]` under `amounts[15]` and pinning
     ///      `metrics.yield` at 0 (E155; measured live: Galaxy USDC read 1e-12 against a true
     ///      1.012358). ⚠️ THE LIFT MUST BE INSIDE THE DIVISION. `mulDiv(b, b, shares) * lift`
     ///      returns exactly 1.0 — the inner divide has already truncated the appreciation
@@ -661,7 +661,7 @@ library BasketLib {
             aux.checkBacking();
             return sent;
         }
-        (uint[15] memory amounts, uint[15] memory yieldW,,) = aux.get_deposits();
+        (uint[16] memory amounts, uint[16] memory yieldW,,) = aux.get_deposits();
         sent = _takeCore(a, amounts, yieldW);
         // §E91-r5 / S16 — AGGREGATE DELIVERY GUARD. The per-venue `try/catch` in `_takePreferred`
         // and `_takeProRata` is CORRECT and stays: the basket holds up to 15 stables in separate
@@ -687,7 +687,7 @@ library BasketLib {
     ///         of a second full basket scan. Non-WETH only (the redeem token==quid
     ///         path); the WETH short-circuit stays in takeBody. The caller guarantees
     ///         the arrays are still current (no stable-balance mutation since fetch).
-    function takeBodyWith(TakeArgs memory a, uint[15] memory amounts, uint[15] memory yieldW)
+    function takeBodyWith(TakeArgs memory a, uint[16] memory amounts, uint[16] memory yieldW)
         external returns (uint sent) {
         sent = _takeCore(a, amounts, yieldW);
         // §E91-r5 / S16 — AGGREGATE DELIVERY GUARD. The per-venue `try/catch` in `_takePreferred`
@@ -711,7 +711,7 @@ library BasketLib {
     /// @dev Shared body of takeBody / takeBodyWith. `amounts`/`yieldW` are the basket
     ///      deposit vectors (from get_deposits); the entrypoints differ only in whether
     ///      those were just-fetched here or threaded in by a caller that already had them.
-    function _takeCore(TakeArgs memory a, uint[15] memory amounts, uint[15] memory yieldW)
+    function _takeCore(TakeArgs memory a, uint[16] memory amounts, uint[16] memory yieldW)
         private returns (uint sent) {
         IAux aux = IAux(address(this));
         FeeLib.FeeCtx memory fc = FeeLib.FeeCtx(a.stables, a.linkAddr);
@@ -727,7 +727,7 @@ library BasketLib {
         // SWAP take (token != quid): the named stable IS the preferred leg, already in NATIVE units.
         // TARGETED REDEEM (token == quid, preferred set, seed == 0): shed the chosen stable first —
         // the cherry-pick concentration fee rides on this leg via calcNeeded. Its `a.amount` is USD
-        // 1e18 (a share of amounts[14]), so it MUST be converted to native units first: §A.50, where
+        // 1e18 (a share of amounts[15]), so it MUST be converted to native units first: §A.50, where
         // a 6-dec stable was asked for 1e12x the intended draw and declining pro-rata PAID the
         // redeemer. Seed-bearing redemptions (seed > 0) are excluded so the seed keeps its pro-rata
         // un-tip distribution instead of routing onto one stable (preferred is ignored, not an error).
@@ -753,8 +753,8 @@ library BasketLib {
                 a.seed, amounts, yieldW, fc);
             if (done) return sent;
         }
-        if (amounts[14] == 0 || a.amount == 0) { _finalBacking(aux, a.softBacking); return sent; }
-        if (a.seed == 0) a.amount = Math.min(amounts[14], a.amount);
+        if (amounts[15] == 0 || a.amount == 0) { _finalBacking(aux, a.softBacking); return sent; }
+        if (a.seed == 0) a.amount = Math.min(amounts[15], a.amount);
         {   (uint pr, bool subUnit) = _takeProRata(aux, a.who, a.amount, a.seed, skip, amounts, fc);
             sent += pr;
             // Own scope so the two locals leave the frame before `_finalBacking` — this function is at
@@ -786,7 +786,7 @@ library BasketLib {
     ///      the swap call site already holds native units.
     function _takePreferred(
         IAux aux, address who, address token, uint amount, uint seed,
-        uint[15] memory amounts, uint[15] memory yieldW, FeeLib.FeeCtx memory fc
+        uint[16] memory amounts, uint[16] memory yieldW, FeeLib.FeeCtx memory fc
     ) private returns (uint sent, uint remaining, bool done) {
         uint needed = FeeLib.calcNeeded(token, amount, amounts, yieldW, fc);
         if (seed > 0) {
@@ -818,7 +818,7 @@ library BasketLib {
     ///         the same thing is what let a dust redeem masquerade as a venue outage.
     function _takeProRata(
         IAux aux, address who, uint amount, uint seed, address skip,
-        uint[15] memory amounts, FeeLib.FeeCtx memory fc
+        uint[16] memory amounts, FeeLib.FeeCtx memory fc
     ) private returns (uint sent, bool subUnit) {
         for (uint i = 1; i <= fc.stables.length; i++) {
             address token = fc.stables[i - 1]; if (token == skip) continue;
@@ -834,7 +834,7 @@ library BasketLib {
             // `via_ir` stays off by design.)
             if (amounts[i] != 0) {
                 amounts[i] = FeeLib.allocate(token, 
-                amount, amounts[i], amounts[14], fc);
+                amount, amounts[i], amounts[15], fc);
                 if (amounts[i] == 0) subUnit = true;
             }
             if (seed > 0) aux.tipSelf(SoladyMath.fullMulDiv(amounts[i], seed, amount), token, -1);
@@ -876,7 +876,7 @@ library BasketLib {
 
     /// @notice External accessor for the redemption depeg haircut so the MINT path
     /// can discount its redeemability headroom by the SAME loss. Without it, backing
-    /// for the mint cap is PAR (`amounts[14]`) while redemption is par−`_depegLoss`,
+    /// for the mint cap is PAR (`amounts[15]`) while redemption is par−`_depegLoss`,
     /// so during a depeg the cap would let the forward-yield slice mint against the
     /// par-phantom value of depegged holdings → supply could exceed redeemable
     /// backing. Mint↔redeem symmetry closes that. (Delegatecalled by Aux; runs in
@@ -1105,9 +1105,9 @@ library BasketLib {
     function spendClaimBody(address owner, uint usd6, address quid)
         external returns (uint funded6) {
         if (usd6 == 0) return 0;
-        (uint[15] memory amts, uint[15] memory yW,, uint depegLossOut) =
+        (uint[16] memory amts, uint[16] memory yW,, uint depegLossOut) =
             IAux(address(this)).get_deposits();
-        (uint perShare,) = _perShare(quid, amts[14], yW[0], depegLossOut);
+        (uint perShare,) = _perShare(quid, amts[15], yW[0], depegLossOut);
         if (perShare == 0) return 0;                       // fully depegged → the claim funds nothing
         // MATURE ONLY. Immature/forward QU!D is not a redeemable claim and is not a fundable one
         // either — same rule, same reason, same two calls `_settleRedeem` makes.
@@ -1142,10 +1142,10 @@ library BasketLib {
 
     function redeemAsBody(RedeemArgs memory r) external {
         // DEDUP: fetch the basket deposit vectors ONCE here (pre-burn) for the depeg haircut + the take leg.
-        (uint[15] memory amts, uint[15] memory yW,, uint depegLossOut) =
+        (uint[16] memory amts, uint[16] memory yW,, uint depegLossOut) =
             IAux(address(this)).get_deposits();
         // yW[0] (Σ balance×rate), NOT amts[0] (Σ yieldWeighted) — see computeMetrics's @param.
-        (uint perShare, uint freeUsd) = _redeemQuote(r, amts[14], yW[0], depegLossOut);
+        (uint perShare, uint freeUsd) = _redeemQuote(r, amts[15], yW[0], depegLossOut);
         // UNWIND-FIRST, BURN-EXACT (own frame): free what this redemption can ACTUALLY deliver, then burn ONLY
         // that — burn follows delivery, so there is never a burn without delivery and never an over-unwind.
         (uint usdPart, uint seedBurned, bool unwound) = _settleRedeem(r, perShare, freeUsd);
@@ -1201,11 +1201,11 @@ library BasketLib {
     ///      (amts, yW) ONLY when no seed was burned AND no unwind ran: then `tranche` (which get_deposits nets
     ///      out of the per-stable balances) is unchanged, so the cached arrays equal a fresh fetch.
     function _dispatchTake(RedeemArgs memory r, uint usdPart, uint seedBurned,
-        uint[15] memory amts, uint[15] memory yW, bool fresh) private {
+        uint[16] memory amts, uint[16] memory yW, bool fresh) private {
         // Reuse the pre-burn (amts, yW) ONLY when no seed burned AND no unwind. A seed redemption shifts
         // `tranche`; an unwind is a COUNTER shrink (POOLED_USD ↓, relaxing the committed<=backing gate so
         // take can withdraw the already-in-vault stables) — the pre-fetch vectors don't reflect the relaxed gate,
-        // so re-fetch to be safe. (No real stables move on unwind; deposits[14] is unchanged.)
+        // so re-fetch to be safe. (No real stables move on unwind; deposits[15] is unchanged.)
         if (seedBurned == 0 && !fresh) {
             IAux(address(this)).takeWith(r.recipient, usdPart, r.quid, 0, amts, yW);
         } else {
@@ -1220,8 +1220,8 @@ library BasketLib {
         external returns (uint committedSum, uint totalLiquid) {
         // Terminal solvency gate counts standing holdings at PAR (drain side — intentional mint/drain asymmetry;
         // the issuance side haircuts depeg to block over-mint). See DepegBackingProbe / SwapLib.swapToBody.
-        (uint[15] memory deposits,,,) = IAux(address(this)).get_deposits();
-        totalLiquid = deposits[14];
+        (uint[16] memory deposits,,,) = IAux(address(this)).get_deposits();
+        totalLiquid = deposits[15];
         committedSum = ICore(core).committedUsd18();
         if (committedSum <= totalLiquid) return (committedSum, totalLiquid);
         bool ethFirst = ICore(core).POOLED_USD() >= ICore(btcCore).POOLED_USD();

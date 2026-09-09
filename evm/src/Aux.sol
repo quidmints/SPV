@@ -432,7 +432,7 @@ contract Aux is // Auxiliary
     ///         remaining holders. Detection was never the gap (`pokeVaultHealth` reads live); the cache was.
     ///
     ///         ONE global marker, not a per-`Holding` timestamp: the redeem quote reads the AGGREGATE
-    ///         (`amounts[14]`, accumulated from every stable in `get_deposits`), so freshness is an
+    ///         (`amounts[15]`, accumulated from every stable in `get_deposits`), so freshness is an
     ///         all-or-nothing property of the whole basket and a per-stable timestamp would buy nothing.
     uint public holdingsRefreshedAt;
     uint internal constant HOLDINGS_MAX_STALE = 1 hours;
@@ -584,18 +584,18 @@ contract Aux is // Auxiliary
         BasketLib.Metrics memory stats = metrics;
         uint elapsed = block.timestamp - stats.last;
         if (force || elapsed > 10 minutes) {
-            (uint[15] memory amounts, uint[15] memory yieldW,,) = get_deposits();
-            uint raw = amounts[14];
+            (uint[16] memory amounts, uint[16] memory yieldW,,) = get_deposits();
+            uint raw = amounts[15];
             // yieldW[0] is the balance-weighted ANNUALISED-RATE numerator; amounts[0] is the
             // cumulative share-price sum and is NOT a rate (§E155-overreport).
             metrics = BasketLib.computeMetrics(stats,
-                elapsed, raw, yieldW[0], amounts[14]);
+                elapsed, raw, yieldW[0], amounts[15]);
         } return (metrics.total, metrics.yield);
     }
 
     /// @notice get_metrics(force=true) with PRE-FETCHED deposit totals. The redeem path
     ///         already ran a fresh get_deposits() this call (freshness); it threads
-    ///         that pass's `raw`(=amounts[14]) and `rateWeighted`(=**yieldW[0]**) here so
+    ///         that pass's `raw`(=amounts[15]) and `rateWeighted`(=**yieldW[0]**) here so
     ///         the par-backing metric is recomputed WITHOUT a second get_deposits scan.
     /// 🔴 **THE SECOND ARGUMENT IS `yieldW[0]` (Σ balance×rate), *NEVER* `amounts[0]` (Σ yieldWeighted).**
     ///         This docblock and the parameter name both said `amounts[0]` until 2026-08-16 — they were
@@ -846,7 +846,7 @@ contract Aux is // Auxiliary
     ///           through `_aaveAvail` → `getAssetLiquidity`). So §PLP-R2's fifth shortfall — the one
     ///           this function exists to surface — IS read live. The paragraph above is honoured.
     ///         • **LIVE:** depeg severity, read per-stable off the pinned feeds inside `get_deposits`.
-    ///         • **CACHED:** the PAR backing total (`amounts[14]`) it haircuts, bounded by the
+    ///         • **CACHED:** the PAR backing total (`amounts[15]`) it haircuts, bounded by the
     ///           `metrics` 10-minute window over a `storedHoldings` cache whose own freshness bound
     ///           (`HOLDINGS_MAX_STALE`) is enforced only on the MONEY path, in `_redeemAs`.
     ///         ⇒ The cached term is stale-HIGH after a venue loss, i.e. this quote can OVER-report —
@@ -1163,12 +1163,22 @@ contract Aux is // Auxiliary
     }
 
     function get_deposits() public
-        returns (uint[15] memory amounts, uint[15] memory yieldW, uint avgYieldOut, uint depegLossOut) {
+        returns (uint[16] memory amounts, uint[16] memory yieldW, uint avgYieldOut, uint depegLossOut) {
         (amounts, yieldW, depegLossOut) = BasketLib.get_deposits(
             address(this), stables, storedHoldings, tranche);
 
-        // BOLD is convention-pinned as the LAST entry in `stables`
-        // (SP-routed). amounts[13] is its canonical accounting slot.
+        // §BASKET-SLOTS — BOLD is convention-pinned as the LAST entry in `stables` (SP-routed), so
+        // its accounting slot is `nStables` under the `i + 1` convention `BasketLib.get_deposits`
+        // writes (`stables[i]` -> `amounts[i + 1]`, and BOLD is `stables[nStables - 1]`).
+        // 🔴 **THIS WAS HARDCODED TO 13 AND THAT IS THE DISEASE, NOT A TYPO.** 13 is BOLD's slot only
+        // when `nStables == 13`, and NOTHING RUNS 13: every fixture runs 11, the deploy asserts 14.
+        //   · at 14 the hardcode CLOBBERED `stables[12]` and the pro-rata loop then read the TOTAL
+        //     slot as a token slot, so `slotDep == totalDep` and a redeem drew the whole basket —
+        //     a ~2x over-delivery;
+        //   · at 11 slots 11 and 12 were never written, so BOLD counted as backing and could never
+        //     be drawn — the same *counted but undeliverable* violation the eETH term was deleted for.
+        // ⇒ Owner ruling 2026-09-09: *"it must be counted in drawable. do not hardcode 13. make sure
+        //   all places accurately represent our actual basket and all that is available in it."*
         uint nStables = stables.length; // cache the storage-array length (one SLOAD)
         if (nStables > 0) {
             address stable = stables[nStables - 1];
@@ -1176,8 +1186,8 @@ contract Aux is // Auxiliary
             (uint spTotal, uint spYieldWeighted) = ChannelLib.calcSPValue(
                 vault, address(this), tranche[stable], sp);
             if (spTotal > 0) {
-                amounts[14] += spTotal;
-                amounts[13]  = spTotal;
+                amounts[15] += spTotal;
+                amounts[nStables] = spTotal;
                 // Apply depeg-yield discount for the BOLD/SP group. #U2: read the ONE severity source directly
                 // (getDepegSeverityBps, as the per-stable loop does) instead of the riskFactor complement — same
                 // haircut (riskFactor == 10000 − severity), one accessor, no double-negation.
@@ -1188,7 +1198,7 @@ contract Aux is // Auxiliary
                     depegLossOut += loss; // include BOLD/SP's depeg slice in the returned total
                 }
                 amounts[0]  += spYieldWeighted;
-                yieldW[13]   = spYieldWeighted;
+                yieldW[nStables]  = spYieldWeighted;
             }
         }
         avgYieldOut = metrics.yield;
@@ -1251,7 +1261,7 @@ contract Aux is // Auxiliary
     ///         stable, and `BasketLib._takeCore` serves that one first (its `skip`) before the
     ///         pro-rata leg. There is no redeemer-chosen preference.
     function takeWith(address who, uint amount, address token, uint seed,
-        uint[15] memory amounts, uint[15] memory yieldW) public onlyUs returns (uint sent) {
+        uint[16] memory amounts, uint[16] memory yieldW) public onlyUs returns (uint sent) {
         return BasketLib.takeBodyWith(
             _takeArgs(who, amount, token, seed), amounts, yieldW);
     }

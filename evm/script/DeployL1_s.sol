@@ -226,7 +226,7 @@ contract Deploy is Script {
             address(BOLD)                // 13  BOLD — MUST stay last (SP-routed)
         ];
         // §14-STABLES — THIS IS THE LAYOUT MAXIMUM, NOT A ROUND NUMBER. `BasketLib:98-107` fixes the
-        // `uint[15]` contract: slot 0 is the yield-weighted sum across all sources (the basket-share
+        // `uint[16]` contract: slot 0 is the yield-weighted sum across all sources (the basket-share
         // "meta"), slots 1..N are the per-token deposits where `N = stables.length - 1` because BOLD
         // is filled in Aux, and slot 14 is the raw TVL total. At 14 stables that is 1..13 — EXACTLY
         // full. A 15th would write slot 14 and silently overwrite the total that
@@ -259,10 +259,10 @@ contract Deploy is Script {
         //    records the same shape breaking a fixture (`funders[13]` onto a shifted `vs`) and the only
         //    reason THAT was caught is that a count assertion happened to exist.
         require(STABLECOINS.length == VAULTS.length, "stables/vaults: positional pairing broken");
-        // §14-STABLES — the `uint[15]` layout is EXACTLY full at 14 stables (slot 0 = yield-weighted sum,
+        // §14-STABLES — the `uint[16]` layout is EXACTLY full at 14 stables (slot 0 = yield-weighted sum,
         // 1..13 per-token, 14 = TVL total). A 15th writes slot 14 and silently overwrites the total that
         // `BasketLib.computeMetrics` divides by, so this is the one place the ceiling can be made loud.
-        require(STABLECOINS.length == 14, "stables: 14 is the uint[15] layout maximum");
+        require(STABLECOINS.length == 14, "stables: 14 is the uint[16] layout maximum");
         // GHO and USDG route through AAVE v4 (their native venue), not
         // Morpho 4626 vaults — their slots above are address(0)
         // intentionally and Aux.setVault rejects a re-wiring attempt

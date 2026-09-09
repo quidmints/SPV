@@ -448,7 +448,7 @@ interface IAux is ISwap {
     function vaults(address) external returns (address);
     function tranche(address) external returns (uint);
     function take(address who, uint amount, address token, uint seed) external returns (uint);
-    function takeWith(address who, uint amount, address token, uint seed, uint[15] memory amounts, uint[15] memory yieldW) external returns (uint);
+    function takeWith(address who, uint amount, address token, uint seed, uint[16] memory amounts, uint[16] memory yieldW) external returns (uint);
     function riskFactor(address token) external view returns (uint);
     function getDepegSeverityBps(address token) external view returns (uint);
     function GHO() external view returns (address);
@@ -460,7 +460,7 @@ interface IAux is ISwap {
     function get_metricsWith(uint raw, uint rateWeighted) external returns (uint total, uint avgYield);
     function rangeETH() external view returns (uint);
     function deliverableETH() external view returns (uint);
-    function get_deposits() external returns (uint[15] memory amounts, uint[15] memory yieldW, uint avgYield, uint depegLoss);
+    function get_deposits() external returns (uint[16] memory amounts, uint[16] memory yieldW, uint avgYield, uint depegLoss);
     function getStables() external view returns (address[] memory);
     function getVaults(address stable) external view returns (address[] memory);
     function AAVE_SPOKE() external view returns (address);

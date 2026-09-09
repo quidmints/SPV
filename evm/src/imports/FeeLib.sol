@@ -130,7 +130,7 @@ library FeeLib {
     ///         Aux uses this to compute the deposit size needed to honour a
     ///         mint at book value when the target stable is currently discounted.
     function calcNeeded(address token, uint amount,
-        uint[15] memory deps, uint[15] memory yields, FeeCtx memory c)
+        uint[16] memory deps, uint[16] memory yields, FeeCtx memory c)
         external view returns (uint needed)
     {
         // The sole outflow COST is the depeg haircut, and only during an actual depeg — the
@@ -159,7 +159,7 @@ library FeeLib {
     ///         Renaming is an ABI change on an `external` library member, so it lands under
     ///         `tools/check-client-abis.py` or not at all.
     function applyFeeAndHaircut(address token, uint idx,
-        uint amount, uint[15] memory deps, uint[15] memory yields,
+        uint amount, uint[16] memory deps, uint[16] memory yields,
         address range) external view returns (uint)
     {
         // Concentration/cherry-pick fee no longer charged (only the depeg haircut is);

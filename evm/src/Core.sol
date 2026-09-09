@@ -1269,7 +1269,7 @@ contract Core {
     ///      segregation counter is what makes that drift-free (there is nothing to desync).
     function _poolUsdInRange(uint usdAmount, bool mint, bool basketLeg) private {
         if (mint) {
-            (uint[15] memory _d, ,, uint depegLoss) = AUX.get_deposits();
+            (uint[16] memory _d, ,, uint depegLoss) = AUX.get_deposits();
             // Depeg-at-par fix: gate against the SOLVENCY haircut — par TVL minus the LIVE depeg loss (the
             //   PERMANENT value loss of a depegged stable). NOT the deliverability haircut (illiquidLoss): that is
             //   the normal, ever-present lending-utilization slice (own − withdrawable-now; the GHO reserve sits
@@ -1278,7 +1278,7 @@ contract Core {
             //   (proven: it reverts test_BankRun / RedeemConservation with no depeg). Redeem subtracts illiquid to
             //   DEFER a single withdrawal; the standing solvency gate must not. depegLoss == 0 in normal
             //   operation ⇒ byte-identical to the old par gate; it only tightens under an ACTUAL depeg.
-            uint haircutTvl = _d[14] > depegLoss ? _d[14] - depegLoss : 0;
+            uint haircutTvl = _d[15] > depegLoss ? _d[15] - depegLoss : 0;
             POOLED_USD += usdAmount;
             if (basketLeg) basketUsd += usdAmount;   // §ISBTC-SPLIT: both arms were identical
             // 🔴 §BACKING-DEAD — THE PUSH THAT MAKES THE GATE BELOW MEAN ANYTHING. `_reportEquity`
