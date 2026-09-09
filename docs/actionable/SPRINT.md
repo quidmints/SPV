@@ -48,6 +48,50 @@ because the three documents that tell you WHAT ORDER to work in are buried at th
    turned green weeks earlier. A stale ✅ hides work; **a stale ⛔ SUPPRESSES it, and nothing fails to
    tell you.** When a row forbids something, re-run its evidence before obeying it.
 
+## 📱 §ONE-WALLET-APP — **CONSOLIDATE THE TWO CLIENT TREES. DEFERRED TO THE FRONTEND PHASE.**
+
+Owner, 2026-09-09: *"its one single wallet app, there should be no split. create a consolidation task
+for later (when we reach frontend only work like puppeteer, etc). for now focus on finishing the
+entire backend side of sprint.md."*
+⛔ **DO NOT START THIS DURING BACKEND WORK.** It is booked here so it is not rediscovered, and it is
+explicitly scheduled for the frontend-only phase alongside Puppeteer and the rest of the client work.
+
+**THE MEASURED STATE, so whoever picks it up does not re-derive it:**
+`app/features/identity/chain/` and `spa/src/lib/` are two copies of the same client layer. Twelve
+files exist in both; `app/`'s copies never received the §E235 or §OOR-BOOK-DELETED corrections —
+`chains.ts` differs by **129 lines**, `abi.ts` by 124, `protect.ts` by 206, `eth.ts` by 55, `pnl.ts`
+by 43. **Zero files outside that directory import anything from it**, so `app/`'s copy is dead by
+consumption, not by content.
+⚠️ **BUT IT IS NOT SIMPLY THE STALE ONE.** `taproot.ts`, `schnorr.ts`, `keys.ts`, `encode.ts`,
+`boot.ts` and now `channelTruth.ts` exist **ONLY** in `app/` — every BTC and §T9 primitive was written
+there, and it is the only tree with a custody story for a BTC key (`boot.ts::useLocalKey` →
+`normaliseKey().xOnly`). ⇒ **The merge is bidirectional: `spa/` holds the current EVM corrections,
+`app/` holds the entire Bitcoin surface.** Neither is the winner.
+
+🔴 **AND THE REASON THE DRIFT WAS INVISIBLE, WHICH MUST BE FIXED IN THE SAME PASS OR IT RECURS:**
+`tools/check-client-abis.py:16` hardcodes `ABI = ROOT/"spa"/"src"/"lib"/"abi.ts"` and `:226` scans
+`TSX_DIR = ROOT/"spa"/"src"`. **It has never read `app/` at all.** The gate reported "0 drifted" while
+`app/`'s mirror carried `outOfRange`, `POOLED_USD_ETH/BTC`, `observe(uint32[],bool)`, `vogueETH()`,
+`autoManagedBTC`, `lpSharesBTC` and a `channels(bytes32)` with SIX return words against the contract's
+seven — every one against an entrypoint that does not exist. `encode.ts` passed FIVE arguments to a
+FOUR-argument `outOfRange`, so it would have thrown on arity before reaching a selector that is not on
+chain either. **A gate whose scope is narrower than its claim certifies the part it cannot see.**
+
+▶️ **WHY THE SPLIT EXISTS AT ALL** (do not read it as a design): `app/features/` partitions the app
+into the **Solana** Mobile Wallet Adapter scaffold (`account/`, `network/`, plus
+`hooks/useSolanaProgram.ts`, `context/WalletProvider.tsx`, `components/LoginScreen.tsx`) and QU!D
+(`identity/`). `chain/` then grew *inside* `identity/` because that feature needed EVM reads first,
+and the whole chain surface accreted around it — `taproot`, `keys`, `schnorr`, `hop`, `leverage`,
+`protect`, `pnl`, `market`, `kalman`, `quant`. **There is no identity primitive in `chain/`.**
+📌 So the deferral on identity scope covers `passport/`, `pp/` and `sdk/` and does NOT cover `chain/`
+— but the PATH makes any work there look like a scope violation, which is the second reason to move it.
+
+▶️ **THE TASK:** one client layer, imported by both surfaces; `chain/` out from under `identity/`;
+`check-client-abis.py` walking every tree that encodes a selector — **including the Rust encoders,
+which no tool compares against a TS client today.**
+
+---
+
 ## 🍴 §LDK-IS-A-FORK-NOT-A-PATCH — **MEASURED 2026-09-08: `+7,115 / −565`, AND THE TAPROOT ATTRIBUTION WAS BACKWARDS** ✅ **RESOLVED SAME DAY: the fork exists at `quidmints/rust-lightning`, is merged up to `lexe-v0.2.3-2026_07_21` (branch `quid-v0.2.3-2026_07_21`, rev `7c50bb599`), and `quid-ln/Cargo.toml` now consumes it by `rev` — see steps 1 and 3.**
 
 Owner, 2026-09-08: *"make any changes to ldk that are needed but that involves cloning our fork repo
