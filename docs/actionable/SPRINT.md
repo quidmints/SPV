@@ -17692,6 +17692,7 @@ re-doing the fork, i.e. what the vendored files already are. ⚠️ Note the sec
 rule 14b says a deletion and its replacement land together or the deletion waits. It is waiting.
 
 ## §E274 — ✅ **Γ RE-DERIVED AND REMEASURED. THE ANSWER INVERTS §E273's READING: NO FINITE Γ IS SAFE.**
+🔗 **CONTEXT ADDED 2026-09-09 — READ `docs/actionable/lanes/L5-kappa.md` BEFORE ACTING ON THIS ROW.** It holds the σ-scaled-κ attempt (built, measured, REVERTED, +403 bytes), the ρ(σ) closed form, the linearity wall that forecloses BOTH, and a retraction of this session's own wash-trading sign error.
 Owner: *"rederive and remeasure"*. Executed 2026-08-21, `evm/test/GammaRederived.t.sol`, **5 tests,
 all passing, control included.** `skewWad` is `public pure`, so this needed no fixture and no fork.
 
@@ -19042,6 +19043,7 @@ too); A&S is fetchable from `math.nyu.edu/~avellane/HighFrequencyTrading.pdf` an
 ---
 
 ## ⭐ §E289 — **A–S's ω HAS AN EXACT ANALOGUE HERE: MOVE THE POLE OFF THE REACHABLE RANGE. ONE PARAMETER, `κ`, AND `κ=1` IS TODAY.**
+🔗 **CONTEXT ADDED 2026-09-09 — READ `docs/actionable/lanes/L5-kappa.md` BEFORE ACTING ON THIS ROW.** It holds the σ-scaled-κ attempt (built, measured, REVERTED, +403 bytes), the ρ(σ) closed form, the linearity wall that forecloses BOTH, and a retraction of this session's own wash-trading sign error.
 
 **§E288's find, carried to a design. A&S NEVER CLAMP — they place the singularity where the agent
 cannot go.** *"ω may therefore be interpreted as an upper bound on the inventory position our agent is
@@ -59358,6 +59360,7 @@ owner's own terms, and it is why the honest Γ turning this red is worth more th
 ---
 
 ## ⛔ §GAMMA-IS-NOT-A-DIAL — I offered Γ as a tuning option three times. It never was one.
+🔗 **CONTEXT ADDED 2026-09-09 — READ `docs/actionable/lanes/L5-kappa.md` BEFORE ACTING ON THIS ROW.** It holds the σ-scaled-κ attempt (built, measured, REVERTED, +403 bytes), the ρ(σ) closed form, the linearity wall that forecloses BOTH, and a retraction of this session's own wash-trading sign error.
 
 Owner: *"i thought gamma was mathematically derived so doesnt need to be tuned."* **Correct, and it
 invalidates an option I put in front of them three times** (`:99412`, `:99456`, and in session prose).
@@ -60523,3 +60526,59 @@ moment by construction.** No funded refill, because none was ever needed. ⇒ §
 ✅ Also conceded, from the same exchange: my *"balanced quantities"* framing was right — §V4-CUT removed
 the curve, settlement is at oracle, and `skewWad` never sees a second leg. There is **no paired-reserve
 invariant** anywhere; q compares inventory to expected FLOW, not to another leg.
+
+---
+
+## 🗺️ §SESS-121-INDEX — where this session's findings live, and which OPEN rows they change
+
+⛔ **THE EVIDENCE IS IN `docs/actionable/lanes/L5-kappa.md`, NOT HERE.** It was booked there because the
+Bitcoin thread had uncommitted `§SEQ-AUDIT` edits in this file and rule 14c makes staging it by name a
+sweep of their work. **This block exists so the rows below are not orphaned from their evidence** —
+`SPRINT.md` is what threads grep, and a finding nobody can find is a finding that did not happen.
+
+| open row | what changed | where |
+|---|---|---|
+| **§E274** (Γ re-derived) | Γ is an ASSUMPTION CHAIN, not a derivation — γ=1 is log utility presented as a normalisation. ⚠️ **But the 48h half is VINDICATED**, see §WASH retraction | `§GAMMA-FIRST-PRINCIPLES` here + `L5-kappa.md` |
+| **§E274**'s unlanded dynamic horizon | ✅ **ANSWERED AND CLOSED AS UNLANDABLE.** τ = q·T_flow is derivable; it gives Γσ²q², which is REFUTED — bounded, so the range is FULLY DRAINABLE above ~48 bps willingness | `§GAMMA-FIRST-PRINCIPLES` §3 |
+| **§E289** (κ, the pole's location) | 🔴 **σ-scaling BUILT, MEASURED, REVERTED.** +403 bytes; re-introduces a ceiling over q=0.60–0.95, the band §E286 measured a ceiling discarding 51.4% of §E68's integral | `L5-kappa.md` §KAPPA-SIGMA |
+| **§GAMMA-IS-NOT-A-DIAL** | stands, and now has a REASON: σ² already appears once linearly (A–S §2.2), so every vol-sensitive SHAPE is a second appearance of the same signal | `L5-kappa.md` §THE-THIRD-OPTION |
+| **§C1** (which σ² source) | ⛔ **CANNOT be closed by adopting a feed.** Measured: Ethereum mainnet 290 Chainlink feeds / **0 volatility**; Polygon 125/0; Avalanche 90/0. Volmex is IMPLIED vol, single provider | `§GAMMA-FIRST-PRINCIPLES` §7 |
+| **§REFILL-G2-VERDICT** | ✅ already rescoped by its own thread — `SwapLib:1697-1718` says the reservoir self-refills through LP entry, *"no bespoke machinery, no keeper, no RFQ"* | `L5-kappa.md` §REFILL-NEEDS-NO-FUNDING |
+| **§M.1** / `orphans-allow` CLASS 3 | the fork test EXISTS and is green (verdict KEEP); **zero PRODUCTION callers is the whole remaining defect**, and the wire is not one line | `tools/orphans-allow.txt` (destaled) |
+| **§GAMMA-TRACE**'s 0.00827 ETH residual | 🔴 **STILL UNNAMED. Not investigated. The one thing this session opened and did not close.** | `§GAMMA-TRACE` here |
+
+---
+
+## 🔴 §LEVER-UP-HAS-NO-AGGREGATE-GATE — booked 2026-09-09. **The book levers up per-LP and is liquidated pooled. Nothing connects the two.**
+
+⚠️ **BOOKED LATE AND THAT IS THE PROCESS FAILURE:** I stated this to the owner in prose and did not
+write it down, which is exactly what standing rule 12 exists to prevent. It surfaced only on a
+close-out audit.
+
+**MEASURED, against code, not prose:**
+- `LevBase.debtDeltaToTarget(lp)` (`:146`) resolves **only** that LP's own inputs — `_targetInputs`
+  reads `pos[lp]`'s `ilBasisPx`, its `entryEquity`, `debtUsd(lp)` and `_bandFor(lp, e0)`.
+- `BtcLevManager.leverBorrow` (`:193-195`) gates on `debtDeltaToTarget(msg.sender)` and nothing else;
+  ETH's `_leverUpBuy` (`LevManager:837-839`) takes `usd` from its caller and calls `venue.borrow`
+  with **no aggregate read in the frame**. The only book-wide number on the path is
+  `TARGET_LTV_CAP_BPS` = 7500 — a PER-POSITION cap, not an aggregate one.
+- **But liquidation is pooled.** `LevVenueBase:198-205` states it: *"With ONE position a liquidation
+  hits EVERY LP pro-rata … isolation is PROTOCOL-ENFORCED rather than MORPHO-ENFORCED: `cascadeDelever`
+  plus the derived no-trade band must keep the AGGREGATE away from the liquidation threshold, because
+  Morpho no longer does it for us."* And: *"each LP's LTV differs by its pinned `ilBasisPx`, so pooling
+  averages them and a late high-LTV entrant is carried by an early one."*
+- Collective figures appear **only on the DE-LEVER side**: `deleverBook` caps at
+  `totalDeliverableDollars()` (`LevManager:756`).
+
+⇒ **THE ASYMMETRY: a borrow is authorised against an individual target and is repaid, or liquidated,
+against the pool.** Nothing on the lever-up path consults `totalDebt`/`totalCollateral`, so N LPs each
+individually in-target can compose a pooled LTV that is not.
+📌 **THE PRICE IS ALREADY MEASURED — `LeverageCrossSubsidyProbe.test_LateZeroDebtLp_PaysForTheEarlyLpsLiquidation`:
+a late ZERO-DEBT LP went 5.0 → 2.599165 ETH for an early LP's liquidation, a 4,801 bps cross-subsidy.**
+That number is the cost of this asymmetry, and the two were never connected in writing until now.
+⏸️ **NOT FIXED — money path, rule 15, and the fix is a design choice not a patch.** The candidate is a
+pooled-LTV precondition on `leverBorrow`, but "whose borrow is refused when the POOL is at the line"
+is a fairness question (first-come? pro-rata? highest-LTV-first?) that must be ruled on before code.
+▶️ **AND IT SHARES A ROOT WITH `swapOutDeliverUnlevered`'s unwired state** (`orphans-allow` CLASS 3):
+both are "a per-LP operation against a pooled position, with no per-LP unit written". Fix them with one
+model of pooled authorisation, or the second will re-open the first.
