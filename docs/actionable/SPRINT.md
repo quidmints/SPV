@@ -62385,3 +62385,45 @@ and that is precisely what the skew's `q` term prices and what the leverage over
 ⚠️ **The honest comparison is therefore not "less LVR": it is a DIFFERENT RISK.** v3 trades inventory
 balance for continuous pickoff; we trade pickoff for the possibility of being short inventory. Q5's
 over-hedge is the cost of that trade that is currently unpriced.
+
+---
+
+## 🔻 §OVER-HEDGE-RETRACTED — my Q5 "real finding" was wrong. The owner corrected it and the code agrees.
+
+§IMBALANCE-CONSEQUENCES Q5 claimed *"draining the range does not resize the hedge … a range swap does not
+touch venue collateral"*, and called the resulting over-hedge a finding. **It is false.** Owner: *"a range
+swap and out of range swap both do actually touch venue collateral."*
+**`QuidLib.sendEth` is a CASCADE, and I stopped reading at the first rung:**
+    1. native ETH balance
+    2. WETH balance
+    3. `IEthVenue(ev).rangeOp(needed − inWETH, 1)`      ← PULLS FROM THE VENUE
+    4. `SwapLib.deleverEthOnDelivery(mgr, aux, px, …)`  ← DE-LEVERS: collateral out, debt repaid
+⇒ A drain beyond idle balances **does** withdraw venue collateral and **does** repay debt, so the short
+shrinks alongside the long. **There is no structural over-hedge.** ⛔ Do not cite Q5; it is retracted here.
+📌 The error's shape, for the record: I verified the hedge's SIZING inputs (`ilTargetBps` is price-only,
+`_reconcileLev` gates on gross collateral) and concluded the collateral could not move — **without
+checking the payout path that moves it.** Reading one side of a coupling and inferring the other.
+
+## ✅ §KAPPA-GAMMA-RHO-RESOLVED — where the three parameters and the integral actually landed
+Owner asked for the resolution. **Current code, verified:**
+    GAMMA_WAD          = FLOW_HALFLIFE * WAD / 365 days   (5.479452e15)   ✅ LANDED
+    KAPPA_WAD          = 1e18                             (constant)      ⛔ UNCHANGED
+    DEPLETION_RATE_WAD = 2.1e14                                           (unchanged, and see below)
+    rho / powWad in SwapLib: **0 occurrences** — the closed-form integral was NEVER LANDED.
+
+| | disposition | why |
+|---|---|---|
+| **Γ** | ✅ **RESOLVED AND LANDED.** Derived from the one 48h window, not chosen | The old 3e16 was `MAX_WELL_SKEW` under a second name. Refined since (`d7122fc1`): γ=1 is log utility as a normalisation and 48h was an ESTIMATION window reused as a RISK horizon — **an assumption chain** — but `τ = q·T_flow` re-derives **the same number**, so the value stands even though its justification is weaker than "first principles" |
+| **κ** | ⛔ **RESOLVED AS UNLANDABLE IN THE σ-SCALED FORM.** Built, measured, reverted (`99aaf2d6`) | Re-introduces the ceiling §E286 removed; **+403 bytes** on a contract with little headroom. A–S §2.3 puts the pole at `q*=√(2ω)/(γσ)` so its LOCATION should move with vol; ours does not, and that remains the honest gap |
+| **ρ (exponent)** | ✅ **THE MATH IS SOLVED, THE CHANGE IS NOT LANDED** | `∫q/(κ−q)^ρ dq = u^(1−ρ)[u/(2−ρ) − 1/(1−ρ)]`, `u = κ−q`, **one `powWad` per endpoint**, verified to ≤6.7e-11 across 12 cells (`320fc415`). **Cheap and exact — the integral was never the obstacle.** But ρ(σ) fails the same test κ(σ) did |
+| **3rd option — vol-sensitivity in the TARGET** | 🟡 **THE ONLY ONE THAT SURVIVES THE WALL, AND IT IS UNBUILT** | The target is a **PARAMETER** to the pricing function, so changing how it is computed is **invisible** to the linearity test that killed the other two. Zero SwapLib bytes, §E68's integral untouched, §E289's κ gate never engages |
+
+### ⚠️ AND §SIGMA-COUNT-BROKEN CHANGES WHY κ(σ) AND ρ(σ) WERE REJECTED
+The stated reason was *"σ² must appear exactly once and these double-count it."* **Measured, that premise
+is false**: `skewWad` already carries a σ²-FREE term (`DEPLETION_RATE_WAD`, exactly 210 per unit of drain),
+so the doubling ratio is 1.57–1.86, never 2.00. ⇒ **The rejections stand on MAGNITUDE** (κ(σ) gave
+3.70/2.96/2.60 — far outside anything depletion explains) **but not on the stated mechanism.** Anyone
+re-opening κ should know the test is not the clean double-count detector it was described as.
+📌 **NET:** Γ is done. κ is open but its obvious form is measured-and-reverted. The integral is solved and
+unused. **The live route is the target, and it is blocked on a signed flow measure that is cumulative
+where gross is decayed — plus its own declaration's gate against money-path reads.**
