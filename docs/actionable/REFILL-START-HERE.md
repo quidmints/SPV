@@ -14,6 +14,19 @@ was **deleted 2026-07-22 with an explicit instruction not to rebuild it.**
 is about a mechanism that does not exist. It has been done anyway (see 2b) and the answer argues
 *against* building one.
 
+**AND IT IS NOT NEEDED — VERIFIED FROM THE CODE, not from the docblock (§BUYBACK-NEEDED?):** a swap
+against short inventory takes a **PARTIAL FILL** and refunds the rest, it does not fail; a **redeemer is
+paid in dollars from the basket and never touches range inventory**; settlement is at oracle so solvency
+never depends on the balance. **Nothing breaks.** What a short range costs is *service capacity* (partial
+fills) and *LP exposure* (LPs silently become dollar-holders) — real, but not an emergency.
+**How it is funded:** the capital is already resident (a drain leaves the dollars behind), so only the
+SPREAD costs anything — and **that spread exists under both options; the design only chooses who bears
+it.** A pool buy-back makes existing LPs bear it involuntarily (measured: negative 56% of the time). An
+entering LP bears the same spread **voluntarily as their cost of entry and receives shares for it**.
+⚠️ **The strongest refutation, which is real and unmeasured:** scarcity is meant to attract entry via fee
+capture, but scarcity also causes partial fills ⇒ less flow ⇒ *less* fee capture. **A named mechanism by
+which the self-correction could invert.** See §5.
+
 ## 2. 🚫 DO NOT RE-MEASURE — settled, with the commit
 | question | answer | where |
 |---|---|---|

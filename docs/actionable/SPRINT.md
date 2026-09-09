@@ -62224,3 +62224,54 @@ submodules `worktree add` leaves empty. `HEAD` excludes another lane's uncommitt
 ⚠️ Never `git checkout <branch> -- CLAUDE.md` in a lane: it swaps the symlink for a stale-able copy.
 
 **Stage by name. Never `git add -A`, never `commit -a`** (rule 14, and a hook refuses the bulk flags).
+
+---
+
+## ✅ §BUYBACK-NEEDED? — verified from the code. **No, and the reason is precise: the spread does not vanish, it changes who bears it.**
+
+Owner: *"do we need the buy back? … what is the balance that must be restored and how do we fund it?"*
+
+### VERIFIED (four reads, not recalled)
+| | result |
+|---|---|
+| `refillNeeded` / `proRataShortfall` / `payRefillBonus` | **0 non-declaration references in `evm/src`**, all three |
+| **A swap against short inventory** | **PARTIAL FILL, not a refusal** — `out = held`, input re-derived, remainder refunded (`Core:1521-1524`) |
+| **A redeemer** | **paid in DOLLARS from the basket** — *"no volatile leg, no LP ETH sold"* (`Aux:1130`). **A depleted range does not impair redemption at all** |
+| **An entering LP** | `deposit` is **payable** and takes ether — **entry brings the VOLATILE asset, so it restores inventory directly** |
+
+### ⇒ NOTHING BREAKS WITHOUT A BUY-BACK
+Swappers are served partially at oracle and refunded; redeemers are untouched; settlement is at oracle
+against inventory so solvency never depends on the balance. **A buy-back is not needed for correctness.**
+
+### THE BALANCE THAT MUST BE RESTORED — two real costs, neither an emergency
+1. **Service capacity.** Inventory caps what any single swap can be served, so a short range means
+   partial fills — a worse product, not a broken one.
+2. **LP exposure.** LPs came for volatile exposure; a drained range silently converts them into
+   dollar-holders. That is an exposure change they did not choose, and it is the honest reason the owner
+   wants restoration.
+
+### 🔑 HOW IT IS FUNDED — the answer that makes the design elegant rather than merely cheap
+**Capital is already resident either way**: a drain moves inventory down by `D` and dollars up by `D·px`,
+so nothing is borrowed and no external capital is required. **What costs money is the SPREAD to convert
+dollars back into volatile — and that spread exists under BOTH options. The design chooses who bears it.**
+· **Pool buy-back** → the pool pays the market spread out of LP value. **Existing LPs bear it
+  involuntarily**, and measured, it is negative 56% of the time.
+· **LP entry** → the entrant sources volatile at their own cost and receives shares for it. **They bear
+  the same spread voluntarily, as their cost of entry, and get an asset in exchange.**
+⇒ **LP entry does not eliminate the cost. It moves it from someone who did not choose it to someone who
+did, and who is compensated in shares.** That is the whole argument, and it is why "how do we fund the
+refill" has no answer: there is nothing to fund, because the party who bears the cost is the party
+buying in.
+
+### 🔴 THE STRONGEST REFUTATION I CAN CONSTRUCT — and it is not fatal, but it is real
+**The self-correction has a POSITIVE-FEEDBACK failure mode.** Scarcity is supposed to attract entry
+through higher fee capture. But scarcity also produces partial fills ⇒ a worse product ⇒ less flow ⇒
+**less** fee capture ⇒ entry becomes *less* attractive, not more. And §M0 measures the pull at ~0 bps
+until ~75% depletion, so no strong signal arrives until the range is nearly empty.
+⇒ This upgrades the open question from *"link 1 is unverified"* to **"here is a named mechanism by which
+link 1 could invert."** It is the thing to measure, and it is measurable: does realised fee capture per
+share rise or fall as inventory falls?
+📌 **NOTE THE ASYMMETRY THAT MAKES IT SURVIVABLE:** because nothing breaks (above), a slow or absent
+refill is a degradation, not a failure. The pool can sit mis-composed indefinitely without harming
+redeemers or solvency. **That is what buys the time for entry to arrive — and it is why this is a
+product question rather than a safety one.**
