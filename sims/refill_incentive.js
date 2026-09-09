@@ -200,3 +200,44 @@ console.log('     size in the plausible range, and WHERE it sits is an empirical
 console.log('  ⭐ REGION 1 CARRIES NO SUCH CAVEAT, which is why it is the load-bearing result:');
 console.log('     it follows from the floor being a CONSTANT, and the floor is a constant by');
 console.log('     declaration (`MIN_SWAP_SKEW_WAD`), not by calibration.');
+
+// ══ SECTION 4 — THE COMPETITIVE BOUND ═══════════════════════════════════════
+//
+// OWNER, 2026-09-09: "an imbalance in the pool quantities shouldnt be a reason to
+// deter swappers … no state of our pool ever should make uniswap more attractive."
+//
+// OUR EXECUTION HAS NO PRICE IMPACT. `Core:1022` — "SETTLE AT ORACLE, BOUNDED BY
+// INVENTORY. No unlock, no callback, no curve traversal, no price discovery. ONE
+// price for the whole size." So the swapper's ENTIRE cost with us is the skew.
+// A CFMM's slippage, by contrast, is an artifact of the curve.
+// ⇒ the comparison is: skew(q) bps   vs   feeTier + impact(size) bps.
+// Rather than model v3 depth (which is a market fact, not ours), invert it: for
+// any competitor all-in cost C, report the q at which WE become the worse venue.
+console.log('\n=== SECTION 4 — at what scarcity does Uniswap become more attractive? ===\n');
+
+const qOfCost = (sigma2, targetBps) => {          // smallest q whose charge exceeds targetBps
+  for (let b = 1; b <= 9990; b++) {
+    if (bps(chargedRate(sigma2, b / 1e4)) > targetBps) return b / 1e4;
+  }
+  return null;
+};
+
+console.log('  competitor all-in cost →   we lose above q =');
+console.log('  (bps)          30% vol     80% vol    200% vol');
+for (const C of [5, 7, 10, 15, 25, 50, 100]) {
+  const f = v => { const q = qOfCost(v, C); return q === null ? '  never ' : q.toFixed(4).padStart(8); };
+  console.log(`  ${String(C).padStart(4)}        ${f(0.09)}   ${f(0.64)}   ${f(4.0)}`);
+}
+console.log('\n  ⇒ READ IT AS: at 80% vol against a 7 bps venue, ANY scarcity past q≈0.30');
+console.log('    makes us the dearer venue. That is inside the ordinary operating range,');
+console.log('    not a tail — and the charge keeps rising without bound above it.');
+console.log('\n  ⛔ AND THE POLE IS THE ISSUE, NOT THE LEVEL. The kernel is q/(κ−q) with');
+console.log('    κ = 1e18, so the charge DIVERGES as inventory empties:');
+for (const q of [0.90, 0.95, 0.98, 0.99]) {
+  console.log(`     q=${q.toFixed(2)} → ${bps(chargedRate(SIGMA2, q)).toFixed(1).padStart(7)} bps at 80% vol`);
+}
+console.log('\n  ⭐ THE OBJECTIVE DECIDES THIS, AND IT IS NOT A PREFERENCE:');
+console.log('     LP revenue = flow x charge. A charge above the alternative venue drives');
+console.log('     flow to zero, so revenue does too. ⇒ the REVENUE-MAXIMISING charge is');
+console.log('     BOUNDED BY THE COMPETITOR, and the bound is a market fact, not a policy');
+console.log('     constant. Today the only bound is SKEW_UNFILLABLE = 100%.');

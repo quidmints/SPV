@@ -63528,3 +63528,65 @@ the candidate most likely to beat both on the axis neither measured.**
 (2) implement `borrowRateRay(extraBorrow)` on it against v4's rate view; (3) `getAssetLiquidity` is
 the fundability check that keeps `borrowRateRay`'s *"MAY REVERT when `extraBorrow` exceeds what the
 venue can fund"* honest. ⏸️ **Not now — deferred with the allocator.**
+
+---
+
+# 🎯 §THE-BOUND-IS-THE-COMPETITOR — the owner's objective makes the skew decision DERIVABLE, not a preference
+
+*(owner, 2026-09-09: **"an imbalance in the pool quantities shouldnt be a reason to deter swappers.
+the goal is to charge them fairly and less arbitrarily than AMM slippage, while maximising revenue to
+LPs … no state of our pool ever should make uniswap more attractive."**)*
+📌 **SCOPE: OUR OWN EXECUTION ONLY** — not the 1inch load-balance leg, not multi-dollar→single-dollar,
+not any other aggregator use. The owner drew that line explicitly.
+
+## ⭐ FIRST, THE STRUCTURAL ADVANTAGE, BECAUSE IT IS REAL AND IT IS THE PREMISE
+**WE HAVE NO PRICE IMPACT AT ALL.** `Core:1022` — *"SETTLE AT ORACLE, BOUNDED BY INVENTORY. No unlock,
+no callback, no curve traversal, no price discovery. **ONE price for the whole size.**"* ⇒ a CFMM's
+slippage is an artifact of its curve, not a cost of trading; **we simply do not have it.** The
+swapper's ENTIRE cost with us is the skew premium. **The owner's *"awkward tradition"* reading is
+supported by the code**, and it is why we are measured 17–26 bps cheaper at every size we can serve.
+
+## 🔴 AND THE STATE THE OWNER SAYS MUST NOT EXIST, EXISTS — AND IT IS NOT A TAIL
+`sims/refill_incentive.js` §4 (controls reproduce the real `skewWad` to ±3 bps). For any competitor
+all-in cost **C**, the scarcity `q` at which WE become the dearer venue:
+
+| C (bps) | 30% vol | 80% vol | 200% vol |
+|---|---|---|---|
+| 5 | 0.6985 | **0.2201** | **0.0435** |
+| 7 | 0.8155 | **0.2915** | **0.0602** |
+| 10 | 0.9094 | 0.3845 | 0.0846 |
+| 25 | 0.9964 | 0.6785 | 0.1948 |
+| 50 | never | 0.8746 | 0.3432 |
+
+⇒ **At 80% vol against a 7 bps venue, any scarcity past q ≈ 0.29 makes Uniswap the better venue. At
+200% vol it is q ≈ 0.06.** That is **inside ordinary operation**, and the charge then rises without
+bound: 56.5 bps at q=0.90, 77.5 at 0.95, 107.0 at 0.98, 130.1 at 0.99.
+⚠️ **C IS SWEPT, NOT MEASURED.** Uniswap's real cost curve needs a fork + `QuoterV2` and tests are
+stopped by owner instruction. `SkewVsUniswapV3.t.sol::test_SkewVsV3_CrossoverSize` already exists to
+measure the other half against the REAL 0.05% pool — **run it and the table above becomes a single
+number instead of a family.**
+
+## ✅ THE DECISION, AND WHY THE OWNER DOES NOT ACTUALLY HAVE TO CHOOSE
+**LP revenue = flow × charge.** A charge above the alternative venue's cost drives flow to zero, so
+revenue goes to zero with it. ⇒ **the revenue-maximising charge is BOUNDED BY THE COMPETITOR**, and
+that bound is a **market fact**, not a policy constant. The objective the owner stated *derives* the
+answer; there is no preference left to express.
+⇒ **THE TWO "OWNER QUESTIONS" I POSED COLLAPSE INTO ONE, AND MY FRAMING OF BOTH WAS BACKWARDS.**
+I asked *"is the floor meant to be the whole price below the crossing?"* (i.e. do we charge too
+LITTLE) and *"should depletion carry σ²?"*. **Under this objective the live problem is the opposite:
+above the crossing we charge too MUCH**, and the floor being flat and cheap at low q is exactly right —
+it is where we are most competitive.
+
+## ⛔ AND THIS DOES **NOT** RE-LITIGATE §E79 — IT IS A DIFFERENT BOUND
+§E79 inverted `_maxWellSkew` from ceiling to base because *"using a RATE as a price CEILING was a
+category error"* — an expected-loss rate is not a maximum price. **True, and untouched here.**
+§E274/§E286 then argued a ceiling *"discarded 51.4% of the premium §E68's integral computed"*.
+🔑 **THAT ARGUMENT COUNTS UNCOLLECTABLE PREMIUM AS LOST REVENUE.** Premium quoted above the
+competitor's price is not revenue foregone — **it is flow driven away**, so it was never collectable.
+⇒ **A COMPETITIVE bound is not the ceiling either row refuted**: it is not a risk rate (§E79's
+target), and it does not discard revenue (§E286's target). **It is the price above which we stop being
+the venue.** Both prior rows stand; neither speaks to this.
+
+▶️ **WHAT ACTUALLY REMAINS FOR THE OWNER — one question, and it is empirical:** *which venue and which
+size do we benchmark against?* Everything else follows from the measurement. ⏸️ Blocked only on tests
+being re-enabled, because the competitor half must be measured, not assumed.
