@@ -1178,6 +1178,18 @@ a green targeted run says nothing about the suites it did not execute.
   | head -8` returned only `protectFromQuid` hits, so I concluded the keeper had no private relay and
   BUILT A SECOND ONE — `daemon.rs:87` had defaulted to Flashbots all along, below the cut. Count
   (`grep -c`) or read it all.
+  🔴 **SECOND INSTANCE, 2026-09-09, BY AN AUTHOR WHO HAD QUOTED THIS RULE TO THE OWNER EARLIER IN THE
+  SAME SESSION — so "know the rule" is demonstrably not the control.** Searching for post-quantum work
+  with `… | head -20`, the term **`lamport` matched hundreds of Solana `lamports` lines** and ate the
+  whole budget, so I published *"ZERO hits in our code"*. Re-run with `grep -c`: **p2mr 37 · quantum
+  43 · post-quantum 10 · winternitz 7**, plus a whole `§BTC-4` block in `SPRINT.md`. ⚠️ **THE NEW HALF
+  IS THE FALSE CORROBORATION, and it is the part worth carrying:** `§BTC-4`'s own OPENING LINE is
+  *"Measured: zero hits for `quantum`, `CRQC`, `post-quantum` or `Shor`"* — the HISTORICAL state that
+  motivated the block. I read the heading, it agreed with my broken grep, and **two instruments sharing
+  one blind spot felt like confirmation.** ⇒ **a stale heading and a truncated search AGREE by
+  construction, because both describe the world before the work.** The control was reading the block,
+  which cost one `sed`. **A search term that is a common substring elsewhere (`lamport` ⊂ `lamports`)
+  is the specific hazard: it silently spends the budget.**
   📌 **`graphify-out/` AND `evm/slither-out/` EXIST FOR EXACTLY THIS.** The AST cache under
   `quid-ln/graphify-out/` contains `with_send_endpoints`; searching it does not depend on guessing the
   spelling you happened to try. On 2026-08-02, "35 verifiers
