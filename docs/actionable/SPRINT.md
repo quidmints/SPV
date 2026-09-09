@@ -1,7 +1,7 @@
 # 🧭 NAVIGATION — READ THIS BEFORE GREPPING. THE ORDERING DOCUMENTS ARE AT THE BOTTOM.
 
-**MEASURED 2026-09-08 AFTER §DEDUP-2026-09-08 REMOVED THE FILE'S DUPLICATE HALF, THEN RE-MEASURED THE SAME
-DAY AFTER THE AUDIT-BOOKING PASS: 59,322 lines and 1,180 `##` sections — 255 marked OPEN
+**RE-MEASURED 2026-09-09 (was 59,322 / 1,180 on 2026-09-08, before the §SESS-121 bookings and the
+κ lane-book fold): **60,859 lines and 1,261 `##` sections** — 255 marked OPEN
 (🔴/🟡/🟠/⏸️) and 237 marked CLOSED (✅). (Post-dedup and pre-booking it read 59,058 / 1,177 / 257 /
 244.) ⚠️ **For the `§SEQ-AUDIT` ROW census — 219 open, 462 closed, 32 merged over 713 markers (naive count: 220/480/34 over 734 mentions) — see
 `§CENSUS-2026-09-07`'s 2026-09-08 re-measurement. The `##` counts here and the marker counts there measure
@@ -16,6 +16,7 @@ because the three documents that tell you WHAT ORDER to work in are buried at th
 | **What order across the whole file** | **`§MASTER-ORDER-2026-09-05`, line ~52,108** — GATES 0–9 | 94% of the way down. Its three rules — *evidence before inference · decision before construction · immutable before mutable* — are why GATE 3 (`BTCChannels`) cannot be resequenced later |
 | **Who owns which files** | **`§LANES-2026-09-06`, line ~55,053** — L1 prose · L2 rust · L3 btc · L4 lever · L5 range/swap · L6 tests · L7 reads | The collision partition. `LevManager` and `SwapLib` are single-lane BY PHYSICS (EIP-170 margin), not preference |
 | **Bitcoin, in dependency order** | **`D2`, line ~13,310** | The only scope with a finished dependency ordering. Most of its 22 rows are ✅ — read the state column, not the number |
+| **Γ, κ, the skew kernel, and whether the refill exists** | **`§SESS-121-INDEX`, at the END of this file** — maps 8 open rows to their evidence | 2026-09-09 changed §E274, §E289, §GAMMA-IS-NOT-A-DIAL, §C1 and §REFILL-G2-VERDICT at once. ⛔ **Three attempts to make the reserve vol-sensitive were BUILT AND REVERTED; read it before trying a fourth.** The controls are `sims/kernel_shape.js` |
 | **50 rows are OWNER-BLOCKED** (was 83 before the dedup — the same rows, counted once) | `grep -n "blocked on a person\|owner decision"` | Do not start these. They move risk and the decision is not an engineer's |
 
 ## ⛔ FIVE TRAPS SPECIFIC TO NAVIGATING **THIS** FILE — each cost a session
@@ -59912,6 +59913,9 @@ the problem rather than deciding it — the −1 bps sample already decided it.
 
 ## ✅ §GAMMA-TRACE-2026-09-09 — the untraced causal step, traced. **`POOLED` does not rise. `retainedEthPremium` falls, and `POOLED` is defined as the number that is low by exactly that.**
 
+📌 **§SEQ-AUDIT: GATE 8 (tests) · lane L5.** The trace is ✅ and settled; **the row is not fully closed and must not be marked ✅ as a whole** — the Γ-invariant **0.008274078 ETH** residual it exposes has no name, was never investigated, and is the one thing this session opened and did not close. `retainedEthPremium` is also the tree's single `check-orphans.py` red (0 src callers, 8 test refs), which is the same quantity arriving from the gate's direction.
+
+
 §SESS-117 (and project-91 independently) booked that shrinking Γ from `3e16` to the derived
 `FLOW_HALFLIFE * WAD / 365 days` = **5.48e15** makes `POOLED` **rise**, breaking
 `testReal_Morpho_LiquidationLeavesBasketIntact`, and both booked the causal step as **untraced** —
@@ -60115,6 +60119,9 @@ weighed against A/B/C/E rather than assumed superior, and cost 4 above is the on
 ---
 
 ## ⭐ §GAMMA-FIRST-PRINCIPLES-2026-09-09 — the "measure before landing" for the dynamic horizon, done. **Γ IS NOT A DERIVATION. THE POLE IS RIGHT FOR A REASON NOBODY WROTE DOWN. κ IS THE PARAMETER THAT IS ACTUALLY WRONG.**
+
+📌 **§SEQ-AUDIT: GATE 2 · lane L5.** ⚠️ **PARTLY SUPERSEDED BY ITS OWN AUTHOR, SAME DAY — read §L5-KAPPA-FOLDED before quoting this row.** Two things in it were corrected there: (a) the wash-trading sign is BACKWARDS (higher `target` ⇒ **DEARER** drain, `Core.sol:240`), and (b) the 48h reuse is **better justified than this row allows** — wide is what makes the patience attack expensive, and Γ = γ·T_flow makes both pull the same way. **What survives is only that γ = 1 is log utility presented as a normalisation.**
+
 
 Harness: `sims/kernel_shape.js`. **Four controls reproduce numbers published before the file existed**
 — §E274's crossing at **q = 0.8929** under Γ=3e16/200% vol (to 4 dp), §E289's κ=1e18 refactor identity,
@@ -60531,6 +60538,9 @@ invariant** anywhere; q compares inventory to expected FLOW, not to another leg.
 
 ## 🗺️ §SESS-121-INDEX — where this session's findings live, and which OPEN rows they change
 
+📌 **§SEQ-AUDIT: GATE 2 (the decisions) → GATE 6 (the pricing) · lanes L5 range/swap + L4 lever.** ⛔ **AND THE ORDER IS THE LESSON OF THIS SESSION: GATE 6 says *"only now, because GATE 2 decides what"*, and I spent the session doing GATE 6 work — building κ(σ), then ρ(σ) — while its GATE 2 decision was never made.** Both were reverted. **The file's own sequencing predicted that and I did not read it first.** Do not attempt a fourth shape until GATE 2 answers *which A–S section we implement*.
+
+
 ✅ **THE EVIDENCE IS IN THIS FILE — see §L5-KAPPA-FOLDED-2026-09-09 at the end.** **This block exists
 so the rows below are not orphaned from it** —
 `SPRINT.md` is what threads grep, and a finding nobody can find is a finding that did not happen.
@@ -60549,6 +60559,9 @@ so the rows below are not orphaned from it** —
 ---
 
 ## 🔴 §LEVER-UP-HAS-NO-AGGREGATE-GATE — booked 2026-09-09. **The book levers up per-LP and is liquidated pooled. Nothing connects the two.**
+
+📌 **§SEQ-AUDIT: GATE 2 · lane L4.** It is GATE 2 and not GATE 7 because the fix is not a patch: *"whose borrow is refused when the POOL is at the line"* is a fairness ruling (first-come? pro-rata? highest-LTV-first?) and **standing rule 16 says anything downstream of an unmade decision is ⏸️, never ✅.** 🔗 Shares a root with `orphans-allow` CLASS 3 `swapOutDeliverUnlevered`: both are a per-LP operation against a pooled position with no per-LP unit written. **One model of pooled authorisation settles both; fixing either alone re-opens the other.**
+
 
 ⚠️ **BOOKED LATE AND THAT IS THE PROCESS FAILURE:** I stated this to the owner in prose and did not
 write it down, which is exactly what standing rule 12 exists to prevent. It surfaced only on a
@@ -60857,3 +60870,47 @@ safety-stock shape, and the current target is pure mean flow with **no safety te
 reserve question and the "does the refill exist" question are the same question: if `target` priced
 directional drain, scarcity would price itself correctly and LP entry — the only refill path the
 shipped design has — would be pulled in at the right moment by construction.
+
+---
+
+## 🔬 §SIGMA-COUNT-BROKEN — I attacked "σ² appears exactly once" and it FAILED. Four results, two of them negative.
+
+Owner: *"are you sure the observations are correct? try to break them."* Tried. **The central claim of
+§SKEW-SYNTHESIS-CORRECTED does not survive**, and the corrected version is narrower.
+
+### THE MEASUREMENT (`BaseVsKernel.t.sol::test_IsSkewWadExactlyLinearInSigmaSq`)
+`skewWad` at σ²=1e17 vs 2e17, `ethRisk`, four drains:
+
+| drain (usd6) | σ²=1e17 | σ²=2e17 | 2× the first | residual | residual ÷ drain |
+|---:|---:|---:|---:|---:|---:|
+| 2,000e6 | 973,426,896,733 | 1,526,853,793,466 | 1,946,853,793,466 | 420,000,000,000 | **210.0** |
+| 50,000e6 | 24,677,839,178,635 | 38,855,678,357,271 | 49,355,678,357,270 | 10,500,000,000,000 | **210.0** |
+| 400,000e6 | 235,820,672,967,110 | 387,641,345,934,221 | 471,641,345,934,220 | 84,000,000,000,000 | **210.0** |
+| 950,000e6 | 1,379,451,266,829,987 | 2,559,402,533,659,974 | 2,758,902,533,659,974 | 199,500,000,000,000 | **210.0** |
+
+**EXACTLY 210 × drain at every size, and it does not move with σ².** That is `DEPLETION_RATE_WAD =
+2.1e14` (`SwapLib:825`, *"210 ppm = half the pool fee tier"*).
+⇒ **`skewWad` = σ²-scaled risk terms + a σ²-FREE depletion term.** The doubling ratio is **1.57 at the
+smallest drain and 1.86 at the largest — never 2.00.**
+
+### ⇒ THE CORRECTED CLAIM
+`test_E287_SkewIsNotPinnedToAConstant` requires 2.00 ±2%. **Its linearity premise is already violated by
+an existing term**; it passes only because its own fixture makes that term negligible. So it detects a
+double-count **in the regime it samples**, not in general. The κ(σ)/ρ(σ) rejections stand on their
+magnitude (3.70/2.96/2.60 — far outside anything the depletion term explains), **but not on the stated
+mechanism.** "σ² must appear exactly once" is not what the code does.
+
+### TWO NEGATIVE RESULTS — recorded so nobody re-derives them
+· **`_amplify` carries no σ².** It reads `committedUsd18`/`rangeEquityUsd18` only. My earlier guess that
+  the residual was *"§E89b's amplifier carrying a second-order σ² term"* is **wrong in mechanism**.
+· **`ethRisk()` has `spliceFloor = 0`**, so the amplifier is exactly affine for ETH and the splice-offset
+  explanation (`splice·(s−1)`) **cannot apply either**. Both candidates eliminated before the real one.
+
+### 🔴 AND A STRUCTURAL FINDING THE LINEARITY TEST CANNOT SEE
+**`_fillableDrain` is called in `wellSkew` and ZERO times in `skewWad`** (verified by count). Its bound
+is `R = SKEW_UNFILLABLE/(Γ·σ²)` — **σ²-dependent**. ⇒ **the PRODUCTION charge has a second σ² path, in
+the drain bound, entirely outside the function `test_E287` exercises.** So even the narrowed claim
+("σ² appears once in `skewWad`") does not extend to what a swapper actually pays.
+📌 This is the same shape as three other findings today: **the check that would have caught it was not
+the one that ran.** `forge build` is green while a contract is over EIP-170 (project-45); `--skip test`
+hid a NatSpec break; my own log filter matched the compiler echoing my source back.

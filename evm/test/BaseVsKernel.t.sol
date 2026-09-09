@@ -21,6 +21,23 @@ contract BaseVsKernelTest is Test {
         totBps = total  / 1e14;      // wad -> bps
         kerBps = kernel / 1e14;
     }
+    /// @notice ADVERSARIAL: is `skewWad` EXACTLY linear in sigma^2 for ethRisk (spliceFloor = 0)?
+    ///   The claim under test is "sigma^2 appears exactly ONCE, linearly", which is what makes
+    ///   test_E287's linearity assertion a double-count detector. If skewWad is exactly linear the
+    ///   claim holds for it; any residual is a second sigma^2 path and must be named.
+    function test_IsSkewWadExactlyLinearInSigmaSq() public pure {
+        uint[4] memory drains = [uint(2_000e6), 50_000e6, 400_000e6, 950_000e6];
+        for (uint i; i < drains.length; i++) {
+            uint a = SwapLib.skewWad(INV, TARGET, 1e17, SwapLib.ethRisk(), drains[i]);
+            uint b = SwapLib.skewWad(INV, TARGET, 2e17, SwapLib.ethRisk(), drains[i]);
+            console.log("drain usd6:", drains[i]);
+            console.log("   sigma^2=1e17 :", a);
+            console.log("   sigma^2=2e17 :", b);
+            console.log("   2*a          :", 2 * a);
+            console.log("   b - 2a (0 = EXACTLY linear):", b >= 2 * a ? b - 2 * a : 2 * a - b);
+            console.log("   residual ppm of 2a:", a == 0 ? 0 : (b >= 2*a ? b - 2*a : 2*a - b) * 1_000_000 / (2 * a));
+        }
+    }
     function test_BaseVsKernel_AcrossSize() public pure {
         uint[7] memory sizes = [uint(2_000e6), 10_000e6, 50_000e6, 200_000e6, 400_000e6, 700_000e6, 950_000e6];
         uint[3] memory sigmas = [uint(1e17), 5e17, 16e18];   // 32%, 71%, 400% annualised
