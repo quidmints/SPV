@@ -59395,3 +59395,48 @@ and `QuidLib.sendEth:418`'s `toWhom` is a withdrawal PAYEE, not an LP.
   the delivery path cannot reach it. **No new machinery, and it makes the books honest immediately** —
   but it reduces reported deliverable backing by the measured amount.
 ⛔ **DOING NEITHER IS THE STATUS QUO AND IT OVERSTATES SOLVENCY BY EXACTLY THIS NUMBER.**
+
+---
+
+## 📐 §REFILL-AFFORDABILITY — the restoration leg is MEASURED, and it needs one control before it is believed
+
+Owner: *"measure it. dont build until we have full confidence about all of it. 1inchs role, etc."*
+Measured only; **nothing wired**. `refillNeeded` still has zero call sites.
+
+### THE MEASUREMENT (`test_REFILL_AFFORDABILITY_PremiumVsRestorationSpread`, real fork)
+    drain    20,000 BOLD  ->  7.936594163747890016 ETH out
+    restore  20,000 USDC  ->  7.961692285063152052 ETH bought back
+    restoration shortfall     0
+    premium collected         $8.40   (4 bps of the drain)
+
+**The same dollars bought back MORE volatile than the drain removed.** Restoration spread is zero on this
+path, so the premium covers it outright with $8.40 to spare.
+
+### ⭐ 1INCH'S ROLE: NOT USED, DELIBERATELY, AND THAT IS WHAT MAKES THE NUMBER USABLE
+`LevMath.routedSwap` with an EMPTY route means **the protocol's own default venue** (§SESS-92) — no
+aggregator, no API key, no keeper. So this is the cost on the path the code takes when nobody is
+watching. **A 1inch arm can only improve on it**, which makes this the CONSERVATIVE bound and the right
+one to decide affordability against. ⇒ 1inch is an optimisation over a path that already clears, not a
+dependency the mechanism needs.
+
+### 🔴 THE CONTROL THAT IS MISSING, AND WHY THE RESULT IS NOT YET CONFIDENT
+The surplus is **0.0251 ETH ≈ $62 — far more than the $8.40 premium can explain.** `Core.swap` settles at
+the **ORACLE** while the buy-back executes at the **POOL**, so most of that surplus is the oracle-vs-pool
+BASIS at this block, not the premium doing work. §E294 measured that basis at **23 bps**, which is the
+right order for the gap. **The test conflates the two and must not be quoted as "the premium covers
+restoration" until they are separated.**
+▶️ THE CONTROL: run the identical round trip with the premium forced to ZERO. Whatever surplus remains is
+basis; the difference is the premium's real contribution. Until that runs, what is established is the
+weaker and still useful claim: **restoration through the default venue costs nothing extra at this
+block's basis** — not that the premium pays for it.
+⚠️ AND A FAVOURABLE BASIS IS NOT A GUARANTEE. It is a market state, it can invert, and an inverted basis
+is exactly when a refill would be most needed. The affordability question is really about the basis
+DISTRIBUTION, not one draw — the same objection §E71-r3 raised about single-block readings.
+
+### 📌 SIZING IS RECOVERABLE, and its deletion rationale is dead
+`refillPlacement` was deleted by §E301 (`59851831`) on the premise *"we never source inventory, so there
+is no restoration on our side"* — **the premise the owner superseded on 2026-09-08.** It is recoverable
+from `fc8d6294` ("the refill's core arithmetic: placement, not acquisition"), so the sizing work is not
+lost, only unlanded. ⚠️ §E301's message also claims it deleted `proRataShortfall`; that is STALE —
+`ed530bd2` restored it the same day ("I deleted a rule-17 root fix"), and it sits at `SwapLib:1053` with
+zero src callers.
