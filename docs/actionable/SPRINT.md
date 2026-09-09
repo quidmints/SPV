@@ -42,6 +42,32 @@ process and session close-outs. `grep '^## '` is still the only complete enumera
 | **size · EIP-170 · folds** | **24** | `EIP-170` `check-contract-sizes` `to spare` | `§J.2c` ~36082 · `C10 FIX BLOCKED BY EIP-170 — MEASURED,` ~36403 | any |
 | **identity · noir** | **22** | `identity` `Honk` `nullifier` — ⛔ DEFERRED, own TODO.md | `§PLP-6a` ~57669 · `THE REAL DEFECT IS THE ASSERTION, AND` ~59979 | — |
 
+
+## 🗺️ SUBJECT MAP — **WHICH GREP, AND WHERE THE CURRENT STATE IS.** Built 2026-09-09 from what each section CITES, not from its title.
+
+⚠️ **COUNTS ARE A READING WITH A TIMESTAMP** — same discipline as CLAUDE.md's margin table. Re-derive; do not quote.
+⛔ **THE 'START AT' COLUMN IS A HEURISTIC, NOT A CURATION:** the last two §-NAMED OPEN sections a domain
+touches, on the assumption that the most recently booked row carries current state. Usually true,
+sometimes not — a row booked today can be NARROWER than one booked last week. **Read the state column of
+what you find; these two are not the domain.**
+📌 **FALSE-POSITIVE CLASS, NAMED because the first build of this table shipped one:** matching bare
+`identity` put a Γ section about a WEI IDENTITY into the identity-stack row. The regexes below are
+symbol-anchored for that reason, and un-§-named sub-headings are excluded — a sub-heading is not an
+anchor. Domains OVERLAP (one section can cite `SwapLib` and `LevMath`), so this does not sum to the
+file's total, and **~113 sections match nothing** — mostly process and close-outs.
+⇒ **`grep '^## '` remains the only COMPLETE enumeration. This table is a router, not an index.**
+
+| subject | OPEN | grep for | start at (most recent §-named open) | lane |
+|---|---|---|---|---|
+| **range · skew · pricing** | **123** | `SwapLib` `skewWad` `sellSkew` `GAMMA_WAD` `KAPPA_WAD` `POOLED` | `§GAMMA-IS-NOT-A-DIAL` ~59461 · `§SIGMA-COUNT-BROKEN` ~60926 | L5 |
+| **leverage · IL-protect** | **69** | `LevManager` `LevMath` `ilBasisPx` `deleverBook` `Morpho` | `§KEEPER-LIQ-FALLBACK` ~59672 · `§LEVER-UP-HAS-NO-AGGREGATE-GATE` ~60659 | L4 |
+| **bitcoin · lightning** | **80** | `BTCChannels` `ChannelLib` `validating_signer` `splice` | `§7540-CONFORMANCE-IS-DISCHARGED-2026-09-07` ~58240 · `§THE-QUOTE-IS-THE-BUG-2026-09-08` ~58590 | L2/L3 |
+| **basket · redeem · shares** | **84** | `BasketLib` `Vault.sol` `VBtc` `committedUsd` | `§SKEW-COVERAGE-HOLE` ~57620 · `§7540-CONFORMANCE-IS-DISCHARGED-2026-09-07` ~58240 | L1/L5 |
+| **oracle · TWAP · variance** | **47** | `OracleLib` `realizedVarianceWad` `Chainlink` `getTWAPforAsset` | `§SKEW-COVERAGE-HOLE` ~57620 · `§GAMMA-IS-NOT-A-DIAL` ~59461 | L5/L7 |
+| **routing · 1inch · venues** | **46** | `1inch` `unoswap` `_aggSwap` `routedSwap` | `§THE-QUOTE-IS-THE-BUG-2026-09-08` ~58590 · `§SOLVER-IS-A-GLOSS` ~58829 | L4/L7 |
+| **size · EIP-170 · folds** | **24** | `EIP-170` `check-contract-sizes` `to spare` | `§7540-FOR-ETH-IS-WRONG` ~34190 · `§J.2c` ~36153 | any |
+| **identity · noir** ⛔ DEFERRED | **2** | `evm/src/identity` `Honk` `nullifier` — has its OWN `TODO.md` | `§RSAPSS-MSB` ~2672 | — |
+
 ## ⛔ FIVE TRAPS SPECIFIC TO NAVIGATING **THIS** FILE — each cost a session
 1. **STATUS MARKERS IN THE FOLDED ARCHIVES ARE NOT STATUS.** `§FROM-QUEUE` (:24,088), `§BUILD-QUEUE-FOLD`
    (:24,396) and `§FROM-QUEUE-SECTIONS` (:33,923) are **append-only archives**: their EVIDENCE is
