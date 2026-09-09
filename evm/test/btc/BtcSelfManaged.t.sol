@@ -308,7 +308,8 @@ contract BtcSelfManagedTest is AllesFixture {
         // an absent LP leaves the EVM counting BTC that has provably left the 2-of-2.
         vm.prank(hop);
         vm.expectRevert(BTCChannels.NotDeadManExit.selector);
-        ch.recordDeadManExit(channelId, cp_, b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
+        ch.recordDeadManExit(channelId, cp_,
+            Types.TxProof(b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex));
 
         // ⚠️ (E166-4) THIS ASSERTION ENCODED A STALE CHECK ORDER AND ONLY PASSED WHILE THE
         // ARMING WAS A STUB. `recordDeadManExit` tests the ARMED DEADLINE first
@@ -321,11 +322,12 @@ contract BtcSelfManagedTest is AllesFixture {
         vm.prank(lpEth);
         vm.expectRevert(BTCChannels.NotDeadManExit.selector);
         ch.recordDeadManExit(channelId, _closeParams(b.hopPubkey, b.lpPubkey),
-            b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
+            Types.TxProof(b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex));
 
         vm.prank(lpEth);                                          // real coop close: locktime 0 != deadline
         vm.expectRevert(BTCChannels.NotDeadManExit.selector);
-        ch.recordDeadManExit(channelId, cp_, b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex);
+        ch.recordDeadManExit(channelId, cp_,
+            Types.TxProof(b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex));
 
         // ⛔ (E166-4) THE STALE-CLOSE BLOCK IS REMOVED — IT WAS PASSING VACUOUSLY, AND
         // §E165-b MAKES ITS PREMISE UNREACHABLE.
@@ -349,8 +351,8 @@ contract BtcSelfManagedTest is AllesFixture {
         // ── recordClose: the REAL cooperative-close tx + SPV proof retires it ──
         uint qBefore = QUID.balanceOf(lpEth);
         vm.prank(lpEth); // LP-submitted: proves the stale-close waiver (E153: no longer gated)
-        ch.recordClose(channelId, cp_, b.rawCloseTx, b.closeBlockHash,
-            b.closeMerkleProof, b.closeTxIndex);
+        ch.recordClose(channelId, cp_,
+            Types.TxProof(b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex));
         (uint pooledClose,,,) = BTC.autoManaged(lpEth);
         assertEq(pooledClose, 0, "recordClose retires the BTC pool position");
         // Proceeds (if any delivered) are paid as QUID at close.

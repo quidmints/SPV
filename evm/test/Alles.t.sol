@@ -4816,7 +4816,7 @@ contract Alles is AllesFixture {
                 hex"00000000");                                      // locktime 0 -> cooperative
             vm.prank(makeAddr("hop")); // recordClose is participant-gated (hop or lpEth)
             Types.OpenParams memory cp_ = _closeParams(lpPubkey, hopPubkey);
-            ch.recordClose(channelId, cp_, closeTx, bytes32(uint(2)), new bytes32[](0), 0);
+            ch.recordClose(channelId, cp_, Types.TxProof(closeTx, bytes32(uint(2)), new bytes32[](0), 0));
         }
 
         // Close reconciled through the REAL recordClose->requestRedeem path:
@@ -4889,7 +4889,7 @@ contract Alles is AllesFixture {
             hex"01", _le(amountSats, 8), hex"160014", anyPkh, hex"00000020"); // commitment markers
         vm.prank(makeAddr("hop")); // recordClose is participant-gated (hop or lpEth)
         Types.OpenParams memory cp_ = _closeParams(lpPubkey, hopPubkey);
-        ch.recordClose(channelId, cp_, commitTx, bytes32(uint(3)), new bytes32[](0), 0);
+        ch.recordClose(channelId, cp_, Types.TxProof(commitTx, bytes32(uint(3)), new bytes32[](0), 0));
 
         (uint pooledClose,,,) = BTC.autoManaged(lpEth);
         assertEq(pooledClose, 0, "non-coop close retires the BTC position");
@@ -4967,7 +4967,7 @@ contract Alles is AllesFixture {
                 hex"00000020");        // commitment markers: seq top 0x80 + locktime top 0x20
             vm.prank(makeAddr("hop"));
             Types.OpenParams memory cp_ = _closeParams(lpPubkey, hopPubkey);
-            ch.recordClose(channelId, cp_, commitTx, bytes32(uint(7)), new bytes32[](0), 0);
+            ch.recordClose(channelId, cp_, Types.TxProof(commitTx, bytes32(uint(7)), new bytes32[](0), 0));
         }
 
         (uint pooledClose,,,) = BTC.autoManaged(lpEth);

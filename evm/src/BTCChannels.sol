@@ -1724,9 +1724,12 @@ contract BTCChannels {
     ///           Bitcoin; the forfeited proceeds are exactly why an LP always prefers
     ///           cooperative close — and with the trusted-operator hop ~always online,
     ///           this branch is a backstop that should ~never fire.
-    /// @dev (E153) The key-binding + splice discriminator, in its OWN FRAME — an extra
-    ///      calldata param pushes `recordClose` over the legacy stack, and the house fix is a
-    ///      separate frame, never `via_ir`.
+    /// @dev (E153) The key-binding + splice discriminator, in its OWN FRAME. When it was
+    ///      extracted, `recordClose` carried the close tx and its inclusion proof as FOUR loose
+    ///      parameters and one more calldata argument would not fit the legacy stack. §B8-SLOP-FOLD
+    ///      has since folded those four into a single `Types.TxProof` pointer, so that pressure is
+    ///      lower than the sentence this replaces claimed — but it has not been re-measured, and
+    ///      the house fix for stack depth here is a separate frame, never `via_ir`.
     ///      ① The supplied keys must match `keysHash`, pinned at open, so they cannot be
     ///         forged. **NOT a re-derivation of `channelId`: that folds in the ORIGINAL
     ///         funding outpoint, which `_verifySplice` rotates — an earlier attempt bound the
@@ -1802,15 +1805,14 @@ contract BTCChannels {
 
     /// @param p this channel's `OpenParams` — only `lpPubkey`/`hopPubkey` are read, and both
     ///        are checked against the `keysHash` pinned at open.
+    /// @param proof the close transaction and the block that contains it (§B8-SLOP-FOLD).
     function recordClose(
         bytes32 channelId,
         Types.OpenParams calldata p,
-        bytes calldata rawCloseTx,
-        bytes32 closeBlockHash,
-        bytes32[] calldata merkleProof,
-        uint    txIndex
+        Types.TxProof calldata proof
     ) external nonReentrant {
         _whenOpen(channelId);
+        bytes calldata rawCloseTx = proof.rawTx;
         // (E153) THE SPLICE-VS-CLOSE DISCRIMINATOR, REPLACING THE PARTICIPANT GATE.
         // `BitcoinTx` reconstructs the rotated 2-of-2 keys of a splice's CONTINUING output
         // (E129/E142), so a SPLICE and a CLOSE are distinguishable on-chain: a splice leaves a
@@ -1825,7 +1827,7 @@ contract BTCChannels {
         //   remove the named party, keep the cryptographic bound.
         _requireNotSplice(channelId, p, rawCloseTx);
         _verifyTxSpendsChannel(channelId, rawCloseTx,
-            closeBlockHash, merkleProof, txIndex);
+            proof.blockHash, proof.merkleProof, proof.txIndex);
         // Cooperative → the LP's co-signed BTC payout; non-cooperative → funded
         // (lpPayout=funded ⇒ delivered=0: a non-coop close realizes no swap proceeds).
         bool coop = BitcoinTx.extractLocktime(rawCloseTx) == 0;
@@ -1908,15 +1910,14 @@ contract BTCChannels {
     ///         nLockTime, so it could make them equal and retire a live channel — wiping the LP's
     ///         position while its sats stayed in a 2-of-2 the hop co-controls. `_requireNotSplice`
     ///         now enforces what the comment promised.
+    /// @param proof the exit transaction and the block that contains it (§B8-SLOP-FOLD).
     function recordDeadManExit(
         bytes32 channelId,
         Types.OpenParams calldata p,
-        bytes calldata rawExitTx,
-        bytes32 exitBlockHash,
-        bytes32[] calldata merkleProof,
-        uint    txIndex
+        Types.TxProof calldata proof
     ) external nonReentrant {
         _whenOpen(channelId);
+        bytes calldata rawExitTx = proof.rawTx;
         address lpEth = channels[channelId].lpEth;
         // (E156/E165) NO `deadline == 0` CHECK: `exitArmedOnOutpoint` is false for an unarmed deadline,
         // and zero is rejected at arming — so a zero locktime simply fails the membership test
@@ -1930,7 +1931,7 @@ contract BTCChannels {
         // on a mismatched prevout, which reads as a malformed proof rather than a retired rung.
         if (!exitArmedOnOutpoint[_currentOutpointKey(channelId)][deadline]) revert NotDeadManExit();
         _requireNotSplice(channelId, p, rawExitTx);
-        _verifyTxSpendsChannel(channelId, rawExitTx, exitBlockHash, merkleProof, txIndex);
+        _verifyTxSpendsChannel(channelId, rawExitTx, proof.blockHash, proof.merkleProof, proof.txIndex);
         // (E165) NO second locktime comparison: `deadline` IS `extractLocktime(rawExitTx)`, so the
         // old check compared a value to itself. It read as a guard and asserted nothing.
         // Same attribution as a cooperative close: sum every output paying the LP's committed
@@ -1965,16 +1966,15 @@ contract BTCChannels {
     ///  harmed party (QUI holders) or any keeper restore honest backing. delivered=0
     ///  (lpPayout=funded) is non-gameable — it only retires the position to its
     ///  on-chain reality, minting nothing.
+    /// @param proof the commitment transaction and the block that contains it (§B8-SLOP-FOLD).
     function recordForceClosePermissionless(
         bytes32 channelId,
-        bytes calldata rawCloseTx,
-        bytes32 closeBlockHash,
-        bytes32[] calldata merkleProof,
-        uint    txIndex
+        Types.TxProof calldata proof
     ) external nonReentrant {
         _whenOpen(channelId);
+        bytes calldata rawCloseTx = proof.rawTx;
         if (!BitcoinTx.isCommitmentTx(rawCloseTx)) revert NotForceClose();
-        _verifyTxSpendsChannel(channelId, rawCloseTx, closeBlockHash, merkleProof, txIndex);
+        _verifyTxSpendsChannel(channelId, rawCloseTx, proof.blockHash, proof.merkleProof, proof.txIndex);
         // (§FORCE-CLOSE-SKIPS-THE-STALE-GUARD) MEASURE WHAT THE COMMITMENT ACTUALLY PAID THE LP,
         // BEFORE retiring — the retirement below deletes nothing this reads, but measuring first
         // keeps the emitted numbers describing the channel as it stood at the close.

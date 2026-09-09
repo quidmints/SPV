@@ -348,6 +348,25 @@ library Types {
         uint16  slippageBps;   // tolerance below the quote (the fill settles at the oracle, which can land under spot)
     }
 
+    /// (§B8-SLOP-FOLD) ONE Bitcoin transaction plus the proof that a block contains it — the
+    /// four values every SPV-gated entrypoint needs and nothing else. They were passed LOOSE at
+    /// `recordClose`, `recordDeadManExit` and `recordForceClosePermissionless`, which is what made
+    /// those signatures 6/6/5 parameters wide and pushed `BTCChannels` against the legacy stack
+    /// (`via_ir = false`: one calldata pointer costs one slot, four loose values cost six).
+    /// Field ORDER is the old parameter order, so the packed encoding reads the same left to right.
+    /// ⚠️ `DepositProof` below CONTAINS THIS TUPLE MINUS `rawTx` — the honest end state is
+    /// `DepositProof { userRefund, cltvHeight, TxProof }`, which also folds
+    /// `settleSwapInProven`'s separate `rawDepositTx` argument away. That reshape is NOT done:
+    /// it changes `DepositProof`'s own layout, and this declaration is deliberately ADDITIVE so
+    /// no other importer of this file moves. Do not grow a second near-duplicate beside it —
+    /// extend one of the two.
+    struct TxProof {
+        bytes     rawTx;         // the fully-serialised Bitcoin transaction being proven
+        bytes32   blockHash;     // block the transaction is proven against
+        bytes32[] merkleProof;   // sibling path from the txid to that block's merkle root
+        uint      txIndex;       // the transaction's position in that block
+    }
+
     struct DepositProof {
         bytes32   userRefund;    // x-only key of the deposit's CLTV refund leaf
         uint32    cltvHeight;    // absolute refund height in that leaf

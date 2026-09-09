@@ -311,8 +311,8 @@ product question, not a coding one, and it is booked as `SPRINT.md` §C2b.
 
 ### 4.5 Channel close
 
-Permissionless, once Bitcoin confirms. `recordClose(channelId, p, rawCloseTx, closeBlockHash,
-merkleProof, txIndex)` (`BTCChannels.sol:1788`) requires the channel open, then runs two
+Permissionless, once Bitcoin confirms. `recordClose(channelId, p, proof)` — where `proof` is
+`Types.TxProof(rawTx, blockHash, merkleProof, txIndex)` — requires the channel open, then runs two
 discriminators. `_requireNotSplice` (`:1726`) separates a close from a splice cryptographically — a
 splice leaves a continuing 2-of-2 output that `BitcoinTx` can reconstruct, a close does not — which is
 what stops a third party replaying a confirmed splice to force-retire a live channel.

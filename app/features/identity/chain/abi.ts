@@ -204,7 +204,9 @@ export const BTCCHANNELS_ABI = [
   // (E153) recordClose is PERMISSIONLESS and now takes OpenParams: it reconstructs the
   // channel's 2-of-2 from lpPubkey/hopPubkey (checked against the keysHash pinned at open)
   // to tell a SPLICE from a CLOSE. Only those two fields are read; the rest may be zero.
-  'function recordClose(bytes32 channelId, tuple(bytes32 fundingBlockHash, uint64 fundingBlockHeight, uint fundingTxIndex, bytes lpPubkey, bytes hopPubkey, uint amountSats, bytes32 fundingTaproot) p, bytes rawCloseTx, bytes32 closeBlockHash, bytes32[] merkleProof, uint txIndex)',
+  // (§B8-SLOP-FOLD) The close tx and its inclusion proof are ONE argument now:
+  // TxProof(bytes rawTx, bytes32 blockHash, bytes32[] merkleProof, uint txIndex).
+  'function recordClose(bytes32 channelId, tuple(bytes32 fundingBlockHash, uint64 fundingBlockHeight, uint fundingTxIndex, bytes lpPubkey, bytes hopPubkey, uint amountSats, bytes32 fundingTaproot) p, tuple(bytes rawTx, bytes32 blockHash, bytes32[] merkleProof, uint txIndex) proof)',
   // (E154) There is NO `recordSpliceOut`. It was declared here but has never existed on any
   // contract in recorded history — LP partial withdrawal is served by `splice`, which resizes the
   // position against the same SPV proof. The checker could not see it: an unmatched NAME was

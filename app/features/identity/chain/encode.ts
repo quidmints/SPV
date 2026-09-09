@@ -81,8 +81,11 @@ const enc = {
   channels:    (id: string) => iface.encodeFunctionData('channels', [id]),
   requestSwapOutOnchain: (token: string, usd: bigint, minSats: bigint, swapId: string, script: string) =>
                 iface.encodeFunctionData('requestSwapOutOnchain', [token, usd, minSats, swapId, script]),
-  recordClose: (id: string, rawTx: string, blk: string, proof: string[], txIndex: number) =>
-                iface.encodeFunctionData('recordClose', [id, rawTx, blk, proof, txIndex]),
+  // (§B8-SLOP-FOLD) `p` is the channel's OpenParams (only lpPubkey/hopPubkey are read on
+  // chain) and the tx + inclusion proof travel as ONE TxProof tuple. This encoder was
+  // ALREADY broken before the fold: it omitted `p` entirely, so ethers threw on every call.
+  recordClose: (id: string, p: unknown, rawTx: string, blk: string, proof: string[], txIndex: number) =>
+                iface.encodeFunctionData('recordClose', [id, p, [rawTx, blk, proof, txIndex]]),
   openChannelDigest: (p: unknown, rawTx: string, hop: string) =>
                 iface.encodeFunctionData('openChannelDigest', [p, rawTx, hop]),
   // LevManager (YB leverage overlay, #65). Full sigs (merged iface has overloads).

@@ -89,11 +89,17 @@ pub const SIG_OPEN_CHANNEL: &str =
 pub const SIG_SPLICE: &str =
     "splice(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],\
 (uint64[],bytes[],uint64,uint256,bytes)[])";
+// (§B8-SLOP-FOLD) The close tx and its inclusion proof are ONE argument on both of these —
+// `Types.TxProof(bytes rawTx, bytes32 blockHash, bytes32[] merkleProof, uint txIndex)`. The FIELD
+// ORDER is the order of the four loose parameters it replaced, so the encoded bytes are unchanged
+// apart from the one extra head word each call now carries (the tuple's offset) — and the
+// SELECTOR, which is why these strings must move in the same commit as the Solidity.
+// The Rust `encode_*` functions below still take the four values separately and pack them here.
 pub const SIG_RECORD_CLOSE: &str =
-    "recordClose(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32,\
-bytes32[],uint256)";
+    "recordClose(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),\
+(bytes,bytes32,bytes32[],uint256))";
 pub const SIG_RECORD_FORCE_CLOSE_PERMISSIONLESS: &str =
-    "recordForceClosePermissionless(bytes32,bytes,bytes32,bytes32[],uint256)";
+    "recordForceClosePermissionless(bytes32,(bytes,bytes32,bytes32[],uint256))";
 pub const SIG_DELIVER_SWAP_OUT_ONCHAIN: &str =
     "deliverSwapOutOnchain(bytes32,bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),\
 bytes,bytes32[],bytes,(uint64[],bytes[],uint64,uint256,bytes)[])";
@@ -934,7 +940,7 @@ pub fn encode_request_swap_out_onchain(
     )
 }
 
-/// `recordClose(bytes32,OpenParams,bytes,bytes32,bytes32[],uint256)` calldata — SIX arguments,
+/// `recordClose(bytes32,OpenParams,TxProof)` calldata — THREE arguments,
 /// matching [`SIG_RECORD_CLOSE`] and the tokens below. ⚠️ ONE ENTRYPOINT FOR BOTH CLOSE KINDS,
 /// NOT JUST THE COOPERATIVE ONE: the contract reads the tx's locktime and branches on-chain.
 /// `locktime == 0` ⇒ cooperative, settling the LP's co-signed BTC payout (and subject to the
@@ -960,10 +966,12 @@ pub fn encode_record_close(
         &[
             Tok::FixedBytes32(channel_id),
             Tok::Tuple(close_params.tokens()),
-            Tok::Bytes(raw_close_tx.to_vec()),
-            Tok::FixedBytes32(close_block_hash_be),
-            Tok::FixedBytes32Array(merkle_proof.to_vec()),
-            Tok::Uint(U256::from(tx_index)),
+            Tok::Tuple(vec![
+                Tok::Bytes(raw_close_tx.to_vec()),
+                Tok::FixedBytes32(close_block_hash_be),
+                Tok::FixedBytes32Array(merkle_proof.to_vec()),
+                Tok::Uint(U256::from(tx_index)),
+            ]),
         ],
     )
 }
@@ -971,8 +979,8 @@ pub fn encode_record_close(
 // close tx's locktime selects the coop vs non-coop branch on-chain). The driver
 // submits encode_record_close for BOTH; the EVM decides the settlement.
 
-/// `recordForceClosePermissionless(bytes32,bytes,bytes32,bytes32[],uint256)` calldata — FIVE
-/// arguments, matching [`SIG_RECORD_FORCE_CLOSE_PERMISSIONLESS`] and the tokens below. It is
+/// `recordForceClosePermissionless(bytes32,TxProof)` calldata — TWO arguments,
+/// matching [`SIG_RECORD_FORCE_CLOSE_PERMISSIONLESS`] and the tokens below. It is
 /// gated on-chain by `BitcoinTx.isCommitmentTx` (so only a genuine BOLT #3 commitment-tx spend
 /// is accepted, never a coop close / splice / deliver) and settles `delivered=0`
 /// (lpPayout = the full funded amount), retiring the position to its on-chain reality without
@@ -998,10 +1006,12 @@ pub fn encode_record_force_close_permissionless(
         SIG_RECORD_FORCE_CLOSE_PERMISSIONLESS,
         &[
             Tok::FixedBytes32(channel_id),
-            Tok::Bytes(raw_close_tx.to_vec()),
-            Tok::FixedBytes32(close_block_hash_be),
-            Tok::FixedBytes32Array(merkle_proof.to_vec()),
-            Tok::Uint(U256::from(tx_index)),
+            Tok::Tuple(vec![
+                Tok::Bytes(raw_close_tx.to_vec()),
+                Tok::FixedBytes32(close_block_hash_be),
+                Tok::FixedBytes32Array(merkle_proof.to_vec()),
+                Tok::Uint(U256::from(tx_index)),
+            ]),
         ],
     )
 }

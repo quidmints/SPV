@@ -306,7 +306,7 @@ contract BtcLpMintStress is AllesFixture {
             hex"00000000"); // locktime 0 → cooperative
         vm.prank(makeAddr("hop")); // recordClose is participant-gated (hop or lpEth)
         Types.OpenParams memory cp_ = _closeParams(lpPubkey, _hopKeyOf[channelId]);
-        ch.recordClose(channelId, cp_, closeTx, bytes32(uint(0x2C0)), new bytes32[](0), 0);
+        ch.recordClose(channelId, cp_, Types.TxProof(closeTx, bytes32(uint(0x2C0)), new bytes32[](0), 0));
     }
 
     /// SECURITY #1 (HIGH): recordClose is PARTICIPANT-GATED. A splice / swap-out
@@ -471,7 +471,7 @@ contract BtcLpMintStress is AllesFixture {
             hex"00000000");
         vm.prank(makeAddr("attacker"));
         vm.expectRevert(BTCChannels.SpliceIsNotAClose.selector);
-        ch.recordClose(cid, cp_, spliceTx, bytes32(uint(0x2C0)), new bytes32[](0), 0);
+        ch.recordClose(cid, cp_, Types.TxProof(spliceTx, bytes32(uint(0x2C0)), new bytes32[](0), 0));
         assertTrue(ch.hasOpenBtcChannel(lpEth), "a replayed splice cannot retire the channel");
 
         // (a) A genuine cooperative close, submitted by a STRANGER, succeeds.
@@ -481,7 +481,7 @@ contract BtcLpMintStress is AllesFixture {
             hex"01", _le(1_000_000, 8), bytes1(uint8(lpP2TR.length)), lpP2TR,
             hex"00000000"); // locktime 0 → cooperative
         vm.prank(makeAddr("stranger"));
-        ch.recordClose(cid, cp_, closeTx, bytes32(uint(0x2C0)), new bytes32[](0), 0);
+        ch.recordClose(cid, cp_, Types.TxProof(closeTx, bytes32(uint(0x2C0)), new bytes32[](0), 0));
         assertFalse(ch.hasOpenBtcChannel(lpEth), "anyone may record a genuine confirmed close");
     }
 
