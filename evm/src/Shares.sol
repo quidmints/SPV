@@ -65,6 +65,23 @@ import {LevManagerPinned, WrongRangeManager} from "./imports/Types.sol";   // §
 ///    ⇒ EITHER the venue lane folds into `Types.Deposit` (where a position token carries it by
 ///    construction) OR the position token must move `venueBm` explicitly. Deciding that is GATE 2.3's,
 ///    not this file's; what this file owes is the DECLARATION that the hole exists.
+/// ✅ **SIZED 2026-09-09, AND IT IS ONE NAME OF THE FOUR — NOT FOUR.** Only `venueBm` is per-LP.
+///    `venueFeesPerShare` is a global accumulator, `bookmark` a global venue-balance mark, and
+///    `totalLevPooled` an aggregate that is INVARIANT UNDER TRANSFER (a transfer moves free depth
+///    only; `transferSharesBody` never touches `levPooled`). None of those three is in the fold's way.
+/// ⭐ **AND THE ETH LEG'S `venueBm` TRANSFER HANDLING ALREADY EXISTS.** `Quid._transferShares` passes
+///    `venueBm` into `QuidLib.transferSharesBody`, which calls `_refreshBookmarksLib` for BOTH parties
+///    after the principal moves and stamps `venueBm[user]` UNCONDITIONALLY — so §VENUE-BM-EXIT's
+///    stale-high value is also overwritten if an exited address later RECEIVES. With §VENUE-XFER's
+///    `_rebalance()` in front of it, the ETH transfer path is correct on the venue lane.
+/// ⇒ **THE RESIDUE IS A DECLARATION-LOCATION PROBLEM, NOT A CORRECTNESS ONE, AND IT IS NOW PRICED.**
+///    `Types.Deposit` has exactly four fields (`pooled`, `usd_owed`, `fees_tok`, `fees_usd`), so the
+///    TRADING-fee bookmarks travel with the position by construction and `venueBm` is the one slot
+///    that does not. The choice 2.3 faces is therefore: fold the venue lane in as a fifth `Deposit`
+///    field (cost: one never-written slot per BTC LP) versus keep the Quid-local mapping (cost: every
+///    future position-moving path remembering to pass it — an arm that already has one measured bug
+///    and one latent one on its record). **That is a data point FOR the ruling, not a licence to make
+///    it.**
 
 /// @title  State — the 13 per-LP declarations both range managers had a private copy of
 ///

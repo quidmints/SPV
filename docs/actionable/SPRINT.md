@@ -170,7 +170,19 @@ the docblock at `:2503-2508` already states the test any new digest field must p
 is pre-made. ⚠️ Note the digest is deliberately narrow: committing to `address(this)` is what stops
 cross-deployment replay, so the change is *"admit a NAMED successor"*, not *"drop the binding"*.
 
-▶️ **THE HYPOTHESIS THE SHARES WORK SHOULD TEST — NOT YET VERIFIED, DO NOT BUILD ON IT.** Blocker 1
+⛔ **THE HYPOTHESIS BELOW IS REFUTED, 2026-09-09 — TESTED AND FAILED, AND THE REASON IS WORTH KEEPING.**
+Blocker 1 is `Vault.setBTCChannels`'s one-shot pin combined with `onlyBTCChannels` on
+`requestDeposit` — **an AUTHORIZATION EDGE BETWEEN TWO CONTRACTS, not a property of where the LP's
+position lives.** A successor `BTCChannels` calling the old `Vault` reverts `NotBTCChannels` whether
+the claim is a mapping entry or an ERC-20 balance. And the token does not help the LP either: a
+position token's balance is state inside that same `Vault`, and a successor has its own storage.
+⇒ **Transferability moves a position between HOLDERS, never between DEPLOYMENTS.** Independently
+confirmed at `ChannelLib.sol:686-693`, which already traces this exact scenario.
+⇒ **The §MIGRATION-UNLOCKS table stands unchanged and 2.3 is not a shortcut through it.** Blocker 1's
+disposition (fixable in the successor, plus a Vault redeploy) was already right, and nothing in 2.3
+touches blocker 3, which remains the only immutable-before-mutable one.
+
+▶️ *(the refuted hypothesis, kept because the reasoning is the useful part)* **NOT VERIFIED, DO NOT BUILD ON IT.** Blocker 1
 is a binding between the LP's POSITION and a specific `BTCChannels`+`Vault` pair. GATE 2.3's
 position-token fold moves per-LP state into a token. **If the position becomes a transferable token
 rather than Vault-internal state, it stops being bound to a Vault instance at all, and blocker 1 may
