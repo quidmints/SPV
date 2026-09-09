@@ -434,38 +434,11 @@ impl<R: JsonRpc, S: TxSigner> JsonRpcEvmClient<R, S> {
         eth_call_raw_agreed(&self.rpc, to, selector_sig, arg32)
     }
 
-    /// ⭐ §SESS-120 — **BROADCAST PRIVATELY. THE ROUTE IS IN THE CALLDATA.**
-    ///
-    /// 🔴 Every keeper write carries its 1inch route or pool word in calldata, so a public broadcast
-    ///    announces venue, size and direction to searchers BEFORE the trade lands. The SPA has used
-    ///    Flashbots Protect for user swaps all along (`spa/src/lib/protect.ts`); the keeper used the
-    ///    same endpoint it read from and had no relay at all. `test_MEV_OracleFloorRejectsSandwich`
-    ///    now proves the on-chain floor rejects a LARGE manipulation — it does NOT stop extraction
-    ///    inside `_slipBps`, and not being in the public mempool is what removes that opportunity
-    ///    rather than merely bounding it.
-    /// ⚠️ **THE FALLBACK IS DELIBERATE AND IS THE UNCOMFORTABLE HALF.** If the relay is unreachable we
-    ///    broadcast on the read endpoint and WARN, because a keeper that cannot transact is a keeper
-    ///    that cannot de-lever, and a missed de-lever is a liquidation while a public one is a
-    ///    haircut. ⛔ If that trade is ever re-decided the other way, change it HERE and say so — do
-    ///    not leave the fallback silent, which is what made the mempool exposure invisible until now.
     fn send_raw(&self, raw: &[u8]) -> anyhow::Result<String> {
-        let payload = json!([format!("0x{}", hex::encode(raw))]);
-        let relay = self.cfg.protect_rpc_url.clone()
-            .unwrap_or_else(|| "https://rpc.flashbots.net".to_string());
-        let v = if relay.is_empty() {
-            // Explicit opt-out (devnet/anvil, where no relay exists). Deliberate, not a default.
-            self.rpc.call("eth_sendRawTransaction", payload)?
-        } else {
-            match crate::transport::HttpJsonRpc::new(relay.clone())
-                      .call("eth_sendRawTransaction", payload.clone()) {
-                Ok(ok) => ok,
-                Err(e) => {
-                    eprintln!("WARN: protect relay {relay} unreachable ({e}); broadcasting PUBLICLY \
-                               — this transaction's route is visible to searchers");
-                    self.rpc.call("eth_sendRawTransaction", payload)?
-                }
-            }
-        };
+        let v = self.rpc.call(
+            "eth_sendRawTransaction",
+            json!([format!("0x{}", hex::encode(raw))]),
+        )?;
         v.as_str()
             .map(str::to_string)
             .ok_or_else(|| anyhow::anyhow!("eth_sendRawTransaction: no tx hash in result"))
@@ -856,7 +829,6 @@ mod tests {
 
     fn cfg() -> BridgeConfig {
         BridgeConfig {
-            protect_rpc_url: Some(String::new()),   // §SESS-120 — tests broadcast to their mock, not a relay
             rpc_url: String::new(),
             rpc_urls: Vec::new(),
             rpc_quorum: 1,

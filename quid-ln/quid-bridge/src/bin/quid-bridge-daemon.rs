@@ -64,9 +64,6 @@ fn build_config() -> anyhow::Result<BridgeConfig> {
         rpc_url: env("QUID_RPC_URL")?,
         rpc_urls,
         rpc_quorum: env_parse("QUID_RPC_QUORUM", 1usize)?,
-        // §SESS-120 — UNSET means the Flashbots default (see `BridgeConfig::protect_rpc_url`), not
-        // "public". Set QUID_PROTECT_RPC_URL="" to opt OUT deliberately on a devnet.
-        protect_rpc_url: std::env::var("QUID_PROTECT_RPC_URL").ok(),
         chain_id: env("QUID_CHAIN_ID")?.parse().context("QUID_CHAIN_ID")?,
         btc_channels: Address::from_str(&env("QUID_BTC_CHANNELS")?).context("QUID_BTC_CHANNELS")?,
         btc_vault: Address::from_str(&env("QUID_BTC_VAULT")?).context("QUID_BTC_VAULT")?,

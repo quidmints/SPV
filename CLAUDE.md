@@ -647,6 +647,27 @@ that the value flowing through it BINDS.
 still satisfies it?** If the answer is "anything", the guard is decorative regardless of how correct
 its wiring is.
 
+### ⚠️ **AND A FIFTH INSTANCE, ADDED THE SAME HOUR, AGAINST RULES THAT ALREADY EXISTED — WHICH IS THE
+### POINT.** I searched for a private-relay mechanism in the keeper with
+`grep "flashbots\|protect\|private"`, piped it through `head -8`, saw only `protectFromQuid` hits,
+and concluded *"the keeper had ZERO references to any relay"*. **It has had one all along**:
+`daemon.rs:87` defaults `QUID_PROTECT_RPC_URLS` to Flashbots and wires it via
+`QuorumJsonRpc::with_send_endpoints`, which routes `eth_sendRawTransaction` to relays while reads stay
+on the quorum. I then BUILT A SECOND ONE in `client.rs` that bypassed the transport layer entirely.
+Reverted; only these rules survive from that commit.
+⛔ **THE TWO RULES THAT WOULD HAVE STOPPED IT WERE ALREADY WRITTEN, ~140 LINES APART, AND I WROTE A NEW
+RULE INSTEAD OF READING THEM:**
+· *"BEFORE ADDING AN ACCESSOR OR HELPER, GREP FOR THE BODY YOU ARE ABOUT TO WRAP — NOT FOR THE NAME
+  YOU ARE ABOUT TO CREATE"* (above). I grepped NAMES. One `grep -rn eth_sendRawTransaction` — the
+  CALLEE — found it instantly, and is what I ran only after building the duplicate.
+· *"Check the mechanism before building around it. The fix is usually smaller, or somewhere else."*
+▶️ **AND `head -N` ON A SEARCH IS A SCOPE NARROWING THAT LEAVES NO TRACE.** The hit was there; it was
+below the cut. ⇒ **never `head` a grep you are about to conclude ABSENCE from** — count it (`grep -c`)
+or read it all. An empty grep proves nothing; a TRUNCATED grep proves less and looks the same.
+▶️ **`graphify-out/` AND `evm/slither-out/` EXIST FOR EXACTLY THIS.** The AST cache under
+`quid-ln/graphify-out/` contains `with_send_endpoints`; consulting it costs one grep and is not
+subject to whichever spelling you happened to guess.
+
 ---
 
 ## 🔴 `main` IS THE ONLY LONG-LIVED BRANCH. A "SHARED WORKING BRANCH" IS THE DIVERGENCE BUG (2026-09-08)
