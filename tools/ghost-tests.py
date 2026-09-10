@@ -60,19 +60,57 @@ def classify(body, hp):
     if kinds and kinds <= oneside: return 'C', len(a)
     return None, len(a)
 
+# ── CLASS E: THE NAME CLAIMS AN ADVERSARY THE BODY NEVER PRODUCES ──────────────
+# CLAUDE.md's worst-case shape, measured: `test_MEV_OracleFloorRejectsSandwich` passed
+# `1e30` as the KEEPER'S OWN minOut and asserted an impossible floor reverts -- no
+# attacker, no price movement, and the oracle floor its name credits was never touched.
+# "A green test named for the property STOPS people looking, forever."
+CLAIM = re.compile(r'MEV|Sandwich|Attack|Adversar|Rejects|Refuses|Cannot|Never|Blocks|'
+                   r'Gated|Unauthori|Steal|Drain|Grind|Manipul|Frontrun|Hijack', re.I)
+# ⛔ FALSE-POSITIVE CLASS, FOUND BY READING THE HITS RATHER THAN BY TRUSTING THE COUNT:
+#    AN ADVERSARY NEED NOT BE AN ACTOR. It can be a hostile INPUT.
+#    `test_TheGenericDescriptorCannotDivertThePayout` builds a 1inch descriptor with an
+#    attacker address in the dstReceiver word and asserts it did not survive `_retarget` --
+#    a real attack, with no prank anywhere. `test_rejects_a_substituted_key` is the same
+#    shape in the crypto tests: the malformed key IS the attacker.
+#    ⇒ 11 raw hits were almost entirely this. Counting them as ghosts would have deleted the
+#      single best security test in the tree, which is the exact inversion this tool exists
+#      to prevent.
+ADVERSARY = re.compile(
+    r'vm\.prank|vm\.startPrank|expectRevert'          # a second actor, or a refusal
+    r'|attacker|malicious|hostile|evil|adversar|poison|bad[A-Z]'   # a hostile INPUT
+    r'|assertNotEq'                                     # "the attack did not survive"
+    , re.I)
+
+# ── CLASS F: CAN EXIT BEFORE ASSERTING ────────────────────────────────────────
+SKIP = re.compile(r'vm\.skip\s*\(|^\s*return\s*;', re.M)
+
+def claim_without_adversary(name, body):
+    if not CLAIM.search(name): return False
+    return not ADVERSARY.search(body)
+
+def can_exit_early(body):
+    a = ASSERT.search(body)
+    if not a: return False
+    return bool(SKIP.search(body[:a.start()]))
+
 def main(paths):
-    tot=0; flagged={'A':[], 'B':[], 'C':[]}
+    tot=0; flagged={'A':[], 'B':[], 'C':[], 'E':[], 'F':[]}
     for p in paths:
         src=pathlib.Path(p).read_text(); hp=helpers(src)
         for name, body in bodies(src):
             tot+=1
             k,n = classify(body, hp)
             if k: flagged[k].append((p, name, n))
+            if claim_without_adversary(name, body): flagged['E'].append((p, name, 0))
+            if can_exit_early(body):                flagged['F'].append((p, name, 0))
     print(f"control: parsed {tot} test functions across {len(paths)} files")
     if tot==0: print("PARSER BROKE — zero tests parsed is not a clean tree"); return 1
     for k, label in [('A','NO ASSERTION AT ALL'),
                      ('B','ONLY EXISTENCE (assertGt(x,0)) — a 1-wei bug passes'),
-                     ('C','ONLY A ONE-SIDED BOUND — vacuous if the defect pushes that way')]:
+                     ('C','ONLY A ONE-SIDED BOUND — vacuous if the defect pushes that way'),
+                     ('E','NAME CLAIMS AN ADVERSARY THE BODY NEVER PRODUCES'),
+                     ('F','CAN RETURN/SKIP BEFORE IT ASSERTS ANYTHING')]:
         rows=flagged[k]
         print(f"\n=== CLASS {k}: {label} — {len(rows)} ===")
         for p,n,c in sorted(rows)[:40]:
