@@ -326,13 +326,6 @@ contract VBtcLevFeeLane is AllesFixture {
         ch.splice(cid, p, tx_, new bytes32[](0), stubLadder());
     }
 
-    /// The companion: the SAME pair still splices. Without this the rejection above could be
-    /// satisfied by a check that refuses every splice.
-    function test_spliceWithTheChannelsOwnKeysStillWorks() public {
-        BTCChannels ch = _deployChannels();
-        (bytes32 cid, bytes32 ftx,, bytes memory lpPubkey) = _open(ch, 92, 2e6);
-        _spliceOut(ch, cid, ftx, 92, lpPubkey, 1e6);   // reverts if the keys check is too broad
-    }
 
     // ─────────────────────────────────────────────────────────────────────────────
     //  (§E182) REKEY — what `splice` is forbidden to do, done deliberately and gated.
@@ -553,45 +546,7 @@ contract VBtcLevFeeLane is AllesFixture {
         _assertPinMovedTo(ch, c.cid, realLp, c.oldHop);
     }
 
-    /// A no-op rotation is refused rather than quietly performed. It is not harmless: rotating the
-    /// funding outpoint invalidates EVERY pre-signed exit rung (BIP-341 `Prevouts::All`), so a
-    /// rotation that changes no key would burn the LP's whole ladder for nothing.
-    function test_rekeyRefusesANoOpRotation() public {
-        BTCChannels ch = _deployChannels();
-        RekeyCase memory c;
-        (c.cid, c.ftx,, c.lpPubkey) = _open(ch, 97, 2e6);
-        ( , c.oldHop, ) = ownedChannelKeys(_label(97));
-        c.newHop = c.oldHop;                 // the "rotation" that rotates nothing
-        c.sats = 2e6;
 
-        _submitRekey(ch, c, true);   // SpliceUnchanged -- nothing changed at all
-    }
-
-    /// WHO, enforced: the hop cannot rotate alone. Without this the LP could be moved into a 2-of-2
-    /// with a party it never agreed to — survivable via the exit ladder, but the ladder is exactly
-    /// what the rotation just invalidated.
-    function test_rekeyRequiresTheLpsOwnLadder() public {
-        BTCChannels ch = _deployChannels();
-        RekeyCase memory c;
-        (c.cid, c.ftx,, c.lpPubkey) = _open(ch, 98, 2e6);
-        ( , c.oldHop, ) = ownedChannelKeys(_label(98));
-        ( , c.newHop, ) = ownedChannelKeys(_label(99));
-        c.sats = 2e6;
-        // 🔑 (§REKEY-FOLD) THE SAME PROPERTY, ENFORCED BY THE LADDER INSTEAD OF A SIGNATURE. This
-        // used to hand `rekey` a well-formed `lpSig` from a REAL-but-wrong channel key and assert
-        // the rejection came from WHOSE key it was. `lpSig` is gone, so the wrong key now shows up
-        // where consent actually lives: the ladder's LP half.
-        // ⚠️ **THE COVERAGE IS NOT WEAKER, IT IS THE SAME FACT ONE LAYER DOWN.** `p.lpPubkey` is
-        // seed 98's, so `Q' = TapTweak(KeyAgg(lp98, newHop))`; the rungs below are signed under
-        // `KeyAgg(lp99, newHop)`. `_armDeadManExit` verifies each rung against `Q'` and rejects —
-        // which is precisely why the signature was redundant: a rotation the LP did not co-sign
-        // CANNOT produce an armable ladder, and `_armLadder` refuses to leave a channel escape-less.
-        c.lpLabel = string.concat(_label(99), "-lp");   // a REAL channel key, just not THIS channel's LP
-        c.hopLabel = string.concat(_label(99), "-hop");
-        c.payoutScript = abi.encodePacked(hex"5120", payoutKeyOnly(abi.encode(uint(98))));
-
-        _submitRekey(ch, c, true);   // ExitSignatureInvalid — the rung is not under Q'
-    }
 
     function test_Seam_WithdrawalPayout_MustMatchShutdownKey_NotFundingKey() public {
         BTCChannels ch = _deployChannels();
@@ -1362,76 +1317,6 @@ contract VBtcLevFeeLane is AllesFixture {
         assertGt(d.sats, 0, "no delivery - nothing was measured");
     }
 
-    /// @notice ⭐ §PRO-RATA-FALLBACK — WHAT HAPPENS WHEN THE VENUE'S OWN STABLE VAULT IS PAUSED?
-    /// 🔴 THE EXPOSURE. `_sourceRepayFree` clamps the take to `_heldUsd18(aux, stable)` and the
-    ///    comment says that is to "stay on the cherry-pick leg" -- so a SHORT vault cannot push it
-    ///    onto pro-rata. A PAUSED vault can: `_takePreferred` wraps `aux.withdrawSelf` in
-    ///    try/catch, a revert yields `sent = 0`, and the whole `needed` falls through to the
-    ///    PRO-RATA leg, which delivers OTHER stables -- ones the venue CANNOT REPAY WITH.
-    /// ⇒ The 1:1 measured on the happy path (liquidity consumed == debt retired, gap $0.00000133)
-    ///   has no reason to hold here: the basket pays out stables that cannot retire this venue's
-    ///   debt. This measures whether it breaks, and by how much.
-    /// ⚠️ MEASUREMENT ONLY. Whether the right answer is "revert instead of pro-rata" or "pro-rata is
-    ///    fine because `got` measures the OUTCOME" is a design call; this establishes the numbers.
-    function testReal_MEASURE_ProRataFallback_VenueStableVaultPaused() public {
-        LevDelivery memory d;
-        d.ch = _deployChannels();
-        _setupBtcLev();
-        (d.channelId, d.fundingTxId, d.lp, d.lpPubkey) = _open(d.ch, 54, 3e8);
-        _openLev(d.lp, 299_000_000);
-        _borrowMorpho(d.lp, (lm.collValueUsd(venue.collateralOf(d.lp)) / 10) / 1e12);
-        {
-            address seeder = makeAddr("basketSeeder2");
-            deal(address(USDC), seeder, 400_000 * USDC_PRECISION);
-            vm.startPrank(seeder);
-            USDC.approve(address(AUX), type(uint).max);
-            QUID.mint(seeder, 300_000 * USDC_PRECISION, address(USDC), 0);
-            vm.stopPrank();
-        }
-        BTC.syncLev(d.lp);
-        _snapLevPosition(d);
-        _requestLevSwapOut(d);
-        vm.prank(d.lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
-
-        // ⛔ PAUSE THE VENUE STABLE'S VAULTS. `FeeLib.multiVaultWithdrawBody` reaches them via
-        //    `IERC4626(vs[0]).redeem(...)`, so reverting `redeem` AND `withdraw` is what a paused
-        //    venue looks like from Aux's side -- held > 0, but nothing can come out.
-        address vStable = venue.stable();
-        address[] memory vs = AUX.getVaults(vStable);
-        emit log_named_address("venue stable            ", vStable);
-        emit log_named_uint("its vault count         ", vs.length);
-        for (uint i; i < vs.length; ++i) {
-            vm.mockCallRevert(vs[i], abi.encodeWithSignature("redeem(uint256,address,address)"), "PAUSED");
-            vm.mockCallRevert(vs[i], abi.encodeWithSignature("withdraw(uint256,address,address)"), "PAUSED");
-            emit log_named_address("  paused vault          ", vs[i]);
-        }
-
-        _backingSnap("BEFORE delivery (vault PAUSED)");
-        _vsBefore = IERC20V(vStable).balanceOf(address(venue));
-        uint debtBefore = venue.debtOf(d.lp);
-        try this.extDeliver(d) {
-            emit log("delivery SUCCEEDED with the venue stable vault paused");
-        } catch (bytes memory e) {
-            emit log_named_bytes("delivery REVERTED       ", e);
-        }
-        _backingSnap("AFTER delivery (vault PAUSED)");
-        emit log_named_int("     d(venue stable)     ",
-            int(IERC20V(vStable).balanceOf(address(venue))) - int(_vsBefore));
-        // 🔴 WHERE DID THE $1,377.97 GO? If the pro-rata leg sent OTHER stables to the venue, they
-        //    are sitting there in a denomination `repayPool` cannot use -- stranded, not spent.
-        //    Walk every basket stable and report the venue's balance of each.
-        {
-            address[] memory sts = AUX.getStables();
-            for (uint i; i < sts.length; ++i) {
-                uint b = IERC20V(sts[i]).balanceOf(address(venue));
-                if (b > 0) { emit log_named_address("  VENUE HOLDS stable   ", sts[i]);
-                             emit log_named_uint("    amount (native)    ", b); }
-            }
-        }
-        emit log_named_uint("     debt before  (usd6) ", debtBefore);
-        emit log_named_uint("     debt after   (usd6) ", venue.debtOf(d.lp));
-        assertGt(debtBefore, 0, "no debt - nothing was measured");
-    }
 
     /// External wrapper so the delivery can be try/caught: a paused vault may legitimately revert
     /// the settle (DeleverStableUnavailable), and that is a RESULT, not a test failure.

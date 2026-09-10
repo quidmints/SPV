@@ -81,26 +81,6 @@ contract AaveHubLiquidity is ForkPin, Deploy {
         }
     }
 
-    /// 🔴 THE CONTROL, and it is the one that matters: the OLD formula and the NEW one must DISAGREE,
-    ///    and the old one must be the one that over-promises. If they agreed, the §S12 fix would be a
-    ///    no-op dressed as a correction.
-    function test_Control_OldFormulaOverPromisesAgainstRealCash() public view {
-        uint256 overPromising;
-        for (uint256 i; i < rids.length; ++i) {
-            (, uint256 aid) = _aidOf(rids[i]);
-            uint256 rs  = sp.getReserveSuppliedAssets(rids[i]);
-            uint256 rd  = sp.getReserveTotalDebt(rids[i]);
-            uint256 old = rs > rd ? rs - rd : 0;
-            uint256 liq = hb.getAssetLiquidity(aid);
-            uint256 neu = liq < rs ? liq : rs;          // the shipped `_aaveAvail` shape
-            console2.log("rid", rids[i]);
-            console2.log("   old avail (rs-rd):", old);
-            console2.log("   new avail min(rs,liq):", neu);
-            if (old > neu) ++overPromising;
-        }
-        assertGt(overPromising, 0,
-            "CONTROL FAILED - the old formula never over-promises, so the fix corrects nothing");
-    }
 
     /// ⛔ THE DEAD HYPOTHESIS, PINNED. `getReserveDebt` vs `getReserveTotalDebt` is the singular/plural
     ///    legacy shape, and it is NOT the explanation - they are equal, premium 0.

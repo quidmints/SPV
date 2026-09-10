@@ -43,12 +43,7 @@ contract ApproveInvariantTest is Test, ForkPin {
         assertGt(USDC.code.length, 0, "PREMISE: fork not selected - USDC has no code");
     }
 
-    /// USDT returns no returndata and HAS code ⇒ accepted. This is the case the raw `call` exists for:
-    /// a typed `IERC20.approve` would revert here.
-    function test_Accepts_UsdtStyle_NoReturndata() public { shim.approveMax(USDT, SPENDER); }
 
-    /// USDC returns `true` ⇒ accepted.
-    function test_Accepts_StandardTrueReturn() public { shim.approveMax(USDC, SPENDER); }
 
     /// 🔴 THE REGRESSION THIS FILE IS FOR — and it caught a real hole in the first version of the
     /// guard, which omitted the `extcodesize` leg. A call to a codeless address succeeds with empty

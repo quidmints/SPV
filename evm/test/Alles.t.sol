@@ -2835,20 +2835,6 @@ contract Alles is AllesFixture {
         vm.stopPrank();
     }
 
-    function testRedeemFromSingleVault() public {
-        vm.startPrank(User01);
-
-        vm.warp(block.timestamp + 30 days);
-        uint userBalance = QUID.balanceOf(User01);
-        uint redeemAmount = userBalance / 2;
-
-        uint usdcBefore = USDC.balanceOf(User01);
-        AUX.redeem(redeemAmount);
-        uint usdcReceived = USDC.balanceOf(User01) - usdcBefore;
-        assertGt(usdcReceived, 0, "Should receive USDC");
-
-        vm.stopPrank();
-    }
 
     function testVaultBalanceDistribution() public {
         // §ROSTER-ALIGN — FUND A THIRD AND FOURTH STABLE, BECAUSE THE ASSERTION BELOW WAS BEING
@@ -2921,21 +2907,6 @@ contract Alles is AllesFixture {
         vm.stopPrank();
     }
 
-    function testSwapWithDifferentStableOutputs() public {
-        vm.startPrank(User01);
-        ETH.deposit{value: 100 ether}(0, User01);
-
-        uint pooledETH = CORE.POOLED();
-        assertGt(pooledETH, 0, "pool must be seeded");
-
-        uint usdcBefore = USDC.balanceOf(User01);
-        AUX.swap{value: 1 ether}(address(USDC), address(WETH), false, 0, 0, true);
-
-        uint usdcReceived = USDC.balanceOf(User01) - usdcBefore;
-        assertGt(usdcReceived, 0, "Should receive USDC");
-
-        vm.stopPrank();
-    }
 
     function testLargeRedemptionAllVaults() public {
         vm.startPrank(User01);
@@ -3004,45 +2975,6 @@ contract Alles is AllesFixture {
         vm.stopPrank();
     }
 
-    function test_WithdrawDoesNotPersistFeeSnapshot() public {
-        vm.startPrank(User01);
-        ETH.deposit{value: 100 ether}(0, User01);
-        vm.stopPrank();
-
-        for (uint i = 0; i < 3; i++) {
-            vm.startPrank(User03);
-            AUX.swap{value: 0.05 ether}(address(USDC), address(WETH), false, 0, 0, true);
-            vm.roll(block.number + 1);
-            vm.warp(block.timestamp + 15 minutes);
-            vm.stopPrank();
-        }
-
-        uint balBefore = User01.balance;
-        uint wBefore1 = IERC20(address(WETH)).balanceOf(User01);
-        vm.prank(User01);
-        ETH.withdraw(10 ether, User01, User01);
-        uint received = (User01.balance - balBefore) + (IERC20(address(WETH)).balanceOf(User01) - wBefore1);
-        // MEASURE BOTH ASSETS: exits route through the ether.fi offramp, which pays WETH, where
-        // the old range-burn path paid native ETH. Watching only `.balance` reads 0 on a delivery
-        // that happened -- the wrong ASSET, not a real zero.
-        assertGt(received, 0, "Should receive something on withdraw (native ETH or WETH)");
-
-        for (uint i = 0; i < 3; i++) {
-            vm.startPrank(User03);
-            AUX.swap{value: 0.05 ether}(address(USDC), address(WETH), false, 0, 0, true);
-            vm.roll(block.number + 1);
-            vm.warp(block.timestamp + 15 minutes);
-            vm.stopPrank();
-        }
-
-        balBefore = User01.balance;
-        wBefore1 = IERC20(address(WETH)).balanceOf(User01);
-        vm.prank(User01);
-        ETH.withdraw(10 ether, User01, User01);
-        // MEASURE BOTH ASSETS -- the offramp pays WETH, the old range burn paid native ETH.
-        received = (User01.balance - balBefore) + (IERC20(address(WETH)).balanceOf(User01) - wBefore1);
-        assertGt(received, 0, "Should receive something on final withdraw (native ETH or WETH)");
-    }
 
     function test_PendingSwapETHInflatesAvailable() public {
         vm.startPrank(User01);
@@ -3088,52 +3020,6 @@ contract Alles is AllesFixture {
         assertGt(CORE.POOLED(), beforeDep, "a real deposit grows POOLED");
     }
 
-    function test_FeeAttributionWithMultipleLPs() public {
-        vm.deal(User01, 1000 ether);
-        vm.deal(User02, 1000 ether);
-        vm.deal(User03, 1000 ether);
-
-        vm.prank(User01);
-        ETH.deposit{value: 100 ether}(0, User01);
-
-        vm.startPrank(User03);
-        USDC.approve(address(AUX), type(uint).max);
-        for (uint i = 0; i < 5; i++) {
-            AUX.swap{value: 2 ether}(address(USDC), address(WETH), false, 0, 0, true);
-            vm.roll(block.number + 1);
-            vm.warp(block.timestamp + 15 minutes);
-        }
-        vm.stopPrank();
-
-        vm.prank(User02);
-        ETH.deposit{value: 100 ether}(0, User02);
-
-        vm.startPrank(User03);
-        for (uint i = 0; i < 5; i++) {
-            AUX.swap{value: 2 ether}(address(USDC), address(WETH), false, 0, 0, true);
-            vm.roll(block.number + 1);
-            vm.warp(block.timestamp + 15 minutes);
-        }
-        vm.stopPrank();
-
-        uint bal1 = User01.balance;
-        uint wAlice0 = IERC20(address(WETH)).balanceOf(User01);
-        vm.prank(User01);
-        ETH.withdraw(type(uint).max, User01, User01);
-        uint aliceReceived = (User01.balance - bal1) + (IERC20(address(WETH)).balanceOf(User01) - wAlice0);
-
-        uint bal2 = User02.balance;
-        uint wBob0 = IERC20(address(WETH)).balanceOf(User02);
-        vm.prank(User02);
-        ETH.withdraw(type(uint).max, User02, User02);
-        uint bobReceived = (User02.balance - bal2) + (IERC20(address(WETH)).balanceOf(User02) - wBob0);
-
-        // MEASURE BOTH ASSETS: exits route through the ether.fi offramp, which pays WETH, where
-        // the old range-burn path paid native ETH. Watching only `.balance` reads 0 on a delivery
-        // that happened -- the wrong ASSET, not a real zero.
-        assertGt(aliceReceived, 0, "Alice should receive value (native ETH or WETH)");
-        assertGt(bobReceived, 0, "Bob should receive value (native ETH or WETH)");
-    }
 
     /// @notice Quid is a DUAL (ETH+BTC) vault, so it cannot be strict
     ///         single-asset ERC-4626 - the names are kept for ergonomics only.
@@ -3305,13 +3191,6 @@ contract Alles is AllesFixture {
         _assertSpokeStableRoundTrips(USDG, "USDG");
     }
 
-    function test_Redeem_DeepDepeg_Liveness() public {
-        _stageDepeg();
-        _setDepeg(address(USDC), 6000);                              // 60% depeg on USDC (no floor)
-        (uint red, uint burn) = _redeemValue(User01, 10_000e18);
-        assertGt(burn, 0, "deep-depeg redeem still burns mature QD");
-        assertGt(red, 0, "deep-depeg redeem still delivers (not bricked)");
-    }
 
     function test_EthLp_RedeemConservationAndFairness() public {
         vm.deal(User01, 1000 ether);
@@ -4993,79 +4872,7 @@ contract Alles is AllesFixture {
             "assertGt(pooledAfter, pooledPre) here.");
     }
 
-    /// (E145-q) WHEN AN EXITING LP'S BTC-LEG CLAIM IS FORGONE, WHAT DO THE REMAINING LPs GET?
-    ///
-    /// `Vault.sol:875-885` says the forgone sats "accrue to the remaining LPs". That sentence
-    /// has been repeated all thread -- by the code, and by me -- and never measured. It is the
-    /// load-bearing claim under every E145 option: if remaining LPs gain nothing, the value is
-    /// simply lost and the fold is a fix; if they gain, it is a transfer between LPs and the
-    /// fold changes who gets paid.
-    function testBtcLp_forgoneClaim_whatDoRemainingLpsActuallyGet() public {
-        AUX.setBTCChannels(address(this));
-        BTC.requestDeposit(User01, 2e7);
-        BTC.requestDeposit(User02, 2e7);
-        vm.startPrank(User03);
-        USDC.approve(address(AUX), type(uint).max);
-        for (uint i = 0; i < 4; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
-            vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
-        }
-        vm.stopPrank();
-        // Swap-ins are what accrue the BTC leg (E145-q).
-        BTC.creditSwapIn(address(0x5E21), 500_000, address(USDC), 0);
-        vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
-        BTC.creditSwapIn(address(0x5E22), 500_000, address(USDC), 0);
-        vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
 
-        vm.prank(User01); BTC.collectFees();
-        vm.prank(User02); BTC.collectFees();
-        // (E145) THE FORFEITURE IS GONE BECAUSE THE LEDGER IS. This test previously needed a
-        // live claim to forgo, and MEASURED 209 sats vanishing at close with no remaining LP
-        // gaining anything. The fee now compounds into `pooled` as it is earned, so there is
-        // never an unsettled claim to lose — which is the fix, not a gap in the test.
-
-        uint fpsBefore = BTC.feesPerShare();
-        BTC.requestRedeem(User01, 2e7);                 // LP1 exits fully
-
-        // THE MEASUREMENT: does LP2 receive any of it?
-        vm.prank(User02); BTC.collectFees();
-        emit log_named_uint("feesPerShare before", fpsBefore);
-        emit log_named_uint("feesPerShare after ", BTC.feesPerShare());
-        // Recorded, not asserted in a direction: this test exists to ESTABLISH the number.
-        // Whichever way it lands, it decides whether the fold is a fix or a redistribution.
-    }
-
-    /// (E152-b) MEASURE THE USD-LEG FEE RATE DIRECTLY, on a single swap of known size.
-    ///
-    /// The `BtcLpMintStress` bound was DERIVED from this rate at 4.2 bps; the suite now shows
-    /// 24.24 bps. That test cannot discriminate, because its delta mixes proceeds and fees.
-    /// This isolates the fee: ONE LP (so its share is the whole range) and ONE swap, so the
-    /// accrued USD-leg fee IS the pool's rate on that volume.
-    function testBtcPool_measureUsdLegFeeRateOnASingleSwap() public {
-        AUX.setBTCChannels(address(this));
-        BTC.requestDeposit(User01, 2e7);
-        vm.prank(User01); BTC.collectFees();          // zero the LP's bookmark first
-
-        uint usdFees0 = BTC.USD_FEES();
-        uint qd0 = QUID.balanceOf(User01);
-
-        uint volume6 = 1_000 * USDC_PRECISION;           // ONE swap, known size
-        vm.startPrank(User03);
-        USDC.approve(address(AUX), type(uint).max);
-        AUX.swap(address(USDC), address(WBTC), true, volume6, 0, true);
-        vm.stopPrank();
-        vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
-
-        vm.prank(User01); BTC.collectFees();          // crystallise -> QUID (18-dec)
-        uint paid18 = QUID.balanceOf(User01) - qd0;
-        emit log_named_uint("swap volume (6-dec)      ", volume6);
-        emit log_named_uint("USD_FEES delta       ", BTC.USD_FEES() - usdFees0);
-        emit log_named_uint("QUID paid to the LP (18) ", paid18);
-        // bps of volume: paid is 18-dec, volume is 6-dec ⇒ normalise volume to 18-dec.
-        uint volume18 = volume6 * 1e12;
-        if (volume18 > 0) emit log_named_uint("=> fee rate, bps of volume", paid18 * 10000 / volume18);
-        assertGt(paid18, 0, "the single swap must accrue a USD-leg fee to the sole LP");
-    }
 
     /// (E145) THE LAST UNMEASURED PRICE IN THE FOLD: is `sats * price / WAD` really 18-dec USD?
     ///

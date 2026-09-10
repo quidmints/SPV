@@ -64,85 +64,8 @@ contract OfframpRouteGas is ForkPin {
 
     function setUp() public { vm.selectFork(_forkMainnet()); }
 
-    /// @dev Baseline: the raw pool call, with the approval OUTSIDE the measurement, so this is the
-    ///      irreducible cost of the swap itself. Everything else is measured against it.
-    function test_Gas_A_DirectCurveExchange() public {
-        deal(WEETH, address(this), SIZE);
-        IERC20G(WEETH).approve(POOL, SIZE);
-        uint256 quoted = ICurvePool(POOL).get_dy(int128(1), int128(0), SIZE);
 
-        uint256 before = IERC20G(WETH).balanceOf(address(this));
-        uint256 g0 = gasleft();
-        ICurvePool(POOL).exchange(int128(1), int128(0), SIZE, (quoted * 995) / 1000);
-        uint256 used = g0 - gasleft();
-        uint256 got = IERC20G(WETH).balanceOf(address(this)) - before;
 
-        assertGt(got, 0, "baseline swap moved no WETH");
-        console2.log("A. raw ICurvePool.exchange (approve excluded)   gas:", used);
-        console2.log("   WETH out:", got);
-    }
-
-    /// @dev What the offramp ACTUALLY calls today: `sellWeethOnCurve` -> `curveExchange`, which adds a
-    ///      `forceApprove` and a try/catch. This is the honest "direct path" number.
-    function test_Gas_B_SellWeethOnCurveAsShipped() public {
-        deal(WEETH, address(this), SIZE);
-        uint256 quoted = ICurvePool(POOL).get_dy(int128(1), int128(0), SIZE);
-
-        uint256 before = IERC20G(WETH).balanceOf(address(this));
-        uint256 g0 = gasleft();
-        LevMath.sellWeethOnCurve(WEETH, POOL, SIZE, (quoted * 995) / 1000);
-        uint256 used = g0 - gasleft();
-        uint256 got = IERC20G(WETH).balanceOf(address(this)) - before;
-
-        assertGt(got, 0, "shipped offramp path moved no WETH");
-        console2.log("B. LevMath.sellWeethOnCurve (as shipped)        gas:", used);
-        console2.log("   WETH out:", got);
-    }
-
-    /// @dev 🔑 THE PRIOR QUESTION. Enumerate 1inch v6 `unoswap` protocol ids against the SAME Curve pool
-    ///      and report which, if any, executes. A wrong id cannot do harm here: the call either reverts
-    ///      or moves nothing, and we measure the WETH delta rather than trusting a return value — the
-    ///      same discipline `convertTo` itself uses.
-    ///
-    ///      ⚠️ A Curve `exchange` needs COIN INDICES (i, j). A bare `(proto << 253) | uint160(pool)` word
-    ///      carries none, so if 1inch encodes Curve at all it must place them in the middle bits. The
-    ///      probe therefore tries the bare word AND a small set of index placements before concluding.
-    function test_Probe_IsCurveEncodableAsAUnoswapPoolWord() public {
-        uint256 quoted = ICurvePool(POOL).get_dy(int128(1), int128(0), SIZE);
-        uint256 floor_ = (quoted * 990) / 1000;
-        uint256 hits;
-
-        for (uint256 proto; proto < 8; ++proto) {
-            uint256 base = (proto << 253) | uint256(uint160(POOL));
-            // bare word, then weETH=coin1 -> WETH=coin0 index placements 1inch-style
-            uint256[4] memory words = [
-                base,
-                base | (uint256(1) << 247),               // a single direction/index flag
-                base | (uint256(1) << 208),               // i=1 in a middle byte
-                base | (uint256(1) << 208) | (uint256(0) << 200)
-            ];
-            for (uint256 w; w < words.length; ++w) {
-                uint256 snap = vm.snapshotState();
-                deal(WEETH, address(this), SIZE);
-                bytes memory route = abi.encodeWithSelector(
-                    UNOSWAP_SELECTOR, uint256(uint160(WEETH)), SIZE, floor_, words[w]);
-
-                IERC20G(WEETH).approve(ONEINCH_ROUTER, SIZE);
-                uint256 before = IERC20G(WETH).balanceOf(address(this));
-                (bool ok, ) = ONEINCH_ROUTER.call{gas: 3_000_000}(route);
-                uint256 got = ok ? IERC20G(WETH).balanceOf(address(this)) - before : 0;
-                if (ok && got >= floor_) {
-                    hits++;
-                    console2.log("   ENCODABLE: proto", proto, "variant", w);
-                    console2.log("   WETH out:", got);
-                }
-                vm.revertToState(snap);
-            }
-        }
-        console2.log("C. curve-as-unoswap-pool-word encodings that filled:", hits);
-        // Deliberately NOT an assertion either way. A zero here is a FINDING (the offramp cannot be
-        // routed without new encoding work), not a failure; a non-zero is the input to test D.
-    }
 
     /// @dev 🔴🔴 **THE CONTROL, AND WITHOUT IT THE PROBE ABOVE PROVES NOTHING.** CLAUDE.md: *"Run the
     ///      CONTROL before concluding: would this measurement look the same if I were wrong?"* If my

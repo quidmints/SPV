@@ -884,47 +884,6 @@ contract UnificationControls is AllesFixture {
         assertTrue(gotEth > 0 || gotQ > 0, "VERDICT: the deferral must be COLLECTABLE, else it is a leak");
     }
 
-    /// PINPOINT the -31.21. Compare the LP's CLAIM (what `convertToAssets` says the shares are
-    /// worth) against the VALUE ACTUALLY DELIVERED (ETH + QU!D), in one unit, on the same block.
-    /// If claim == delivered the gap is not in `_withdraw` at all and the probe's control arm is
-    /// the thing to examine; if claim > delivered the leak is in the delivery path.
-    function test_PINPOINT_ClaimVsDelivered() public {
-        _seedBasket();
-        vm.prank(lpA); ETH.deposit{value: 400 ether}(0, lpA);
-        vm.roll(block.number + 1);
-        for (uint i; i < 20; i++) _trade(3_000e18);
-
-        _assertTraded();
-        uint px      = AUX.getTWAPforAsset(address(WETH), 1800);
-        uint shares  = ETH.balanceOf(lpA);
-        uint claimEth = ETH.convertToAssets(shares);
-        uint claimUsd = claimEth * px / 1e18;
-
-        emit log_named_uint("POOLED   pre  ", CORE.POOLED());
-        emit log_named_uint("rangeETH     pre  ", AUX.rangeETH());
-        emit log_named_uint("POOLED_USD   pre  ", CORE.POOLED_USD());
-        emit log_named_uint("basketUsd pre  ", CORE.basketUsd());
-        emit log_named_uint("lpShares     pre  ", ETH.lpShares());
-
-        uint entryEquity = lpA.balance; uint w0 = WETH.balanceOf(lpA); uint q0 = QUID.balanceOf(lpA);
-        vm.prank(lpA); ETH.redeem(shares, lpA, lpA);
-        emit log_named_uint("POOLED   post ", CORE.POOLED());
-        emit log_named_uint("POOLED_USD   post ", CORE.POOLED_USD());
-        emit log_named_uint("basketUsd post ", CORE.basketUsd());
-        uint gotEth = (lpA.balance - entryEquity) + (WETH.balanceOf(lpA) - w0);
-        uint gotQ   = QUID.balanceOf(lpA) - q0;
-        uint gotUsd = gotEth * px / 1e18 + gotQ;
-
-        emit log_named_uint("px                ", px);
-        emit log_named_uint("shares            ", shares);
-        emit log_named_uint("CLAIM  (eth)      ", claimEth);
-        emit log_named_uint("CLAIM  (usd18)    ", claimUsd);
-        emit log_named_uint("GOT eth           ", gotEth);
-        emit log_named_uint("GOT quid          ", gotQ);
-        emit log_named_uint("DELIVERED (usd18) ", gotUsd);
-        emit log_named_int ("delivered - claim ", int(gotUsd) - int(claimUsd));
-        emit log_named_uint("pooled left       ", ETH.balanceOf(lpA));
-    }
 
     /// §E36 — DID #12 ACTUALLY BUY CAPITAL EFFICIENCY? Measure it, do not argue it.
     ///

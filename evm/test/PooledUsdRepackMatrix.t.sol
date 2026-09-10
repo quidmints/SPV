@@ -499,67 +499,6 @@ contract PooledUsdRepackMatrix is AllesFixture {
         _assertFrameTracksSpot("S3c frame (ANCHORED+FRESH)", s0, s2);
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // S5 — THE PREMISE OF THE R2 FIX, MEASURED. Bounding `sqrtPriceLimitX96` at the
-    // range edge is only neutral if a swap CANNOT FILL past that edge — i.e. the
-    // teleport to MAX_SQRT_PRICE moves price WITHOUT moving tokens. If instead real
-    // volume trades out there, bounding the limit would change fills and the fix is
-    // NOT neutral. This measures the marginal swap in isolation: drain the range's
-    // USD leg first, then do ONE more swap and compare price movement against
-    // tokens actually exchanged.
-    // ═══════════════════════════════════════════════════════════════════════════
-    function testMatrix_S5_UnfillableSwapMovesPriceForFree() public {
-        _seedBoth(400 ether, 2e7);
-
-        // Drain the USD leg to EXHAUSTION first. Measured: the 5th sell still fills completely
-        // (30 ETH in, 25,168.89 USDC out, USD leg 25,185.75 -> 16.85, tick +1), so the teleport is
-        // the swap AFTER exhaustion -- that is the one this isolates.
-        for (uint i = 0; i < 5; i++) _sellEth(30 ether);
-        // §SILENT-SETUP — the whole scenario is "the swap AFTER exhaustion", so the five that
-        // EXHAUST it must have landed. If none did, the "marginal" swap is just the first one.
-        _assertTraded();
-
-        Pair memory a = _snap();
-        uint ethBefore  = User01.balance;
-        uint usdcBefore = USDC.balanceOf(User01);
-        // E10: `_refundExcess` pays the unfilled remainder via `aux.withdrawSelf(r.inToken, ...)`,
-        // and for a volatile-in swap `inToken` is WETH -- so the refund arrives as WETH, NOT native.
-        // Measuring only `.balance` + USDC (as the first version of this test did) MISSES it and
-        // makes an ordinary partial fill look like a 70% overpay.
-        uint wethBefore = WETH.balanceOf(User01);
-        emit log_named_uint("pre-marginal  USD leg (6d)", a.eth.usd);
-        emit log_named_uint("pre-marginal  price       ", a.eth.price);
-        emit log_named_uint("pre-marginal  POOLED ", a.eth.leg);
-
-        // THE MARGINAL SWAP.
-        _sellEth(30 ether);
-
-        Pair memory b = _snap();
-        uint ethSpent = ethBefore - User01.balance;
-        uint usdcGot  = USDC.balanceOf(User01) - usdcBefore;
-        uint wethGot  = WETH.balanceOf(User01) - wethBefore;
-        uint px       = _pxEth();
-        // VALUE ACCOUNTING (USD18): what the swapper paid vs what came back on ALL legs.
-        uint paid = ethSpent * px / 1e18;
-        uint back = wethGot * px / 1e18 + usdcGot * 1e12;
-        emit log_named_uint("marginal swap: WETH refund", wethGot);
-        emit log_named_uint("value paid  (USD18)      ", paid);
-        emit log_named_uint("value back  (USD18)      ", back);
-        emit log_named_int ("value delta (USD18)      ", int(back) - int(paid));
-        emit log_named_uint("post-marginal USD leg (6d)", b.eth.usd);
-        emit log_named_uint("post-marginal price       ", b.eth.price);
-        emit log_named_uint("post-marginal POOLED ", b.eth.leg);
-        emit log_named_uint("marginal swap: ETH spent ", ethSpent);
-        emit log_named_uint("marginal swap: USDC recvd", usdcGot);
-        emit log_named_uint("price moved by            ", b.eth.price - a.eth.price);
-        emit log_named_uint("range ETH leg moved by    ", b.eth.leg > a.eth.leg ? b.eth.leg - a.eth.leg : 0);
-        emit log_named_uint("range USD leg moved by    ", a.eth.usd > b.eth.usd ? a.eth.usd - b.eth.usd : 0);
-
-        // NOT an assertion about the fix -- a MEASUREMENT of whether price moved without trade.
-        // Reported so the neutrality claim rests on numbers, not on reading Uniswap semantics.
-        emit log_string("If tick moves far while the legs barely move, the price moved for FREE");
-        emit log_string("=> bounding sqrtPriceLimitX96 at the range edge is FILL-NEUTRAL.");
-    }
 
     /// @dev One sell, fully instrumented. Returns false if the swap REVERTED — `_sellEth`'s
     ///      try/catch hides that, and "which swap reverted" turned out to matter.
@@ -583,31 +522,4 @@ contract PooledUsdRepackMatrix is AllesFixture {
         vm.roll(block.number + 1); vm.warp(block.timestamp + warpPerSwap);
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // S6 — WHICH SWAP TELEPORTS, AND FROM WHAT STATE. S3 (12 opens, then 6 x 30 BTC)
-    // reaches MAX_TICK; S5 (the same 6 sells with NO opens) does not, and drains the
-    // USD leg FURTHER while staying at tick 201019. So exhaustion is not the trigger
-    // and the opens are somehow necessary. This logs every sell so the exact
-    // transition is IDENTIFIED rather than inferred -- three inferred mechanisms
-    // have already been wrong.
-    // ═══════════════════════════════════════════════════════════════════════════
-    function testMatrix_S6_WhichSwapTeleports() public {
-        _seedBoth(400 ether, 2e7);
-        Pair memory s0 = _snap();
-        emit log_named_uint("price after seed", s0.eth.price);
-        emit log_named_uint("USD leg after seed", s0.eth.usd);
-
-        uint opens;
-        for (uint r = 0; r < 12; r++) { if (_open(3_000e18) == 0) break; opens++; }
-        Pair memory s1 = _snap();
-        emit log_named_uint("opens landed", opens);
-        emit log_named_uint("price after opens", s1.eth.price);
-        emit log_named_uint("USD leg after opens", s1.eth.usd);
-        emit log_named_uint("ETH leg after opens", s1.eth.leg);
-        emit log_named_uint("UPPER_PRICE after opens", _bHi(address(ETH)));
-        emit log_named_uint("LOWER_PRICE after opens", _bLo(address(ETH)));
-
-        for (uint i = 1; i <= 6; i++) _sellEthLogged(i, 30 ether);
-        _assertTraded();
-    }
 }

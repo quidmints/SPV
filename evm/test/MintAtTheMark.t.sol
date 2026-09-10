@@ -256,33 +256,6 @@ contract MintAtTheMark is AllesFixture {
             "post-calibration path must not haircut an ORDINARY deposit into a HEALTHY basket");
     }
 
-    /// §E2-HAIRCUT-SCALES-WITH-DEPTH — MEASURE, DO NOT BACK-SOLVE. Every prior `normalized` figure was
-    /// inferred through `minted * total/mature`, the formula under suspicion, and that produced TWO
-    /// dead candidates. Both numbers are directly readable: `AUX.deposit` is `public returns (uint
-    /// usd)` and `Basket.mint` returns `normalized`. Deposit is measured under a snapshot and
-    /// reverted, so the mint that follows sees the identical state.
-    function test_E2_Haircut_MeasureDepositAndNormalizedDirectly() public {
-        _seedBasket();
-        _openShortfall();
-        deal(address(USDC), User03, 2_000_000 * USDC_PRECISION);
-
-        emit log_named_uint("mark at entry", _mark());
-
-        uint snap = vm.snapshotState();
-        vm.startPrank(User03);
-        USDC.approve(address(AUX), type(uint).max);
-        emit log_named_uint("AUX.deposit CREDITED for 50,000 USDC", AUX.deposit(User03, address(USDC),
-            50_000 * USDC_PRECISION));
-        vm.stopPrank();
-        vm.revertToState(snap);
-
-        vm.startPrank(User03);
-        USDC.approve(address(AUX), type(uint).max);
-        emit log_named_uint("mint RETURNED normalized           ",
-            QUID.mint(User03, 50_000 * USDC_PRECISION, address(USDC), 0));
-        vm.stopPrank();
-        emit log_named_uint("paid (18-dec reference)            ", 50_000e18);
-    }
 
     /// §REDEEM-SIDE-UNTESTED — THE FAIRNESS TEST. Every other redemption test here measures the NEW
     /// DEPOSITOR's own round trip. This measures the party who CANNOT OPT OUT: someone already

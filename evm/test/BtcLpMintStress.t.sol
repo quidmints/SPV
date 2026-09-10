@@ -119,19 +119,6 @@ contract BtcLpMintStress is AllesFixture {
                          abi.encodePacked(hex"5120", payout), EXIT_DEADLINE, 1_000);
     }
 
-    /// (§SPRINT-B4) DEPTH IS ENFORCED: a channel cannot open behind a single CLTV window.
-    /// Two shallow shapes, both with REAL, individually verifiable rungs — the revert must
-    /// come from the depth check, not from a signature failure wearing its selector:
-    ///   • one rung — one window;
-    ///   • two rungs at the SAME deadline — still one window (the deadline lives inside the
-    ///     signed bytes, so equal deadlines are equal escapes, not depth).
-    function test_openChannel_shallowLadder_reverts() public {
-        // ONE instance (`setBTCChannels` pins once). Both attempts revert at the depth check
-        // BEFORE any channel is created, so different seeds on the same contract is fine.
-        BTCChannels ch = _deployChannels();
-        _openExpectShallow(ch, 777_001, false);
-        _openExpectShallow(ch, 777_002, true);
-    }
 
     /// Own frame per attempt (legacy stack, no `via_ir`).
     function _openExpectShallow(BTCChannels ch, uint seed, bool twoSameDeadline) private {

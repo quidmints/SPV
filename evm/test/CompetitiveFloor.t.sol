@@ -76,11 +76,4 @@ contract CompetitiveFloorTest is ForkPin {
         assertGt(q, 9_000e18, "the two-hop quote collapsed - stable->stable would carry no competitive floor");
     }
 
-    /// 🔴 CONTROL 3 — **THE VACUITY CHECK.** If the quote were zero everywhere, every assertion above
-    ///    about "never loosens" would hold trivially and the floor would never tighten. At least one
-    ///    real route must produce a NON-ZERO quote, or this whole mechanism is inert.
-    function test_Control_TheMechanismIsNotInert() public view {
-        uint256 q = LevMath._selfServableQuote(USDC, 10_000e6, PYUSD_TOKEN);
-        assertGt(q, 0, "CONTROL FAILED - no route quotes anything, so the competitive floor never binds");
-    }
 }

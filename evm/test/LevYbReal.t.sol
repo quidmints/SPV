@@ -851,27 +851,6 @@ contract LevYbRealProbe is AllesFixture {
             "of the drain, which is a venue problem rather than a bookkeeping one");
     }
 
-    ///  at notice 🔬 §LIQ-PENALTY-REFUTED → **WHERE DOES THE CONSTANT OFFSET ENTER?** The fraction sweep
-    ///   returned 4,780,507,795,264,422 IDENTICAL TO THE WEI at 0, 1/4, 1/2 and 3/4 liquidated —
-    ///   including the zero arm. A penalty must scale; this does not, and it is present with no
-    ///   liquidation at all. ⇒ the residual is a FIXED accounting offset introduced during SETUP.
-    ///   This walks the setup one step at a time and prints the residual after each, so the step that
-    ///   introduces it is read off rather than guessed.
-    function testReal_LiqPenalty_4_WhereDoesTheOffsetEnter() public {
-        _setupMorpho();
-        EV.setLevManager(address(rlm));
-        _step("after _setupMorpho");
-        _openLpFlat();
-        _step("after _openLpFlat (5 ETH deposit + 5 weETH openLev)");
-        _rallyRange(_entryPrice(rlm, LP), 0.2e18, 20, 8_000 * USDC_PRECISION);
-        _step("after _rallyRange");
-        rlm.rebalance(LP, 0, DEX_WETH_USDC, 0, "");
-        _step("after rebalance (lever to IL target)");
-        _calmVol();
-        _step("after _calmVol");
-        ETH.syncLev(LP);
-        _step("after syncLev");
-    }
     function _step(string memory label) internal {
         emit log_named_string("STEP", label);
         emit log_named_uint ("   POOLED  ", CORE.POOLED());

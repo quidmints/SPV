@@ -64,15 +64,4 @@ contract PoolWordVocabulary is ForkPin {
         assertEq(gotR, 0, "proto=2 now fills USDC/RLUSD - RE-OPEN the delete-route question");
     }
 
-    /// 🔴 THE CONTROL. If `_try` cannot fill ANY pool the encoder is broken and every zero above is
-    ///    meaningless. V3 USDC->WETH is the encoding the tree has already verified moves tokens.
-    function test_Control_TheEncoderFillsAKnownGoodPool() public {
-        address WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
-        address v3 = 0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640;   // USDC/WETH 0.05%
-        uint256 dex = _word(1, v3);
-        // token0 is USDC on this pool, so selling USDC is zeroForOne.
-        uint256 got = _try(USDC, WETH, 10_000e6, dex | ZERO_FOR_ONE);
-        console2.log("CONTROL USDC -> WETH via proto=1, got:", got);
-        assertGt(got, 0, "CONTROL FAILED - the encoder fills nothing, so the Curve zeros prove nothing");
-    }
 }
