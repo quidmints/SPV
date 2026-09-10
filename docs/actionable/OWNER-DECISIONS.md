@@ -60,6 +60,37 @@ annualised σ = 95.5%** — and `realizedVarianceWad` is `max(ringVariance, anch
 
 ---
 
+# ✅ R-MIGRATION-BINDS-THE-INSTANCE (2026-09-10) — **DELETE THE MIGRATION NONCE. BIND THE EXPORT TO THE SUCCESSOR, NOT ITS MEASUREMENT.**
+
+Owner agreed to the structural form after asking *"why do we need that migration nonce?"*
+
+**WHY IT EXISTS TODAY, stated so nobody deletes it before the replacement lands:** `MigrationAuth`
+commits to `{measurement, deploy_env, network, nonce}`. **MRENCLAVE is a CLASS, not an instance** —
+anyone who can build and run that image is a member. So without the nonce a signed bundle means,
+forever, *"export the seed to whoever is running image X"*: a standing bearer token that turns
+migration into a **seed-replication oracle**. The nonce makes it one-shot. And it is consumed
+**on-chain** (`BTCChannels.markMigrationNonceUsed`) rather than in sealed state for the reason the
+threat model gives — **the host is untrusted and can roll sealed state back**, so an in-enclave
+counter would be undone by the very adversary it defends against.
+
+▶️ **THE REPLACEMENT: bind the auth to the successor INSTANCE.** The successor generates a fresh
+keypair; its attestation quote carries the public key in **`report_data`** (64 bytes — already in use,
+`quid-enclave/src/backend.rs:32`); the seed is encrypted to that key. ⇒ **a replayed bundle exports to
+a keypair the attacker does not hold, so replay is INERT BY CONSTRUCTION** (rule 17) rather than
+detected by a ledger (rule 3).
+✅ **WHAT THIS DELETES:** `MigrationAuth.nonce`, `BTCChannels.markMigrationNonceUsed`, the
+`migrationNonceUsed` mapping, `MigrationNonceAlreadyUsed`, `MigrationNonceConsumed`, and the
+`_onlyHop` entrypoint — **freeing EIP-170 margin on an immutable contract.**
+⚠️ **THE COST, WHICH IS OPERATIONAL AND FALLS ON THE OPERATORS, NOT THE CODE: they must sign PER
+MIGRATION, against a LIVE successor that has already produced its quote.** Today they can pre-sign a
+measurement before the successor exists. **That convenience IS what the nonce was buying.** Do not
+land the binding without telling the operators their signing window moved.
+📌 **A mitigation of the CURRENT design I under-weighted when first raising this, kept so the urgency
+is not overstated: the recipient of a replayed export is still an enclave running YOUR code.** The
+attacker gets no plaintext unless image X itself has a leak path. ⇒ the exposure is **surface
+multiplication, not immediate compromise** — which is why the nonce is adequate rather than urgent,
+and why this is a cleanup with a real benefit rather than an incident.
+
 # ✅ RESOLVED 2026-09-09 — EIGHT RULINGS, TAKEN DIRECTLY FROM THE OWNER
 
 ⚠️ **These are ANSWERS, not proposals. Do not re-open them as questions; the ruling text is the spec.**
