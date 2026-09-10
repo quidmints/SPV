@@ -371,18 +371,45 @@ so the array holding the addends was never the thing that made it computable.
 - **Deep in the money**, LPs clip at `TARGET_LTV_CAP_BPS` and the closed form does not, so `D*` would
   over-borrow.
 
-Three ways out, with a recommendation:
+🔴 **CORRECTION (same day, before any code): MY FIRST ANSWER — "bucket `b_i` into fixed tiers,
+O(tiers), no cross-subsidy" — IS WRONG, AND WRONG IN THE DIRECTION THAT MATTERS.** Bucketing is exact
+only if every threshold crossing lands on a bucket EDGE. It does not: at any `px` the book splits at
+`b_i = px` and at `b_i = px·(1−cap)²`, and with `cap = TARGET_LTV_CAP_BPS = 7500` that second
+threshold is `px/16`. Both thresholds move continuously with price, so the **boundary bucket is
+always partially in and partially out**, and resolving it needs its members — i.e. the walk. Coarser
+tiers make the error bigger, finer tiers make the read longer; neither makes it exact. I recommended
+it as exact. It is not.
 
-| | how | cost | cross-subsidy |
-|---|---|---|---|
-| **(a) BUCKET `b_i` — recommended** | keep `(S1, S2)` per fixed entry-price tier; a price move touches only tiers whose threshold it crossed | O(tiers), a constant — not O(LPs) | **none**: each LP keeps its own basis, exactly |
-| (b) one pooled `ilBasisPx` | equity-weighted entry price for the whole book | O(1), simplest | **yes, by construction** — a late entrant is hedged against an early entrant's basis. This is the thing §POOL-VENUE was fighting |
-| (c) lazy sum | maintain `D*` on each LP's own touch | O(1) per touch | none, but `D*` **lags** between touches, and the lag is exactly the crash window |
+**What actually makes an exact structure possible — QUANTISE `ilBasisPx` AT OPEN.** Round each LP's
+`b_i` UP to a fixed relative grid (1 bps steps) when the position opens. Rounding *up* means the LP is
+treated as having entered slightly later, so its own hedge is slightly smaller — the loss falls on
+that LP alone and never on another, which is the property that matters. With `b_i` on the grid, a
+Fenwick tree over the grid gives **exact** prefix sums in O(log N) reads and O(log N) writes; at 1 bps
+over a 4096× price range that is ~17 slots per query.
 
-⇒ **(a).** It is the only option that is both O(constant) and free of cross-subsidy, and the tier count
-is the single tunable. (b) reintroduces the defect the pooled venue exists to remove; (c) trades the
-cross-subsidy for staleness on the one path where staleness is the whole risk (responsiveness is the
-liquidation defence — §7).
+| | how | read cost | exact? | cross-subsidy |
+|---|---|---|---|---|
+| **(a′) grid + Fenwick — the corrected recommendation** | quantise `b_i` up at open; Fenwick over the grid holds `(S1, S2)` prefixes | O(log N) ≈ 17 slots × 2 | **yes**, to the grid, with the residual borne by the LP itself | none |
+| (a) fixed tiers | per-tier `(S1, S2)`, walk the tiers | O(tiers) | **NO** — the boundary tier is always split | bounded, but nonzero |
+| (b) one pooled `ilBasisPx` | equity-weighted entry for the whole book | O(1) | yes, of the wrong quantity | **yes, by construction** — the defect §POOL-VENUE exists to remove |
+| (c) lazy sum | maintain `D*` on each LP's own touch | O(1) | exact when fresh | none, but `D*` **lags**, and the lag is the crash window |
+
+⇒ **(a′).** ⏸️ Still an owner ruling, because (a′) costs materially more gas than (b) and the
+question "is the cross-subsidy worth ~17 SLOADs" is a pricing judgement, not an engineering one.
+
+### ⛔ WHY NO CODE LANDED FOR THIS YET — THE REPO'S OWN RULE 1
+`RangeLib.openPos:202` refuses to add `ilBasisPx` blending *"because the branch would be unreachable
+(standing rule 1)"*. The same rule binds here: `S1`/`S2` and a pure `pooledTargetDebtRaw` are needed by
+**every** variant above and are trivially correct, but until the clamp question is answered nothing
+calls them, and they would add bytes to `LevManager`/`BtcLevManager` (2,592 and less to spare) for an
+unreachable path. **The algebra is the deliverable; the code waits for the ruling.**
+
+The wiring, when it comes, is two sites and no more — measured: `LevBase._openPos` is the ONLY open,
+and both closes already funnel through `_untrackOpen(lp)` (`LevManager.sol:512`, `BtcLevManager.sol:450`),
+which is currently an EMPTY STUB left by the `_openLps` removal. ⚠️ One trap: at `LevManager.sol:511`
+`p` is `Types.Pos storage`, so `delete pos[lp]` on the line before zeroes it — the two fields must be
+captured BEFORE that line, not read inside `_untrackOpen`. (`BtcLevManager` holds a `memory` copy and
+does not have this problem, which is exactly how a shared hook acquires an asymmetric bug.)
 
 ### WHEN BORROW FIRES, ONCE THIS EXISTS
 `D*` is a **function of price and the two sums, evaluated on read.** So:
