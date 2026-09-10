@@ -74,65 +74,29 @@ abstract contract LevBase {
     ///         a 3× error in the input is survivable long enough to go unnoticed.
     uint256 internal constant GAS_REBALANCE = 1_250_000;
 
-    /// @notice Half-width of the no-trade band around the IL target, in LTV bps, for a position of
-    ///         `collUsdWad`. DERIVED — see `LevMath.noTradeBandBps` for the economics.
-    /// @dev    §DERIVED-BAND — THE BAND IS COMPUTED, NEVER CONFIGURED. Three inputs, all read: the
-    ///         live cost of a rebalance, the size of the thing being hedged, and the range's own LVR
-    ///         coefficient. Nothing here is anyone's choice, so nothing here is anyone's lever —
-    ///         which is the property a fixed deadband constant could not have.
-    ///
-    ///         `K` is read through the pinned `RANGE` in the same `try/catch` idiom as
-    ///         `_rangePrice()`: `RANGE` is genuinely unset between deploy and `init`, and a revert
-    ///         there must not strand a position. Unmeasured ⇒ band 0 ⇒ always rebalance, the
-    ///         fail-open direction argued at `LevMath.noTradeBandBps`.
-    /// ⚠️ A ONE-LINE FORWARDER, AND THE BODY IS IN `LevMath` FOR EIP-170 REASONS. This is `internal`,
-    ///     so whatever stands here is INLINED into `LevManager` AND `BtcLevManager` — and
-    ///     `LevManager` is the binding contract in this tree. The reads it needs (`AUX`, `RANGE`,
-    ///     `TWAP_WINDOW`) are this contract's immutables, which a delegatecalled library cannot
-    ///     reach, so they are PASSED rather than looked up. That is the same shape every other body
-    ///     moved out of these managers takes.
-    /// @dev §POOL-VENUE — the headroom is resolved HERE because the venue is this contract's to know,
-    ///      and it is READ off the venue rather than assumed. `ILevVenue.liqThresholdBps()` already
-    ///      exists on both adapters (Morpho converts its 1e18 `LLTV`, Aave returns its own), so this
-    ///      needs no new surface — and it retires the hardcoded 0.86 CLAUDE.md flags as *"hardcoded
-    ///      three times over … should be READ, never configured"*.
-    function _bandBps(uint256 collUsdWad, ILevVenue venue) internal view returns (uint256) {
-        uint256 lltv;
-        // Same `try` idiom as `_rangePrice`: a venue that cannot answer must not strand a position.
-        // Unanswered ⇒ zero headroom ⇒ band 0 ⇒ rebalance always, the fail-safe direction.
-        try venue.liqThresholdBps() returns (uint256 t) { lltv = t; } catch { return 0; }
-        // §E358 — the headroom is the PROTOCOL's, not a position's: one cap for the whole book.
-        // 🔴 THE TWO NUMBERS ARE ON DIFFERENT BASES AND THIS SUBTRACTED THEM RAW.
-        //    · `lltv` is the VENUE's liquidation threshold, i.e. debt/COLLATERAL — the same basis as
-        //      `getCurrentLtvBps` below.
-        //    · `TARGET_LTV_CAP_BPS` bounds `LevMath.ilTargetBps(...)`, which is measured against the
-        //      FIXED IL base `entryEquity` — the E0 basis. `ilLtvBps`'s own docblock says so.
-        //    Borrowed dollars BUY collateral, so `C = E0 + D` and an E0-LTV of `t` is `t/(1+t)` on the
-        //    venue basis: 7500 E0 == 4285 venue. `8600 − 7500 = 1100` was therefore not the headroom;
-        //    the headroom is `8600 − 4285 = 4315`.
-        // ⚠️ THE OLD NUMBER WAS TOO SMALL, SO THE BAND WAS TOO TIGHT — the system rebalanced MORE
-        //    often than it needed to, never less, which is why this never surfaced as a failure.
-        //    ⛔ AND THAT SAFETY WAS CONTINGENT, NOT STRUCTURAL: the series `h·H/(h+H)` only barely
-        //    binds while `K` is large — the larger `K` is, the smaller `h` is, and a small `h` is
-        //    dominated by `h` rather than by `H`, so the headroom term barely moves the answer.
-        //    🔴 **AND THE CONTINGENCY HAS SINCE FIRED — THIS PARAGRAPH PREDICTED IT AND THEN WENT
-        //    STALE ON THE VERY NUMBER IT WARNED ABOUT.** It said *"at the shipped K≈125"*, which is
-        //    the RETIRED ±0.2% geometry: `K = 1/(4(2 − √(P/Pb) − √(Pa/P)))` is a function of
-        //    `RANGE_DELTA` alone, and at 20 bps it is 125.0 while at the live `RANGE_DELTA = 200`
-        //    (±2%) it is **≈12.56** — a 10× width change moved `K` by 10×.
-        //    ⇒ RE-DERIVED at g=$5 / C=$100k, so the comparison is like-for-like:
-        //        K = 125.0  (retired ±0.2%):  h = 73.7 bps   ⇒  69.1 → 72.4 bps
-        //        K = 12.56  (LIVE ±2%):       h = 158.5 bps  ⇒  138.5 → 152.9 bps
-        //      The basis error is now worth ~14 bps of band rather than ~3, i.e. the fix is doing
-        //      four times the work it was doing when it landed. **Do not read a bps figure here as a
-        //      constant: all three columns are functions of `RANGE_DELTA`, `g` and `C`, and only the
-        //      shape — a cube root damped by a series with the headroom — is stable.**
-        // ⭐ The conversion is constant-folded (both operands are `constant`), so it costs no gas and
-        //    no bytecode — and it is written as the algebra rather than as `4285` so the next reader
-        //    can check it instead of trusting it.
-        uint256 capVenueBasis = (TARGET_LTV_CAP_BPS * 10_000) / (10_000 + TARGET_LTV_CAP_BPS);
-        uint256 headroom = lltv > capVenueBasis ? lltv - capVenueBasis : 0;
-        return LevMath.bandBpsFor(address(AUX), RANGE, TWAP_WINDOW, GAS_REBALANCE, collUsdWad, headroom);
+    /// §NO-GAMEABLE-BOUND + §NEW-DESIGN-TOUCHES-THIS — THE DERIVED BAND IS GONE, AND ITS REPLACEMENT
+    /// IS A DELIBERATE PLACEHOLDER, NOT A RESTORATION.
+    /// It was `∛(gas /(C·K))` -- the classic transaction-cost-vs-tracking-error band -- with `K` the
+    /// LVR-to-value ratio of a CONCENTRATED v3 POSITION. §V4-CUT removed the curve, so the tracking
+    /// error it priced is not one we bear, and `K` came from range geometry as though a curve
+    /// enforced composition.
+    /// 🔑 **AND THE NEW DESIGN TOUCHES THIS SCOPE DIFFERENTLY, WHICH IS WHY THIS IS NOT A REVERT.**
+    /// See `docs/actionable/TARGET-DESIGN.md` §3: a rebalance is no longer a MARKET TRADE. A drain
+    /// repays debt from the swap's own proceeds and a sell-in borrows against collateral that just
+    /// arrived -- both balance-sheet moves, so there is NO LVR on either side to trade off against.
+    /// ⛔ AND GAS HAS NOTHING TO DO WITH LVR (owner, 2026-09-09). The old form mixed a TRANSACTION
+    /// COST with a TRACKING ERROR in one expression, which is a category error independent of
+    /// whether the tracking error was the right one. The band is still the right SHAPE -- hysteresis,
+    /// or a permissionless path churns -- but what it must express is HOW FAR THE DELTA MAY DRIFT
+    /// before restoring it is worth doing, and the cost of not restoring is CARRY. Gas is a real but
+    /// separate cost and belongs in whether a caller bothers, not in the risk band.
+    /// ⚠️ 300 bps is `RANGE_BPS`, the constant §DERIVED-BAND replaced. It is used here because it is
+    /// a value this system has actually shipped, NOT because it is the right answer -- deriving the
+    /// new one needs the carry number, which is check 3 in TARGET-DESIGN §6 and has never been run.
+    /// ⛔ Do not re-derive this from anything a swapper can move (owner, 2026-09-09: *"anything that
+    /// can be gamed is useless"*). Gas and carry are both external; observed flow is not.
+    function _bandBps(uint256, ILevVenue) internal pure returns (uint256) {
+        return 300;
     }
 
     /// @notice How far the LP's debt is from the IL-hedge target, and in which direction.

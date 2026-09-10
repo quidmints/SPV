@@ -42,53 +42,7 @@ library QuidLib {
     /// fallback to redirect to: fail loud rather than leave the deposit sitting here as idle WETH.
     error VenueUnavailable();
 
-    /// @dev DIRECT weETH, always: it earns the full ether.fi staking rate.
-    /// §NO-GAMEABLE-BOUND — K SURVIVED THE THETA CUT, DELIBERATELY, AND THE REASON IS THE TEST.
-    /// theta was deleted because its inputs -- the variance ring and the premium fee-yield EWMA --
-    /// are both derived from OBSERVED FLOW, so a swapper could move the depth cap by trading.
-    /// K is not: it is `1/(4*delta)` from a compile-time RANGE_DELTA and the oracle spot, neither of
-    /// which a counterparty sets. And it has a SECOND consumer that theta never had --
-    /// `LevMath:91` feeds it to `noTradeBandBps`, the derived no-trade band that decides WHEN to
-    /// de-lever, which is the liquidation-responsiveness mechanism.
-    /// ⚠️ **WHAT IS STILL OPEN AND IS NOT A GAMING QUESTION:** K is the LVR-to-value ratio of a
-    /// CONCENTRATED v3 POSITION (`V'' = -L/(2P^1.5)`), and §V4-CUT removed the curve. So the band's
-    /// calibration rests on a concavity our payoff may not have. That is a CALIBRATION defect, not an
-    /// attack surface, and it is booked rather than cut -- removing a safety band on reasoning is the
-    /// one edit where being wrong lets too much through.
-    // ════════════════════════════════════════════════════════════════════
-    //  θ / LVR math (kLvrWad, realizedAlphaWad, derivedThetaWad). Pure
-    //  range geometry, extracted for EIP-170 headroom; view fns (no state
-    //  written) and the live range bounds arrive as PRICES (§DE-TICK).
-    //  Realized variance is NOT computed here — it is read off Core.
-    // ════════════════════════════════════════════════════════════════════
-    /// @notice The LVR coefficient K (WAD), derived LIVE from range geometry.
-    /// §DE-TICK — same quantity, computed from PRICE bounds. The body only ever used RATIOS of the
-    /// roots (`s/√Pb` and `√Pa/s`), and a ratio of roots is the root of the ratio:
-    ///     s/√Pb = √(P/Pb)   ·   √Pa/s = √(Pa/P)
-    /// so the tick→sqrt lookup disappears and the arithmetic is unchanged. √ survives as an
-    /// OPERATION (range width is genuinely √-shaped) but nothing is stored or passed as a sqrt price.
-    function kLvrWad(address core, uint loPrice, uint upPrice) public view returns (uint) {
-        (uint priceWad,) = ICore(core).poolStats();
-        return kLvrAt(priceWad, loPrice, upPrice);
-    }
 
-    /// @notice `kLvrWad` with the spot supplied rather than read — the whole formula, no chain.
-    /// @dev    THE READ AND THE ARITHMETIC ARE SPLIT BECAUSE THE ARITHMETIC HAD DRIFTED IN COPIES.
-    ///         Two test files reimplemented this closed form to reason about K off-chain, and when
-    ///         `RANGE_DELTA` widened 20 → 200 bps the copies kept the old geometry's answer (`125e18`
-    ///         for ±0.2%, against a live `≈12.56e18`) while still passing — a test measuring its own
-    ///         literal cannot see the range move. `internal`, so it inlines and costs no deployed
-    ///         bytecode; the on-chain caller above is unchanged.
-    function kLvrAt(uint priceWad, uint loPrice, uint upPrice) internal pure returns (uint) {
-        if (loPrice >= upPrice) return 0;
-        uint p = priceWad < loPrice ? loPrice : (priceWad > upPrice ? upPrice : priceWad);
-        uint r1 = FixedPointMathLib.sqrt(SoladyMath.fullMulDiv(p, 1e36, upPrice));   // √(P/Pb) · 1e18
-        uint r2 = FixedPointMathLib.sqrt(SoladyMath.fullMulDiv(loPrice, 1e36, p));   // √(Pa/P) · 1e18
-        uint denom = 2e18;
-        if (r1 + r2 >= denom) return 0;
-        denom -= (r1 + r2);
-        return SoladyMath.fullMulDiv(1e18, 1e18, 4 * denom);
-    }
 
     function _supplyEtherFi(address ev, uint amount) private returns (uint placed) {
         placed = IEthVenue(ev).supplyEtherFi(amount);

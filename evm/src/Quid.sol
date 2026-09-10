@@ -1171,26 +1171,6 @@ contract Quid is Shares,
         return QuidLib._venueBalanceLib(address(this), address(AUX));
     }
 
-    // ───────── θ DERIVED LIVE from the sizing inequality (no owner, no synthetic const) ─────────
-    // (The earlier owner-set ThetaMode/setThetaMode scaffold was REMOVED — dead code: setup()
-    //  renounces ownership so it was permanently uncallable. θ is now derived live below.)
-    // The owner-set thetaWad above is DEAD (setup() renounces ownership), so it is pinned at 1e18
-    // (reckless). The real, un-stuck θ is COMPUTED from the certified inequality θ = yield/(K·σ²−f)
-    // using on-chain avgYield + realized variance from the price oracle — it self-adjusts with
-    // yield and vol, needs no owner, and uses no synthetic value. (f omitted = conservative: fees
-    // only shrink LVR, so dropping them yields a SMALLER, safer θ.)
-    // K = the LVR coefficient (annual LVR_rate = K·σ²). NO HARDCODE: K is NOT a free constant — for a
-    // concentrated-liquidity range it is a CLOSED-FORM function of the range's own geometry, computed LIVE
-    // from the live range BOUNDS by `kLvrWad()` below. ⚠️ NOT TICKS — §DE-TICK made the bounds PRICES;
-    // and the formula BODY is `QuidLib.kLvrAt(price, lo, up)` (internal pure), with
-    // `QuidLib.kLvrWad(core, lo, up)` being only the `poolStats()` read in front of it. K = 1/(4δ),
-    // so at the live `RANGE_DELTA = 200` (±2%) it is ≈`12.56e18` — NOT the ~`125e18` of the old ±0.2%.
-    /// @notice The LIVE LVR coefficient K (WAD) for the pool's current range — read the real, dynamic
-    ///         number (front-end / probe / monitoring). 0 ⇒ range unset/degenerate (caller fails open).
-    ///         Body in QuidLib (EIP-170 headroom); range bounds passed in as PRICES.
-    function kLvrWad() external view returns (uint) {
-        return QuidLib.kLvrWad(address(CORE), _lo(), _hi());
-    }
 
 
     /// @notice (B) The range's ACTUAL sold-volatile fraction (WAD) since `syncKeyPx` — the ground-truth IL the

@@ -599,15 +599,6 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     }
 
 
-    /// @notice The LVR coefficient for THIS range, WAD. §SLOP: ONE name across both ranges — `Quid`
-    ///         has carried `kLvrWad()` since the θ work, and this is the BTC range's instance of it,
-    ///         not a new accessor. Do not spell it any other way here.
-    /// @dev    Same `(CORE, _lo(), _hi())` inputs and the same `QuidLib` body as θ above — this is
-    ///         the `K` already sitting in θ's denominator, surfaced so the leverage overlay's
-    ///         no-trade band `∛(g/(C·K))` reads the range's real geometry.
-    function kLvrWad() external view returns (uint) {
-        return QuidLib.kLvrWad(address(CORE), _lo(), _hi());
-    }
 
     /// @dev Vault's BTC-side immutables gathered for the delegatecalled `BtcLib` bodies
     ///      (`requestDeposit`, `syncLev`, `rebalanceBody`) — mirror of `Quid._ethCfg`.

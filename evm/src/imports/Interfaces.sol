@@ -742,7 +742,6 @@ interface ICore {
     /// §DERIVED-BAND — the range's LVR coefficient, `1/(4(2 − √(P/Pb) − √(Pa/P)))`. Already the `K`
     /// in `derivedThetaWad`'s `μ/(K·σ²)`, and `Quid` has exposed it as `kLvrWad()` since that work —
     /// declared here so the leverage overlay can reach it through `ICore` on EITHER range.
-    function kLvrWad() external view returns (uint);
     // ⚠️ `Core` implements NONE of the three members below: `ICore` is the polymorphic RANGE-MANAGER
     // face as well as the pool face, and these three are `Quid`-only — ABI-legal, and exactly how the
     // merged face already works.
