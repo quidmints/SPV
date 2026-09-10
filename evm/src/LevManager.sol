@@ -676,38 +676,37 @@ contract LevManager is LevBase {
     ///         — indistinguishable from ZERO against `need`, which left `freed < need` true and sent the
     ///         next redeem back to tear down more of the same LP's leverage for no credit. The conversion
     ///         is the one `swapOutDeleverPooled` already applies to its own `repaid` two functions below.
-    function deleverToVault(address lp, uint256 extractUsd, address vault, uint256 minOut)
-        external returns (uint256 freed)     // NOT nonReentrant: the outer deleverBook (or the range's redeem lock) holds it — mirrors deleverOne
+    /// §POOLED-EXTRACTION — NO LP PARAMETER. The redeem sweep repays the POOL and frees POOL
+    /// collateral, so there was never an LP to name; the old signature took one only to decide whose
+    /// UNITS to burn, and burning one LP's units for a pool-wide extraction is the cross-subsidy in
+    /// miniature. The cap is the pool's too: `deliverableDollars(lp)` capped a pool-wide extraction
+    /// at that LP's PROPORTIONAL slice, which `deleverBook`'s own docblock calls "the exact
+    /// under-extraction the aggregate was introduced to remove".
+    function deleverToVault(uint256 extractUsd, address vault, uint256 minOut)
+        external returns (uint256 freed)     // NOT nonReentrant: the outer deleverBook holds it
     {
-        if (msg.sender != RANGE && msg.sender != address(this)) revert NotGov(); // range settle OR deleverBook self-call
-        Types.Pos memory p = pos[lp];
-        if (!p.open || extractUsd == 0 || flashProvider == address(0)) return 0;
-        uint256 cap = deliverableDollars(lp);  // value-neutral bound (≤ liq threshold)
-        
+        if (msg.sender != RANGE && msg.sender != address(this)) revert NotGov();
+        ILevVenue venue = ILevVenue(poolVenue);
+        if (address(venue) == address(0) || extractUsd == 0 || flashProvider == address(0)) return 0;
+        uint256 cap = this.totalDeliverableDollars();      // POOL-level bound (<= liq threshold)
         if (extractUsd > cap) extractUsd = cap;
         if (extractUsd == 0) return 0;
-        
-        uint256 repayStable = LevMath.sizeRepayStable(// d/netEq/clamp in LevMath 
-            p.venue, lp, extractUsd, debtUsd(lp), _px(), _coll(), address(AUX));
+        address stable = venue.stable();
+        uint256 repayStable = LevMath.sizeRepayStable(
+            venue, extractUsd,
+            LevMath._toUsd18(address(AUX), stable, ILevPooled(address(venue)).totalDebt()),
+            _px(), _coll(), address(AUX));
         if (repayStable == 0) return 0;
-
-        // ⚠️ ONE `stable()` READ, NOT THREE. This asked the venue for the same immutable address at
-        // the flash argument, inside the payload, and again at the `_toUsd18` below — three
-        // STATICCALL sequences in one frame, each ~70 bytes of an EIP-170-critical contract and a
-        // real call at runtime. The address cannot change between them, so the extra two bought
-        // nothing in either currency.
-        address stable = p.venue.stable();
-        // mode 2 = flash the debt stable → repay-first → withdraw+sell paired collateral → surplus to `vault`.
         IMorphoFlash(flashProvider).flashLoan(stable, repayStable,
-            abi.encode(uint8(2), lp, address(p.venue),
+            abi.encode(uint8(2), address(0), address(venue),
             stable, extractUsd, vault, minOut));
 
         // `_lastFreed` is what `LevMath._sellAndPay` handed the sink: `stableOut - assets`, in the venue
         // stable's NATIVE units (6-dec for USDC). USD-1e18 is the unit every caller reads it in — see the
         // `@return` note above — so the conversion happens HERE, at the boundary, exactly once.
         freed = LevMath._toUsd18(address(AUX), stable, _lastFreed); _lastFreed = 0;
-        // Reconcile the shrunk net-equity into the range slice (try/catch: never block the settle).
-        _syncRange(lp);
+        // §POOLED-EXTRACTION — no per-LP range sync: repayPool lowers every LP's debt pro-rata, so
+        // there is no single slice to reconcile. The pooled aggregates are read live off the venue.
     }
 
     /// @notice §M.1 UNLEVERED (0-debt) net-equity delivery — the HODL slice below entry where the keeper has
@@ -862,8 +861,7 @@ contract LevManager is LevBase {
         //    — but `deleverToVault` then re-clamps to `deliverableDollars(lp)`, the LP's PROPORTIONAL
         //    slice. So the aggregate is capped back to ~1/N inside the callee, which is the exact
         //    under-extraction the aggregate was introduced to remove. Also the collapse's job.
-        if (_openLps.length == 0) return 0;
-        try this.deleverToVault(_openLps[0], want, sink, minOut) returns (uint256 f) { freed = f; }
+        try this.deleverToVault(want, sink, minOut) returns (uint256 f) { freed = f; }
         catch { /* pool could not source → redeem falls short, never reverts (keeper cascade picks it up) */ }
     }
 
@@ -907,17 +905,22 @@ contract LevManager is LevBase {
     ///   frame's stack budget is the reason `_extractSettle` exists at all) — after `extractToVaultBody`
     ///   returns, its USD-1e18 value is dead.
     function _extractSettle(uint256 assets, bytes calldata data) internal {
-        (, address lp, address venueAddr, address stable, uint256 extractUsd, address vault, uint256 minOut2) =
+        (, , address venueAddr, address stable, uint256 extractUsd, address vault, uint256 minOut2) =
             abi.decode(data, (uint8, address, address, address, uint256, address, uint256));
         (gasReserve, _lastFreed) = LevMath.extractToVaultBody(
-            assets, lp, venueAddr, stable, extractUsd, address(this), minOut2,
+            assets, venueAddr, stable, extractUsd, address(this), minOut2,
             _extractCfg());
         extractUsd = LevMath._fromUsd(address(AUX), stable, extractUsd);   // USD 1e18 → the sized cap, native
         if (_lastFreed > extractUsd) {
-            // §USDT-SINK-TRANSFER — `safeTransfer`, because `stable` is the VENUE stable and may be
-            // USDT. Both payouts here are the F13 buffer split, so a no-bool token would brick the
-            // LP's refund and the sink payment together.
-            IERC20OZ(stable).safeTransfer(lp, _lastFreed - extractUsd);     // the buffer is the LP's, not the sink's
+            // §POOLED-EXTRACTION — THE BUFFER GOES BACK TO THE POOL, NOT TO ONE LP.
+            // F13 established that the deliberate over-withdraw buffer is the LPs' and not the redeem
+            // sink's, and it paid it to the named LP. Pooled there is no named LP, and the buffer is
+            // over-sold collateral belonging to LPs COLLECTIVELY -- so the honest return is to repay
+            // more pool debt with it, which lowers every LP's debt pro-rata by construction. Same
+            // beneficiaries, no arbitrary attribution.
+            uint256 buf = _lastFreed - extractUsd;
+            IERC20OZ(stable).safeTransfer(venueAddr, buf);
+            ILevPooled(venueAddr).repayPool(buf);
             _lastFreed = extractUsd;
         }
         if (_lastFreed > 0) IERC20OZ(stable).safeTransfer(vault, _lastFreed);

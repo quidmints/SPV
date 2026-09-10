@@ -6,7 +6,7 @@ import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {WAD, VenueNotAllowed} from "./Types.sol";
 // §A.52: the canonical view lives in Interfaces.sol — imported, never re-declared file-local.
-import {ICore, IAux, IWeETH, IDepositAdapter, ILevVenue, TWAP_WINDOW_SECS} from "./Interfaces.sol";
+import {ICore, IAux, IWeETH, IDepositAdapter, ILevVenue, ILevPooled, TWAP_WINDOW_SECS} from "./Interfaces.sol";
 import {IERC20Min, IWETH9} from "../imports/Interfaces.sol";
 import {CURVE_BOLD_USDC, CRV_BOLD_IDX, CRV_BOLD_USDC_IDX, BOLD_TOKEN} from "./Interfaces.sol";
 import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, SWAP_SELECTOR, PROTO_UNIV3, PROTO_UNIV2,
@@ -1523,24 +1523,50 @@ library LevMath {
     ///      its own `_sellAndPay` call already peaks at the legacy DUP limit — a SEVENTH argument evaluated in
     ///      that frame (worse, one whose value is a nested external call) is where stack-too-deep starts.
     ///      `deleverSettleBody` is 7 params + 1 return, so it calls this directly and has room to.
+    /// §POOLED-EXTRACTION — NO LP IS NAMED, AND THAT IS A CORRECTNESS FIX AS WELL AS A DELETION.
+    /// `deleverBook`'s own docblock already said it: *"an extraction against ANY open LP repays the
+    /// pool and frees pool collateral, so naming one is naming all of them"*. But it used
+    /// `repay(lp)`/`withdraw(lp)`, which BURN THAT LP's UNITS -- so a pool-wide extraction charged
+    /// its whole unit cost to whichever LP the caller happened to name. That is the cross-subsidy in
+    /// miniature, on the redeem path.
+    /// ⇒ `repayPool`/`withdrawPool` burn NO units: the pool gets smaller and every LP's debt falls
+    /// pro-rata by construction, which is what a redeem-side sweep actually means. Both primitives
+    /// already existed on the venue; only this body was still per-LP.
+    function _repayAndPullPooled(uint256 assets, address venueAddr, address stable, uint256 extractUsd, uint256 pxWeth, ExtractCfg memory cfg)
+        private returns (uint256 pulled)
+    {
+        IERC20OZ(stable).safeTransfer(venueAddr, assets);
+        uint256 repaid = ILevPooled(venueAddr).repayPool(assets);      // pool-wide: burns no units
+        if (pxWeth == 0) revert NoPrice();
+        uint256 ethAmt = ((_toUsd18(cfg.aux,stable, repaid) + extractUsd) * 1e18) / pxWeth;
+        uint256 collUnits = (ethAmt * 1e18) / IWeETH(cfg.weeth).getEETHByWeETH(1e18);
+        pulled = ILevPooled(venueAddr).withdrawPool((collUnits * 10_000) / (10_000 - cfg.maxSlippageBps));
+    }
+
+    /// @dev The §G.3 extraction's shim onto `_repayAndPull`: resolves the live WETH TWAP HERE, in a shallow
+    ///      frame, so `extractToVaultBody` keeps making the same 6-argument call it always did. See the stack
+    ///      note on `_repayAndPull` — this wrapper is load-bearing for the legacy codegen, not decoration.
+    /// @dev The PER-LP twin, kept because `deleverSettleBody` is a genuinely different operation:
+    ///      it de-levers ONE position for IL-protect and returns that LP's own surplus to them, so
+    ///      burning that LP's units is correct there. ⚠️ It dies with the per-LP position model
+    ///      (`docs/actionable/TARGET-DESIGN.md` §5b), not before -- and the two bodies are kept apart
+    ///      rather than merged behind a flag, because "pool-wide" and "one LP's" are the distinction
+    ///      that was being lost when the extraction path used this one.
     function _repayAndPull(uint256 assets, address lp, address venueAddr, address stable, uint256 extractUsd, uint256 pxWeth, ExtractCfg memory cfg)
         private returns (uint256 pulled)
     {
         IERC20OZ(stable).safeTransfer(venueAddr, assets);
-        uint256 repaid = ILevVenue(venueAddr).repay(lp, assets);       // == assets when capped ≤ debt upstream
+        uint256 repaid = ILevVenue(venueAddr).repay(lp, assets);
         if (pxWeth == 0) revert NoPrice();
         uint256 ethAmt = ((_toUsd18(cfg.aux,stable, repaid) + extractUsd) * 1e18) / pxWeth;
         uint256 collUnits = (ethAmt * 1e18) / IWeETH(cfg.weeth).getEETHByWeETH(1e18);
         pulled = ILevVenue(venueAddr).withdraw(lp, (collUnits * 10_000) / (10_000 - cfg.maxSlippageBps));
     }
 
-    /// @dev The §G.3 extraction's shim onto `_repayAndPull`: resolves the live WETH TWAP HERE, in a shallow
-    ///      frame, so `extractToVaultBody` keeps making the same 6-argument call it always did. See the stack
-    ///      note on `_repayAndPull` — this wrapper is load-bearing for the legacy codegen, not decoration.
-    function _pullForExtract(uint256 assets, address lp, address venueAddr, address stable, uint256 extractUsd, ExtractCfg memory cfg)
+    function _pullForExtract(uint256 assets, address venueAddr, address stable, uint256 extractUsd, ExtractCfg memory cfg)
         private returns (uint256 pulled)
     {
-        return _repayAndPull(assets, lp, venueAddr, stable, extractUsd,
+        return _repayAndPullPooled(assets, venueAddr, stable, extractUsd,
             IAux(cfg.aux).getTWAPforAsset(cfg.weth, TWAP_WIN_M), cfg);
     }
 
@@ -1563,10 +1589,10 @@ library LevMath {
     /// @return newGasReserve gas-reserve after the keeper peel.
     /// @return freed stable routed to `recipient` (≈ extractUsd, less slippage), which the manager
     ///         then splits: the over-withdraw buffer back to the LP, the remainder to the redeem sink.
-    function extractToVaultBody(uint256 assets, address lp, address venueAddr, address stable, uint256 extractUsd, address recipient, uint256 minOut, ExtractCfg memory cfg)
+    function extractToVaultBody(uint256 assets, address venueAddr, address stable, uint256 extractUsd, address recipient, uint256 minOut, ExtractCfg memory cfg)
         public returns (uint256 newGasReserve, uint256 freed)
     {
-        uint256 pulled = _pullForExtract(assets, lp, venueAddr, stable, extractUsd, cfg);   // repay-first + withdraw (own frame)
+        uint256 pulled = _pullForExtract(assets, venueAddr, stable, extractUsd, cfg);   // repay-first + withdraw (own frame)
         // Sell + return-flash + route-surplus in its OWN frame (non-via_ir stack: keeps `lp`/`venueAddr`/`extractUsd`
         // — dead after the pull — from co-living with the sellColl call args).
         return _sellAndPay(pulled, stable, minOut, assets, recipient, cfg);
@@ -1845,14 +1871,17 @@ library LevMath {
     ///         clamped to live debt. `debtUsd18` = the LP's live debt (USD 1e18, decimal-normalized by the manager);
     ///         `pxWeth` = USD/WETH TWAP. The net-equity computation and the repay sizing are ONE body here;
     ///         `LevManager:619` is the caller.
-    function sizeRepayStable(ILevVenue venue, address lp, uint256 extractUsd, uint256 debtUsd18, uint256 pxWeth, address weeth, address aux)
+    /// §POOLED-EXTRACTION — sized against the POOL, not against one LP's slice. The per-LP form
+    /// capped a pool-wide extraction at ~1/N of what was available, which `deleverBook` records as
+    /// "the exact under-extraction the aggregate was introduced to remove".
+    function sizeRepayStable(ILevVenue venue, uint256 extractUsd, uint256 debtUsd18, uint256 pxWeth, address weeth, address aux)
         public view returns (uint256 repayStable) {
-        uint256 rawColl = venue.collateralOf(lp);
+        uint256 rawColl = ILevPooled(address(venue)).totalCollateral();
         uint256 collUsd = (IWeETH(weeth).getEETHByWeETH(rawColl) * pxWeth) / 1e18;
         uint256 netEq = collUsd > debtUsd18 ? collUsd - debtUsd18 : 0;
         if (netEq == 0) return 0;
         repayStable = _fromUsd(aux,venue.stable(), (extractUsd * debtUsd18) / netEq);
-        uint256 debt = venue.debtOf(lp);
+        uint256 debt = ILevPooled(address(venue)).totalDebt();
         if (repayStable > debt) repayStable = debt;
     }
 

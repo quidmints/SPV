@@ -162,21 +162,6 @@ library RangeLib {
     //   while still needing an unincentivised permissionless poke for whatever a per-swap fill cap
     //   skipped — and a watermark that advances past skipped orders drops them silently.
 
-    /// @notice Remove `lp` from the book by SWAP-AND-POP, keeping the 1-based index consistent.
-    /// @dev    The moved element's index must be rewritten BEFORE the pop, and `lpIdx[lp] = 0` after,
-    ///         or the book leaks a stale index that `openPos`'s push would then treat as present.
-    function untrackOpen(
-        address[] storage openLps,
-        mapping(address => uint256) storage lpIdx,
-        address lp
-    ) external {
-        uint256 idx = lpIdx[lp];
-        if (idx == 0) return;
-        uint256 last = openLps.length;
-        if (idx != last) { address moved = openLps[last - 1]; openLps[idx - 1] = moved; lpIdx[moved] = idx; }
-        openLps.pop();
-        lpIdx[lp] = 0;
-    }
 
     // ── §FOLD-MEASURE BATCH 2 ──────────────────────────────────────────────────────────────────
     // MEASURED RATE FROM BATCH 1: moving the book-enrolment bodies (10 code lines) freed 212 bytes
@@ -198,10 +183,12 @@ library RangeLib {
     ///         `_rangePrice()`), which try/catches a call to the caller's `RANGE` immutable — not
     ///         reachable from here. The whole `Types.Pos` comes in as one memory pointer so the seam
     ///         carries a pointer rather than five scalars.
+    /// §POOLED-EXTRACTION — the open-LP ENROLMENT BOOK is gone. `openLps`/`lpIdx` existed so an
+    /// off-chain caller could enumerate positions to build the per-LP arrays the walks consumed, and
+    /// the last state-changing indexer (`deleverBook` -> `deleverToVault`) is now pooled. Nothing
+    /// on-chain reads a list of LPs.
     function openPos(
         mapping(address => Types.Pos) storage pos,
-        address[] storage openLps,
-        mapping(address => uint256) storage lpIdx,
         address lp,
         Types.Pos memory p
     ) external {
@@ -218,7 +205,6 @@ library RangeLib {
         // `openLps`/`lpIdx` anywhere in the tree, and there is no cap on the length: the Sigma-loops
         // that made a long book expensive are O(1) pool reads since §POOL-VENUE. The `lpIdx[lp] == 0`
         // test is what makes the push idempotent for an LP already enrolled.
-        if (lpIdx[lp] == 0) { openLps.push(lp); lpIdx[lp] = openLps.length; }
     }
 
     /// @notice Re-anchor a position to the range's current price if the range has reseated.

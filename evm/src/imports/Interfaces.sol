@@ -835,8 +835,6 @@ interface ILevManagerDeliver {
 /// recipient; BTC un-encumbers spliced sats), and ETH is POOLED so it walks the book.
 /// (was SwapLib.ILevEthDeliver)
 interface ILevEthDeliver {
-    function openLevCount() external view returns (uint);
-    function openLpAt(uint i) external view returns (address);
     function swapOutDeleverAmt(address lp, uint maxUsd18)
         external view returns (address venue, address stable, uint amtNative);
     // ⛔ DO NOT RE-ADD `swapOutDelever(address,uint,address,uint)` HERE. §J2-LEV-ARITY was RESOLVED BY

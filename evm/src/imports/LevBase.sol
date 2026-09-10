@@ -218,8 +218,6 @@ abstract contract LevBase {
 
     /// @dev Enumerable set of LPs with an open position, so the whole book's live net equity can be
     ///      summed on-chain. `_lpIdx` is 1-based (0 = absent); removal is swap-and-pop.
-    address[] internal _openLps;
-    mapping(address => uint256) internal _lpIdx;
 
     /// The range's sync range (Quid's `syncLev` / Vault's `syncLev`). GOV pin-once, then frozen —
     ///  the SETTER stays per-manager (BtcLevManager fuses it into `init` alongside `venuesFrozen`).
@@ -388,13 +386,12 @@ abstract contract LevBase {
         // §MULTI-VENUE step 1 — record it in the walked set. Idempotent: an LP joining the existing
         // pooled position must not append a duplicate, or every aggregate double-counts the book.
         if (!isPoolVenue[address(venue)]) { isPoolVenue[address(venue)] = true; poolVenues.push(address(venue)); }
-        RangeLib.openPos(pos, _openLps, _lpIdx, msg.sender,
+        RangeLib.openPos(pos, msg.sender,
             Types.Pos({venue: venue, ilBasisPx: uint128(entryPx),
                        entryEquity: uint128(entryEquity), syncKeyPx: _rangePrice(), open: true}));
     }
 
     function _untrackOpen(address lp) internal {
-        RangeLib.untrackOpen(_openLps, _lpIdx, lp);   // §FOLD-MEASURE
     }
 
     // ⚠️ §WSA-LEV-INERT — A LIVE INVARIANT ON `TARGET_LTV_CAP_BPS`, AND IT FAILS SILENTLY.
@@ -737,11 +734,7 @@ abstract contract LevBase {
         return _deliverableDollarsAt(lp);   // no price needed — see the note in that function
     }
 
-    /// @notice How many LPs have an open levered position.
-    function openLevCount() external view returns (uint256) { return _openLps.length; }
 
-    /// @notice The `i`-th open LP — lets an off-chain keeper enumerate the book.
-    function openLpAt(uint256 i) external view returns (address) { return _openLps[i]; }
 
     /// @notice Live sum of every open position's debt (USD 1e18).
     /// §POOL-VENUE — NOT O(open LPs). Each venue holds ONE pooled position whose `totalDebt()` IS

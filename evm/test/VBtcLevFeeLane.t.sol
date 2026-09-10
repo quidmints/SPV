@@ -1614,7 +1614,8 @@ contract VBtcLevFeeLane is AllesFixture {
         _setupBtcLev();
         (,, address lp,) = _open(ch, 64, 3e8);                       // 3 BTC channel = free range to expose
         _openLev(lp, 2e8);                                           // expose 2 BTC as vBTC collateral (zero debt)
-        assertEq(lm.openLevCount(), 1, "position tracked in the open-LP book");
+        (,,,, bool isOpen) = lm.pos(lp);
+        assertTrue(isOpen, "position is open");   // §POOLED-EXTRACTION: no enrolment book to count
         assertGt(BTC.levPooled(lp), 0, "open reclassified channel BTC funded-to-lev");
         (uint pooledOpen,,,) = BTC.autoManaged(lp);
 
@@ -1646,7 +1647,8 @@ contract VBtcLevFeeLane is AllesFixture {
         assertEq(lm.netEquity(lp), 0, "close: no live net-equity for a deleted position");
         (,,,, bool open) = lm.pos(lp);
         assertTrue(!open, "close: position deleted");
-        assertEq(lm.openLevCount(), 0, "close: LP de-tracked from the open book");
+        (,,,, bool stillOpen) = lm.pos(lp);
+        assertFalse(stillOpen, "close: position no longer open");
         (uint pooledClose,,,) = BTC.autoManaged(lp);
         assertEq(pooledClose, pooledOpen, "close: LP.pooled untouched (range position un-freezes, LP made whole)");
         _assertSolvent("close: basket solvent after retirement");
@@ -1839,7 +1841,7 @@ contract EthLevDeleverLegs is AllesFixture {
         uint sinkBefore = IERC20V(address(USDC)).balanceOf(SINK);
         uint lpBefore   = IERC20V(address(USDC)).balanceOf(LP_A);
         vm.prank(address(ETH));                               // RANGE — the only permitted caller
-        uint freed = elm.deleverToVault(LP_A, want, SINK, 0);
+        uint freed = elm.deleverToVault(want, SINK, 0);
         uint sinkGot = IERC20V(address(USDC)).balanceOf(SINK) - sinkBefore;
         uint lpGot   = IERC20V(address(USDC)).balanceOf(LP_A) - lpBefore;
 
