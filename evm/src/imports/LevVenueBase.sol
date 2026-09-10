@@ -160,7 +160,7 @@ abstract contract LevVenueBase is ILevVenue {
 /// 🔴 §POOL-VENUE (2026-08-24) — **ISOLATION IS NOT MORPHO-NATIVE HERE.** There is ONE Morpho position,
 ///         held under THIS ADAPTER's address (`onBehalf = address(this)` on every call); a liquidation
 ///         hits every LP pro-rata; and there is no per-LP `setAuthorization` to grant, revoke or forget.
-/// ⇒ **ISOLATION IS PROTOCOL-ENFORCED, NOT VENUE-ENFORCED.** `cascadeDelever` and the DERIVED no-trade
+/// ⇒ **ISOLATION IS PROTOCOL-ENFORCED, NOT VENUE-ENFORCED.** the pooled `deleverToVault` and the no-trade
 ///         band (`LevBase._bandBps`, sized off this venue's own `liqThresholdBps`) are the only things
 ///         keeping the aggregate off the liquidation threshold — Morpho will not do it per-LP.
 ///         **Treat any change to that band as a change to the liquidation guarantee itself.**
@@ -199,7 +199,7 @@ contract MorphoEscrowVenue is LevVenueBase {
     // many entry prices (~13-15 bp typical, ~147 bp across a cycle). **The larger cost is that
     // PER-LP LIQUIDATION ISOLATION IS GONE.** With ONE position a liquidation hits EVERY LP pro-rata
     // and the position is protocol-side, so isolation is PROTOCOL-ENFORCED rather than
-    // MORPHO-ENFORCED: `cascadeDelever` plus the derived no-trade band (`LevBase._bandBps`) must keep
+    // MORPHO-ENFORCED: the pooled `deleverToVault` plus the no-trade band (`LevBase._bandBps`) must keep
     // the aggregate away from the liquidation threshold, because Morpho no longer does it for us.
     // ⚠️ AND IT INTRODUCES A CROSS-LP SUBSIDY ON THAT AXIS: each LP's LTV differs by its pinned
     // `ilBasisPx`, so pooling averages them and a late high-LTV entrant is carried by an early one.
@@ -648,7 +648,7 @@ contract AaveV3Venue is LevVenueBase {
     // the CALLER, so an escrow IS a position; `mapping(address => AaveV3Escrow) escrowOf` therefore
     // WAS the per-LP isolation, exactly as `onBehalf = lp` was on Morpho. Same trade, same reasons:
     // the delever loop could not aggregate across N escrows, so swap size was capped by how many
-    // repays fit in a block. Isolation is now protocol-enforced (`cascadeDelever` + the derived
+    // repays fit in a block. Isolation is now protocol-enforced (the pooled `deleverToVault` + the
     // no-trade band, `LevBase._bandBps`), not venue-enforced.
     // ⭐ THE UNIT MODEL FITS AAVE BETTER THAN MORPHO, WHICH IS WORTH SAYING: aTokens REBASE and the
     // variable-debt balance ACCRUES, so BOTH sides of the pool grow on their own. Units mean every

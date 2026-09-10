@@ -11,8 +11,9 @@ import {IAggregatorV3} from "./Interfaces.sol";
 // CARDINALITY, inherited wholesale; 1024 was an intermediate pass -- a round number, not a measured
 // one. The requirement, measured:
 //   • the ring advances AT MOST once per block (a same-timestamp write only updates `lastPrice`),
-//     so a 1800s window needs 1800/12 = 150 observations, worst case;
-//   • `ringVariance`'s body needs only `cardinality >= 3`, subsumed entirely by that.
+//     so a 1800s window needs 1800/12 = 150 observations, worst case.
+// (The second requirement was `ringVariance`'s `cardinality >= 3`; that estimator is deleted —
+//  §NO-GAMEABLE-BOUND — and it was subsumed by the 150 anyway, so the number is unchanged.)
 // 256 covers the 150 with ~70% headroom (3,072s ≈ 51 min of one-per-block history) and keeps
 // `index`/`cardinality` inside `uint16`. Raise it only when a LONGER window is actually requested:
 // the number follows the requirement, not the other way round.
@@ -246,157 +247,6 @@ library OracleLib {
     }
 
 
-    /// @notice §E59 — REALIZED TICK VARIANCE FROM THE **STORED OBSERVATIONS**, not a wall-clock grid.
-    ///
-    /// WHY THIS EXISTS. The previous estimator sampled `observe` every `THETA_STEP` seconds, but the
-    /// ring only advances ON A SWAP and `observe` LINEARLY INTERPOLATES between stored points.
-    /// Linear interpolation has ZERO SECOND DERIVATIVE, so every sample inside one inter-swap gap
-    /// returned the same average tick and the variance came out EXACTLY 0 — however violently price
-    /// had moved. MEASURED: a drain that took `POOLED` from 400 to 0.00097 ETH reported 0.
-    ///
-    /// Sampling the ring itself removes the interpolation entirely: every point is a REAL price
-    /// update, so a gap contributes one observation rather than a run of identical fabrications.
-    /// Intervals are UNEVEN by nature, so each return is normalised by its OWN elapsed time and the
-    /// annualisation uses the MEASURED span — no fixed step to mis-match the swap cadence.
-    ///
-    /// Returns RELATIVE-return variance per second (WAD). (It said "tick-variance"; §TICK-REMOVAL
-    /// retired the ticks and the body's own notes say so — the name outlived the quantity.)
-    /// The span is not returned because it is redundant (it is 0 exactly when this is).
-    ///
-    /// 🔴 §E346-ZERO — **THIS FUNCTION RETURNS 0 FOR SEVEN DISTINCT REASONS AND THE CALLER CANNOT
-    /// TELL THEM APART. SIX ARE "COULD NOT ESTIMATE"; THE SEVENTH IS "ESTIMATED, AND IT IS ZERO".**
-    /// The docstring used to assert the seventh does not exist ("0 means UNKNOWN — too few real
-    /// updates — NOT calm"), and `SwapLib`'s `sigmaSqWad == 0` guard still repeats that claim in
-    /// stronger words. It is false. Enumerated against the body, in the order they are reached:
-    ///   1. `card < 3 || n < 3`      — too few slots.
-    ///   2. `m < 2` (⇒ `card < 4`)   — too few DISTINCT samples. §E345 measured that this, not
-    ///                                 `card >= 2`, is the real threshold, and the two-short gap was
-    ///                                 a live defect.
-    ///   3. `!lo.initialized`        — an unwritten slot inside the window.
-    ///   4. `lo.blockTimestamp >= hi.blockTimestamp` — non-advancing timestamps.
-    ///   5. `rate == 0`              — the OLDER interval is the divisor. ⚠️ NOT a sample-count
-    ///                                 condition; `SwapLib`'s enumeration omits it entirely.
-    ///   6. `newest <= oldest`       — the measured span collapsed.
-    ///   7. **`acc == 0` — A GENUINELY FLAT RING.** Constant price ⇒ `priceCumulative` advances by
-    ///      exactly `P` per second ⇒ every interval `rate == P` exactly (the division is exact) ⇒
-    ///      every `ret[i] == 0`, `mean == 0`, and the §E63 drift term `mean*mean == 0` too. This is
-    ///      a REAL MEASUREMENT of a REAL zero, and it is REACHABLE.
-    ///
-    /// ⛔ **DO NOT "FIX" THIS WITH THE §E88 ONE-WEI FLOOR THAT `Core.anchorVarianceWad` USES. IT IS
-    ///    BOTH UNSAFE AND INERT, AND THE INERTNESS IS WHAT MAKES IT DANGEROUS TO TRY.**
-    ///   • UNSAFE: ⚠️ **THIS PARAGRAPH'S PREMISE IS GONE, AND THE CONCLUSION IS NOT.** It read
-    ///     *"this ring is PERMISSIONLESS — `Core.pushObservation` is `external` with no auth,
-    ///     bounded only to ±`OBS_PUSH_MAX_BPS` (50 bps)"*. Measured: `pushObservation` does not
-    ///     exist, `OBS_PUSH_MAX_BPS` is DELETED, and the ring's only writer is
-    ///     `Core._observeIfSourced` behind `onlyUs`. So exit 7 is NOT attacker-constructible by
-    ///     that route. ⛔ But the pinned-source branch writes what the source returns with NO
-    ///     deviation check at all, so a compromised or wrong PINNED source reaches the same
-    ///     state — the hazard moved, it did not close. Flooring it to 1 would hand that attacker a free
-    ///     "declare the market calm" primitive: `SwapLib`'s `if (sigmaSqWad == 0) return
-    ///     UNKNOWN_VARIANCE_SKEW` stops firing and the 3% unknown-variance drain charge switches
-    ///     off. That is EXACTLY the §E345 attack, re-entering through the floor instead of through
-    ///     the deleted `cardinality >= 2` sentinel.
-    ///   • INERT: the floor could not even reach the caller. `Core.realizedVarianceWad` scales this
-    ///     by `mulDiv(raw, 31536000, 1e18)`, and **`mulDiv(1, 31536000, 1e18) == 0`** — every raw
-    ///     below 31,709,791,984 truncates away. So the floor would be silently annihilated one frame
-    ///     up: a fix that looks landed, changes nothing, and leaves the next reader believing the
-    ///     ambiguity is resolved. (That threshold is annualised σ² = 1e-18, i.e. σ = 1e-9 — one part
-    ///     per billion — so the truncation window IS the exact-zero case and hides no real reading.)
-    ///
-    /// ✅ **THE AMBIGUITY IS ALREADY RESOLVED, AND NOT HERE — IT IS RESOLVED AT THE SEAM, BY §E345.**
-    ///    `Core.realizedVarianceWad` returns `max(ringLeg, anchorVarianceWad())`. Under a `max` the
-    ///    ring's honest zero and its could-not-estimate zero contribute IDENTICALLY — nothing — so
-    ///    the six-vs-one distinction is not observable at the only consumer, BY CONSTRUCTION. The
-    ///    Chainlink anchor is the leg that carries the §E88 floor, and it can, because Chainlink is
-    ///    not attacker-writable. **The ring may move σ² only UPWARD, i.e. only in the direction that
-    ///    costs whoever writes it.** Making this function's zero self-describing would therefore buy
-    ///    a distinction nothing is allowed to act on, at the price of the vector above.
-    /// ⇒ A signature change (returning a `bool measured`) is the ONLY way to surface it, it is not
-    ///   warranted for the reason just given, and it would be a cross-file arity change — which in
-    ///   this tree reports as a bare `Error: Error writing output JSON.` with no file, line or
-    ///   symbol. Left deliberately unresolved, and documented so it is not re-opened a fourth time.
-    function ringVariance(Observation[RING] storage obs, ObsState storage st, uint n)
-        external view returns (uint varPerSecWad)
-    {
-        uint card = st.cardinality;
-        if (card < 3 || n < 3) return 0;
-        if (n > card) n = card;
-
-        // Walk back n stored points from the newest, newest-first, differencing as we go.
-        //
-        // §TICK-REMOVAL — THE 1e9 LIFT IS GONE WITH THE TICKS. §E59 added it because truncating to
-        // WHOLE TICKS zeroed every difference on a ~20-tick range. A usd18 price carries 18 decimals
-        // natively, so sub-basis-point movement survives without any rescaling, and omitting the
-        // lift keeps `d*d` far inside uint256.
-        //
-        // Variance of consecutive RELATIVE returns, sample-corrected.
-        // §TICK-REMOVAL — THE RETURN IS NOW RELATIVE *EXPLICITLY*, WHICH IS WHAT KEEPS σ²'s UNITS
-        // AND LEAVES Γ UNTOUCHED. A tick difference was ALREADY a relative return in disguise (1
-        // tick = 1 bp), which is precisely why `Core.realizedVarianceWad` multiplied by
-        // 1e10 = 1e-8 (tick²→relative²) × 1e18 (WAD). Taking the relative return of a plain price
-        // makes that conversion unnecessary rather than merely moving it, so the 1e10 goes with the
-        // ticks and the ANNUALIZED NUMBER KEEPS ITS MAGNITUDE AND MEANING.
-        //
-        // §E213 — ONE ARRAY, NOT TWO, AND THE ARITHMETIC IS UNCHANGED. The per-interval average
-        // PRICE used to be materialised in full and differenced in a second loop, but a return
-        // needs only its own interval and the one before it, so a single scalar carries the whole
-        // dependency. The prices are an INTERMEDIATE, never a result — nothing downstream reads
-        // them. Folding the difference into the walk also retires `dt`, `spanSecs`, `prev` and the
-        // separate mean-summing loop, and yields `Σ ret` for free. Same operations in the same
-        // order on the same values ⇒ BIT-IDENTICAL output; this is a locals change, not a maths one.
-        uint m = n - 2;                             // returns = intervals − 1
-        if (m < 2) return 0;
-        int[] memory ret = new int[](m);
-        int sum;                                    // Σ ret, accumulated in the same pass
-        uint32 newest; uint32 oldest;
-        {
-            uint16 idx = st.index;
-            Observation memory hi = obs[idx];
-            newest = hi.blockTimestamp;
-            uint prevRate;                          // the previous interval — the only one still live
-            for (uint i = 0; i < n - 1; i++) {
-                uint16 lo_i = uint16((uint(idx) + card - 1 - i) % card);
-                Observation memory lo = obs[lo_i];
-                if (!lo.initialized || lo.blockTimestamp >= hi.blockTimestamp) return 0;
-                uint rate = uint(hi.priceCumulative - lo.priceCumulative)
-                          / uint(hi.blockTimestamp - lo.blockTimestamp);
-                if (i != 0) {
-                    if (rate == 0) return 0;        // the OLDER interval is the divisor
-                    int r = (int(prevRate) - int(rate)) * 1e18 / int(rate);   // WAD relative return
-                    ret[i - 1] = r;
-                    sum += r;
-                }
-                prevRate = rate;
-                hi = lo;
-                oldest = lo.blockTimestamp;
-            }
-        }
-        if (newest <= oldest) return 0;
-        int mean = sum / int(m);
-        uint acc;
-        for (uint i = 0; i < m; i++) {
-            int d = ret[i] - mean;
-            acc += uint(d * d);
-        }
-        acc /= (m - 1);
-        // §E63 — SECOND MOMENT, NOT CENTRAL SECOND MOMENT: add the DRIFT back in.
-        //
-        // `acc` alone is the variance ABOUT THE MEAN, and a range walking STEADILY one way has every
-        // difference equal ⇒ every deviation 0 ⇒ variance EXACTLY 0. That is arithmetically right
-        // and economically wrong: a monotone walk carries real inventory risk while measuring as
-        // perfectly calm. MEASURED: 16 swaps moving the tick −1 read 0; only a −2 move registered.
-        // Four memory policies (latch / erase / decay / widen) all failed trying to REMEMBER a
-        // number that was correctly zero — the number itself was the wrong quantity.
-        //
-        // The drift () was already computed and discarded. Squaring it back in costs no extra loads
-        // and no constant, and gives E[x²] = Var + E[x]² — the drift AND the wobble, which is what
-        // an inventory-risk measure has to price.
-        acc += uint(mean * mean);   //  is the drift term computed above
-        // Per-second. The caller annualises with the MEASURED span rather than a fixed step.
-        // `acc` is (WAD relative return)^2 = relative^2 * 1e36, so the caller divides by 1e18 ONCE
-        // to land on WAD relative variance — replacing the old `* 1e10 / 1e18`.
-        varPerSecWad = acc / uint(newest - oldest);   // the measured span; `newest > oldest` above
-    }
 
     // ═══ §E318 — `ExternalTwap` FOLDED IN: 88 lines of oracle reads beside the library that
     // already owns oracle concerns and shares its only src consumer (`Core`). ═══

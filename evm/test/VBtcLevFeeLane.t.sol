@@ -629,7 +629,7 @@ contract VBtcLevFeeLane is AllesFixture {
         // hits ONE LP and "never another LP and never the QU!D basket". Pooled, a seizure hits the
         // pool and therefore EVERY LP pro-rata. The test still proves a REAL Morpho liquidation is
         // survived cleanly; it can no longer prove containment, because containment is no longer a
-        // property of the venue. It is now protocol-enforced by `cascadeDelever` + the LTV hysteresis.
+        // property of the venue. It is now protocol-enforced by the pooled `deleverToVault` + the LTV hysteresis.
         (, uint128 borrowShares,) = IMorphoTest(MORPHO).position(venue.MARKET_ID(), address(venue));
         deal(address(USDC), address(this), 5_000_000 * USDC_PRECISION);
         IERC20V(address(USDC)).approve(MORPHO, type(uint).max);

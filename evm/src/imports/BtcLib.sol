@@ -90,23 +90,22 @@ library BtcLib {
     }
 
     /// @notice Body of `Vault.addLiq` (and called directly by `requestDeposit` below) —
-    ///         channel-lock liquidity sizer. Shared solvency `surplus` sizing plus BOTH clamps
-    ///         `SwapLib.addLiqBody` applies to either range: the physical backing HEADROOM and
-    ///         the theta risk budget, measured here against `btcThetaBacking() + sats` (a BTC
-    ///         range bears IL exactly like an ETH range -- the asset never changes the yield/vol
-    ///         tradeoff). The theta-shed remainder is still tracked as fee-earning share by the
-    ///         caller.
+    ///         channel-lock liquidity sizer. Shared solvency `surplus` sizing plus the ONE clamp
+    ///         `SwapLib.addLiqBody` applies to either range: the physical backing HEADROOM,
+    ///         measured here against `btcBacking() + sats`.
+    ///         🔴 §NO-GAMEABLE-BOUND — THE SECOND CLAMP IS GONE. This said "BOTH clamps ... and the
+    ///         theta risk budget"; `applyTheta` was deleted because θ = feeYield/(K·σ²) reads a
+    ///         MEASURED yield and a MEASURED variance, and a counterparty sets both. Headroom is a
+    ///         balance-sheet fact and cannot be starved.
     function addLiqChannel(address core, address aux, uint sats, uint price)
         public returns (uint usdOut, uint outDelta) {
         // §DELTATOK-FOLD — THE BODY IS `SwapLib.addLiqBody`, SHARED WITH `QuidLib.addLiq`. The two
-        // were the same seven statements, including the §E270 recompute and its comment; only the θ
-        // and `backing` scalars below ever differed, and that asymmetry is REAL (a BTC range's
-        // IL-bearing capital is `btcThetaBacking`, not `rangeETH`).
-        // §NO-GAMEABLE-BOUND: the θ read is gone; only the balance-sheet backing remains.
+        // were the same seven statements; only the `backing` scalar below ever differs, and that
+        // asymmetry is REAL (a BTC range's IL-bearing capital is `btcBacking`, not `rangeETH`).
         // `+ sats`: THIS add is not yet credited to `lpShares` at clamp time, so the backing it
         // brings must be counted or the range clamps against its own pre-deposit size.
         return SwapLib.addLiqBody(core, aux, sats, price,
-            ICore(core).btcThetaBacking() + sats);
+            ICore(core).btcBacking() + sats);
     }
 
     /// @dev Scalar args for the resize/close tail, bundled to keep the Vault

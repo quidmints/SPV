@@ -24,9 +24,17 @@ import re, sys, pathlib
 
 SRC = pathlib.Path(__file__).resolve().parent.parent / "evm" / "src" / "imports" / "SwapLib.sol"
 
-# The skew path: the curve, its inputs, its composer and its two entry points.
-SKEW_FNS = ["skewWad", "_maxWellSkew", "_skewBasis", "wellSkew",
-            "sellSkew", "retainSkewPremium", "_composePrice", "_sharedScarcityWad"]
+# The skew path: the two entry points and the retainer.
+# 🔴 §FLAT-FEE / §NO-GAMEABLE-BOUND (2026-09-10) — FIVE ENTRIES REMOVED DELIBERATELY, as this
+#    checker's own "do not drop the entry" rule demands. `skewWad`, `_maxWellSkew`, `_skewBasis`,
+#    `_composePrice` and `_sharedScarcityWad` are DELETED, not renamed: the scarcity kernel priced
+#    inventory against a flow forecast, and every input to that forecast was starvable by the
+#    counterparty being priced. `wellSkew`/`sellSkew` now return the flat `MIN_SWAP_SKEW_WAD`.
+# ⚠️ THE GATE IS NOT RETIRED WITH THE CURVE. It stays because the sell-in leg regains a CAPACITY
+#    term (TARGET-DESIGN §3), and that term must read the balance sheet — never a v4 concept and
+#    never a measured flow. A constant passes this check trivially today; the check exists for what
+#    replaces it.
+SKEW_FNS = ["wellSkew", "sellSkew", "retainSkewPremium"]
 
 # Uniswap-v4 concepts. If any appears in a skew body, the skew is coupled to the PM again.
 V4_TOKENS = ["PoolKey", "IPoolManager", "poolManager", "sqrtPrice", "SqrtPrice", "TickMath",
@@ -41,12 +49,13 @@ ALLOWED_SEAM = {
     # `POOLED` and two of it. The old pair is REMOVED rather than kept alongside -- leaving dead
     # names in an allowlist is how a genuinely new accessor slips through wearing a retired one.
     "POOLED",                            # inventory, raw
-    "flowEwmaUsd",                       # the target
-    # §V4-ZERO — no longer v4-backed. This read "the only one still v4-BACKED (ring via getSlot0)",
-    # which was true while the observation ring was seeded from a v4 pool's slot0. The ring is
-    # seeded from CHAINLINK (`OracleLib.seedPrices`) and advanced by `_writeObservationPrice`, so
-    # nothing in the seam is v4-backed any more -- the whole point of the gate is now satisfiable.
-    "realizedVarianceWad",
+    # §NO-GAMEABLE-BOUND — `flowEwmaUsd` (the old target) is DELETED. A counterparty sets observed
+    # flow, so a bound derived from it is a bound they choose. Nothing replaces it in the seam:
+    # the successor term reads backing and debt, both already reachable below.
+    # §NO-GAMEABLE-BOUND — `realizedVarianceWad` is DELETED, and with it `anchorVarianceWad`,
+    # `ringVariance` and the `_varSq`/`_varDt` registers. Clock-stretching was the vector: spacing
+    # slices 4h apart cut sigma^2 ~24x and the charge with it. Nothing in the seam is v4-backed any
+    # more either, which was this entry's older note.
     # §ISBTC-SPLIT — `rangeEquityUsd18`, was `btcRangeEquityUsd18`. Same accessor, same units; the
     # `btc` prefix existed only because ONE contract named the BTC width's figure either way.
     "committedUsd18", "rangeEquityUsd18",      # shared-scarcity coupling

@@ -437,7 +437,7 @@ contract LevYbRealProbe is AllesFixture {
         emit log_named_uint("LTV after crash (bps)", rlm.getCurrentLtvBps(LP));
 
         // De-lever through the real adapter: withdraw weETH (real Morpho) → sell (real Uniswap) → repay (real
-        // Morpho). Called by the LP (self-de-risk path; the keeper uses permissionless cascadeDelever).
+        // Morpho). Called by the LP (self-de-risk path; the keeper uses the pooled deleverToVault).
         vm.prank(LP);
         rlm.deleverOne(LP, 0, DEX_WETH_USDC, 0, "");
 
@@ -890,7 +890,7 @@ contract LevYbRealProbe is AllesFixture {
         // Pooled, a seizure hits the pool and therefore EVERY LP pro-rata. What survives — and what
         // the assertions below still bind — is that a REAL Morpho liquidation is survived cleanly and
         // takes NOTHING from the QU!D basket. Containment to one LP is no longer a property of the
-        // venue; it is protocol-enforced upstream by `cascadeDelever` + the LTV hysteresis.
+        // venue; it is protocol-enforced upstream by the pooled `deleverToVault` + the LTV hysteresis.
         MarketParams memory mp = MarketParams({
             loanToken: address(USDC), collateralToken: WEETH, oracle: mOracle, irm: ADAPTIVE_IRM, lltv: 0.86e18});
         deal(address(USDC), address(this), 5_000_000 * USDC_PRECISION);

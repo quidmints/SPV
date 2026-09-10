@@ -774,86 +774,38 @@ library SwapLib {
         // the protocol directly, so the swapper-facing bonus is redundant. Refill settles at the honest oracle.
     }
 
-    /// §MIN-SWAP-FEE — **EVERY SWAP PAYS THIS, INCLUDING A BALANCE-RESTORING ONE.** 420 ppm, the
-    /// exact flat tier §E311 deleted. Owner, 2026-09-08: *"the minimum swap fee was just the fact
-    /// that all swaps even balance restoring must pay at least the minimum."*
-    /// 🔑 **WHY THE DELETION LOST A PROPERTY NOBODY NOTICED.** §E311 removed the flat 420 arguing
-    /// `_depletion` *"already WAS that charge, in inventory-proportional form"* — true **on the drain
-    /// direction only**. `_depletion` returns 0 when `inv1 >= inv0`, which is precisely a swap that
-    /// does NOT deplete inventory; `sellSkew` returns 0 for the refill leg; and `retainSkewPremium`
-    /// opens `if (skew == 0) return;`. ⇒ a balance-restoring swap paid **exactly zero**, on both
-    /// assets. The substitution was justified against drains and applied to everything.
-    /// ⚠️ **THIS IS NOT THE SCARCITY PREMIUM, AND IT DOES NOT CONTRADICT §SESS-18's *"the refill
-    /// direction ... is the direction we want free"*.** Free of the PREMIUM is right — a refill
-    /// relieves scarcity and must not be charged for relieving it. This is the FLOOR every swap pays
-    /// for consuming the venue at all. Two quantities that happened to share one number.
+    /// §MIN-SWAP-FEE — **EVERY SWAP PAYS THIS, INCLUDING A BALANCE-RESTORING ONE.** 420 ppm.
+    /// Owner, 2026-09-08: *"the minimum swap fee was just the fact that all swaps even balance
+    /// restoring must pay at least the minimum."*
+    /// 🔑 **IT IS NOW THE WHOLE CHARGE, NOT A FLOOR UNDER ONE.** §FLAT-FEE deleted the scarcity
+    /// kernel this used to bound from below, so `wellSkew` and `sellSkew` both return exactly this.
+    /// The floor/premium distinction that justified the number survives the deletion intact: a
+    /// refill relieves scarcity and must not be charged for relieving it (there is no premium at
+    /// all any more), while this is what every swap pays for consuming the venue.
     /// ⛔ APPLIED AT THE PRODUCERS, NOT AT `retainSkewPremium`, so the published QUOTE carries it —
     /// flooring only at the fill would quote 0 and then charge 420 ppm.
     uint public constant MIN_SWAP_SKEW_WAD = 4.2e14;    // 420 ppm — the floor, on every swap
-    // Avellaneda–Stoikov calibration. `realizedVarianceWad` is ANNUALIZED realized variance in WAD:
-    // a fraction² scaled 1e18, e.g. 80%-annualized vol ⇒ σ² ≈ 0.64 ⇒ ~6.4e17. Γ folds the
-    // risk-aversion γ and the horizon (T−t) into ONE coefficient (the horizon is already carried by
-    // the FLOW_DECAY-smoothed flow/scarcity).
-    // ⛔ Do not restore the old calibration *"Γ fixed so skew(q=1, σ²=SIGMA_REF) = MAX_WELL_SKEW"*
-    //    or the `tickVar·(SECS_PER_YEAR/THETA_STEP)·1e10` unit derivation. `SIGMA_REF`,
-    //    `MAX_WELL_SKEW` and `tickVar` have ZERO CODE references in `evm/src` (every hit is a
-    //    comment), the ×1e10 died with the ticks (a tick was 1 bp ⇒ 1e-8 × 1e18 = 1e10;
-    //    `ringVariance` now returns WAD relative variance directly), and the calibration was
-    //    CIRCULAR anyway: `SIGMA_REF = 1e18` made Γ ≡ MAX_WELL_SKEW, the cap under a second name.
-    //    Γ now stands alone as the inherited 3e16 its own docblock flags as unchosen (§E274).
-    // ⇒ **A constant explained by pointing at a symbol becomes unexplained when the symbol goes** —
-    //    `DEPLETION_RATE_WAD`'s header records that same loss twice. State units, do not cite them.
-    // STABLENESS = ρ, the DEPLETION-BARRIER ORDER (derived, NOT a fit exponent). The skew is
-    // Γ·σ²·q / (1−q)^ρ: the A-S linear reservation premium Γσ²q amplified by the shadow price of the
-    // last inventory units. Derived from the HJB with a HARD inv≥0 constraint — a −log(inv) barrier
-    // (the LP physically cannot serve at inv=0) whose marginal ∝ 1/inv makes depletion convexly
-    // costly. ρ=1 = the log-barrier (constraint exactly at inv=0); ρ=0 recovers plain linear A-S;
-    // ρ>1 = a harder barrier. Calculus-derived — the one parameter is a barrier order, not a curve fit.
-    // ⚠️ READ THAT AS THE DERIVATION OF WHY THE EXPONENT IS 1, NOT AS A LIVE DIAL. `STABLENESS` has
-    // ZERO code references in `evm/src`; it was deleted with `SIGMA_REF` and the old `GAMMA_WAD`
-    // definition, byte-identically, because ρ was 1 and its loop
-    // (`for (i = 1; i < 1; …)`) never executed. The kernel below is the simple pole written out —
-    // which is what A&S §2.3 derives anyway, the exponent fixed at 1 by the CARA value function
-    // rather than fitted. The tunable that DID survive is `KAPPA_WAD`, the pole's LOCATION (§E289).
     // Volatile range half-width, in bps of price. `updateBounds(price, delta)` reads it as
     // `price·(10000∓delta)/10000` — the ONLY consumer, and it works in absolute PRICES.
-    // Quid SERVES swaps and RESEATS, so it cannot sit at a degenerate half-width like a static
-    // position: at delta = 0 the reseat re-add collapses `lower == upper`. ⚠️ **THE ±0.2% THAT USED
-    // TO BE ASSERTED HERE AS THE LIVE WIDTH IS HISTORY — see the §WIDENED block below: the constant
-    // is 200 (±2%) since 2026-09-08.** The "thinnest non-degenerate half-width" argument is why 20
-    // was CHOSEN, not a property of the value in force; the degeneracy bound it appeals to is δ = 0
-    // and binds at neither width. Frequent repacks are covered by repack-first (swapper-paid) + the
-    // self-funded reseat crank — no separate gas budget needed.
-    // ⛔ CORRECTED — THIS NAMED TWO DEAD SYMBOLS AND A DEAD ENGINE. It read *"paddedSqrtPrice reads
-    // it as …"* and *"at delta=10 the reseat re-add (updateTicks(targetSqrt,10)) collapses
-    // lower==upper and V4 reverts"*. `paddedSqrtPrice` is deleted (§E347/§E347b); `updateTicks` and
-    // `targetSqrt` have ZERO code references in `evm/src` — every remaining hit is a comment; and
-    // there is no V4 to revert. **The delta=10 figure went with them**: it described a TICK-SPACING
-    // degeneracy, not a price one, and `updateBounds` is degenerate only at delta = 0. Quoting a
-    // measured-looking threshold that no live code can produce is how a comment becomes the premise
-    // of a re-tune (§E18 at `:690`).
+    // Quid SERVES swaps and RESEATS, so it cannot sit at a degenerate half-width: `updateBounds` is
+    // degenerate at δ = 0 and nowhere else. Frequent repacks are covered by repack-first
+    // (swapper-paid) + the self-funded reseat crank — no separate gas budget needed.
     /// 🔴 **WIDENED 20 → 200 (±0.2% → ±2%) ON 2026-09-08 (owner: *"widen the range delta, K is too
     /// high"*). THIS IS THE ONLY LEVER ON `K`, AND THAT IS ARITHMETIC, NOT PREFERENCE.**
-    /// `QuidLib.kLvrWad` is the LVR-to-VALUE ratio of a v3 position — derived from scratch and
-    /// confirmed exact: for `V(P) = L(2√P − √Pa − P/√Pb)`, `V'' = −L/(2P^1.5)`, so
+    /// K is the LVR-to-VALUE ratio of a v3 position — derived from scratch and confirmed exact: for
+    /// `V(P) = L(2√P − √Pa − P/√Pb)`, `V'' = −L/(2P^1.5)`, so
     /// `LVR/V = σ²/(4(2 − √(Pa/P) − √(P/Pb)))`, which reduces to **`K = 1/(4δ)`**.
     ///     δ = 20 bps ⇒ K = 125.06        δ = 200 bps ⇒ K = 12.56
     /// ⇒ The formula was never wrong; K was large because the RANGE was tight. Nothing else in the
     /// tree can move K — there is no coefficient to re-tune, only this width.
-    /// ⭐ **±2% IS NOT A NEW NUMBER, IT IS THE ONE THE REST OF THE SYSTEM ALREADY ASSUMED.** Every
-    /// θ/K figure in `IL-CERTIFICATION.md` is keyed to ±2%, and the BTC range's own seed used
-    /// `delta=200` until §ONE-ANCHOR unified it (the note at `Vault.setup` calls that gap "an
-    /// unexplained 10x"). Widening closes the drift rather than introducing a choice.
-    /// ⚠️ **WHAT IT DOES NOT FIX, STATED SO NOBODY READS MORE INTO IT: θ IS STILL SMALL.**
-    /// `θ = feeYield/(K·σ²)`, so at σ=80% and a 5%/yr realised yield this moves θ from ~0.0006 to
-    /// ~0.0062 — `applyTheta` still caps pooled near 0.6% of backing. **A 10× improvement that does
-    /// not change the regime.** Reaching θ ≈ 0.1 needs K ≈ 0.8, i.e. δ ≈ 32%, i.e. essentially
-    /// full-range. ⇒ the remaining question is θ's TIME BASE (an annual yield over an instantaneous
-    /// in-range rate — §K-IS-A-SAMPLING-ARTEFACT), not this constant.
-    /// ⛔ **DEGENERACY BOUND: `updateBounds` is degenerate only at δ = 0** — the old "delta=10
-    /// collapses lower==upper" figure described a TICK-SPACING degeneracy that left with v4, per the
-    /// paragraph above. Widening has no lower-bound hazard; it is `soldFraction` and every 20-bps
-    /// assertion that move (see `LevMath`'s worked example and `Alles.t.sol`'s TWAP-deviation cap).
+    /// ⚠️ **THE θ CONSUMER OF THAT NUMBER IS DELETED (§NO-GAMEABLE-BOUND).** `kLvrWad` and
+    /// `derivedThetaWad` are gone with `applyTheta`, so K no longer sets a depth cap. What δ still
+    /// governs is `soldFractionWad`/`holdingRatioWad` — how much of an LP's volatile the range has
+    /// sold at a given price — and every 20-bps assertion keyed to it (see `LevMath`'s worked
+    /// example and `Alles.t.sol`'s TWAP-deviation cap). Widening has no lower-bound hazard.
+    /// ⛔ DO NOT RESTORE THE "delta=10 collapses lower==upper" FIGURE. It described a TICK-SPACING
+    /// degeneracy from a v4 that no longer exists — a measured-looking threshold no live code can
+    /// produce is how a comment becomes the premise of a re-tune.
     uint internal constant RANGE_DELTA = 200;
 
 
@@ -1008,44 +960,6 @@ library SwapLib {
 
 
 
-    /// @dev §E53 — THE SHARED-SCARCITY AMPLIFIER. Every input to the skews is `isBTC`-scoped, yet
-    ///      BOTH ranges draw on ONE basket: `committedUsd18() <= haircutTvl` is the single bound they
-    ///      compete for. So two SIMULTANEOUS drains stress the same backing and neither skew can see
-    ///      the other — and ETH/BTC correlate hardest on exactly the days that matter, which makes
-    ///      this the expected shape of a bad day rather than a tail case.
-    ///
-    ///      The SIZING layer already got this right — `sizeBySurplus` nets both pools so "neither can
-    ///      claim the same surplus twice" — and only the PRICING layer was blind. This closes that.
-    ///
-    ///      ⚠️ CONSTRAINT THAT PICKS THE FORM: the natural measure is utilisation, `committed/TVL`.
-    ///      **TVL is NOT reachable here** — `Aux.get_deposits`, `checkBacking` and `tryCheckBacking`
-    ///      are all NON-VIEW, and these skews are `view`. So the term is RELATIVE (how much of the
-    ///      shared commitment belongs to the OTHER range) rather than absolute, built only from
-    ///      `committedUsd18()` and `rangeEquityUsd18()`, both of which are view.
-    ///
-    ///      Returns a WAD multiplier in [1e18, 2e18]: 1× when this range is the only claimant, and
-    ///      exactly 2× at the endpoint `rangeEquityUsd18() == 0` with `committedUsd18() > 0`, i.e. the
-    ///      whole shared commitment belongs to the other range. Bounded by construction — it can
-    ///      never invent scarcity, only reflect that the shared backing is already spoken for.
-
-
-
-
-    function _sharedScarcityWad(address core) private view returns (uint) {
-        uint both = ICore(core).committedUsd18();
-        if (both == 0) return 1e18;
-        // §ISBTC-SPLIT — THE TERNARY WAS THE FUSED `Core` DECIDING WHICH HALF WAS "MINE". It read
-        // `isBTC ? both - btc : btc` because ONE contract held BOTH ranges and `rangeEquityUsd18()`
-        // named the BTC one either way. Under instances that question does not arise:
-        // `rangeEquityUsd18()` IS this instance's own equity, so the other side is the remainder,
-        // unconditionally. Same denominator (`committedUsd18`) as the solvency bound, by
-        // subtraction — computing it independently is how two views of one quantity drift apart.
-        uint mine = ICore(core).rangeEquityUsd18();
-        uint other = both > mine ? both - mine : 0;
-        return 1e18 + SoladyMath.fullMulDiv(other, 1e18, both);
-    }
-
-
     /// @notice §FLAT-FEE — THE SWAP-OUT CHARGE IS A CONSTANT. See docs/actionable/TARGET-DESIGN.md.
     ///         The scarcity kernel it replaced priced inventory risk against a flow forecast; under
     ///         balance-sheet absorption the imbalance is carried by the lever, not by the swapper, so
@@ -1067,30 +981,6 @@ library SwapLib {
         return MIN_SWAP_SKEW_WAD;
     }
 
-    /// @notice SYMMETRIC A-S skew for a volatile-IN SELL (the self-funded short's
-    ///         range-leg shed). Where `wellSkew` prices the SCARCE side (volatile-OUT drain,
-    ///         inv<target), this prices the ABUNDANT side: a sell that pushes the pool's
-    ///         volatile inventory PAST target grows the pool's inventory risk, so A-S skews
-    ///         the reservation price AGAINST it (`skew = Γ·σ²·q` with q = overshoot). A sell
-    ///         that REFILLS a scarce/near-target reservoir REDUCES imbalance and is EXEMPT
-    ///         (skew 0). ⛔ **IT DOES NOT CALL `skewWad`, AND THERE IS NO MIRROR.** This docblock
-    ///         used to say it *"REFLECTS the post-add inventory about the neutral `target`
-    ///         (q ↦ 2·target−q) and calls `skewWad`"*; §E54 deleted both. MEASURED: `skewWad` has
-    ///         exactly ONE caller in the tree and it is `wellSkew`. The body below computes its own
-    ///         `over = inv − target`, midpoint-averages q over the sell (§E68b), multiplies
-    ///         `Γ·σ²·qBar` and hands the bare kernel to `_composePrice`. The exemption is the
-    ///         `over == 0` early return, not a borrowed flush guard, and the two legs share the
-    ///         COMPOSER (`_composePrice`/`_amplify`), never the kernel. `addedTok` = the volatile just
-    ///         deposited (POOLED not yet bumped — the swap settles in _finishSwap), added so
-    ///         the sell is judged on inv AFTER its own contribution (a pool sitting at target
-    ///         would otherwise never charge any sell, however large).
-    /// @dev PUBLIC so the imbalance charge is QUOTABLE BEFORE settlement, matching `wellSkew`. Under the
-    ///      intent design (#28) the swapper is priced for the imbalance THEY create at quote time —
-    ///      pre-committed, not discovered by a curve — so both directions must be readable from
-    ///      outside. `wellSkew` (the drain side) already was; this is the fill side, and it being
-    ///      `internal` was the only reason a quote could price one direction and not the other.
-    ///      ⚠️ Still a VIEW over live `Core` state, so a quote is only as fresh as the block it was
-    ///      taken in. Whatever binds a quote to a settlement must carry its own staleness bound.
     /// @notice §FLAT-FEE — the sell-in leg, same constant for now.
     /// 🔴 THIS IS THE LEG THAT WILL REGAIN A TERM, AND IT IS NOT THE ONE THAT HAD THE POLE.
     ///    TARGET-DESIGN §3: a sell-in is the CONSTRAINED direction, because borrowing against newly
@@ -1452,9 +1342,9 @@ library SwapLib {
     }
 
     /// @notice §SILENT-SKIP — A STUCK LP ON THE DELIVERY PATH IS NOW ANNOUNCED. Its twin already was:
-    ///         `LevManager.cascadeDelever:369` and `BtcLevManager:271` both do
-    ///         `catch { emit DeleverFailed(lp, getCurrentLtvBps(lp)); }`, while the two catches below
-    ///         were bare. The SKIP is intended on all three (this function's own docblock: *"a stuck
+    ///         `BtcLevManager:271` does `catch { emit DeleverFailed(lp, getCurrentLtvBps(lp)); }`,
+    ///         while the two catches below were bare. (The ETH twin was `cascadeDelever`, deleted
+    ///         with the per-LP batch; the emit convention it set is what this preserves.) The SKIP is intended on all three (this function's own docblock: *"a stuck
     ///         LP is skipped, leaving the residual to the #105 partial-fill"*); being UNOBSERVABLE was
     ///         not. This is the path reached when a swap-out cannot be covered, so a stuck LP here
     ///         silently becomes a partial fill whose only trace is a shortfall the caller must infer —
@@ -1679,7 +1569,8 @@ library SwapLib {
     ///      surplus (pin USD to free backing; the unpaired token stays in IL-free retention).
     ///      ⛔ THERE IS NO BTC POLICY CAP IN THIS BODY — this said *"optionally apply the BTC policy
     ///      cap"*, and §H deleted `btcShareBps`/`btcCapClamp` (the note above records it). The only
-    ///      bounds are the surplus here and `clampByBacking`'s headroom/θ pair at the call site.
+    ///      bounds are the surplus here and `clampByBacking`'s HEADROOM at the call site (§NO-GAMEABLE-BOUND
+    ///      deleted the θ half of that pair; headroom is a balance-sheet fact, θ read measured state).
     ///      ⚠️ `liquidTotal` (`get_deposits[15]`) and `committedBoth` (`committedUsd18`) are now read
     ///      by `addLiqBody`, NOT by its callers — the §DELTATOK-FOLD moved that read in, which is what
     ///      let both ranges lose their copies. `surplus == 0` ⇒ `addLiqBody` early-returns. Every
@@ -1714,23 +1605,13 @@ library SwapLib {
     }
 
 
-    /// @notice Backing-bounded theta clamp — the ONE principle for EVERY range add (ETH range, BTC LP-add, BTC
-    ///         reseat). Permit `want` new in-range depth, but never past two bounds:
-    ///           • HEADROOM = `backing − pooled` — the physical room the IL-bearing capital leaves ABOVE the
-    ///             current in-range depth. `backing` = that capital (ETH: rangeETH venue principal + gross
-    ///             buffer; BTC: lpShares + gross buffer, +this add's sats); `pooled` = current in-range range
-    ///             depth (POOLED/BTC). The range can never exceed what backs it.
-    ///           • THETA budget = `θ·backing − pooled` (via applyTheta) — θ = avgYield/(K·σ²) (Merton), the
-    ///             fraction of backing it is optimal to RISK in-range given yield vs realized variance; θ≥1
-    ///             fails open (calm/unmeasured) → only HEADROOM binds.
-    ///         Returns `min(want, HEADROOM, THETA budget)`. Dedups the former divergence where the BTC LP-add
-    ///         skipped HEADROOM (harmless — its `want=deltaTok ≤ that add's own sats ≤ backing−pooled` — but now
-    ///         every path stays bounded at the real backing even when θ fails open).
-    /// @notice Withhold the A-S scarcity premium `amount·skew` from a drained/sold `amount`, record it as
-    ///         retained backing (`recordSkewPremium` — the drainer's full USD entered the pool, they just take
-    ///         less out), and return the reduced amount. ONE definition for all three retain sites (swap-out
-    ///         drain, sell-in, BtcVault drain). The refiller-payout side was removed — the fleet
-    ///         self-funds the refill. skew==0 no-op.
+    /// @notice Withhold the swap fee `amount·skew` from a drained/sold `amount`, record it as retained
+    ///         backing (`recordSkewPremium` — the swapper's full USD entered the pool, they just take less
+    ///         out), and return the reduced amount. ONE definition for all three retain sites (swap-out
+    ///         drain, sell-in, BtcVault drain). skew==0 no-op.
+    ///         §FLAT-FEE — `skew` is now `MIN_SWAP_SKEW_WAD` from both producers, so this withholds a
+    ///         constant 420 ppm. The plumbing stays parameterised because the sell-in leg regains a
+    ///         capacity term (TARGET-DESIGN §3).
     /// ⛔ The premium is an LP **CLAIM**, not undifferentiated basket NAV: `Core.recordSkewPremium`
     ///     ends in `RANGE.creditSkewPremium(premiumUsd)`, implemented on BOTH ranges
     ///     (`Quid.creditSkewPremium`, `Vault.creditSkewPremium`), and §E42-netting moves its BACKING
@@ -1756,25 +1637,22 @@ library SwapLib {
     ///        • `nativeAmount == true` (the sell leg, `swapToBody`'s `!forVolatile` arm) -> `r.amount`
     ///                         is NATIVE (wei/sats). `recordSkewPremium` wants 6-dec USD, so convert
     ///                         with `premium·r.px/1e30`, the flat scale correct for BOTH assets (the
-    ///                         WBTC price carries the ×1e10 lift — same rule as `_skewBasis`).
+    ///                         WBTC price carries the ×1e10 lift).
     ///        • `nativeAmount == false` (both drain legs: `swapToBody`'s `forVolatile` arm and
     ///                         `_swapOutPrep`, whose input came through `scaleTo6`) -> `r.amount` is
     ///                         ALREADY 6-dec USD; record verbatim.
     ///      The premium SUBTRACTED from `r.amount` stays in the caller's own unit; only the RECORDED
-    ///      value converts. Before this fix the native legs recorded wei/sats into a USD register: ETH
-    ///      over-reported (theta throttle never bound) and BTC under-reported ~1e3 (over-throttled).
+    ///      value converts. Before this fix the native legs recorded wei/sats into a USD register — ETH
+    ///      over-reported by 1e12, BTC under-reported by ~1e3. The θ throttle that consumed the wrong
+    ///      register is deleted; the register itself is still read as an LP credit, so the fix stands.
     function retainSkewPremium(address core, SwapReq memory r, uint skew, bool nativeAmount)   // §ISBTC-SPLIT: the `isBTC` param was never read
         internal {
         if (skew == 0) return;
-        // §E275/§E300 — NO GUARD HERE BY DESIGN, AND THE REASON HAS CHANGED WHILE THE CONCLUSION
-        // HELD. This said `wellSkew`/`sellSkew` *"DECLINE an unfillable rate at the producer"*. They
-        // no longer decline: §E298 showed a revert hands a solver nothing, and §E300 replaced the
-        // refusal with `_boundToFullHaircut`, which SATURATES at `SKEW_UNFILLABLE == 1e18`.
-        // ⇒ The guarantee this frame relies on is now ARITHMETIC rather than a promise
-        // about the caller: `skew <= 1e18` makes `premium = amount·skew/1e18 <= amount`, so the
-        // `r.amount -= premium` below cannot underflow even at a 100% haircut. A second bound here
-        // would still be the clamp standing rule 17 warns about — but note the reason a reader must
-        // check has moved from "the producer refuses" to "the producer saturates".
+        // NO GUARD HERE BY DESIGN. The guarantee is ARITHMETIC, not a promise about the caller:
+        // `skew <= 1e18` makes `premium = amount·skew/1e18 <= amount`, so `r.amount -= premium`
+        // cannot underflow. Under §FLAT-FEE both producers return one constant of 4.2e14, so the
+        // bound is not merely satisfied but satisfied by four orders of magnitude. A second bound
+        // here would be the clamp standing rule 17 warns about.
         uint premium = SoladyMath.fullMulDiv(r.amount, skew, 1e18);
         // ONLY the sell leg holds a NATIVE amount. The two drain legs hold the BUY-DRIVING USD, already
         // 6-dec — converting those (attempt 2) collapsed the recorded premium to 0. `r.px` cannot serve as
@@ -1788,8 +1666,8 @@ library SwapLib {
     }
 
     /// @notice §DELTATOK-FOLD — THE ONE `addLiq` BODY. `QuidLib.addLiq` and `BtcLib.addLiqChannel`
-    ///         were the same seven statements twice, and the ONLY thing that differed was two
-    ///         SCALARS: the live θ and the native `backing` the clamp is measured against. Everything
+    ///         were the same seven statements twice, and the ONLY thing that differed was ONE
+    ///         SCALAR: the native `backing` the clamp is measured against. Everything
     ///         else — the `get_deposits` read, `committedUsd18`, `sizeBySurplus`, the surplus early
     ///         exit, the clamp, the §E270 `targetUSD` RECOMPUTE, the `/1e12` and the zero exit — was
     ///         byte-for-byte identical, down to the comment explaining the recompute.
@@ -1799,19 +1677,17 @@ library SwapLib {
     ///         bytecode — once inside `QuidLib`'s copy and once inside `BtcLib`'s. A `public` one is
     ///         DELEGATECALLED, so this body is deployed once in `SwapLib` and both callers lose
     ///         their copies. Same trade §E346 made with modifier bodies, one level up.
-    /// ⚠️ θ AND `backing` ARE COMPUTED BY THE CALLER, DELIBERATELY, AND MUST STAY THERE. Both θ reads
-    ///         go through `address(this)` — `ICore(address(this)).derivedThetaWad()` on the ETH side,
-    ///         `ICore(address(this)).derivedThetaWad()` on the BTC side — and `address(this)` is the
-    ///         RANGE only because these libraries run under its delegatecall. Moving either read in
-    ///         here would still resolve, which is exactly what makes it dangerous: it would work now
-    ///         and silently bind to the wrong identity the first time this is called from anywhere
-    ///         else. The asymmetry is real (`rangeETH() + grossBuffer` vs `btcThetaBacking() + sats`)
-    ///         and it is the ONLY real one — passing it as two numbers is what proves that.
+    /// ⚠️ `backing` IS COMPUTED BY THE CALLER, DELIBERATELY, AND MUST STAY THERE. It is read through
+    ///         `address(this)`, which is the RANGE only because these libraries run under its
+    ///         delegatecall. Moving the read in here would still resolve, which is exactly what makes
+    ///         it dangerous: it would work now and silently bind to the wrong identity the first time
+    ///         this is called from anywhere else. The asymmetry is real (`rangeETH() + grossBuffer` vs
+    ///         `btcBacking() + sats`) — passing it as a number is what keeps it visible.
     /// @param  want    the REQUEST (wei on ETH, sats on BTC). Never written — §E270: the parameter used
     ///                 to be overwritten, so past `sizeBySurplus` the requested amount existed nowhere.
-    /// @param  backing the IL-bearing capital the θ budget is measured against, in the range's NATIVE
+    /// @param  backing the IL-bearing capital the headroom is measured against, in the range's NATIVE
     ///                 unit. ETH: `rangeETH()` (net venue principal) + the gross buffer. BTC:
-    ///                 `btcThetaBacking()` (lpShares net + gross buffer) + THIS add's `sats`, which is
+    ///                 `btcBacking()` (lpShares net + gross buffer) + THIS add's `sats`, which is
     ///                 not yet credited to `lpShares` at clamp time.
     /// §NO-GAMEABLE-BOUND (owner, 2026-09-09: *"anything that can be gamed is useless"*). The theta
     /// risk-budget parameter is GONE. theta = feeYield/(K*sigma^2) drew all three of its inputs from

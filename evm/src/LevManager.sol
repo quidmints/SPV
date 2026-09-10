@@ -47,7 +47,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 ///         weETH, supplies it, until LTV hits the live target = the range's SOLD FRACTION `1 − √(entry/now)`
 ///         (NOT the static `L=1/α` knob — see the `debtDeltaToTarget` comment), capped at 2× — so the leverage
 ///         only engages to cancel the IL the flow actually created. The keeper (`quid-bridge::lev_keeper`) holds LTV
-///         in range via `rebalance` and proactively de-levers via `deleverOne`/`cascadeDelever` so the
+///         in range via `rebalance` and proactively de-levers via `deleverOne`/`deleverToVault` so the
 ///         venue's liquidation engine never fires; a position it can't save falls to the venue's OWN
 ///         isolated liquidation (that LP only, never the basket). No QUI is minted; nothing touches
 ///         `POOLED_USD`. (The old LEVERAGE-ENGINE-SPEC.md is gone; this file is the canonical design.)
@@ -346,22 +346,27 @@ contract LevManager is LevBase {
     function _delever(ILevVenue venue, address lp, address stable, uint256, uint256 minOut, uint256 dex, uint256 dex2, bytes calldata route)
         internal override { _deleverFlash(venue, lp, stable, deleverRepayUsd(lp), minOut, dex, dex2, route); }
 
-    // ════════════════════════════ CASCADE DE-LEVER (the correlated-crash path) ════════════════════════════
+    // ════════════════════════════ DE-LEVER ONE (the LP's own down-leg) ════════════════════════════
 
-    /// @notice De-lever ONE position toward target (down-leg only). The atomic unit of the cascade;
-    ///         `external` so `cascadeDelever` can try/catch it. Callable by the contract itself (cascade) or
-    ///         the LP.
+    /// @notice De-lever ONE position toward target (down-leg only). Callable by the LP, and ONLY by
+    ///         the LP — §POOLED-EXTRACTION took the `address(this)` arm with `_batch`.
+    /// ⚠️ THIS IS NOT THE CRASH PATH ANY MORE. The correlated-crash response is `deleverToVault`,
+    ///         which repays POOL debt in one call; with a single pooled position the aggregate LTV is
+    ///         the collateral-weighted mean of the individual ones, so lowering it is `repayPool`,
+    ///         not a walk. What survives here is an LP's own restore-to-target.
     /// @dev    ⇒ THERE IS NO UNBOUNDED LOOP HERE — THERE IS NO LOOP. A SINGLE flash-repay-first shot
     ///         replaces the iterate-and-chip design, and `require(debtOf < debtBefore)` below is what
     ///         makes a position that sources nothing fail fast instead of spinning.
-    /// @dev NO `nonReentrant` BY DESIGN: `cascadeDelever` (which holds the guard) calls this via `this.deleverOne`,
-    ///      so a guard here would revert the whole cascade. Safe without it — caller is self or the LP only, and
-    ///      every token leg uses ACTUAL balance deltas (no nominal trust), so a re-entry can't mis-account.
+    /// @dev NO `nonReentrant` BY DESIGN. It was omitted so the cascade's `this.deleverOne` self-call
+    ///      would not trip its own guard; that caller is deleted, and the omission still holds on its
+    ///      own merits — the caller is the LP only, and every token leg uses ACTUAL balance deltas
+    ///      (no nominal trust), so a re-entry cannot mis-account.
     /// @notice §E357 — ONE entrypoint, and it carries the route.
     /// @dev ⛔ **DO NOT SPLIT OFF AN UN-ROUTED TWIN.** Both reasons one would be built are false here:
     ///        · **`deleverOne` is NOT in the validating signer's allowlist** — `evm_validating_signer.rs`
-    ///          pins `cascadeDelever` and `rebalanceMany` and nothing else, so there is no pinned
-    ///          selector to preserve, only a duplicate entrypoint to pay for.
+    ///          pinned `cascadeDelever` and `rebalanceMany`, both now deleted, so there is no pinned
+    ///          selector to preserve, only a duplicate entrypoint to pay for. ⚠️ THE RUST ALLOWLIST
+    ///          STILL NAMES THEM and must be re-pinned onto `deleverToVault`.
     ///        · **There is no V3 fallback.** §C2.1 removed it, so an EMPTY route is not "the same call
     ///          without a hint" — it is a leg that does nothing. An un-routed twin could never work.
     ///      ⛔ **AND IT NO LONGER FAILS CLOSED, WHICH IS THE OPPOSITE OF WHAT THIS SAID.** The claim
@@ -381,8 +386,8 @@ contract LevManager is LevBase {
         if (repayUsd == 0) return;                                              // inside range → done
         uint256 debtBefore = p.venue.debtOf(lp);
         // ONE flash-repay-first shot reaches target (no health breach, any depth). If the position is
-        // genuinely underwater/illiquid the flash can't be repaid → the whole op reverts → `cascadeDelever`
-        // catches it and the position falls to the venue's own isolated liquidation.
+        // genuinely underwater/illiquid the flash can't be repaid → the whole op reverts and the
+        // position falls to the venue's own isolated liquidation.
         _deleverFlash(p.venue, lp, p.venue.stable(), repayUsd, minOut, dex, dex2, route);
         if (p.venue.debtOf(lp) >= debtBefore) revert NoRepay();                 // sourced nothing → cascade skips it
         emit Rebalanced(lp, false, 0, getCurrentLtvBps(lp));
@@ -698,60 +703,31 @@ contract LevManager is LevBase {
         if (got > 0) wethDelivered = LevMath.collToWethDeliver(got, recipient, minWethOut, _extractCfg());
     }
 
-    /// @notice §G.3/§G.6 REACTIVE de-lever sweep — the ONE mechanism the redeem AND swap-out settle paths share
-    ///         (the keeper's `cascadeDelever` is the PROACTIVE half; it stays distinct because its per-LP intent is
-    ///         restore-to-target, not extract-to-sink). Walks the open-lever book (this manager OWNS `_openLps`, so
-    ///         the walk lives here, not reached into from the basket) and value-neutrally extracts up to `usdWanted`
-    ///         (USD 1e18) into `sink`, stopping as soon as it's met. FAULT-TOLERANT via the same `this.`-self-call
-    ///         pattern as `cascadeDelever`: a stuck/illiquid position reverts its own `deleverToVault` and is
-    ///         SKIPPED, never blocking the sweep. Gated to the range (`RANGE`). Partial de-lever keeps
-    ///         positions OPEN, so the book is stable across the walk (no swap-pop mid-loop). Returns the USD
-    ///         (1e18) VALUE routed to `sink` — the same unit as `usdWanted`, and the unit `BasketLib`'s
-    ///         `freed < need` compares it in; `deleverToVault` does that conversion at its own boundary and
-    ///         this only passes the result on. Book-order (not strict LTV rank): each tap is value-neutral + capped at its own #67
-    ///         deliverable, so order only picks WHICH lightly-levered LPs are tapped — strict LTV-ranking is the
-    ///         proactive cascade's job.
+    /// @notice §G.3/§G.6 REACTIVE de-lever sweep — the ONE mechanism the redeem AND swap-out settle
+    ///         paths share. Value-neutrally extracts up to `usdWanted` (USD 1e18) into `sink`, and
+    ///         returns the USD (1e18) VALUE actually routed there — the same unit as `usdWanted`, and
+    ///         the unit `BasketLib`'s `freed < need` compares it in.
+    /// ⭐ §POOL-VENUE — THERE IS NO BOOK AND NO WALK. This used to loop the open-lever book, and the
+    ///         docblock here still described *"this manager OWNS `_openLps`"* and a per-LP fault
+    ///         skip. With ONE pooled position a single `repayPool` + `withdrawPool` frees pool
+    ///         collateral for every LP at once, so the sweep is O(1) and the aggregate bound
+    ///         (`totalDeliverableDollars`) is the real cap rather than one LP's ~1/N slice.
+    /// ⛔ FALL SHORT, NEVER REVERT: a venue that cannot source must leave the redeem short. That is
+    ///         what the `try/catch` is for, and it is the only fault tolerance this path needs now
+    ///         that there is no per-position walk for one stuck LP to block.
     function deleverBook(uint256 usdWanted, address sink, uint256 minOut)
         external nonReentrant returns (uint256 freed)
     {
         _onlyRange();
-        // §POOL-VENUE — ONE EXTRACTION, NOT A WALK. This looped every open LP, extracting from each
-        // until `usdWanted` was met, so the redeem-side sweep carried the same O(open LPs) cost the
-        // delivery side did — and it is the LAST walk of `_openLps` on a state-changing path.
-        // With one pooled position an extraction against ANY open LP repays the pool and frees pool
-        // collateral, so naming one is naming all of them; the book is read only to find the venue.
-        // ⚠️ AND THE CAP IS NOW THE POOL'S, WHICH IS WHY THIS DOES NOT UNDER-EXTRACT. `deleverToVault`
-        // bounds itself by `deliverableDollars(lp)`, which pooled is that LP's PROPORTIONAL slice —
-        // extracting through one LP would have capped at ~1/N of the pool. `totalDeliverableDollars`
-        // is now the aggregate bound, evaluated once on the pool, and is what this passes.
-        // ⛔ THE `try/catch` STAYS: a venue that cannot source must leave the redeem short rather than
-        // revert it, which is the same fault-tolerance the per-LP walk had.
-        // §POOL-VENUE — same correction as the delivery path: gate on the PINNED pool, not on the
-        // book being non-empty. A pool holding a remainder after its last LP closed still owes a
-        // de-lever, and `_openLps.length == 0` refused it without saying so.
+        // §POOL-VENUE — GATE ON THE PINNED POOL, NOT ON A BOOK BEING NON-EMPTY. A pool holding a
+        // remainder after its last LP closed still owes a de-lever; `_openLps.length == 0` refused
+        // it without saying so, and the `_openLps[0]` that followed was an out-of-bounds panic in
+        // THIS frame, before the external call, where the try/catch below could not absorb it.
+        // Both are gone with the book: `deleverToVault` is pooled and takes no LP.
         if (poolVenue == address(0)) return 0;
         uint256 cap = this.totalDeliverableDollars();
         uint256 want = usdWanted > cap ? cap : usdWanted;
         if (want == 0) return 0;
-        // 🔴 §POOL-VENUE — **THE GATE ABOVE WAS CORRECTED AND THIS LINE DEFEATS IT.** The comment
-        //    directly above records changing the guard from `_openLps.length == 0` to
-        //    `poolVenue == address(0)` so that *"a pool holding a remainder after its last LP closed
-        //    still owes a de-lever"*. But `_openLps[0]` on an EMPTY book is an out-of-bounds panic,
-        //    and it is evaluated HERE, in this frame, BEFORE the external call — so the `try/catch`
-        //    below cannot absorb it. The redeem REVERTS in precisely the case the gate was widened
-        //    to admit, which is worse than the refusal it replaced.
-        // ⇒ Guard the index. This restores the graceful `freed = 0` the `try/catch` intends, and a
-        //   revert can no longer escape a path whose entire contract is "fall short, never revert".
-        // ⏸️ IT DOES NOT YET SERVE THE POOL-REMAINDER CASE, and that is booked rather than faked:
-        //    `deleverToVault` needs `pos[lp].open` and sizes off `deliverableDollars(lp)`, so with no
-        //    open LP there is nothing to route through. Serving it needs a POOL-LEVEL extraction
-        //    (venue from `poolVenue`, size from `totalDeliverableDollars`), which is the book-level
-        //    collapse — not a line change here.
-        // ⚠️ AND A SECOND DEFECT ON THIS PATH, MEASURED BY READING: the caller computes the AGGREGATE
-        //    bound (`this.totalDeliverableDollars()`) and the comment says that is "what this passes"
-        //    — but `deleverToVault` then re-clamps to `deliverableDollars(lp)`, the LP's PROPORTIONAL
-        //    slice. So the aggregate is capped back to ~1/N inside the callee, which is the exact
-        //    under-extraction the aggregate was introduced to remove. Also the collapse's job.
         try this.deleverToVault(want, sink, minOut) returns (uint256 f) { freed = f; }
         catch { /* pool could not source → redeem falls short, never reverts (keeper cascade picks it up) */ }
     }
@@ -788,8 +764,8 @@ contract LevManager is LevBase {
     ///    paid the buffer too, **uncapped by the `extractUsd` that sized the withdraw in the first place**
     ///    (~$190 over a sized $10,000 at 50 % LTV — a ~1.9 % overshoot of the §67 `deliverableDollars`
     ///    bound, out of the LP's residual equity, on EVERY call). The keeper-gas peel does not absorb it
-    ///    either: `_activeKeeper` is written only by `rebalance`/`rebalanceMany`/`_batch`, never on this
-    ///    RANGE-driven path, so the peel is a no-op here.
+    ///    either: `_activeKeeper` is written only by `rebalance`, never on this RANGE-driven path, so
+    ///    the peel is a no-op here.
     /// ⇒ The body pays THIS manager, and the split happens on this side of the delegatecall, where the
     ///   sized cap is in scope: `extractUsd` to `vault`, the unconsumed buffer back to `lp`.
     /// ⚠️ `extractUsd` is REUSED as the native-unit cap rather than adding a local (rule 23, and this

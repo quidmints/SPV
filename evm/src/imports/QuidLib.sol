@@ -118,49 +118,18 @@ library QuidLib {
 
 
 
-    /// @dev Annualized WAD yield the RANGE itself earned on the capital it put at risk — θ's
-    ///      numerator (#107/D3). Both inputs come off Core and are 6-dec USD, so the ratio is
-    ///      unitless and needs no scale plumbing:
-    ///        • numerator   = `premiumEwmaUsd` — retained scarcity premium, decayed over ~48h.
-    ///        • denominator = that pool's in-range range USD (`POOLED_USD_*`), i.e. the capital that
-    ///          actually bore the IL. Using the range's own capital (not TVL, not backing) is what
-    ///          makes this a YIELD ON THE BET rather than a yield on the whole reserve.
-    ///      Returns 0 when either side is unmeasured, which `derivedThetaWad` turns into fail-open.
-    ///
-    ///      ⛔ DO NOT "SIMPLIFY" THIS TO `skewWad × flowEwmaUsd / pooled`. It looks strictly better —
-    ///      `premium = amount·skew` (`retainSkewPremium`) and `flowEwmaUsd` is ALREADY the decayed
-    ///      Σamount, so the product derives this yield with ZERO new storage and no hot-path write,
-    ///      which is why it was considered first. It is WRONG: `skewWad = Γ·σ²·q/(1−q)^ρ` already
-    ///      CONTAINS σ², so feeding a skew-derived numerator into `θ = numerator/(K·σ²)` makes σ²
-    ///      CANCEL — θ would collapse to a vol-independent function of scarcity and flow and stop
-    ///      measuring risk at all. That cancellation is the Avellaneda–Stoikov property (fees are
-    ///      priced to scale with vol) and it would silently gut θ's purpose.
-    ///      The stored register avoids it by measuring REALIZED premium — what flow actually paid —
-    ///      against POTENTIAL LVR (`K·σ²`). Those are independent: the numerator moves with whether
-    ///      flow arrived, the denominator with how much IL we were exposed to. θ therefore answers
-    ///      "did realized fees cover the IL we bore?" — see `derivedThetaWad` below — whereas the derived form would
-    ///      only answer "does our own pricing formula contain σ²" — i.e. nothing.
-    ///
-    ///      ⚠️ `PREMIUM_ANNUALIZE` is the ONE number here worth reviewing. An exponential EWMA with
-    ///      half-life H has mean lifetime H/ln2, so it represents roughly that much accrual: for the
-    ///      48h `FLOW_DECAY`, 48/ln2 ≈ 69.25h, and a year is 8760/69.25 ≈ 126.5 such windows (rounded UP to 127 per user). σ² is
-    ///      ANNUALIZED (see `realizedVarianceWad`), so the numerator must be annualized too or θ is
-    ///      dimensionally wrong and would systematically under-size the range. 127 is that factor,
-    ///      not a tuning knob — if `FLOW_DECAY`'s half-life ever changes, this must change with it.
-    uint internal constant PREMIUM_ANNUALIZE = 127;
-
-
-
     // ════════════════════════════════════════════════════════════════════
     //  addLiq body (in-range pairing sizer). TWO clamps, both inside
     //  `SwapLib.addLiqBody`: the SOLVENCY surplus (`sizeBySurplus`, which is
     //  surplus-only — no asset-specific policy cap), then `clampByBacking` —
-    //  the PHYSICAL `backing − pooled` headroom AND the live θ-budget. Writes
-    //  no state. Extracted for EIP-170 headroom; the onlyUs guard stays in the
-    //  Quid forwarder.
+    //  the PHYSICAL `backing − pooled` headroom. (§NO-GAMEABLE-BOUND deleted a
+    //  third, the θ-budget: θ = feeYield/(K·σ²) read measured flow and measured
+    //  variance, both of which the priced counterparty sets.) Writes no state.
+    //  Extracted for EIP-170 headroom; the onlyUs guard stays in the Quid
+    //  forwarder.
     // ════════════════════════════════════════════════════════════════════
     /// @dev §E270 — `wantTok` is the REQUEST and is never written; `deltaTok` is the evolving value
-    ///      (surplus-sized, then theta/backing-capped). Mirrors the BTC range, which already kept its
+    ///      (surplus-sized, then backing-capped). Mirrors the BTC range, which already kept its
     ///      request in `sats`.
     function addLiq(address core, address aux, uint wantTok, uint price, uint grossBuffer)
         public returns (uint usdOut, uint outDelta) {

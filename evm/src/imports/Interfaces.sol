@@ -449,7 +449,7 @@ interface ISwap {
     // preserved the mistake; `wellSkew(asset, 0)` still gives the indicative rate, but the caller has
     // to say they meant zero size. Inventory, not `L`, separates a full range from a drained one at
     // the same price, and a size-blind quote cannot express that difference at all.
-    function wellSkew(address asset, uint256 drainUsd6) external view returns (uint256 skewWad);
+    function wellSkew(address asset, uint256 drainUsd6) external view returns (uint256 feeWad);
 }
 
 interface IAux is ISwap {
@@ -650,7 +650,7 @@ interface ICore {
     /// it with the deltas `SwapLib.fillIntentBody` derives AT THE SIGNED LIMIT, not at spot.
     function settleOor(address owner, int256 usdDelta, int256 volDelta, bool loadBalance) external;
     function POOLED() external view returns (uint);
-    function btcThetaBacking() external view returns (uint);
+    function btcBacking() external view returns (uint);
     function poolStats() external view returns (uint priceWad, uint liquidity);
     // §ISBTC-SPLIT — ONE ARGUMENT: each `Core` instance owns exactly one ring, so there is nothing
     // left to select. ⚠️ MUST MATCH `Core.observe(uint32[])` EXACTLY. A drifted declaration is
@@ -658,7 +658,6 @@ interface ICore {
     // DECLARATION — and reverts at RUNTIME with "unrecognized function selector" inside every
     // fixture's setUp.
     function observe(uint32[] calldata secondsAgos) external view returns (uint192[] memory);
-    function premiumEwmaUsd() external view returns (uint);
     function POOLED_USD() external view returns (uint);
     /// §BURN-RELEASES-NO-USD — the BASKET's share of the USD leg, distinct from `POOLED_USD` (which
     /// also holds the LP-owned increment). A burn releases the basket's dollars; the increment is
@@ -739,9 +738,10 @@ interface ICore {
     /// This range's engine. Without it a caller holding two range managers cannot reach the second
     /// range's `POOLED`/`POOLED_USD`, which is what silently made cross-range isolation untestable.
     function CORE() external view returns (address);
-    /// §DERIVED-BAND — the range's LVR coefficient, `1/(4(2 − √(P/Pb) − √(Pa/P)))`. Already the `K`
-    /// in `derivedThetaWad`'s `μ/(K·σ²)`, and `Quid` has exposed it as `kLvrWad()` since that work —
-    /// declared here so the leverage overlay can reach it through `ICore` on EITHER range.
+    /// 🔴 §DERIVED-BAND / §NO-GAMEABLE-BOUND — `kLvrWad()` WAS DECLARED HERE AND IS DELETED. It was
+    /// the range's LVR coefficient `1/(4(2 − √(P/Pb) − √(Pa/P)))`, i.e. the `K` in θ = μ/(K·σ²), and
+    /// its only consumers were θ and the derived no-trade band. Both are gone: θ read measured
+    /// state, and `LevBase._bandBps` is a constant placeholder pending a carry-derived band.
     // ⚠️ `Core` implements NONE of the three members below: `ICore` is the polymorphic RANGE-MANAGER
     // face as well as the pool face, and these three are `Quid`-only — ABI-legal, and exactly how the
     // merged face already works.

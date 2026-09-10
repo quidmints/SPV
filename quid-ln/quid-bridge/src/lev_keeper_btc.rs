@@ -22,7 +22,7 @@
 //! pro-rata across the WHOLE book, never
 //! the basket).
 
-use crate::abi::{addr_word, selector4, u64_word, word_to_lpaddr};
+use crate::abi::{addr_word, selector4, u64_word};
 use crate::lev_keeper::{
     decide, out_of_range, DwellTracker, KeeperAction, LevKeeperConfig, LpAddr, PositionView,
 };
@@ -37,7 +37,8 @@ const LEG_TIMEOUT: Duration = Duration::from_secs(45);
 /// because it maps to a signed tx (or an external round-trip), unlike ETH's atomic `rebalance`.
 #[allow(async_fn_in_trait)]
 pub trait BtcLevKeeperEvm {
-    /// The open levered-LP set (`openLevCount` + `openLpAt`), re-read every pass (the omni-trigger union).
+    /// The open levered-LP set, re-read every pass (the omni-trigger union). Enumerated from
+    /// `Opened`/`Closed` logs — see `lev_keeper::open_lps_from_logs`; the on-chain array is deleted.
     async fn open_positions(&self) -> anyhow::Result<Vec<LpAddr>>;
     /// One position snapshot (`getCurrentLtvBps`/`ilTargetLtvBps`/`netEquityBtc` + the venue liq LTV).
     async fn position_view(&self, lp: LpAddr) -> anyhow::Result<PositionView>;
@@ -276,20 +277,17 @@ pub struct DaemonBtcLevKeeper<R: JsonRpc, S: TxSigner> {
     /// WBTC-mode and rebalances via the atomic on-chain `rebalanceWbtc` (vs the native channel-vBTC async legs).
     pub wbtc: Address,
     pub gas_limit: u64,
+    /// Block to scan `Opened`/`Closed` from when enumerating levered LPs (the manager's deploy
+    /// height). 0 = genesis: correct, but re-scans the whole chain every tick.
+    pub lp_scan_from: u64,
 }
 
-impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> BtcLevKeeperEvm for DaemonBtcLevKeeper<R, S> {
+impl<R: JsonRpc + Clone + Send + Sync + 'static, S: TxSigner> BtcLevKeeperEvm for DaemonBtcLevKeeper<R, S> {
     async fn open_positions(&self) -> anyhow::Result<Vec<LpAddr>> {
-        let (evm, bm) = (self.evm.clone(), self.btc_lev_manager);
-        tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<LpAddr>> {
-            let n: u64 = word_to_uint(&evm.eth_read(bm, "openLevCount()", None)?, "openLevCount")?;
-            let mut out = Vec::with_capacity(n as usize);
-            for i in 0..n {
-                out.push(word_to_lpaddr(&evm.eth_read(bm, "openLpAt(uint256)", Some(&u64_word(i)))?)?);
-            }
-            Ok(out)
-        })
-        .await?
+        let (evm, bm, from) = (self.evm.clone(), self.btc_lev_manager, self.lp_scan_from);
+        tokio::task::spawn_blocking(move ||
+            crate::lev_keeper::open_lps_from_logs(&evm.rpc_handle(), &bm.to_string(), from))
+            .await?
     }
 
     async fn position_view(&self, lp: LpAddr) -> anyhow::Result<PositionView> {

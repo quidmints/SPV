@@ -116,52 +116,7 @@ interface IAngelF8N {
 ///
 /// ⚠️ NOT A DELETION -- every test still runs, exactly once, in `Alles` below. Dropping tests to make
 /// a suite fast is how coverage disappears; separating the fixture from the tests costs nothing.
-interface IAggProxy { function latestRoundData() external view returns (uint80,int256,uint256,uint256,uint80); }
-
-// REAL mainnet Chainlink ETH/USD proxy — the history source for `warmVarianceFromRealRounds`.
-// ⛔ Plain `//`, not `///`: a doc tag on a file-level variable is a COMPILE ERROR (6546).
-address constant REAL_CL_ETH_USD = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
-
 contract AllesFixture is ForkPin, ExitFixture {
-    // ── §SKEW-COVERAGE-HOLE FIX ────────────────────────────────────────────────────────────────
-    // Real mainnet Chainlink history, replayed, so σ² is NON-ZERO and a skew test exercises the
-    // A-S CURVE instead of the `UNKNOWN_VARIANCE_SKEW` sentinel.
-    //
-    // 🔴 WHY EVERY SKEW TEST NEEDS THIS. `sellSkew`/`skewWad` branch on `sigmaSqWad == 0` and return
-    //    the flat sentinel WITHOUT evaluating `qBar`. σ² is `max(ringVariance, anchorVarianceWad)`;
-    //    the ring is deliberately dead (§E294), and `Core._sampleAnchorVariance` advances `_varPx`
-    //    only when the anchor MOVES, guarded by `dt = block.timestamp - _varSq.ts` and an explicit
-    //    "SAME BLOCK ⇒ RETURN WITHOUT ADVANCING". A suite that runs its swaps at ONE pinned block
-    //    therefore tests the sentinel and never the curve — and reports green either way.
-    //
-    // ⛔ FOUR THINGS THAT LOOK LIKE THE OBVIOUS WAY AND ARE NOT — each returned σ² == 0 for a reason
-    //    that has nothing to do with the estimator, and each cost a run to find:
-    //    · `vm.rollFork` — wipes the LINKED LIBRARIES (SwapLib, LevMath); they have no handles in a
-    //      test to `makePersistent`, so every swap dies `CheatcodeError: … not marked as persistent`.
-    //    · reading the PHASE AGGREGATOR directly — `AccessControlledOffchainAggregator` REFUSES
-    //      contract callers. `cast call` works (it presents as an EOA); a test contract does not.
-    //      Read through the PROXY, and keep the roundId PHASE-ENCODED (~1.29e20; only a 64-bit shell
-    //      overflows on it, `uint80` is fine).
-    //    · feeding the round's HISTORICAL timestamp — `twapResolve` sees it stale, returns 0, and the
-    //      sampler degrades to UNMEASURED, which is indistinguishable from "the market did not move".
-    //    · warping BACKWARDS to that timestamp — `block.timestamp` behind the fork underflows the
-    //      swap path (Panic 0x4e487b71). Warp FORWARD by the real GAP instead.
-    //
-    /// @dev Per-round registration log, in its OWN frame. ⛔ Do NOT inline this back into the warm
-    ///      loop: that frame is already at the legacy-stack limit (`via_ir = false`) and adding these
-    ///      reads there is `Stack too deep` — the same wall `_pullForExtract` exists for on the src
-    ///      side. `dReg` is the point: it says whether THIS round contributed, which a final σ²
-    ///      cannot. `ok == 1` with `dReg == 0` means the swap landed and the anchor did not move.
-    function _logRound(uint256 px, bool ok, uint256 v0, uint256 v1) internal {
-        emit log_named_uint("    real px (8dec)       ", px);
-        emit log_named_uint("      block.timestamp    ", block.timestamp);
-        emit log_named_uint("      swap ok (1=yes)    ", ok ? 1 : 0);
-        emit log_named_uint("      sigma^2 after      ", v1);
-        emit log_named_int("      d(sigma^2) REGISTER", int(v1) - int(v0));
-    }
-
-
-
     /// §C2.1 — THE POOL WORDS THE KEEPER SUPPLIES. `routedSwap` takes ONE `uint256` naming a venue
     /// (protocol in bits 253-255, pool in the low 160) and builds the router calldata itself, so a
     /// test supplies the same thing a keeper would and nothing else. **Both are MEASURED, not
@@ -173,13 +128,6 @@ contract AllesFixture is ForkPin, ExitFixture {
     uint256 constant DEX_WETH_USDC = (uint256(1) << 253) | uint256(uint160(0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640)); // V3 0.05%
     uint256 constant DEX_WBTC_USDC = (uint256(1) << 253) | uint256(uint160(0x99ac8cA7087fA4A2A1FB6357269965A2014ABc35)); // V3 0.30%
 
-    /// The batch form of the pool word: `_batch` requires `lps.length == minOuts.length ==
-    /// dexes.length`, so a keeper sends one venue per LP. ⚠️ A ZERO-LENGTH ARRAY IS NOT "no route
-    /// supplied" — it is a `LenMismatch()`, and three cascade tests were failing on exactly that.
-    function _dexes(uint n) internal pure returns (uint256[] memory d) {
-        d = new uint256[](n);
-        for (uint i; i < n; i++) d[i] = DEX_WETH_USDC;
-    }
     /// 🔴 §E309 — WITHOUT THIS, THE PROTOCOL CANNOT PAY THE TEST, AND THE FAILURE LANDS ON THE
     ///    WRONG CONTRACT ENTIRELY. `Quid.deliverVolatile` is documented "ETH sends real ether"
     ///    (Quid.sol:1216) and routes through `QuidLib.sendEth`, whose last line is

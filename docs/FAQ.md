@@ -276,13 +276,18 @@ Quid Labs is wholly owned by the QuidMint Foundation, so the question is how the
 
 The largest line answers the arbitrage problem above. We publish no stale price for anyone to trade
 against, so there is no free correction to take. Inventory still needs restocking, so we charge for
-scarcity openly: when the range is low on Bitcoin, buyers pay above the oracle price and that premium is
-credited to the liquidity providers (`Core.recordSkewPremium` → `creditSkewPremium`,
-`evm/src/Core.sol:611-621`). It steepens with realised variance, and it carries an additive floor equal
-to what a market maker really pays to sit on capital awaiting confirmations — about an hour of Bitcoin
-confirmations plus an on-chain splice fee, against roughly one block and no splice on Ethereum
-(`evm/src/imports/SwapLib.sol:944-946`). **We buy the service Uniswap gets free from arbitrageurs, at a
-stated price, from willing counterparties.**
+scarcity openly. Every swap pays a fee that is credited to the liquidity providers
+(`Core.recordSkewPremium` → `creditSkewPremium`). **We buy the service Uniswap gets free from
+arbitrageurs, at a stated price, from willing counterparties.**
+
+> 🔴 **DESTALED 2026-09-10.** This paragraph said the premium *"steepens with realised variance"* and
+> that scarcity makes buyers *"pay above the oracle price"*. **Both are false in the code today.** The
+> charge is a **flat 420 ppm** (`SwapLib.MIN_SWAP_SKEW_WAD`), and the two producers `wellSkew`/`sellSkew`
+> return exactly that constant. Why the scarcity kernel was deleted rather than tuned: it read a flow
+> EWMA and a variance ring, and **both are state the counterparty being priced can starve** — a
+> patient drainer let the 48h EWMA decay, and a clock-stretcher spaced slices 4h apart to cut σ² ~24×
+> and the charge with it. A constant cannot be starved. See `docs/actionable/TARGET-DESIGN.md`; the
+> sell-in leg is expected to regain a **capacity** term read off the balance sheet, never off flow.
 
 Redemptions pay no fee. There were two constants named for one — three and thirty basis points — but the
 function that would have charged them was never wired to anything and both were deleted on 2026-09-09.
@@ -457,8 +462,8 @@ Three consequences a trader should know.
 
 **There is no slippage, and that is not free.** Walking a curve is what pays an AMM's providers along
 the path; settling at a single oracle price deletes both the cost to the swapper and that revenue.
-What replaces it is the scarcity premium described below, charged openly rather than harvested from
-the swapper's price impact.
+What replaces it is the flat swap fee described below, charged openly rather than harvested from the
+swapper's price impact.
 
 **A stale quote is not tradeable here, because we do not publish one.** An AMM's price is its own
 state and lags the market; that lag is the free option an arbitrageur exercises. Ours is a feed we
@@ -656,7 +661,8 @@ separate buffer for capacity.
 
 ## What actually limits how deep the range goes?
 
-Three bounds, applied in order, and only one of them is a judgement call.
+**TWO** bounds now, and neither is a judgement call. 🔴 **There were three until 2026-09-10; the
+judgement-call one is deleted, and this section is rewritten around its absence.**
 
 **The solvency bound.** The dollar leg of the range is basket capital, not the liquidity provider's, so
 no in-range dollar may be committed that the basket has not got: `surplus = TVL − committed`. Every
@@ -665,50 +671,41 @@ two ranges report into one accountant, ETH depth and Bitcoin depth are jointly b
 neither `Core` instance can see the other's dollars.
 
 **The physical bound.** Beyond solvency there is the plain arithmetic of `backing − pooled`
-(`SwapLib.clampByBacking`). This is the one that always binds, and it is the reason the third bound is
-allowed to be permissive.
+(`SwapLib.clampByBacking`). It always binds, and it is now the *only* bound above solvency.
 
-**θ, the Merton fraction.** This is the interesting one. θ asks the protocol's own rationality question
-directly — *are the fees beating the loss?* — as `range fee yield / (K·σ²)`, where the numerator is the
-range's own realised market-making premium and the denominator is the loss-versus-rebalancing rate
-(`QuidLib.derivedThetaWad`, `evm/src/imports/QuidLib.sol:232-250`). A θ at or above one is a no-op;
-below one it thins the range.
+### 🔴 θ, the Merton fraction — DELETED, and why that is a strengthening
 
-Three things about θ are worth a non-specialist's attention, because they are where an earlier version
-of this document was wrong.
+θ asked the protocol's own rationality question directly — *are the fees beating the loss?* — as
+`range fee yield / (K·σ²)`, with the range's realised market-making premium over the
+loss-versus-rebalancing rate. A θ at or above one was a no-op; below one it thinned the range. It is
+gone, along with `derivedThetaWad`, `kLvrWad`, the premium EWMA and every variance register.
 
-**The numerator is the range's own earnings, not the reserve's yield.** It used to be the basket's
-average yield, which over-sized the range: the basket earns that yield whether the dollar leg is ranged
-or sitting idle, so it is not compensation for taking impermanent loss. The only marginal compensation
-for that bet is the scarcity premium the range itself retains.
+**The reason is §NO-GAMEABLE-BOUND, the owner's rule: no safety bound may be derived from observed
+flow, because the counterparty sets observed flow.** θ drew *all three* of its inputs from measured
+market state — the premium EWMA (numerator), the variance ring and anchor (σ²), and `K` from range
+geometry as though a curve enforced composition. So a swapper could move the depth cap by trading:
+trade nothing for two days and the numerator decays; space a large drain into four-hourly slices and
+σ² collapses. A bound a counterparty can move is not a bound.
 
-**K is a function of the band's width and nothing else.** `K = 1/(4δ)`, so the ±2% band puts it at
-about 12.56 where the retired ±0.2% band put it at about 125 (`evm/src/imports/SwapLib.sol:870-874`).
-The band's width is the *only* lever on K that exists anywhere in the tree; there is no coefficient to
-tune. That 10× move is also why **no θ, K or LVR figure is quoted in this document**: the material in
-`docs/informational/` was written against differing assumptions about the band and has not been
-reconciled against the deployed width, so any number taken from it needs re-deriving before it is
-repeated.
+**What is lost, stated plainly.** θ was the only mechanism that asked whether fees were covering
+realised impermanent loss, and nothing asks that question on-chain today. It is a real gap, and the
+answer is not to restore a starvable estimator: the fee-versus-IL question belongs to the LP's own
+accounting (the lever's IL protect, which is what actually cancels the loss), not to a throttle on
+depth. The physical `backing − pooled` bound — a conservation statement about our own balance sheet,
+which no counterparty can set — is what keeps the range from over-committing meanwhile.
 
-**θ fails open, deliberately.** An unmeasured variance, an unmeasured premium or a cold observation
-ring all return θ = 1, i.e. no clamp (`evm/src/imports/QuidLib.sol:232-250`). Failing closed would be a
-deadlock — no depth means no fees, which means no premium, which means no depth, permanently — so a
-fresh range could never start. This is safe only because the physical `backing − pooled` bound
-(`SwapLib.clampByBacking`, `evm/src/imports/SwapLib.sol:2784`) is applied independently, which is
-exactly why that bound exists.
+**And the honest tension is resolved by the deletion, in one direction only.** The old worry was
+fair-weather liquidity: a clamp that tightens as σ² rises thins the range exactly when depth is most
+wanted, which is the failure everyone criticises AMMs for. With θ gone, **volatility no longer thins
+our depth at all.** That is strictly better for a swapper. It also means we no longer refuse depth on
+solvency-of-the-bet grounds — the LP's IL protection has to carry that weight instead, which is why the
+lever is not optional to the design.
 
-**And zero variance never means calm.** The variance a range reads is the larger of two independent
-measurements — its own observation ring and the pinned Chainlink anchor — so whoever feeds the ring can
-only move σ² upward, in the direction that costs them (`evm/src/Core.sol:405-433`). Zero from both
-legs means *nobody has measured*, and every consumer treats it conservatively.
-
-**And the honest tension, kept rather than argued away.** Volatility is when swap demand peaks and when
-a venue most needs to be deep, so a clamp that tightens as σ² rises is thinning the range precisely
-when depth is wanted. That is the fair-weather-liquidity failure everyone criticises AMMs for. The
-counter-argument is that θ is not a liquidity-provision rule but a solvency one — it sizes how much
-basket capital may be exposed to a loss the basket does not want — and that the provider who wants
-depth in a vol spike has the overlay for exactly that. We have not resolved this to our own
-satisfaction, and it is stated here rather than buried.
+**K is a function of the band's width and nothing else** — kept because the arithmetic is still true
+and still cited: `K = 1/(4δ)`, so the ±2% band puts it near 12.56 where the retired ±0.2% band put it
+near 125. The band's width was the only lever on K anywhere in the tree. This is also why **no θ, K or
+LVR figure is quoted in this document**: the material in `docs/informational/` was written against
+differing band assumptions and has not been reconciled.
 
 ## What is the skew, and why does the range need one?
 
@@ -739,24 +736,46 @@ we publish none. **But inventory still needs restocking**, so we buy the same se
 range is scarce in the volatile asset, a buyer pays above the oracle price, and that premium is
 **credited to the range's providers** (`Core.recordSkewPremium`, `evm/src/Core.sol:611-621`).
 
-That is the reservation-price offset from inventory-risk market making — the Avellaneda–Stoikov idea
-that holding the wrong composition has a price. The kernel is `Γ·σ²·q̄`: linear in realised variance,
-convex in the inventory imbalance `q` (`evm/src/imports/SwapLib.sol:1093-1101`).
+### 🔴 The spread is a CONSTANT now, and the reason is manipulation, not simplicity (2026-09-10)
 
-Two corrections to how this was described before.
+Everything above this line still holds: no curve, no slippage, and settling at oracle mid with **no**
+spread would be a standing gift to anyone with fresher information. What changed is the shape of the
+spread.
 
-**The confirmation cost is a floor, not a cap.** An earlier version said the premium was capped at what
-a market maker pays to sit on capital awaiting confirmations. It is the opposite: that cost is an
-**additive base** the skew always charges, per asset — Bitcoin locks capital through roughly an hour of
-confirmations plus an on-chain splice fee, Ethereum settles in about a block with neither
-(`evm/src/imports/SwapLib.sol:944-946`). There is no hard percentage ceiling on the skew; the only
-bound is the point at which an order is simply unfillable.
+This section described the charge as *"the reservation-price offset from inventory-risk market making —
+the Avellaneda–Stoikov idea that holding the wrong composition has a price,"* with the kernel
+`Γ·σ²·q̄`: linear in realised variance, convex in the inventory imbalance `q`. **That kernel is
+deleted.** The charge is a flat **420 ppm** on every swap — `SwapLib.MIN_SWAP_SKEW_WAD`, returned
+unconditionally by both `wellSkew` and `sellSkew`.
 
-**Unmeasured variance is charged at the ceiling, not treated as calm.** When the variance registers
-have never been written, σ² reads zero, and zero means *unknown* rather than *quiet*: the skew charges
-its unknown-variance rate rather than its cheapest (`evm/src/imports/SwapLib.sol:1502`). This is a
-deliberate fail-conservative default and it costs swappers money in exactly the state where we cannot
-price them properly.
+**Why deleted and not tuned.** The kernel's inputs were `q = (target − inventory)/target` with
+`target = flowEwmaUsd + redeemEwmaUsd`, and `σ²` from a variance ring plus a Chainlink-anchor
+estimator. Every one of those is **measured state that the counterparty being priced can set**:
+
+- **patience** — stop trading, let the 48h flow EWMA decay, and `target` shrinks toward the
+  inventory you want to drain, so `q` collapses and the charge with it;
+- **clock-stretching** — space the slices of one large drain four hours apart and σ² falls by ~24×,
+  cutting the charge by 93.3% for the same total size.
+
+Both worked because the price depended on starvable measurements. The owner's rule is the whole
+answer: *"anything that can be gamed is useless."* A constant is not merely simpler — it makes both
+attacks **unconstructible** rather than defended against.
+
+**What a constant has to satisfy, so it does not become an unexamined number.** It must exceed
+adverse selection over the settlement window (σ²·T/8 — worst case around 2.3 bps on Bitcoin at
+extreme vol) and stay under the competing venue's all-in cost. That band is what makes a constant
+viable; if it ever closes, this stops being a constant question. The competitive ceiling is a
+requirement, and it is not yet asserted by a test — that debt is booked.
+
+**Two claims that went with the kernel.** An earlier version said the confirmation cost was an
+*additive base* per asset (Bitcoin's ~hour plus a splice fee, against Ethereum's ~block), and that
+*"unmeasured variance is charged at the ceiling, not treated as calm."* Neither survives: there is no
+additive composition and no σ² to be unmeasured. The Bitcoin/Ethereum settlement asymmetry is real and
+unpriced today — it belongs in the capacity term, not in a variance multiplier.
+
+For the target design, the invariant it serves (*"lp preserve upside, basket depositors preserve dollar
+value"*), and the sell-in capacity term that is expected to replace the flat fee on that one leg, see
+`docs/actionable/TARGET-DESIGN.md`.
 
 **One thing that used to exist and does not:** a bonus paid to whoever refilled the pool. It was removed
 in July 2026, so the premium reaches the providers rather than a refiller.
@@ -1087,8 +1106,8 @@ trending drawdown.
 **Three things actually bound that risk, and none of them is a protocol-funded hedge.**
 
 **Only a bounded slice is exposed at all.** Paired range depth is limited by the basket's free surplus,
-by the physical `backing − pooled` headroom, and by θ where θ binds — see "What actually limits how deep
-the range goes?" above. Most of the deposit sits outside the range and is never short gamma.
+by the physical `backing − pooled` headroom — see "What actually limits how deep the range goes?"
+above, including why the third bound (θ) was deleted. Most of the deposit sits outside the range and is never short gamma.
 
 **The IL protection is an opt-in per-depositor overlay, not a balance-sheet operation.** `BtcLevManager`
 is the Bitcoin analogue of the ETH one, sharing the same economics through the shared library and the
@@ -1847,7 +1866,7 @@ than everything property-based.
 
 ## Why is this best for the liquidity providers specifically?
 
-Provider revenue is venue yield, trading fees, and the retained scarcity premium, all of which scale
+Provider revenue is venue yield, trading fees, and the retained swap fee, all of which scale
 with deposits and swap flow. Lending does nothing for a provider directly; it raises the basket's yield,
 which sets the bond coupon, which attracts dollar deposits, which fund the provider's dollar leg.
 
@@ -2466,7 +2485,7 @@ having them now rather than after the audit.
 ## Deliverables, ranked by what can actually ship
 
 1. **Intent venue listings** (Mach, Khalani, already committed). No licence, no product, no customer
-   acquisition. Brings the swap flow that drives the retained scarcity premium straight to depositors.
+   acquisition. Brings the swap flow that drives the retained swap fee straight to depositors.
    Needs a deployment and nothing else. **Fastest provider revenue in the stack.**
 2. **QD as pledged deposit collateral.** Needs one surety partner and a counsel answer on admitted
    assets.
@@ -2483,7 +2502,7 @@ having them now rather than after the audit.
 **No, and the gap is not traction.**
 
 **What traction would prove:** the audit, mainnet, live deposits, whether providers actually beat simply
-staking, whether the scarcity premium earns real money at real volume. All execution.
+staking, whether the swap fee earns real money at real volume. All execution.
 
 **What traction cannot prove, because nobody was ever asked.** The product changed four times in one day
 of research: mortgage refinancing, auto, unsecured cards, deposit collateral. Every pivot came from

@@ -1,5 +1,21 @@
 # READ THIS BEFORE TOUCHING THE SKEW OR THE REFILL
 
+> 🔴 **SUPERSEDED IN PART, 2026-09-10 — THE SKEW KERNEL THIS FILE ANALYSES NO LONGER EXISTS.**
+> `skewWad`, `_maxWellSkew`, `_skewBasis`, `_composePrice`, `_amplify`, `_depletion`,
+> `_boundToFullHaircut`, `_fillableDrain`, `applyTheta` and `_sharedScarcityWad` are **deleted**, with
+> `Γ`, `κ`, `σ²`, the flow/redeem EWMAs, the variance ring and the anchor estimator. `wellSkew` and
+> `sellSkew` return one constant, `MIN_SWAP_SKEW_WAD` (420 ppm).
+>
+> **Why, in one line:** every input to the kernel was measured state the priced counterparty could
+> starve — patience (let the 48h EWMA decay) and clock-stretching (space slices 4h, σ² falls ~24×,
+> charge falls 93.3%). Owner: *"anything that can be gamed is useless."*
+>
+> **What is still worth reading here:** §1 (the refill does not exist and is not needed — still true
+> and now structural), and every MEASUREMENT with a commit hash, which remains evidence. **What is
+> dead:** anything that tunes Γ or κ, prices σ²-sensitivity, or asks whether the premium can fund a
+> buy-back. Go to `docs/actionable/TARGET-DESIGN.md` — §5 for the removals, §6b for the debts they
+> created.
+
 A month of commits and three concurrent threads have covered this. **77 distinct `§SKEW`/`§REFILL`
 section tags are scattered across SPRINT.md's 1,424 headings** — this file exists so you do not have to
 find them. Every row cites the commit that settled it. **If you are about to measure something here,

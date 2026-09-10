@@ -790,40 +790,28 @@ contract Aux is // Auxiliary
             asset == address(WBTC), TWAP_MAX_DEVIATION_BPS, ASSET_FEED_MAX_AGE);
     }
 
-    /// @notice The live inventory-skew (WAD) the well applies to `asset`'s swap-OUT — the
-    ///         pool's reservation-price / RFQ taker-limit offset. Exposed on the SAME unified
-    ///         seam as getTWAPforAsset/resolvedTwap so that ANY RFQ maker or solver integrating
-    ///         against us reads the same number settlement uses.
-    ///         ⚠️ **NO SOLVER IS INTEGRATED TODAY** — this line named Bebop's RFQ engine and
+    /// @notice The swap-OUT fee (WAD) charged on `asset` — the pool's taker-limit offset. Exposed
+    ///         on the SAME unified seam as `getTWAPforAsset`/`resolvedTwap`, so any RFQ maker or
+    ///         solver integrating against us reads the number settlement uses.
+    ///         ⚠️ **NO SOLVER IS INTEGRATED TODAY.** This line named Bebop's RFQ engine and
     ///         Khalani's Arcadia solver as live readers; that is the seam's PURPOSE, not a wiring
-    ///         that exists. Nothing in the tree routes to either, and `wellSkew` is read by the LP
-    ///         dashboard and tests. Keep the seam unified anyway (that is why it is here); do not
-    ///         cite named integrations as evidence that the surface is load-bearing.
-    ///         ⛔ AND SEE §V4-CUT BELOW BEFORE USING `base·(1 − wellSkew(asset, size))` AS THE FILL:
-    ///         settlement is AT ORACLE and the skew does NOT appear in it — the skew is the
-    ///         attribution key for the restoration cost. 0 = flush (range price stands); rises as
-    ///         deliverable inventory becomes scarce. Read-only.
-    ///
-    ///         🔴 THE SIZE ARGUMENT IS MANDATORY BY DESIGN — THE ZERO-SIZE FORM WAS RETIRED, NOT KEPT
-    ///         ALONGSIDE. There used to be a `wellSkew(address)` that passed `drainUsd6 = 0` and
-    ///         returned the INSTANTANEOUS rate, and its docblock claimed solvers "quote against the
-    ///         EXACT number a swap executes at". True before §E68, false after: settlement charges
-    ///         the INTEGRAL of the pole over the path the swap itself walks (q0→q1), and the starting
-    ///         rate is the CHEAPEST point on that path. MEASURED on a $1m range: a 10% drain filled
-    ///         **1.11×** worse than that quote and a 90% drain **4.12×** worse, the error widening
-    ///         toward the pole — exactly where being wrong costs most.
-    ///         ⚠️ It was first fixed by ADDING this overload and documenting the old one as narrow.
-    ///         That left the footgun loaded: the defect was consumers reading the size-blind form, so
-    ///         leaving it callable preserved the exact mistake. Deleting it makes the wrong quote
-    ///         UNCONSTRUCTIBLE rather than merely discouraged (standing rule 17). The indicative case
-    ///         is now spelled `wellSkew(asset, 0)` — same number, but the caller has to say that a
-    ///         zero-size quote is what they meant.
-    ///         📌 The justification for keeping it — "consumers pinned to the original signature" —
-    ///         was never checked and was false: zero references in `quid-ln` and `spa`, and every
-    ///         call site was a test.
-    /// @param asset      volatile side (WETH/WBTC)
-    /// @param drainUsd6  the swap's volatile-side draw, 6-dec USD — the same base settlement uses;
-    ///                   pass 0 for the flush/indicative rate, which is the `size → 0` limit
+    ///         that exists. Nothing in the tree routes to either, and this is read by the LP
+    ///         dashboard and tests. Keep the seam unified anyway; do not cite named integrations as
+    ///         evidence that the surface is load-bearing.
+    /// 🔴 §FLAT-FEE — **IT IS A CONSTANT NOW, AND `drainUsd6` IS IGNORED.** This returned
+    ///         `Γ·σ²·q̄(q₀→q₁) + …`, and its docblock carried a long argument for why the SIZE
+    ///         argument had to be mandatory: settlement charged the INTEGRAL of a pole over the
+    ///         path the swap walked, so a size-blind quote under-priced a big drain (measured 1.11×
+    ///         at a 10% drain, 4.12× at 90%). That argument was correct about the kernel and the
+    ///         kernel is deleted — both of its inputs (a flow EWMA, a variance ring) were state a
+    ///         counterparty could starve, which is §NO-GAMEABLE-BOUND.
+    ///         ⭐ SO THE QUOTE IS NOW EXACT AT EVERY SIZE, WHICH IS THE PROPERTY THE INTEGRAL WAS
+    ///         CHASING. Settlement is at oracle bounded by inventory, and the charge is the same
+    ///         420 ppm whatever the size — there is no path to walk and nothing to under-price.
+    ///         ⏸️ THE PARAMETERS STAY. The sell-in leg regains a capacity term (TARGET-DESIGN §3),
+    ///         and dropping the argument now would force every integrator to change signature twice.
+    /// @param asset      volatile side (WETH/WBTC) — picks the range instance
+    /// @param drainUsd6  the swap's volatile-side draw, 6-dec USD. Currently unread; see above.
     function wellSkew(address asset, uint drainUsd6) public view returns (uint) {
         // §ISBTC-SPLIT: the asset picks the RANGE INSTANCE via the wiring-time lookup, and the
         // `isBTC` argument is gone -- the instance knows what it is.
@@ -894,14 +882,14 @@ contract Aux is // Auxiliary
     ///         is unpreventable by construction. A caller should see that before committing whether
     ///         or not any single venue is concentrated.
     /// @param  asset      volatile side (WETH/WBTC), as `wellSkew`
-    /// @param  drainUsd6  the swap's volatile-side draw, 6-dec USD; 0 gives the indicative rate
-    /// @return skewWad    the scarcity premium `wellSkew` would charge
+    /// @param  drainUsd6  the swap's volatile-side draw, 6-dec USD; unread under §FLAT-FEE
+    /// @return feeWad     the swap fee `wellSkew` would charge (a constant today)
     /// @return redeemable 18-dec USD the basket can pay out across every venue — deliverability and
     ///                    depeg read LIVE, the par total they haircut read from the ≤10-minute
     ///                    `metrics` cache (see above). An UPPER bound, not a reservation.
     function quoteSwapOut(address asset, uint drainUsd6)
-        external returns (uint skewWad, uint redeemable) {
-        skewWad = wellSkew(asset, drainUsd6);
+        external returns (uint feeWad, uint redeemable) {
+        feeWad = wellSkew(asset, drainUsd6);
         redeemable = BasketLib.redeemableBody(address(BTC_CORE));
     }
 

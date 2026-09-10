@@ -620,17 +620,23 @@ Why this holds, mechanically, and where it's bounded:
   protocol custodies**, not a counterparty's liquidity that can flee. A bank run
   *is* the swap-out — and the dollars it draws on were posted the moment the
   position was formed.
-- Its price stays matched to the asset's real value by **external
-  arbitrageurs** — the ordinary AMM mechanism: when the virtual pool's price
-  drifts from real BTC, outside arbers trade against the pool and correct it.
-  The protocol does **not** arb against itself (its counterparty would be its
-  own book — pointless and self-draining). `repack` is a *separate*, internal
-  op: it **re-centers the concentrated liquidity range** — burns the position
-  at the stale ticks and re-mints it around the current price so the LP's
-  liquidity stays in-range and productive. It moves no value by swapping; it
-  only relocates the range. So "the dollars correspond to what the asset is
-  worth" is upheld by external arb on price + repack keeping the range live —
-  not by any self-trade.
+- 🔴 **DESTALED 2026-09-10 — THERE IS NO CURVE AND NO ARB IN THIS SENTENCE ANY
+  MORE.** It read: *"its price stays matched to the asset's real value by
+  external arbitrageurs — the ordinary AMM mechanism: when the virtual pool's
+  price drifts from real BTC, outside arbers trade against the pool and correct
+  it … `repack` … burns the position at the stale ticks and re-mints it around
+  the current price."* Both halves are gone. §V4-CUT removed the CFMM: a swap
+  **settles at the oracle**, bounded by inventory (`Core.sol` — *"SETTLE AT
+  ORACLE, BOUNDED BY INVENTORY. No unlock, no callback, no curve traversal, no
+  price discovery. ONE price for the whole size."*), so there is no pool price to
+  drift and nothing for an arber to correct. There are no ticks either — `repack`
+  moves ONE stored anchor and the range is derived from it (`[p·(1−δ), p·(1+δ)]`,
+  §ONE-ANCHOR).
+  ⇒ What upholds *"the dollars correspond to what the asset is worth"* is now the
+  ORACLE plus the balance sheet, not arb: the protocol never needed a
+  counterparty to discover its own price, and the design deliberately no longer
+  depends on one arriving. (The owner's requirement, verbatim: *"come up with the
+  best mechanism. one that doesnt need arb."*)
 - On the BTC side this is exactly what the **per-channel close** enforces: the
   dollars a swap-out put into `POOLED_USD_BTC` are conserved 1:1 against
   `netDeliveredBtc`, so every LP's exit draws against dollars that are provably

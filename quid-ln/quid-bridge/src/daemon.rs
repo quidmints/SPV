@@ -634,6 +634,8 @@ pub async fn run(
 
             let keeper = crate::lev_keeper_btc::DaemonBtcLevKeeper {
                 evm: evm.clone(), btc_lev_manager, vault, venue_liq_ltv_bps, wbtc, gas_limit: cfg.gas_limit,
+                lp_scan_from: std::env::var("QUID_BTC_LEV_DEPLOY_BLOCK")
+                    .ok().and_then(|s| s.parse().ok()).unwrap_or(0),
             };
             info!(%btc_lev_manager, %vault,
                 "BTC lev-keeper clocks in — WBTC LTVs kept trim, no liquidation grim");

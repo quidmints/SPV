@@ -259,6 +259,27 @@ residual depeg exposure on **every** sell-in and it sizes the whole risk.
 
 ---
 
+## §6b — DEBTS THE REMOVALS CREATED (2026-09-10, all measured)
+
+These are **not** discovered problems — they are the price of cuts already made, recorded so nothing
+depends on my commit messages being read.
+
+| # | debt | evidence |
+|---|---|---|
+| 1 | **THE KEEPER HAS NO POOL-LEVEL DE-LEVER.** ✅ `LevManager.deleverToVault` is the pooled crash response (`repayPool` + `withdrawPool` + sell, O(1)) but it is RANGE-gated: `LevManager.sol:584` `if (msg.sender != RANGE && msg.sender != address(this)) revert NotGov()`. Only a redeem/swap-out settle can reach it. My own commit `acf8bb50` said *"the keeper's de-lever is now the pooled `deleverToVault`"* — **that is wrong as written**; the keeper cannot call it. | `deleverOne` is LP-only (`msg.sender != lp` → `Auth()`), so the keeper's surviving actuator is the permissionless per-LP `rebalance(address,uint256,uint256,uint256,bytes)`, which carries the down-leg. The Rust keeper now loops it, urgent first. O(N) txs where the pooled call would be one. |
+| 2 | **`_bandBps` IS A CONSTANT PLACEHOLDER.** ✅ `LevBase._bandBps` returns a literal `300`. §DERIVED-BAND derived it from `kLvrWad`, which is deleted with θ. The band must be re-derived from CARRY (owner: *"gas has nothing to do with lvr"*). | `LevBase.sol` — `function _bandBps(uint256, ILevVenue) internal pure returns (uint256) { return 300; }` |
+| 3 | **THE ENUMERATION MOVED TO LOGS.** ✅ `openLevCount`/`openLpAt` are gone, so both Rust keepers now build the open set from `Opened`/`Closed` events (`lev_keeper::open_lps_from_logs`, shared by the ETH and BTC keepers). Same-block open-then-close resolves as CLOSED, deliberately. | The events are declared on `LevBase` (`:260`, `:261`), so one helper serves both managers. |
+| 4 | **`SkewVsUniswapV3` MUST COME BACK AS AN ASSERTION.** ⏸️ It was deleted because it only LOGGED. The competitive ceiling in §4 is a requirement, and nothing currently falsifies it. | Rebuild as `ourCost ≤ theirs at every size we serve`. |
+| 5 | **DELETING IT COST THE ONLY IN-TREE ABI FOR THE V3 QUOTER, AND A GATE SAYS SO.** ✅ `tools/check-client-abis.py` goes 4 → 6 RUST DRIFT on this lane, and the two new hits are `getPool(address,address,uint24)` and `quoteExactInputSingle((address,address,uint256,uint24,uint160))` — both declared ONLY in `SkewVsUniswapV3.t.sol` and `PermittedPoolSet.t.sol`. The Rust keeper still calls both against live Uniswap; nothing now checks its encoding. | The other four drifts are pre-existing on `main` (third-party venue reads with no in-tree declaration — the same false-positive class as `orphans-allow.txt` CLASS 1). Rebuilding #4 closes #5 as a side effect, which is a second reason to do it rather than a separate task. |
+
+**Gates that were updated deliberately rather than dropped** (each demands a stated reason, and each
+now carries one): `tools/check-skew-agnostic.py` (five of eight skew functions deleted; the gate stays
+because the sell-in capacity term must not read a v4 concept or a measured flow), `tools/verify-seq-audit.py`
+(fourteen symbols moved LIVE → GONE), `tools/check-signer-allowlist.py` + `evm_validating_signer.rs`
+(both batch selectors removed as ORPHANs — signable surface nothing sends).
+
+---
+
 ## §7 — WHAT IS KEPT AND WHY (so it is not cut by a later sweep)
 - **Oracle settlement / no curve** — the premise of everything.
 - **The competitive ceiling as a REQUIREMENT** — the owner's, and it is what bounds the fee.

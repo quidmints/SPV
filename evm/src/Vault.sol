@@ -793,8 +793,9 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     function subPendingSwapOut(uint usd6) external onlyBTCChannels { CORE.subPendingSwapOut(usd6); }
 
     /// @notice This range's range, DERIVED from the one stored anchor: `[p·(1−δ), p·(1+δ)]`.
-    /// @dev    §ONE-ANCHOR. Every consumer wanted the PAIR (`soldFractionWad`, `derivedThetaWad`,
-    ///         `kLvrWad`, the rebalance body), which is why storing two looked natural. But the pair
+    /// @dev    §ONE-ANCHOR. Every consumer wanted the PAIR (`soldFractionWad` and the rebalance
+    ///         body; `derivedThetaWad`/`kLvrWad` were two more before §NO-GAMEABLE-BOUND deleted
+    ///         them), which is why storing two looked natural. But the pair
     ///         is a function of ONE number, and two slots that must move together are two slots that
     ///         can fail to. Deriving is also cheaper: two `mulDiv`s against a cold SLOAD, and a
     ///         repack writes one slot instead of two.

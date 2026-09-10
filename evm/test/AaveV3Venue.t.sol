@@ -95,7 +95,7 @@ contract AaveV3VenueTest is ForkPin {
         // swaps", which is exactly why its own comment called it a clamp meant to die. Pooling removes
         // the need for either, and the cap went with it.
         // ⚠️ Containment is NO LONGER proven here: a liquidation hits the pool and therefore both LPs
-        // pro-rata. It is protocol-enforced by `cascadeDelever` + the LTV hysteresis instead.
+        // pro-rata. It is protocol-enforced by the pooled `deleverToVault` + the LTV hysteresis instead.
         assertTrue(address(venue.poolEscrow()) != address(0), "one pooled Aave account");
         assertGt(venue.collateralOf(lp), 0.4e8, "lp1's proportional claim");
         assertGt(venue.collateralOf(lp2), 0.4e8, "lp2's proportional claim");

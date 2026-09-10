@@ -38,10 +38,12 @@ contract RealRateMorphoOracle {
     }
 }
 
-/// @notice CORRELATED-CRASH cascade de-lever, FULLY on the REAL mainnet-fork stack (no mocks): N weETH-collateral
+/// @notice CORRELATED-CRASH de-lever, FULLY on the REAL mainnet-fork stack (no mocks): N weETH-collateral
 ///   leveraged positions on a REAL Morpho Blue market + the REAL Quid ETH range as the E0/sold-fraction source, all
-///   levered by a REAL range rally (genuine IL), then crashed so they breach their de-lever range together, then
-///   `cascadeDelever`ed in one tx — asserting each is de-levered or gracefully skipped, isolated, with net progress.
+///   levered by a REAL range rally (genuine IL), then crashed so they breach their de-lever range together.
+/// ⚠️ THE CASCADE ITSELF IS DELETED — §POOL-VENUE made the crash response `deleverToVault` (one
+///   `repayPool` for the whole book), so the three tests that drove `cascadeDelever` went with it.
+///   What remains here is the real-venue scaffolding and the per-position properties.
 ///   The mocks (MockWeeth/MockSwapper/MaliciousSwapper/MockRangeHost/MockFlashLender/TestLevVenue) are DELETED; the
 ///   folded LevManager mints/redeems real weETH via ether.fi + routes stable legs through the basket SOR, and the
 ///   venue/flash/liquidation are the LIVE Morpho singleton. Mirrors LevYbReal's real-venue scaffolding.
@@ -304,7 +306,7 @@ contract LevCascadeProbe is AllesFixture {
         // premise; the BTC twin (`VBtcLevFeeLane._seizeRealBtc`) was migrated first and is the model.
         // ⚠️ The containment this helper's callers assert is correspondingly weaker — pooled, a
         // seizure hits every LP pro-rata. That is `LevVenueBase:117`'s stated design, not a
-        // regression, and it is enforced upstream by `cascadeDelever` + the LTV hysteresis.
+        // regression, and it is enforced upstream by the pooled `deleverToVault` + the LTV hysteresis.
         (, uint128 borrowShares,) = IMorphoTest(MORPHO).position(venue.MARKET_ID(), address(venue));
         deal(address(USDC), address(this), 5_000_000 * USDC_PRECISION);
         IERC20R(address(USDC)).approve(MORPHO, type(uint).max);

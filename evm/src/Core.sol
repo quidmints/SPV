@@ -159,75 +159,6 @@ contract Core {
     /// reverse path, and `x` never exceeds the USD actually pulled into the pool.
     uint public pendingSwapOutUsd;
 
-    // ─────────────────────────────────────────────────────────────────────
-    // Adaptive inventory-skew inputs — the swap-flow EWMA.
-    //
-    // The skew curve (SwapLib.skewWad) prices scarce volatile inventory UP on the
-    // swap-OUT (well) path, re-admitting the BENIGN inventory-rebalancing arber that
-    // oracle-only pricing killed alongside toxic LVR (a swap must never price off the oracle alone:
-    // that is a free option to the taker and the LVR it feeds is exactly what the range fee exists to price).
-    // Its adaptive TARGET = "the buffer needed to serve normal flow" is an EWMA of
-    // two-sided swap volume — decayed by `FeeLib.decPow` over `FLOW_DECAY` (48h half-life),
-    // NO governance constant, the market's own volume sets it. Bumped by every swap's USD
-    // notional in `swap` (range + well both route through it). Read DECAYED via
-    // flowEwmaUsd(). One register per instance.
-    struct Flow { uint128 vol; uint64 ts; }   // vol: 6-dec USD EWMA · ts: last touch
-    /// ⛔ §E55 — ONE FLOW REGISTER, AND A SECOND "SLOW" LEG MUST NOT BE RE-ADDED. A fast/slow pair
-    /// read as `min(fast, slow)` cannot bind: both legs are fed the FULL notional and both are
-    /// decaying SUMS, so a slower decay retains MORE ⇒ `slow >= fast` at every ratio ⇒ the min is
-    /// identically the fast leg. One register is therefore the whole estimator, and no second decay
-    /// constant is needed to make it adaptive.
-    uint internal constant FLOW_DECAY   = 999759352855809024; // per-min → 48h half-life (0.5^(1/2880)). The well's flow-EWMA / inventory-skew target wants a wide, manipulation-resistant memory. (The Aux redeem-fee `baseRate`, a separate 12h register, was REMOVED — QU!D has no peg-arb loop; this 48h flow decay is unrelated and stays.)
-    uint internal constant FLOW_MAX_MIN = 525600000;          // decay-exponent cap (Liquity)
-
-    /// @notice Retained range market-making premium per pool, as a DECAYED EWMA (6-dec USD) — the
-    ///         θ NUMERATOR source (#107/D3). Deliberately the SAME `Flow` struct, the SAME
-    ///         `FLOW_DECAY` (48h) and the SAME read/bump helpers as the swap-volume register:
-    ///         premium accrues on exactly the same swap events and wants exactly the same memory,
-    ///         so a THIRD decay constant would be an unjustified magic number. This is a SECOND
-    ///         consumer of the ONE 48h window, not a merge of two windows.
-    Flow internal _prem;   // §ISBTC-SPLIT: one per instance
-
-    /// @dev ONE decay implementation, shared by EVERY `Flow` register here (`_flow`, `_prem`,
-    ///      `_redeemFlow`). Decay the stored value over elapsed whole minutes.
-    function _decayed(Flow storage f) internal view returns (uint) {
-        return _decayedBy(f, 1);
-    }
-
-    /// @dev `slowN`-fold slower decay: the SAME curve evaluated over `mins/slowN`, so the half-life
-    ///      is `slowN ×` the fast one. One decay implementation, one constant, an integer ratio.
-    ///      ⚠️ Every live caller passes `slowN = 1` (through `_decayed`); there is no slow leg. The
-    ///      ratio form is what makes that a stated choice rather than a hidden assumption.
-    function _decayedBy(Flow storage f, uint slowN) internal view returns (uint) {
-        if (f.ts == 0) return f.vol;
-        uint mins = (block.timestamp - f.ts) / 60 / slowN;
-        return Math.mulDiv(f.vol, FeeLib.decPow(FLOW_DECAY, mins, FLOW_MAX_MIN), 1e18);
-    }
-
-    /// @dev Decay-then-add into an EWMA register. Saturates at uint128 (unreachable in practice).
-    function _bumpEwma(Flow storage f, uint usd6) internal {
-        uint v = _decayed(f) + usd6;
-        f.vol = v > type(uint128).max ? type(uint128).max : uint128(v);
-        f.ts  = uint64(block.timestamp);
-    }
-
-
-
-
-
-
-
-    /// @notice This pool's decayed RETAINED-PREMIUM EWMA (6-dec USD) — the range's realized
-    ///         market-making earnings over the trailing ~48h window. θ's numerator (#107/D3):
-    ///         the compensation the range actually receives for bearing IL. Reserve `avgYield` is
-    ///         deliberately NOT part of this — that number sizes how much QUI to mint up front and
-    ///         has nothing to do with how big the range should be (user, 2026-07-26); the dollar leg
-    ///         earns the reserve baseline whether it is ranged or idle (`spec.md`), so reserve yield
-    ///         is not marginal compensation for IL risk and must not inflate the risk budget.
-    function premiumEwmaUsd() public view returns (uint) {
-        return _decayed(_prem);
-    }
-
     /// @notice Aggregate leverage claim on this pool (6-dec USD) — the well's
     ///         DISTINCT "leverage demand" signal. Levered LPs both lock current volatile
     ///         (shrinking deliverable inventory) AND will draw/return it (raising demand),
@@ -255,47 +186,6 @@ contract Core {
 
 
 
-
-    /// @dev §E348 — BUMP BOTH VARIANCE REGISTERS THROUGH **ONE** DECAY EVALUATION, AND MAKE THE
-    ///      SHARED CLOCK TRUE BY CONSTRUCTION RATHER THAN BY CALL ORDER.
-    ///
-    ///      GAS. This was `_bumpEwma(_varSq, …); _bumpEwma(_varDt, …);`, and each of those calls
-    ///      `_decayed` → `_decayedBy` → **`FeeLib.decPow`, which is a `public` library function and
-    ///      therefore a DELEGATECALL** — with a binary-exponentiation loop inside it. The two calls
-    ///      took IDENTICAL arguments (`FLOW_DECAY`, the same `mins`, `FLOW_MAX_MIN`) and `decPow` is
-    ///      `pure`, so one of the two delegatecalls was pure waste on every anchor-moving swap.
-    ///
-    ///      ⭐ AND IT IS A CORRECTNESS HARDENING, WHICH IS THE HALF WORTH KEEPING. `anchorVarianceWad`
-    ///      is a RATIO of these two registers (`_varSq.vol · 31536000 / _varDt.vol`), and it reads
-    ///      them RAW — which is only sound because both were last decayed by the SAME factor, so the
-    ///      factor cancels. That was true only because the two `_bumpEwma` calls happened to sit
-    ///      adjacent in one transaction: an invariant maintained by call ORDER, which a later edit
-    ///      could separate with nothing failing loudly. σ² would then drift by the ratio of two
-    ///      decay factors — a plausible-but-wrong number on the drain-charge path, i.e. exactly the
-    ///      silent class §A.16b names ("numerator and denominator must share a reconciliation
-    ///      clock"). One writer that touches both registers with one factor makes the divergence
-    ///      UNCONSTRUCTIBLE instead of merely unlikely (standing rule 17).
-    ///
-    ///      BIT-IDENTICAL: `_decayedBy(f, 1)` is `mulDiv(f.vol, decPow(FLOW_DECAY, mins, cap), 1e18)`
-    ///      with `mins = (block.timestamp − f.ts) / 60`, and `_varSq.ts == _varDt.ts` always — they
-    ///      are written ONLY here, always as a pair, in one transaction, and both start at 0. The
-    ///      `ts == 0` arm returns the register unscaled, which `factor = 1e18` reproduces exactly.
-    function _bumpVar(uint sqInc, uint dtInc) private {
-        uint ts = _varSq.ts;                          // ONE clock for both registers
-        uint factor = 1e18;                           // ts == 0 ⇒ no decay, matching `_decayedBy`
-        if (ts != 0) factor = FeeLib.decPow(FLOW_DECAY, (block.timestamp - ts) / 60, FLOW_MAX_MIN);
-        _decayInto(_varSq, factor, sqInc);
-        _decayInto(_varDt, factor, dtInc);
-    }
-
-    /// @dev Apply an ALREADY-COMPUTED decay factor and add. Mirrors `_bumpEwma`'s uint128 saturation
-    ///      exactly; it differs only in taking the factor rather than deriving it, so the caller can
-    ///      derive it once for a pair of registers that share a clock.
-    function _decayInto(Flow storage f, uint factor, uint inc) private {
-        uint v = Math.mulDiv(f.vol, factor, 1e18) + inc;
-        f.vol = v > type(uint128).max ? type(uint128).max : uint128(v);
-        f.ts  = uint64(block.timestamp);
-    }
 
     /// @notice (well) Cumulative scarcity-premium the skew has RETAINED as backing, per
     ///         pool — the withheld fraction of a swap-out's USD when the pool is BTC/ETH-scarce
@@ -349,9 +239,6 @@ contract Core {
         // the mirror already falls as LPs draw. Each instance does this for its own range, so the
         // two are symmetric without either knowing which asset it is.
         POOLED_USD += premiumUsd;
-        // Also fold it into the decaying RATE register (#107/D3). The cumulative counters above
-        // are monotonic totals — useless as a yield; θ needs a rate, which is what this provides.
-        _bumpEwma(_prem, premiumUsd);
         emit SkewPremiumRetained(premiumUsd, cum);
     }
 
@@ -426,7 +313,7 @@ contract Core {
 
     /// @notice The BTC Vault, pinned on BOTH instances (post-deploy, like Quid's btcChannels) since
     /// the Vault is deployed after Core. Three uses, all of them here: it is admitted to `onlyUs` so
-    /// it can drive this engine (modLP / repack / settleOor / swap), `btcThetaBacking` reads its
+    /// it can drive this engine (modLP / repack / settleOor / swap), `btcBacking` reads its
     /// `totalShares()`+`totalBuffer()`, and a zero pin is the "not wired yet" test the leverage reads
     /// short-circuit on. It is NOT how this instance learns which asset it is — that is `ASSET`.
     
@@ -469,7 +356,7 @@ contract Core {
     ///         throttle on the SAME real capital -- NEVER the
     ///         disjoint WBTC-donation `rangeBTC` pool (that mis-base collapsed the range whenever donations were
     ///         thin, the opposite of what scarcity should do). 0 if no BTC vault wired.
-    function btcThetaBacking() external view returns (uint) {
+    function btcBacking() external view returns (uint) {
         return address(BTC) == address(0) ? 0 : BTC.totalShares() + BTC.totalBuffer();
     }
 
@@ -784,19 +671,6 @@ contract Core {
 
         // (2) SETTLEMENT. Without this `POOLED_USD`/`POOLED` never move and nobody is paid.
         _handleDelta(delta, false, recipient, token);
-
-        // (3) FLOW EWMA — LOAD-BEARING, AND ITS ABSENCE WOULD HAVE BEEN SILENT. `flowEwmaUsd` decays
-        // with no replenishment if this is missing, and it is the swap half of `skewTargetUsd()`,
-        // which is what `skewWad`/`sellSkew` read as `target`. At `target == 0` `sellSkew` RETURNS 0,
-        // so every sell goes exempt from the imbalance charge — looking exactly like a skew that
-        // simply never fires. Every range and well swap routes through here, so this remains the ONE
-        // bump point for SWAP flow (a redemption unwind has its own, `bumpRedeemFlow`).
-        {
-            int256 usdLeg = delta.usd;
-            uint usd6 = uint(usdLeg < 0 ? -usdLeg : usdLeg);
-            if (usd6 != 0) {
-            }
-        }
 
         // (4) §OOR-BOOK-DELETED — THERE IS NOTHING TO SWEEP. This called
         // `RANGE.sweepOor(px, MAX_FILLS_PER_SWAP)` to emulate v4's tick traversal for resting
@@ -1275,83 +1149,6 @@ contract Core {
     ///      rejected pool's index survives into its replacement.
     bytes public OBS_CALLDATA;
 
-    /// @notice §E320-SSRN — **SIGNED NET FLOW, 6-dec USD. THE COMPANION TO `flowEwmaUsd`, WHICH IS UNSIGNED.**
-    ///
-    /// Lyons & Viswanath-Natraj (SSRN 3508006) model peg restoration as `θ̇s = ω(p−1)`, where `θs` is
-    /// the share of wealth using the coin as the VEHICLE into a risky asset, and their empirical
-    /// instrument for it is signed order flow — `OF = Σ V·(1[buy] − 1[sell])` (their eq. 25),
-    /// reconstructed from three exchanges' tape with a taker-side flag. **We produce the same
-    /// quantity as a by-product of settling a swap, and until now we deleted its sign one line after
-    /// computing it:** `swap`'s flow bump takes `uint(usdLeg < 0 ? -usdLeg : usdLeg)` and feeds the
-    /// magnitude to `_bumpFlow`. `skewPremium` is likewise `+=` only. So a range being drained and
-    /// one being refilled were INDISTINGUISHABLE in stored state — the two conditions that call for
-    /// opposite responses.
-    ///
-    /// SIGN — inherited from the delta convention above ("POSITIVE = leaves the pool"), NOT chosen
-    /// here, so the two cannot drift apart:
-    ///   • `> 0` — USD left the pool: the user was PAID dollars, having sold the volatile leg to us.
-    ///     Volatile → basket travel, i.e. **net buying pressure on the stable side** (their +OF).
-    ///   • `< 0` — USD entered the pool: the user BOUGHT the volatile leg with dollars.
-    ///     Basket → volatile travel (their −OF).
-    /// It is therefore the paper's sign convention exactly, and `netFlowUsd` rising is the state in
-    /// which their Table 7 measures the LARGEST price impact (β 35.07 at a premium vs 9.19 at parity).
-    ///
-    /// ⚠️ THIS IS AN INSTRUMENT, NOT A PRICE. Nothing reads it on the money path and nothing should
-    /// until the mapping is derived on OUR balance sheet — their risky asset sits OUTSIDE the reserve
-    /// and ours sits INSIDE it, so travel changes the basket's COMPOSITION rather than its size and
-    /// their eq. (15) cannot be lifted. It earns its slot under standing rule 3 because the failure it
-    /// exposes is SILENT: a basket draining steadily in one direction reads, today, exactly like a
-    /// balanced one.
-    /// ⚠️ DECLARED LAST ON PURPOSE. `DrainAtomicity._flowTs` reads Core slots 262/263 (`_flow`,
-    /// `_prem`) by RAW INDEX, and its own guard says a stale slot does NOT fail — `vm.load` reads the
-    /// wrong variable and the test passes while measuring something else. Appending keeps every
-    /// existing slot fixed. **Do not move this declaration up.**
-
-    /// @notice §SESS-18 — the REDEMPTION-unwind flow EWMA, kept SEPARATE from `_flow` on purpose.
-    /// ⚠️ **APPENDED, for the same reason `netFlowUsd` above is:** `DrainAtomicity._flowTs` reads Core
-    ///    slots **262/263** (`_flow`, `_prem`) by RAW INDEX and its guard does NOT fail on a stale slot,
-    ///    so a shifted layout would let that test pass while measuring the wrong variable. Appending
-    ///    keeps both fixed — asserted, not assumed, by `forge inspect Core storageLayout`.
-
-    /// @notice §E345 — σ² MEASURED OFF THE CHAINLINK ANCHOR, ON A SERIES NO TRADER CAN SHAPE.
-    ///
-    /// ⚠️ APPENDED, FOR THE REASON THE BLOCK DIRECTLY ABOVE GIVES. `netFlowUsd` is declared last on
-    /// purpose and these three go AFTER it; every pre-existing slot keeps its index, so the raw-slot
-    /// reads in `DrainAtomicity` still name the variables they think they name.
-    ///
-    /// WHY NOT THE RING (this is the whole finding, and §E343 only got half of it). §E343 established
-    /// that σ² needs no INDEPENDENT source — variance is a property of one series, so §E222's
-    /// two-sources-must-be-able-to-disagree rule is scoped to the deviation guard and does not reach
-    /// here. That is true and it is not the binding reason. The binding reason is TRUST: the ring is
-    /// written from whatever `observationSource` names, and that pin is a standing grant to shape the
-    /// series σ² is computed from. The anchor has no writer we do not ALREADY trust for the settle
-    /// price itself, so sourcing σ² from it REMOVES the write access rather than adding a guard
-    /// against its use (rule 17).
-    ///   ⛔ AND A ±BPS BAND ON THE RING WOULD NOT SUBSTITUTE FOR THAT, WHICH IS THE PART THAT IS EASY
-    ///   TO GET WRONG: such a band constrains the LEVEL of each write against a fresh anchor. σ² is a
-    ///   property of the SECOND differences, and a writer can track the anchor's level inside a tight
-    ///   band while emitting a smooth series whose return variance is near zero. Bounding where the
-    ///   series IS says nothing about how much it SHAKES.
-    ///   ⚠️ The attack that motivates this is the CHEAP-SKEW one, and it is worth stating because it
-    ///   does not look like an attack: feeding the ring a stream of in-range values makes σ² small-
-    ///   but-MEASURED, which REPLACES the ceiling sentinel with a floor-ish number. The attacker buys
-    ///   a cheap drain by being helpful. Reading that as a WBTC-basis problem and gating only the BTC
-    ///   instance was the earlier, wrong diagnosis — it is a WRITABILITY problem and it applies to the
-    ///   larger range too.
-    ///
-    /// THE ESTIMATOR IS TWO EXISTING REGISTERS, NOT NEW MATHS. `Flow` + `_bumpEwma` + `FLOW_DECAY`
-    /// already implement "decay-then-add with a 48h half-life"; running the SAME helper over squared
-    /// returns and over their elapsed seconds gives Σw·r² and Σw·Δt with IDENTICAL weights (both are
-    /// bumped at the same instants from the same `ts`), so the ratio is a time-weighted realized
-    /// variance per second with no third decay constant to justify.
-    ///   ⚠️ THE READ DELIBERATELY DOES NOT CALL `_decayed`. Both registers carry the same `ts` and the
-    ///   same constant, so a decay applied at read time CANCELS in the ratio — calling it would cost
-    ///   two `decPow` walks to divide a number by itself. A quiet spell therefore does not corrupt the
-    ///   estimate and does not fade it either; only a new sample moves it.
-    Flow internal _varSq;   // vol = Σ decayed squared anchor returns (WAD) · ts = last sample taken
-    Flow internal _varDt;   // vol = Σ decayed seconds spanned by those samples · ts = the same instant
-    uint internal _varPx;   // the anchor price at the last sample (0 = never sampled)
-
     function setObservationSource(address src, bytes calldata call_) external {
         require(msg.sender == DEPLOYER, "403");
         require(observationSource == address(0), "!");
@@ -1368,33 +1165,25 @@ contract Core {
     ///      forcing an attacker to HOLD a manipulated price across the window, and BOTH premises are
     ///      gone — no pool discovers a price here, and `_observeIfSourced` writes a feed no trader can
     ///      move within a block. A level band also says nothing about σ², which is a property of the
-    ///      PATH. Anything pushed by an untrusted party is a standing grant to shape the variance
-    ///      series; see the §E345 block at `_varSq`.
+    ///      PATH. ⚠️ THE σ² CONSUMER IS DELETED (§NO-GAMEABLE-BOUND: the swap charge is a constant),
+    ///      so shaping the variance series buys nothing TODAY — the prohibition stands anyway,
+    ///      because it is about who may write the price the ring settles at, not about σ².
     ///      ⛔ **AND THE SENTENCE THAT JUSTIFIED THAT PUSH — *"a ring sourced from [Chainlink] would
     ///      measure σ² ≈ 0 through real volatility"* — IS REFUTED BY MEASUREMENT (§E343, 2026-08-23)
-    ///      AND MUST NOT BE RESTORED.** It is a reasoned assertion; §E343 sampled 60 consecutive
-    ///      ETH/USD rounds via `getRoundData` on an archive endpoint and got **57.3 updates/day,
-    ///      20.5-min median gap, 0.53% median absolute move, implied annualised σ = 95.5%** — the
-    ///      right order for ETH, not ≈ 0. **The flat-line intuition fails because it assumes a
-    ///      WALL-CLOCK sample: read on a fixed grid, the gaps ARE flat and σ² collapses; read
-    ///      PER ROUND, every sample is a move that already cleared the 0.5% deviation trigger.**
-    ///      ⚠️ I expected the trigger to starve the estimate by censoring quiet periods. It does
-    ///      not — the 61-min heartbeat forces an update through them, so quiet times are sampled
-    ///      and the censoring bias is bounded rather than open-ended.
-    ///      ⇒ **CONSEQUENCE FOR ANYONE SIZING THIS WORK: σ² NEEDS NO INDEPENDENT SOURCE.** §E222's
-    ///      independent-source rule is scoped to `twapResolve`'s deviation test and
-    ///      `BasketLib.isManipulated` — guards that need two sources able to DISAGREE. σ² is a
-    ///      property of ONE series, so estimating it from the anchor is not the self-reference
-    ///      §E222 forbids. Reading that refuted sentence as "Chainlink cannot feed σ²" is what sends
-    ///      the next builder back to an off-chain keeper, whose CADENCE is the one manipulation a
-    ///      level band does not bound at all.
-    ///
+    ///      AND MUST NOT BE RESTORED.** 60 consecutive ETH/USD rounds via `getRoundData` on an
+    ///      archive endpoint: **57.3 updates/day, 20.5-min median gap, 0.53% median absolute move,
+    ///      implied annualised σ = 95.5%** — the right order for ETH, not ≈ 0. The flat-line
+    ///      intuition fails because it assumes a WALL-CLOCK sample; read PER ROUND, every sample is
+    ///      a move that already cleared the 0.5% deviation trigger, and the 61-min heartbeat forces
+    ///      an update through the quiet periods so the censoring bias is bounded.
+    ///      ⚠️ KEPT THOUGH NOTHING ESTIMATES σ² ANY MORE: it is the standing refutation of the
+    ///      argument for a permissionless push, which is what the prohibition above rests on.
     /// @dev THE READ MUST NOT BE ABLE TO HALT THE RANGE. `OracleLib.oneInchRateWad` reverts on a
     ///      zero/failed read, and this sits on the SWAP path — using it directly would turn an
     ///      oracle outage into "every swap and repack reverts", trading a silent measurement fault
     ///      for a hard liveness one. So the call is a raw `staticcall` and ANY failure (revert, short
-    ///      return, zero) simply SKIPS the write: the ring goes stale, σ² decays to unmeasured, and
-    ///      the same §E213 sentinel prices at the ceiling. Degrade to unmeasured, never halt.
+    ///      return, zero) simply SKIPS the write: the ring goes stale and the TWAP falls back to
+    ///      Chainlink through `twapResolve`. Degrade, never halt.
     ///      `getRate` is defined on RAW units (`dstRaw = srcRaw·rate/1e18`), so
     ///      `priceWad = rate · 10^srcDec / 10^dstDec`; USDC is 6-dec.
     function _observeIfSourced() internal {

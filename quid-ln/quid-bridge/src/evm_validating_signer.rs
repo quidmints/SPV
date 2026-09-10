@@ -71,23 +71,16 @@ const HOP_SIGNED_FN_SIGS: &[&str] = &[
     // nothing would accept is not harmless; it widens the signable surface while looking
     // deliberate. Do NOT re-add it as `repack(bool)` — `onlyUs` means the protocol calls it,
     // not the keeper.
-    // §E357 — the volatile leg now carries an off-chain-built route, so BOTH batch
-    // selectors gained a `bytes[]`. This list and the keeper's builder must move together:
-    // a stale entry here makes the signer REJECT every call the keeper sends.
-    // §SESS-21 — GAINED `uint256[],bytes[]`, matching `rebalanceMany`. It could not before: the close
-    // leg dropped `dex2`/`route` (§SESS-19), so a `bytes[]` here would have been signable calldata no
-    // code path consumed — the exact hazard the note at the top of this list warns about. That drop is
-    // gone, so the argument for keeping this narrow is gone with it.
-    "cascadeDelever(address[],uint256[],uint256[],uint256[],bytes[])",
-    // (§E247) `rebalanceMany` — the #84 whole-book batch (`LevManager:354`), sent by
-    // `lev_keeper.rs` since the central rebalancer landed and never listed here.
-    // §S15 — GAINED `uint256[],bytes[]` (per-LP `dex2`/`route`). The three-array selector is GONE,
-    // not overloaded, so this entry and `lev_keeper::encode_rebalance_many` move together or the
-    // signer refuses every batch rebalance. ⚠️ `cascadeDelever` deliberately did NOT move: its
-    // `deleverOne` drops `dex2`/`route` before `_deleverFlash` (`LevManager:369`), so a `bytes[]`
-    // there would be signable surface that no code path can consume — the exact shape the note at
-    // the top of this list warns about.
-    "rebalanceMany(address[],uint256[],uint256[],uint256[],bytes[])",
+    // 🔴 §POOLED-EXTRACTION (2026-09-10) — **BOTH BATCH SELECTORS ARE DELETED, HERE AND ON CHAIN.**
+    //    `cascadeDelever(address[],uint256[],uint256[],uint256[],bytes[])` and
+    //    `rebalanceMany(...)` stood here. §POOL-VENUE collapsed the per-LP enrolment book into ONE
+    //    pooled position, so a book-wide de-lever is `repayPool` — O(1) — and the walk both
+    //    selectors existed to drive is gone. The keeper now sends per-LP `rebalance(...)`, which is
+    //    already listed above. Leaving them would be signable surface nothing sends: the exact
+    //    `repackNFT` class this list's own note warns about, and `check-signer-allowlist.py` would
+    //    have failed them as ORPHANs.
+    // ⏸️ WHEN THE POOLED KEEPER ENTRYPOINT LANDS (TARGET-DESIGN §5b) IT NEEDS AN ENTRY HERE.
+    //    `deleverToVault` is RANGE-gated today, so there is nothing for this key to sign yet.
     // --- BTC leverage keeper (BtcLevManager) ---
     // §SLOP: `syncLevBTC(address)` was DELETED with the BTC suffix (`Vault.sol:536` — "one name
     // across both ranges"). ⚠️ THIS ENTRY AND THE KEEPER'S BUILDER MUST MOVE TOGETHER: an allowlist

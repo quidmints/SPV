@@ -23,8 +23,9 @@ import {IMorphoBase as IMorphoFlash} from "../imports/Interfaces.sol";
 /// moved de-lever bodies (`deleverFlashBody`) can invoke it from the manager's delegatecall context.
 /// The range surface the derived band + the reseat decision read. Mirrors the managers' `ICore`
 /// handle — a delegatecall'd library can't read their immutables, so the manager passes the
-/// range address in. All view: the three members this file reaches (`kLvrWad`, `rangePrice`,
-/// `rangeBounds`) are `view` fns or auto-generated getters over `public` state, so `view` external calls are
+/// range address in. All view: the members this file reaches (`rangePrice`, `rangeBounds` — `kLvrWad`
+/// was a third until §NO-GAMEABLE-BOUND deleted it with the derived band) are `view` fns or
+/// auto-generated getters over `public` state, so `view` external calls are
 /// STATICCALL-safe inside the try/catch below (Solidity allows try/catch on view calls) and callable from
 /// both view and non-view callers.
 

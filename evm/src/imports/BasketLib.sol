@@ -1182,7 +1182,7 @@ library BasketLib {
     }
 
     /// @dev §G.6 redeem shortfall sweep — the REACTIVE half of the ONE de-lever mechanism (shared with swap-out;
-    ///      the keeper's `cascadeDelever` is the proactive half). After the plain-range unwind comes up short, the
+    ///      the keeper's pooled `deleverToVault` is the proactive half). After the plain-range unwind comes up short, the
     ///      residual IS levered backing being unranged; the LevManager's `deleverBook` frees `usdWanted` (USD 1e18)
     ///      by de-levering the open in-range ETH levers value-neutrally (LTV PRESERVED, capped per-LP at #67
     ///      deliverableDollars) into THIS Aux (address(this) == the redeem sink; the freed stable is picked up by
