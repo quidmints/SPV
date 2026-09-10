@@ -97,9 +97,9 @@ contract LevManager is LevBase {
     event RebalanceFailed(address indexed lp, uint256 ltvBps);  // batch rebalance skipped this LP (retried next tick)
 
     error NotGov();
+    error Auth();          // deleverOne caller is not the LP itself
     error Slippage();
     error LenMismatch();   // batch arrays differ in length (custom error — no string-revert bytecode, EIP-170)
-    error Auth();          // rebalanceOne/deleverOne caller ∉ {self, lp}
     /// The flash settled without the debt falling — the COMPLETE detector for `LevMath.deleverFlashBody`'s
     /// three silent returns (`repayUsd == 0`, `flashProvider == address(0)`, `debt == 0`). ONE no-argument
     /// custom error for both raise sites: `require(..., "delever: no liquidity")` and
@@ -328,106 +328,8 @@ contract LevManager is LevBase {
         _rebalance(lp, minOut, dex, dex2, route);
     }
 
-    /// @notice BATCH rebalance — hold every out-of-range LP at its IL target in ONE tx (mirrors `cascadeDelever`),
-    ///         FAULT-TOLERANT: an LP whose rebalance reverts is SKIPPED (emit `RebalanceFailed`) and the loop
-    ///         continues. PERMISSIONLESS + only moves toward target. Lets the keeper fire ONE tx for the whole book
-    ///         instead of N per-LP txs — the central-rebalancer path.
-    /// @param dexes ONE PER LP, positionally. ⚠️ **A BATCH CANNOT SHARE A SINGLE ROUTE.** A route is
-    ///        quoted for an AMOUNT, and each position swaps its own size, so one route reused across
-    ///        the book would under- or over-shoot every LP but the one it was quoted for — and the
-    ///        oracle floor would then revert those legs rather than mis-price them, turning a batch
-    ///        into a single success and N `RebalanceFailed` events. **`dex2s` and `routes` are per-LP
-    ///        for exactly that reason** — they are not a shared route, they are N of them.
-    /// @param dex2s  ONE PER LP. `0` ⇒ that LP takes the legacy single-hop hub route (today's behaviour).
-    /// @param routes ONE PER LP. Empty ⇒ same. Pass `dex2s`/`routes` of length 0 to get the old shape
-    ///        for the whole batch, which is what an un-upgraded keeper's calldata will decode to.
-    ///
-    /// ✅ **§S15 — THE FOURTH AND FIFTH ARRAYS, WHICH THIS DOCBLOCK ASKED FOR BY NAME.** It used to say
-    ///    *"THE BATCH PATH KEEPS THREE ARRAYS ON PURPOSE. A fourth would mean extending the keeper's
-    ///    shared `encode_batch` helper… **Extend this the same way when the batch encoder moves; until
-    ///    then a batch cannot route a stable the old table does not cover.**"* The encoder has now moved
-    ///    (`lev_keeper.rs::encode_batch`), so the deferral is discharged rather than overridden.
-    /// 🔴 **WHY IT MATTERED: THE TWO-HOP WAS BUILT AND FENCED OFF BY AN ARGUMENT LIST.**
-    ///    `routedSwap` emits `UNOSWAP2_SELECTOR` whenever `dex2 != 0`, and the permissionless single
-    ///    `rebalance` (`:294`) has carried `dex2`/`route` all along — so a DIRECT call could take the
-    ///    two-hop and the keeper's BATCH could not. §UNOSWAP-CANNOT-REACH measured what that costs:
-    ///    **4 of 8 candidate dollars (GHO, USDG, RLUSD, USDE) have no direct v3 pool to USDC**, so the
-    ///    batch could not route them at all while the per-LP entrypoint could.
-    /// 🔑 **AND IT GRANTS THE KEEPER NO NEW AUTHORITY, WHICH IS THE WHOLE REASON IT IS SAFE.**
-    ///    Every byte of `routes[i]` lands in `convertTo`, which calls a **PINNED** callee
-    ///    (`ONEINCH_ROUTER`), approves and re-zeroes per leg, caps each leg at `ROUTE_GAS_CAP`, and
-    ///    **never reads the router's return value** — the outcome is a measured balance delta against a
-    ///    floor. That floor is **derived on-chain from the TWAP**, not taken from the caller
-    ///    (`_stableToWethSor:985` on the buy leg, `_wethStableFloor:1139` on the sell), which is why the
-    ///    keeper already encodes `minOuts` as all zeros and is not thereby trusted. ⇒ **a hostile or
-    ///    honeypot venue can make a leg FAIL, never make it pay out short** — the failure is caught by
-    ///    the `try/catch` below and costs that LP a `RebalanceFailed`, not value.
-    function rebalanceMany(address[] calldata lps, uint256[] calldata minOuts, uint256[] calldata dexes,
-                           uint256[] calldata dex2s, bytes[] calldata routes) external nonReentrant {
-        _batch(lps, minOuts, dexes, dex2s, routes, true);
-    }
 
-    /// @dev §RULE-8C, APPLIED TO A BODY RATHER THAN A MODIFIER. `find-duplicate-bodies.py` scores
-    ///      `rebalanceMany` and `cascadeDelever` at **86.5%** — they differed only in which
-    ///      `this.X(...)` they called and which event they emitted, while both carried their own
-    ///      copy of the length triple-check, the `_activeKeeper` write, the loop scaffolding and the
-    ///      `pos[lp].open` read. One routine and two jumps instead of two inlined copies, which is
-    ///      the same trade that gave this contract back 440 bytes when `nonReentrant`'s body was
-    ///      hoisted out of 15 sites.
-    /// ⚠️ BOTH EXTERNAL ENTRYPOINTS STAY. They are pinned in the keeper's validating-signer
-    ///      allowlist, and merging them into one selector with a flag would widen what that hot key
-    ///      can sign — a de-lever and a rebalance are not the same authority.
-    /// ⚠️ THE TWO `try/catch` ARMS ARE THE IRREDUCIBLE DIFFERENCE and are deliberately NOT collapsed
-    ///      behind one event: `RebalanceFailed` and `DeleverFailed` are separate signals the indexer
-    ///      reads, and folding them would trade bytecode for a blind spot in exactly the path that
-    ///      only speaks when something has gone wrong.
-    /// ✅ **§S15 IS DISCHARGED, AND ITS TWO REASONS FOR KEEPING TWO BODIES ARE BOTH FALSIFIED BY THE
-    ///    TREE AS IT STANDS.** That note said the arms *"no longer have the same argument list"*
-    ///    because `deleverOne` *"cannot accept `dex2`/`route` at all"*, and concluded the merge *"does
-    ///    not typecheck"*. §SESS-19 then threaded both through `_delever` → `_deleverFlash`, so
-    ///    `rebalanceOne` and `deleverOne` now carry the **identical** `(address,uint256,uint256,
-    ///    uint256,bytes)` signature and the same five calldata arrays serve both. The §RULE-8C dedup
-    ///    the note partially reversed is therefore back in force: ONE body, ONE length triple-check,
-    ///    ONE `_activeKeeper` write, ONE loop.
-    /// ⚠️ **AND THE `try/catch` ARMS ARE STILL NOT COLLAPSED** — `up` selects which entrypoint and
-    ///    which event, exactly as the paragraph above requires. What was deduplicated is the
-    ///    scaffolding around them, never the two signals.
-    /// @param up TRUE ⇒ the rebalance arm (`rebalanceOne`, `RebalanceFailed`); FALSE ⇒ the de-lever
-    ///        arm (`deleverOne`, `DeleverFailed`). Both external entrypoints keep their own selector.
-    function _batch(address[] calldata lps, uint256[] calldata minOuts, uint256[] calldata dexes,
-                    uint256[] calldata dex2s, bytes[] calldata routes, bool up)
-        private
-    {
-        if (lps.length != minOuts.length || lps.length != dexes.length) revert LenMismatch();
-        // Length-0 is the COMPAT shape (every LP takes the legacy single hop); any OTHER length must
-        // match, or a short array silently gives some LPs a route and others not.
-        if ((dex2s.length != 0 && dex2s.length != lps.length)
-         || (routes.length != 0 && routes.length != lps.length)) revert LenMismatch();
-        // Set ONCE for the batch (transient): each inner call's flash reads it to reimburse gas.
-        _activeKeeper = msg.sender;
-        for (uint256 i; i < lps.length; i++) {
-            address lp = lps[i];
-            if (!pos[lp].open) continue;
-            uint256 d2  = dex2s.length  == 0 ? 0 : dex2s[i];
-            bytes memory r = routes.length == 0 ? bytes("") : routes[i];
-            if (up) {
-                try this.rebalanceOne(lp, minOuts[i], dexes[i], d2, r) {}
-                catch { emit RebalanceFailed(lp, getCurrentLtvBps(lp)); }
-            } else {
-                try this.deleverOne(lp, minOuts[i], dexes[i], d2, r) {}
-                catch { emit DeleverFailed(lp, getCurrentLtvBps(lp)); }
-            }
-        }
-    }
 
-    /// @notice The atomic unit of the batch; `external` so `rebalanceMany` can try/catch it. Self/LP ONLY — the
-    ///         permissionless entries are `rebalance`/`rebalanceMany`. NO `nonReentrant` (the entrypoint holds the
-    ///         guard); `_activeKeeper` is set by that entrypoint before the loop, so the flash-callback
-    ///         reimbursement still targets the real keeper.
-    function rebalanceOne(address lp, uint256 minOut, uint256 dex, uint256 dex2, bytes calldata route) external {
-        if (msg.sender != address(this) && msg.sender != lp) revert Auth();
-        _rebalance(lp, minOut, dex, dex2, route);
-    }
 
     /// @dev ⚠️ **THE LEVER-UP LEG NEEDS A ROUTE TOO, AND `§ROUTE-BLOCKED-24` DID NOT NAME THAT HALF.**
     ///      `_leverUpBuy` reaches `_stableToWethSor` → `routedSwap` (stable→WETH), so a rebalance that
@@ -471,7 +373,8 @@ contract LevManager is LevBase {
     }
 
     function _deleverOne(address lp, uint256 minOut, uint256 dex, uint256 dex2, bytes memory route) internal {
-        if (msg.sender != address(this) && msg.sender != lp) revert Auth();
+        // §POOLED-EXTRACTION — the `address(this)` arm went with `_batch`: nothing self-calls this now.
+        if (msg.sender != lp) revert Auth();
         Types.Pos memory p = pos[lp];
         if (!p.open) return;
         uint256 repayUsd = deleverRepayUsd(lp);                                 // Δ/(1−t), 0 if inside range
@@ -488,18 +391,6 @@ contract LevManager is LevBase {
         _syncRange(lp);
     }
 
-    /// @notice SYSTEMIC cascade de-lever — the correlated-crash path. De-levers a batch in ONE tx,
-    ///         FAULT-TOLERANT: a position whose de-lever can't source liquidity is SKIPPED (emit
-    ///         `DeleverFailed`) and the loop continues — one stuck LP can NEVER block the rest; it falls to
-    ///         its venue's OWN isolated liquidation. PERMISSIONLESS + only moves toward target.
-    /// @param dexes one per LP, positionally — see `rebalanceMany` for why a batch cannot share one.
-    /// ⚠️ **THIS SIGNATURE IS PINNED IN `quid-bridge/src/evm_validating_signer.rs`'s ALLOWLIST** and
-    ///    must move with it in the same commit, or the keeper's own signer refuses to sign the call
-    ///    it is built to send.
-    function cascadeDelever(address[] calldata lps, uint256[] calldata minOuts, uint256[] calldata dexes,
-                            uint256[] calldata dex2s, bytes[] calldata routes) external nonReentrant {
-        _batch(lps, minOuts, dexes, dex2s, routes, false);
-    }
 
     // ════════════════════════════ CLOSE ════════════════════════════
 
