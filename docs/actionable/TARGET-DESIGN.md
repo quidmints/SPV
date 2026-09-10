@@ -182,7 +182,15 @@ same fees: a Uniswap LP's 10% is gross MINUS LVR; ours is gross ≈ net.**
   `_deleverFlash`, `flashDeleverWbtcSettle`, `_extractSettle` mode 2. ⚠️ **Venue migration still needs
   a flash** — deferred with the allocator. Removing this also dissolves the ETH/BTC asymmetry where
   `BtcLevManager.init` refuses a zero flash and `LevManager.init` accepts it.
-- **The per-LP position model** 🧠 (the largest cut): `Types.Pos{ilBasisPx, entryEquity, syncKeyPx}`,
+- **The per-LP position model** 🧠 (the largest cut). ⛔ **AND IT IS A *REPLACE*, NOT A *REMOVE* —
+  the same shape as the flash.** `cascadeDelever` + the no-trade band ARE the liquidation defence
+  (*"must keep the AGGREGATE away from the liquidation threshold, because Morpho no longer does it
+  for us"*), so deleting the per-LP walk before a POOLED rebalance exists removes the defence rather
+  than the machinery. The flat fee had a two-line replacement; this does not.
+  ✅ **The removable subset TODAY is the enrolment book** — `_openLps`, `_lpIdx`, `openLevCount`,
+  `openLpAt` — because `deleverBook`'s own docblock records it as *"the LAST walk of `_openLps` on a
+  state-changing path … the book is read only to find the venue"*, and `poolVenue` already holds the
+  venue. Everything else in this list waits for the pooled target: `Types.Pos{ilBasisPx, entryEquity, syncKeyPx}`,
   `_openLps`/`_lpIdx`, `RangeLib.openPos`/`untrackOpen`/`reanchorIfReseated`, `debtUnits`/`collUnits`
   + `_mintUnits`/`_burnUnits`/`_unitSlice`, `_batch`/`cascadeDelever`/`rebalanceMany`/`rebalanceOne`,
   `debtDeltaToTarget(lp)`/`_targetInputs(lp)`/`_bandFor(lp)`/`deleverRepayUsd(lp)`,
@@ -214,10 +222,31 @@ same fees: a Uniswap LP's 10% is gross MINUS LVR; ours is gross ≈ net.**
 
 ---
 
-## §6 — WHAT GATES ALL OF §3/§4/§5b — four read-only checks, no tests needed
-1. **Does `POOLED_USD` accrue to LPs or to QU!D?** `Core:1243` — *"THE USD LEG HAS NO TOKEN OF ITS
-   OWN."* `usd_owed` is the **fee** leg (written by `_settlePending`), not drain proceeds. **If the
-   drain's dollars are not the LP's, there are no proceeds to repay debt with and §3 has no fuel.**
+## §6 — WHAT GATES ALL OF §3/§4/§5b
+### ✅ CHECK 1 IS RESOLVED — **THE DRAIN'S DOLLARS ARE THE LP'S, AND THEY ARE CLAIMABLE** (traced 2026-09-10)
+The register that answers it is not `usd_owed` (that really is the fee leg). It is the PAIR
+`POOLED_USD` vs `basketUsd`, read together by `Quid._usdLegs6()`:
+- `Core._poolUsdInRange(usdAmount, mint, basketLeg)` does `POOLED_USD += usdAmount` ALWAYS, and
+  `basketUsd += usdAmount` **only when `basketLeg`**. `basketUsd` is therefore the BASKET's own
+  contribution, and the difference is everything the basket did NOT put there.
+- **A SWAP PASSES `basketLeg = false`** (`Core:786` → `:902`; only `modLP` at `:666` passes `true`).
+  ⇒ a swapper's dollars raise `POOLED_USD` and leave `basketUsd` untouched.
+- `Quid._rangeIncrement6()` names it outright: *"the range's **LP-OWNED USD leg** — everything in the
+  curve's USD mirror **beyond what the BASKET put there**"*, `usd6 > base6 ? usd6 - base6 : 0`.
+⇒ **IT REACHES LPs TWO WAYS.** `_pricingBacking` adds `(usd6 − base6)` to the share-price base,
+valued AT THE ORACLE and **SIGNED** — a range that bought ETH with basket dollars reads negative and
+correctly reduces the claim, *"flooring at zero would gift the LP the basket's capital"*. And
+`_payUsdLeg` pays the pro-rata slice in QU!D on exit.
+📌 **CONSEQUENCE: §3 HAS FUEL.** A drain leaves `ΔE·px` of LP-OWNED dollars, which is exactly what
+repays debt to restore that LP's delta. The mechanism's premise holds.
+📌 **AND IT RAISES `_payUsdLeg`'s `ZeroTwap` REVERT (landed on main) FROM HOUSEKEEPING TO LOAD-BEARING**
+— it guards the payout of the LP's OWN dollars, not an incidental fee.
+⛔ **A CORRECTION THIS RETIRES:** an earlier reading in this session said the LP's claim is
+ETH-denominated and excludes `POOLED_USD`. **False** — `_pricingBacking` folds the increment in at the
+oracle. **VALUE is preserved by settlement; what is not preserved without the lever is UPSIDE**, and
+those two are the distinction the whole design turns on.
+
+### ⏸️ THE REMAINING CHECKS
 2. **Does `immatureSupply()` have a real maturity PROFILE**, or is it a headline number? Redemption is
    marked `min($1, solvent/matureSupply)`, so immature supply is excluded from the claim — but a
    schedule that can mature quickly is not a fundable base.
