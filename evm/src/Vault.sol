@@ -598,13 +598,6 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         totalBuffer = totalBuffer + d.bufAdded - d.bufBurned;   // GROSS buffer depth (fee weight)
     }
 
-    /// @notice Live θ for the BTC range (yield/(K·σ²)) at the Vault's CURRENT BTC range BOUNDS. Asks Quid
-    ///         (the range-θ math home) with the BTC bounds (`_lo()`/`_hi()`, absolute WAD prices — there
-    ///         are no ticks) so BtcLib.addLiqChannel can risk-budget the
-    ///         BTC range exactly like the ETH range -- without QuidLib linking QuidLib.
-    function derivedThetaWad() external view returns (uint) {   // §SLOP: one name across both ranges
-        return QuidLib.derivedThetaWad(address(CORE), _lo(), _hi());   // §ISBTC-SPLIT: OUR ring's variance, not the ETH range's
-    }
 
     /// @notice The LVR coefficient for THIS range, WAD. §SLOP: ONE name across both ranges — `Quid`
     ///         has carried `kLvrWad()` since the θ work, and this is the BTC range's instance of it,

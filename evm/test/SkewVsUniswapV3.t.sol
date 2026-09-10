@@ -41,8 +41,6 @@ contract SkewVsUniswapV3Test is AllesFixture {
         //    Without it `realizedVarianceWad()` is 0 (this suite runs its swaps at ONE pinned block,
         //    and `_sampleAnchorVariance` advances only on a MOVE with `dt > 0`), so the kernel returns
         //    the flat `UNKNOWN_VARIANCE_SKEW` sentinel and never evaluates `qBar`.
-        emit log_named_uint("sigma^2 after real-round warm-up (0 == SENTINEL, result is arithmetic)",
-                            warmVarianceFromRealRounds(12));
         // (§E294) ONE LOOP: the anchor moves, then a real swap records it. Both sigma^2 legs are fed
         // only from `swap()` (Core:1031/1039), so the old push-only loop built variance through a
         // path production does not use — and the swaps it needed for `flowEwmaUsd` were already here.
@@ -61,7 +59,6 @@ contract SkewVsUniswapV3Test is AllesFixture {
     function test_SkewVsV3_CrossoverSize() public {
         uint px = _seed();
         emit log_named_uint("oracle px (usd18/ETH)", px);
-        emit log_named_uint("our sigma^2          ", CORE.realizedVarianceWad());
         emit log_named_uint("our POOLED (ETH)     ", CORE.POOLED());
         emit log_string("size_usd | uniV3_bps | our_skew_bps | cheaper");
 

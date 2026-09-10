@@ -1192,10 +1192,6 @@ contract Quid is Shares,
         return QuidLib.kLvrWad(address(CORE), _lo(), _hi());
     }
 
-    /// @notice (A) The range's LIVE realized concavity α (WAD). Body in QuidLib.
-    function realizedAlphaWad() public view returns (uint) {
-        return QuidLib.realizedAlphaWad(address(CORE), _lo(), _hi());
-    }
 
     /// @notice (B) The range's ACTUAL sold-volatile fraction (WAD) since `syncKeyPx` — the ground-truth IL the
     ///         hedge must cancel, straight from the concentrated-position geometry, so it reflects the real
@@ -1221,23 +1217,7 @@ contract Quid is Shares,
         return _corePrice();
     }
 
-    /// @notice θ derived live: yield / (K·σ²), clamped to ≤1. Body in QuidLib
-    ///         (EIP-170 headroom); the range's two BOUND PRICES (`_lo()`/`_hi()`, §DE-TICK — not ticks)
-    ///         + the Core handle passed in.
-    /// ⚠️ THE CORE IS A PARAMETER, NOT A CONSTANT, AND THAT MATTERS. `QuidLib.derivedThetaWad` reads
-    ///    `ICore(core).realizedVarianceWad()`, so a range handed ANOTHER range's Core gets that ring's
-    ///    variance applied to its own price bounds. θ throttles range depth by the range's OWN
-    ///    volatility; mixing the two is wrong in both directions and SILENT — it returns a plausible
-    ///    number either way. Each range passes its own `CORE`, and Quid passes the ETH instance.
-    function derivedThetaWad() public view returns (uint) {
-        return QuidLib.derivedThetaWad(address(CORE), _lo(), _hi());
-    }
 
-    /// @notice Annualized realized variance (WAD) — forwarded straight to this range's Core, which
-    ///         owns the oracle ring.
-    function realizedVarianceWad() public view returns (uint) {
-        return CORE.realizedVarianceWad();   // §E59: ONE source — Core reads its own ring
-    }
 
     /// @notice Size how much of the volatile asset (`deltaTok`) + paired
     ///         synthetic USD to commit into the in-range CORE position (§NAMING `:73` — the engine

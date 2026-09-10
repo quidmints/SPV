@@ -102,14 +102,11 @@ library BtcLib {
         // were the same seven statements, including the §E270 recompute and its comment; only the θ
         // and `backing` scalars below ever differed, and that asymmetry is REAL (a BTC range's
         // IL-bearing capital is `btcThetaBacking`, not `rangeETH`).
-        // θ is read HERE, not in the shared body: `ICore(address(this))` is `Vault` only under this
-        // library's delegatecall — see the warning on `addLiqBody`.
-        uint thetaEff = ICore(address(this)).derivedThetaWad();
-        if (thetaEff == 0) thetaEff = 1e18;        // fail OPEN, matching ETH's `_liveTheta`
+        // §NO-GAMEABLE-BOUND: the θ read is gone; only the balance-sheet backing remains.
         // `+ sats`: THIS add is not yet credited to `lpShares` at clamp time, so the backing it
         // brings must be counted or the range clamps against its own pre-deposit size.
         return SwapLib.addLiqBody(core, aux, sats, price,
-            thetaEff, ICore(core).btcThetaBacking() + sats);
+            ICore(core).btcThetaBacking() + sats);
     }
 
     /// @dev Scalar args for the resize/close tail, bundled to keep the Vault

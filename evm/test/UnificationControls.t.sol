@@ -657,7 +657,7 @@ contract UnificationControls is AllesFixture {
         uint pooledEth = CORE.POOLED();
         uint headroom  = backing > pooledEth ? backing - pooledEth : 0;
         uint theta;
-        try ETH.derivedThetaWad() returns (uint t) { theta = t; } catch { theta = 0; }
+        theta = 1e18;   // §NO-GAMEABLE-BOUND: theta is deleted; the clamp is HEADROOM alone
         emit log_string(tag);
         emit log_named_uint("   USD deployed (committed) ", committed);
         emit log_named_uint("   USD available (surplus)  ", surplus);

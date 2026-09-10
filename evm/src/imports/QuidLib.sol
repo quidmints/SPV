@@ -43,6 +43,53 @@ library QuidLib {
     error VenueUnavailable();
 
     /// @dev DIRECT weETH, always: it earns the full ether.fi staking rate.
+    /// §NO-GAMEABLE-BOUND — K SURVIVED THE THETA CUT, DELIBERATELY, AND THE REASON IS THE TEST.
+    /// theta was deleted because its inputs -- the variance ring and the premium fee-yield EWMA --
+    /// are both derived from OBSERVED FLOW, so a swapper could move the depth cap by trading.
+    /// K is not: it is `1/(4*delta)` from a compile-time RANGE_DELTA and the oracle spot, neither of
+    /// which a counterparty sets. And it has a SECOND consumer that theta never had --
+    /// `LevMath:91` feeds it to `noTradeBandBps`, the derived no-trade band that decides WHEN to
+    /// de-lever, which is the liquidation-responsiveness mechanism.
+    /// ⚠️ **WHAT IS STILL OPEN AND IS NOT A GAMING QUESTION:** K is the LVR-to-value ratio of a
+    /// CONCENTRATED v3 POSITION (`V'' = -L/(2P^1.5)`), and §V4-CUT removed the curve. So the band's
+    /// calibration rests on a concavity our payoff may not have. That is a CALIBRATION defect, not an
+    /// attack surface, and it is booked rather than cut -- removing a safety band on reasoning is the
+    /// one edit where being wrong lets too much through.
+    // ════════════════════════════════════════════════════════════════════
+    //  θ / LVR math (kLvrWad, realizedAlphaWad, derivedThetaWad). Pure
+    //  range geometry, extracted for EIP-170 headroom; view fns (no state
+    //  written) and the live range bounds arrive as PRICES (§DE-TICK).
+    //  Realized variance is NOT computed here — it is read off Core.
+    // ════════════════════════════════════════════════════════════════════
+    /// @notice The LVR coefficient K (WAD), derived LIVE from range geometry.
+    /// §DE-TICK — same quantity, computed from PRICE bounds. The body only ever used RATIOS of the
+    /// roots (`s/√Pb` and `√Pa/s`), and a ratio of roots is the root of the ratio:
+    ///     s/√Pb = √(P/Pb)   ·   √Pa/s = √(Pa/P)
+    /// so the tick→sqrt lookup disappears and the arithmetic is unchanged. √ survives as an
+    /// OPERATION (range width is genuinely √-shaped) but nothing is stored or passed as a sqrt price.
+    function kLvrWad(address core, uint loPrice, uint upPrice) public view returns (uint) {
+        (uint priceWad,) = ICore(core).poolStats();
+        return kLvrAt(priceWad, loPrice, upPrice);
+    }
+
+    /// @notice `kLvrWad` with the spot supplied rather than read — the whole formula, no chain.
+    /// @dev    THE READ AND THE ARITHMETIC ARE SPLIT BECAUSE THE ARITHMETIC HAD DRIFTED IN COPIES.
+    ///         Two test files reimplemented this closed form to reason about K off-chain, and when
+    ///         `RANGE_DELTA` widened 20 → 200 bps the copies kept the old geometry's answer (`125e18`
+    ///         for ±0.2%, against a live `≈12.56e18`) while still passing — a test measuring its own
+    ///         literal cannot see the range move. `internal`, so it inlines and costs no deployed
+    ///         bytecode; the on-chain caller above is unchanged.
+    function kLvrAt(uint priceWad, uint loPrice, uint upPrice) internal pure returns (uint) {
+        if (loPrice >= upPrice) return 0;
+        uint p = priceWad < loPrice ? loPrice : (priceWad > upPrice ? upPrice : priceWad);
+        uint r1 = FixedPointMathLib.sqrt(SoladyMath.fullMulDiv(p, 1e36, upPrice));   // √(P/Pb) · 1e18
+        uint r2 = FixedPointMathLib.sqrt(SoladyMath.fullMulDiv(loPrice, 1e36, p));   // √(Pa/P) · 1e18
+        uint denom = 2e18;
+        if (r1 + r2 >= denom) return 0;
+        denom -= (r1 + r2);
+        return SoladyMath.fullMulDiv(1e18, 1e18, 4 * denom);
+    }
+
     function _supplyEtherFi(address ev, uint amount) private returns (uint placed) {
         placed = IEthVenue(ev).supplyEtherFi(amount);
     }
@@ -114,52 +161,8 @@ library QuidLib {
         }
     }
 
-    // ════════════════════════════════════════════════════════════════════
-    //  θ / LVR math (kLvrWad, realizedAlphaWad, derivedThetaWad). Pure
-    //  range geometry, extracted for EIP-170 headroom; view fns (no state
-    //  written) and the live range bounds arrive as PRICES (§DE-TICK).
-    //  Realized variance is NOT computed here — it is read off Core.
-    // ════════════════════════════════════════════════════════════════════
-    /// @notice The LVR coefficient K (WAD), derived LIVE from range geometry.
-    /// §DE-TICK — same quantity, computed from PRICE bounds. The body only ever used RATIOS of the
-    /// roots (`s/√Pb` and `√Pa/s`), and a ratio of roots is the root of the ratio:
-    ///     s/√Pb = √(P/Pb)   ·   √Pa/s = √(Pa/P)
-    /// so the tick→sqrt lookup disappears and the arithmetic is unchanged. √ survives as an
-    /// OPERATION (range width is genuinely √-shaped) but nothing is stored or passed as a sqrt price.
-    function kLvrWad(address core, uint loPrice, uint upPrice) public view returns (uint) {
-        (uint priceWad,) = ICore(core).poolStats();
-        return kLvrAt(priceWad, loPrice, upPrice);
-    }
 
-    /// @notice `kLvrWad` with the spot supplied rather than read — the whole formula, no chain.
-    /// @dev    THE READ AND THE ARITHMETIC ARE SPLIT BECAUSE THE ARITHMETIC HAD DRIFTED IN COPIES.
-    ///         Two test files reimplemented this closed form to reason about K off-chain, and when
-    ///         `RANGE_DELTA` widened 20 → 200 bps the copies kept the old geometry's answer (`125e18`
-    ///         for ±0.2%, against a live `≈12.56e18`) while still passing — a test measuring its own
-    ///         literal cannot see the range move. `internal`, so it inlines and costs no deployed
-    ///         bytecode; the on-chain caller above is unchanged.
-    function kLvrAt(uint priceWad, uint loPrice, uint upPrice) internal pure returns (uint) {
-        if (loPrice >= upPrice) return 0;
-        uint p = priceWad < loPrice ? loPrice : (priceWad > upPrice ? upPrice : priceWad);
-        uint r1 = FixedPointMathLib.sqrt(SoladyMath.fullMulDiv(p, 1e36, upPrice));   // √(P/Pb) · 1e18
-        uint r2 = FixedPointMathLib.sqrt(SoladyMath.fullMulDiv(loPrice, 1e36, p));   // √(Pa/P) · 1e18
-        uint denom = 2e18;
-        if (r1 + r2 >= denom) return 0;
-        denom -= (r1 + r2);
-        return SoladyMath.fullMulDiv(1e18, 1e18, 4 * denom);
-    }
 
-    /// @notice The range's LIVE realized concavity α (WAD).
-    /// §DE-TICK — same conversion as `kLvrWad`: ratios of roots become roots of price ratios.
-    function realizedAlphaWad(address core, uint loPrice, uint upPrice) public view returns (uint) {
-        (uint priceWad,) = ICore(core).poolStats();
-        if (loPrice >= upPrice) return 0;
-        uint p = priceWad < loPrice ? loPrice : (priceWad > upPrice ? upPrice : priceWad);
-        uint r1 = FixedPointMathLib.sqrt(SoladyMath.fullMulDiv(p, 1e36, upPrice));   // √(P/Pb) · 1e18
-        uint r2 = FixedPointMathLib.sqrt(SoladyMath.fullMulDiv(loPrice, 1e36, p));   // √(Pa/P) · 1e18
-        if (r1 >= 1e18 || r1 + r2 >= 2e18) return 0;
-        return SoladyMath.fullMulDiv(1e18 - r1, 1e18, 2e18 - r1 - r2);
-    }
 
     /// @dev Annualized WAD yield the RANGE itself earned on the capital it put at risk — θ's
     ///      numerator (#107/D3). Both inputs come off Core and are 6-dec USD, so the ratio is
@@ -192,60 +195,7 @@ library QuidLib {
     ///      not a tuning knob — if `FLOW_DECAY`'s half-life ever changes, this must change with it.
     uint internal constant PREMIUM_ANNUALIZE = 127;
 
-    function _rangeFeeYieldWad(address core) internal view returns (uint) {
-        uint prem6 = ICore(core).premiumEwmaUsd();
-        if (prem6 == 0) return 0;                       // unmeasured ⇒ caller fails OPEN
-        uint pooled6 = ICore(core).POOLED_USD();
-        if (pooled6 == 0) return 0;                     // no range capital at risk ⇒ nothing to size
-        return SoladyMath.fullMulDiv(prem6 * PREMIUM_ANNUALIZE, 1e18, pooled6);
-    }
 
-    /// @notice θ derived live: **range fee yield** / (K·σ²). NOT clamped at 1e18 — the returned
-    ///         value may exceed it, so the external views report HOW FAR above the no-throttle
-    ///         threshold the range sits. Every consumer treats `θ >= 1e18` as a no-op
-    ///         (`SwapLib.applyTheta`), and the real bound on range depth is the PHYSICAL
-    ///         `backing − pooled` headroom in `clampByBacking` (audit #8), which θ never gates.
-    ///
-    /// @dev #107/D3 (2026-07-26): the numerator is the RANGE's realized market-making yield, NOT the
-    ///      reserve `avgYield` it used to read. θ is Merton's `μ/(K·σ²)` — the optimal fraction of
-    ///      capital to commit to a RISKY bet — and the bet being sized here is IL-bearing in-range
-    ///      range depth. The compensation for that bet is the retained scarcity premium, full stop.
-    ///      Reserve `avgYield` is earned whether the dollar leg is ranged or sits idle,
-    ///      so it is NOT marginal compensation for IL and using it over-sized the range. Per the user:
-    ///      *"the size of the range should have nothing to do with avgYield at all — that is only a
-    ///      number that tells us how much QUI to mint upfront."* Two different jobs, two inputs.
-    ///      Kept θ-LOCAL (read straight off Core) rather than folded into `avgYield`, precisely
-    ///      because `avgYield` also feeds `seedFee` mint-valuation — folding would have moved mint
-    ///      pricing as a side effect.
-    ///
-    ///      This makes θ encode the protocol's own rationality test directly: premium in the
-    ///      numerator over σ² in the denominator IS "are fees beating LVR?", and θ < 1e18 IS the answer "no".
-    ///
-    ///      FAILS OPEN on an unmeasured register (`premium == 0` ⇒ return 1e18), matching every
-    ///      other unmeasured path here (`sigmaSq == 0`, `kWad == 0`, cold oracle ring) and the
-    ///      documented "θ≥1 fails open (calm/unmeasured) → only HEADROOM binds". That is what lets a
-    ///      cold range BOOTSTRAP: a fresh range has earned no premium, and failing CLOSED would clamp
-    ///      it to zero depth forever (no depth ⇒ no fees ⇒ no depth). Failing open is safe rather
-    ///      than unbounded because `SwapLib.clampByBacking` applies the PHYSICAL
-    ///      `backing − pooled` headroom independently — audit #8 was closed so that "every path
-    ///      stays bounded at the real backing even when θ fails open".
-    function derivedThetaWad(address core, uint loPrice, uint upPrice) public view returns (uint) {
-        uint sigmaSq = ICore(core).realizedVarianceWad();   // §E59: ONE source, read from Core
-        if (sigmaSq == 0) return 1e18;
-        uint kWad = kLvrWad(core, loPrice, upPrice);
-        if (kWad == 0) return 1e18;
-        uint work = SoladyMath.fullMulDiv(kWad, sigmaSq, 1e18);
-        if (work == 0) return 1e18;
-        // FAIL OPEN on an unmeasured premium register: `_rangeFeeYieldWad` returns 0 for both
-        // `premium == 0` and `pooled == 0`, and dividing that through would make θ fail CLOSED —
-        // the deadlock the docstring warns about (no depth ⇒ no fees ⇒ no premium ⇒ no depth,
-        // forever), so a cold range could never bootstrap. Matches every other unmeasured path here
-        // (`sigmaSq == 0`, `kWad == 0`, `work == 0`), and is safe for the same reason they are:
-        // `SwapLib.clampByBacking` applies the PHYSICAL `backing − pooled` headroom independently.
-        uint rangeFeeYield = _rangeFeeYieldWad(core);
-        if (rangeFeeYield == 0) return 1e18;
-        return SoladyMath.fullMulDiv(rangeFeeYield, 1e18, work);
-    }
 
     // ════════════════════════════════════════════════════════════════════
     //  addLiq body (in-range pairing sizer). TWO clamps, both inside
@@ -262,21 +212,12 @@ library QuidLib {
         public returns (uint usdOut, uint outDelta) {
         // §DELTATOK-FOLD — THE BODY IS `SwapLib.addLiqBody`, SHARED WITH `BtcLib.addLiqChannel`.
         // What stood here was seven statements identical to the BTC copy; the only difference was the
-        // two scalars below, so they are all that is passed. θ is computed HERE and not in the shared
-        // body because `_liveTheta` reads `ICore(address(this))`, and `address(this)` is `Quid` only
-        // under this library's delegatecall — see the warning on `addLiqBody`.
+        // two scalars below, so they are all that is passed. §NO-GAMEABLE-BOUND: the θ argument is
+        // gone, and with it the reason this call had to compute anything under delegatecall.
         return SwapLib.addLiqBody(core, aux, wantTok, price,
-            _liveTheta(),                        // fails OPEN at θ=1e18 when vol is unmeasurable
             IAux(aux).rangeETH() + grossBuffer); // §ISBTC-SPLIT: NET venue principal + gross buffer
     }
 
-    /// @dev addLiq's live θ: derivedThetaWad, fail-OPEN (θ=1) when the oracle ring
-    ///      is too thin to measure vol. Self-call to Quid's forwarder (delegatecall
-    ///      context: address(this) == Quid).
-    function _liveTheta() private view returns (uint) {   // §ISBTC-SPLIT: the parameter was never read
-        try ICore(address(this)).derivedThetaWad() returns (uint t) { return t == 0 ? 1e18 : t; }
-        catch { return 1e18; }
-    }
 
     // ════════════════════════════════════════════════════════════════════
     //  Body of Quid._rebalance (ETH side) — the venue-yield sync plus

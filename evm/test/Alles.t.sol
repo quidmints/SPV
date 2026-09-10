@@ -160,69 +160,6 @@ contract AllesFixture is ForkPin, ExitFixture {
         emit log_named_int("      d(sigma^2) REGISTER", int(v1) - int(v0));
     }
 
-    /// @param nRounds how many consecutive real rounds to replay (12 is ample; σ² ≈ 0.10–0.16 wad).
-    /// @return sigma  `CORE.realizedVarianceWad()` after the walk — 0 means the warm-up FAILED.
-    function warmVarianceFromRealRounds(uint256 nRounds) public returns (uint256 sigma) {
-        // ⛔ DO NOT PIN THE FEED HERE — `_setAssetFeed` IS PIN-ONCE (`FeedPinned()`), so claiming it
-        //    steals the pin from a fixture that sets its own later (`DerivedTheta` via `_moveEth`).
-        //    Use whatever is ALREADY pinned as the sampler's feed, and read HISTORY from the real
-        //    Chainlink proxy regardless — the two need not be the same address. `_sampleAnchorVariance`
-        //    reads `AUX.assetPriceFeed(ASSET)`, so mocking THAT is what moves the anchor; the real
-        //    proxy is only the source of a genuine price series.
-        address feed = AUX.assetPriceFeed(address(WETH));
-        if (feed == address(0)) { feed = REAL_CL_ETH_USD; _auxSetAssetFeed(address(WETH), feed); }
-        address hist = REAL_CL_ETH_USD;                              // history source, always readable
-        address warmer = makeAddr("varianceWarmer");
-        address[] memory sts = AUX.getStables();
-        address stable = sts[sts.length - 1];
-        (, , , , uint80 latest) = IAggProxy(hist).latestRoundData();
-        uint256 prevTs;
-        // 🔴 σ² = Σr²·31536000/Σdt, and Σdt accumulates from the FIRST sample the fixture ever took
-        //    — not from this warm-up. If the host test already swapped (seeding `_varSq.ts`) and then
-        //    warped, Σdt spans its whole setup while this walk contributes only Σr², DILUTING the
-        //    result. Log the entry state so a small σ² can be attributed rather than guessed at.
-        emit log_named_uint("  warm-up ENTRY: block.timestamp", block.timestamp);
-        emit log_named_uint("  warm-up ENTRY: sigma^2 already", CORE.realizedVarianceWad());
-        for (uint256 i = nRounds; i > 0; --i) {
-            (bool ok, bytes memory ret) = hist.staticcall(
-                abi.encodeWithSignature("getRoundData(uint80)", latest - uint80(i)));
-            if (!ok) continue;
-            (, int256 px, , uint256 ts, ) = abi.decode(ret, (uint80, int256, uint256, uint256, uint80));
-            if (px <= 0 || ts == 0) continue;
-            if (prevTs != 0 && ts > prevTs) vm.warp(block.timestamp + (ts - prevTs));  // REAL gap, forward
-            prevTs = ts;
-            vm.mockCall(feed, abi.encodeWithSignature("decimals()"), abi.encode(uint8(8)));
-            vm.mockCall(feed, abi.encodeWithSignature("latestRoundData()"),
-                abi.encode(latest - uint80(i), px, uint256(0), block.timestamp, latest - uint80(i)));
-            // ⛔ SMALL. $25k reverted `SlippageMaxS()` on every round in `SkewCalibration` — a
-            //    USD-IN swap BUYS volatile FROM the range, so against a range with little or no
-            //    inventory it hits the max-slippage guard immediately and the try/catch below eats
-            //    it. The warm-up only needs `Core.swap` to RUN (that is where
-            //    `_sampleAnchorVariance` lives); the size is irrelevant to the anchor sample, so
-            //    keep it small enough to clear the guard in a thin fixture.
-            uint256 amt = 200 * 1e18;
-            deal(stable, warmer, amt);
-            vm.startPrank(warmer);
-            IERC20(stable).approve(address(AUX), amt);
-            // USD-IN, deliberately: `_sampleAnchorVariance` lives in `Core.swap`, whose only src
-            // caller is `BasketLib.routeSwap` — the DRAIN leg reaches it, a volatile-in sell does not.
-            uint256 v0 = CORE.realizedVarianceWad();
-            bool swapped;
-            try AUX.swap(stable, address(WETH), true, amt, 0, true) { swapped = true; }
-            catch (bytes memory err) { emit log_named_bytes("      swap REVERTED", err); }
-            vm.stopPrank();
-            // 🔴 LOG WHETHER THIS ROUND **REGISTERED**, SEPARATELY FROM THE FINAL VALUE. A single
-            //    σ² at the end cannot distinguish "the sampler ran and recorded nothing" from "the
-            //    sampler never ran" — five of the six ways this measurement previously read zero
-            //    were invisible without that split, and the try/catch above hides the sixth.
-            //    `dReg == 0` with `ok == 1` means the swap landed but the anchor did NOT move:
-            //    either the host fixture's own `_setEthFeed` mock is overwriting this one, or the
-            //    price fed is identical to `_varPx` so `Σr²` gains nothing.
-            _logRound(uint256(px), swapped, v0, CORE.realizedVarianceWad());
-        }
-        emit log_named_uint("  warm-up EXIT : block.timestamp", block.timestamp);
-        sigma = CORE.realizedVarianceWad();
-    }
 
 
     /// §C2.1 — THE POOL WORDS THE KEEPER SUPPLIES. `routedSwap` takes ONE `uint256` naming a venue
@@ -1981,7 +1918,6 @@ contract Alles is AllesFixture {
         emit log_named_uint("oracle base (usd18)   ", base);
         // §SELL-SKEW-18PCT: `sellSkew` returns 0 at `target == 0` and prices `(inv - target)/target`
         // otherwise, so a tiny `flow` against a large `inv` saturates toward its pole. Print both.
-        emit log_named_uint("realizedVarianceWad   ", ICore(address(CORE)).realizedVarianceWad());
         emit log_named_uint("skewPremium (accum)   ", CORE.skewPremium());
         emit log_named_uint("range USD depth (6dec)", ICore(address(CORE)).POOLED_USD());
         emit log_named_uint("range ETH depth (18dec)", ICore(address(CORE)).POOLED());

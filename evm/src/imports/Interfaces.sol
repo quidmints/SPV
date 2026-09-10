@@ -667,7 +667,6 @@ interface ICore {
     function pendingSwapOutUsd() external view returns (uint);
     function levClaimUsd6() external view returns (uint);
     /// §SESS-18 — swap flow + redemption unwinds; what BOTH skews price scarcity against.
-    function realizedVarianceWad() external view returns (uint);
     function recordSkewPremium(uint256 premiumUsd, uint256 premiumNative) external;
     function retainedEthPremium() external view returns (uint256);
     function refundUnfilled(address token, uint amount, address to) external;
@@ -740,7 +739,6 @@ interface ICore {
     /// This range's engine. Without it a caller holding two range managers cannot reach the second
     /// range's `POOLED`/`POOLED_USD`, which is what silently made cross-range isolation untestable.
     function CORE() external view returns (address);
-    function derivedThetaWad() external view returns (uint);
     /// §DERIVED-BAND — the range's LVR coefficient, `1/(4(2 − √(P/Pb) − √(Pa/P)))`. Already the `K`
     /// in `derivedThetaWad`'s `μ/(K·σ²)`, and `Quid` has exposed it as `kLvrWad()` since that work —
     /// declared here so the leverage overlay can reach it through `ICore` on EITHER range.

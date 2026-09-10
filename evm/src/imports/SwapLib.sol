@@ -1713,20 +1713,6 @@ library SwapLib {
         }
     }
 
-    /// @notice theta risk-budget clamp on a range add: cap post-add `pooled` at `thetaEff * rangeAvail`
-    ///         (WAD), so the IL-bearing range never holds more than the live yield/vol tradeoff prescribes.
-    ///         `thetaEff >= 1e18` (fail-open / calm) is a no-op. Reached from `clampByBacking` inside
-    ///         `addLiqBody`, so BOTH sizing paths -- ETH (`QuidLib.addLiq`) and BTC
-    ///         (`BtcLib.addLiqChannel`) -- run this one body and the throttle is identical
-    ///         across assets (a volatile-asset range bears IL the same way regardless of which asset).
-    function applyTheta(uint thetaEff, uint rangeAvail, uint pooled, uint available)
-        internal pure returns (uint)
-    {
-        if (thetaEff >= 1e18) return available;
-        uint thetaCap   = SoladyMath.fullMulDiv(rangeAvail, thetaEff, 1e18);
-        uint thetaAvail = thetaCap > pooled ? thetaCap - pooled : 0;
-        return available > thetaAvail ? thetaAvail : available;
-    }
 
     /// @notice Backing-bounded theta clamp — the ONE principle for EVERY range add (ETH range, BTC LP-add, BTC
     ///         reseat). Permit `want` new in-range depth, but never past two bounds:
@@ -1827,17 +1813,21 @@ library SwapLib {
     ///                 unit. ETH: `rangeETH()` (net venue principal) + the gross buffer. BTC:
     ///                 `btcThetaBacking()` (lpShares net + gross buffer) + THIS add's `sats`, which is
     ///                 not yet credited to `lpShares` at clamp time.
+    /// §NO-GAMEABLE-BOUND (owner, 2026-09-09: *"anything that can be gamed is useless"*). The theta
+    /// risk-budget parameter is GONE. theta = feeYield/(K*sigma^2) drew all three of its inputs from
+    /// OBSERVED FLOW -- the premium EWMA, the variance ring, and K from range geometry as though a
+    /// curve enforced composition -- so a swapper could move the depth cap by trading. What remains
+    /// is the physical HEADROOM `backing - pooled`, which is a conservation statement about our own
+    /// balance sheet and cannot be set by a counterparty.
     function addLiqBody(address core, address aux, uint want, uint price,
-        uint thetaWad, uint backing) public returns (uint usdOut, uint outDelta)
+        uint backing) public returns (uint usdOut, uint outDelta)
     {
         (uint[16] memory deposits,,,) = IAux(aux).get_deposits();
         (uint deltaTok, uint targetUSD, uint surplus) =
             sizeBySurplus(deposits[15], ICore(core).committedUsd18(), want, price);
         if (surplus == 0) return (0, 0);
-        // ONE principle: bound by the physical backing HEADROOM (backing − pooled) AND the θ
-        // risk-budget (θ·backing − pooled). Shared verbatim by both ranges — it always was, via two
-        // copies of this call; now via one.
-        uint capped = clampByBacking(thetaWad, backing, ICore(core).POOLED(), deltaTok);
+        // ONE principle, and now only one: bound by the physical backing HEADROOM (backing − pooled).
+        uint capped = clampByBacking(backing, ICore(core).POOLED(), deltaTok);
         // §E270 — RECOMPUTE rather than rescaling by the clamp ratio. `sizeBySurplus` maintains
         // `targetUSD == deltaOut·price/WAD` on BOTH exits, so the two forms are the same quantity, and
         // recomputing has ONE rounding instead of compounding the earlier one and dividing by a
@@ -1848,11 +1838,10 @@ library SwapLib {
         outDelta = deltaTok;
     }
 
-    function clampByBacking(uint thetaEff, uint backing, uint pooled, uint want)
+    function clampByBacking(uint backing, uint pooled, uint want)
         internal pure returns (uint)
     {
         uint available = backing > pooled ? backing - pooled : 0;
-        available = applyTheta(thetaEff, backing, pooled, available);
         return want < available ? want : available;
     }
 

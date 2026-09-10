@@ -21,13 +21,15 @@ import {SwapLib} from "../../src/imports/SwapLib.sol";
 ///         this pure-math slice runs anywhere and is the first invariant to lock down.
 contract SwapLibClampEchidna {
     /// @notice The three bounds `clampByBacking` promises, checked on every fuzzed input.
+    /// §NO-GAMEABLE-BOUND — `thetaEff` is gone from the signature. The invariant is UNCHANGED and
+    /// is now the WHOLE of the function rather than the surviving one of two bounds: headroom was
+    /// always the binding cap, and theta could only ever shrink below it.
     function check_clampByBacking(
-        uint thetaEff,
         uint backing,
         uint pooled,
         uint want
     ) public pure {
-        uint got = SwapLib.clampByBacking(thetaEff, backing, pooled, want);
+        uint got = SwapLib.clampByBacking(backing, pooled, want);
 
         // HEADROOM: the physical room above current in-range depth. Zero-floored, because
         // `pooled > backing` is reachable (a repack/price move can leave the range over its
@@ -37,18 +39,17 @@ contract SwapLibClampEchidna {
         // (1) Never hand back more depth than was asked for.
         assert(got <= want);
 
-        // (2) THE #8 INVARIANT — never exceed real backing. This must hold for EVERY theta,
-        //     including the fail-open branch, which is the case #8 was actually about: before
-        //     the extraction the BTC add had only the theta bound, so a failing theta left it
-        //     unbounded. `applyTheta` can only shrink `available` (it returns it unchanged at
-        //     thetaEff >= 1e18, else min), so headroom is the binding cap in every branch.
+        // (2) THE #8 INVARIANT — never exceed real backing. It used to have to hold for EVERY
+        //     theta, including the fail-open branch that was the case #8 was actually about (the BTC
+        //     add once had ONLY the theta bound, so a failing theta left it unbounded). With theta
+        //     deleted that whole failure mode is unconstructible: headroom is the only bound, and it
+        //     is a statement about our own balance sheet.
         assert(got <= headroom);
 
-        // (3) Fail-open is EXACTLY min(want, headroom) — theta stops binding, nothing else
-        //     changes. Pins the documented "theta >= 1 fails open (calm/unmeasured) -> only
-        //     HEADROOM binds" so a future edit can't quietly make fail-open permissive.
-        if (thetaEff >= 1e18) {
-            assert(got == (want < headroom ? want : headroom));
-        }
+        // (3) The result is EXACTLY min(want, headroom), unconditionally. This used to be the
+        //     fail-open BRANCH -- guarded by `thetaEff >= 1e18` -- and it is now the whole
+        //     function, which is the strongest form this assertion has ever had: there is no
+        //     longer a configuration in which the clamp is anything else.
+        assert(got == (want < headroom ? want : headroom));
     }
 }
