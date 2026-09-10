@@ -774,86 +774,6 @@ library SwapLib {
         // the protocol directly, so the swapper-facing bonus is redundant. Refill settles at the honest oracle.
     }
 
-    /// §E275 — **`MAX_WELL_SKEW` IS DELETED. IT WAS ONE NUMBER DOING THREE JOBS**, and the cap job
-    /// was the one that could not be justified: the curve was CALIBRATED TO LAND ON IT
-    /// (`Γ ≡ MAX_WELL_SKEW` exactly), so it never bounded anything it did not also define.
-    /// The two honest jobs are separated below. They hold the SAME VALUE TODAY BY INHERITANCE, NOT
-    /// BY DERIVATION — §E274 derives Γ = 5.48e15 from `FLOW_DECAY`'s 48h half-life, and splitting
-    /// them is what lets Γ move without silently repricing the unknown-variance case.
-    ///
-    /// Γ — the Avellaneda–Stoikov scale, folding risk-aversion γ and the horizon (T−t) into one
-    /// coefficient. THIS IS PRICING, NOT A BOUND: it multiplies `σ²·qBar` (`skewWad`, `sellSkew`).
-    /// §E274-LAND (owner ruling: *"move gamma to 5.48e15 … but avoid strange hardcoded constants if
-    /// we can find more natural dynamic alternatives"*) — **THE INHERITED 3e16 IS GONE.** It encoded a
-    /// 10.95-day horizon that nobody chose: it was `MAX_WELL_SKEW` under a second name (§E275), so the
-    /// curve was calibrated to land on its own cap and the "horizon" was read back OUT of that number.
-    /// ⇒ Γ IS NOT A LITERAL HERE. It is γ·(T−t) with γ = 1 (dimensionless) and T−t taken from the ONE
-    ///   window the system already commits to — `FLOW_HALFLIFE`, `Core.FLOW_DECAY`'s 48h half-life,
-    ///   documented there as *"the timescale on which an imbalance is worked off"*. `σ²` is ANNUALIZED
-    ///   (`realizedVarianceWad`), so the horizon must be in YEARS: 48h/365d = 5.479452e-3 ⇒ 5.48e15 WAD,
-    ///   which is what §E274 derived independently. The expression EVALUATES to the ruled value; it is
-    ///   written as a derivation so the two cannot drift apart.
-    /// ⛔ A FULLY DYNAMIC HORIZON (T−t = imbalance/flow) WAS CONSIDERED AND IS NOT SAFE AS STATED:
-    ///   `skewWad` ALREADY multiplies by `qBar`, so a horizon proportional to the imbalance makes the
-    ///   premium ∝ q² — the exact shape §E287 shipped and `0505a993` refuted ("the citation puts
-    ///   q-squared in the DENOMINATOR where it creates the pole; I moved it to the numerator"). A
-    ///   horizon ∝ 1/flow alone avoids that, but `target = flowEwmaUsd + redeemEwmaUsd` already carries
-    ///   flow in q's denominator, so it compounds — and flow→0 is a SECOND pole. Measure before landing.
-    uint internal constant GAMMA_WAD = FLOW_HALFLIFE * WAD / 365 days;
-    /// §E289 — **THE POLE'S LOCATION, in units of `target`** — our analogue of A–S's ω.
-    /// A–S do NOT clamp: they place the singularity where the agent cannot go. §2.3's denominator is
-    /// `2ω − γ²q²σ²`, and the paper says ω *"may be interpreted as an upper bound on the inventory
-    /// position our agent is allowed to take"*, with a natural choice that *"would ensure that the
-    /// prices defined above are bounded"*. Our kernel is `q/(1−q)` — a pole at `q = 1` — and
-    /// `q = (target−inv)/target`, so **`q = 1` IS `inv = 0`: our singularity sits exactly ON the
-    /// reachable boundary, which is the one thing A–S take care to avoid.** Generalised, the pole
-    /// lives at `q = κ`, i.e. `inv = (1−κ)·target` — NEGATIVE inventory, unreachable, for any κ > 1e18.
-    ///
-    /// 🔴 **`1e18` IS TODAY'S BEHAVIOUR, EXACTLY — NOT APPROXIMATELY.** At this value the generalised
-    /// expression below collapses to the original character for character (`κ·x/1e18 == x`), so this
-    /// landing is a PURE REFACTOR: it installs the dial and changes no economics, which is what makes
-    /// a regression attributable to the refactor alone (rule 10).
-    /// ▶️ **MOVING IT IS A SEPARATE, ECONOMIC COMMIT** with its own prediction, and it is GATED on a
-    /// restoration mechanism existing — §E276 (the shift) or the refill. Raising κ makes the range
-    /// drainable at a finite price, and §E276 established that nothing currently pulls inventory back:
-    /// we never move the bid, the refill direction is exempt rather than paid, and §V-R1 is not in
-    /// code. **That sequencing is what refuted §E287; do not repeat it by editing this constant early.**
-    /// ⚠️ A–S's own choice is one unit beyond the maximum, which for our unit of `q` (one flow-window)
-    /// would be `2e18`. **That coincidence is an ANALOGY, not a derivation** — see §E289's caveats.
-    /// 🔴 **DESTALED 2026-09-05 — THIS READ *"⇒ `κ = 2e18` here"*, AND THE DECLARATION ON THE NEXT LINE
-    /// IS `1e18`.** The analogy is what A–S would suggest; it is NOT what this constant holds, and the
-    /// two sat one line apart. `κ = 1e18` puts the pole exactly ON the reachable range (`q1 == 1e18` ⇔
-    /// `inv1 == 0`), which is the state the `kMinusQ1 == 0` branch exists to catch and `SKEW_UNFILLABLE`
-    /// exists to price — none of which would be needed at `2e18`. ⇒ A reader who trusted this line would
-    /// conclude the pole is UNREACHABLE and that both of those mechanisms are dead code. See the
-    /// paragraph above: raising κ is gated on a restoration mechanism existing (§E276), so 1e18 is
-    /// deliberate, not a drift.
-    uint internal constant KAPPA_WAD = 1e18;
-    /// The conservative charge for `σ² == 0` — "we could not MEASURE the variance", never "there
-    /// was none" (§E59/§E79). A POLICY price for absent information, not a ceiling on a computed
-    /// one: nothing is compared against it, it is only ever RETURNED.
-    uint internal constant UNKNOWN_VARIANCE_SKEW = 3e16;
-    /// The arithmetic limit of a rate haircut. `retainSkewPremium` computes
-    /// `premium = amount·skew/1e18` then `amount -= premium`, so `skew > 1e18` means a premium
-    /// exceeding the trade — checked arithmetic, i.e. **panic 0x11** (§E273, measured).
-    /// §E274 MEASURED that the kernel crosses this at FINITE scarcity — q ≥ 0.893 at 200% vol under
-    /// today's Γ — so this is REACHED IN NORMAL OPERATION once the cap is gone, not at the pole only.
-    /// ⇒ It is the DECLINE THRESHOLD, not a clamp: past it the quote is unfillable and is refused by
-    /// name instead of arriving as a panic from inside a subtraction. **Under solver routing an
-    /// unfillable quote is the honest answer** — the solver routes that leg elsewhere (§E272).
-    uint internal constant SKEW_UNFILLABLE = 1e18;
-    /// §E216 — the σ²-FREE component: the cost of inventory that WAS there and LEFT.
-    /// **210 ppm = 2.1e14 WAD, AND IT IS NOW THE WHOLE CHARGE.** A drain of D from a balanced range
-    /// creates exactly 2·D·px of idle inventory, so 210 ppm on that base equals 420 ppm on D itself
-    /// (§E48) — which is why deleting the flat 420 (§E311) took no revenue with it: this term already
-    /// WAS that charge, in inventory-proportional form, and the fill was paying both.
-    /// ⚠️ THE DERIVATION IS STATED HERE, NOT CITED. It used to read `Aux.swapFeePpm()/2`; that
-    /// accessor is deleted, and **a constant explained by pointing at a symbol becomes unexplained the
-    /// moment the symbol goes** — this is the second time this same constant lost its citation
-    /// (`imbalanceFeeUsd6` carried it before).
-    /// Scaled by the FRACTION DRAINED, so it is bounded BY this value: a full drain owes 2.1 bps,
-    /// half a drain 1.05 bps, and a range that was never funded owes nothing at all.
-    uint internal constant DEPLETION_RATE_WAD = 2.1e14;   // 210 ppm = half the pool fee tier
     /// §MIN-SWAP-FEE — **EVERY SWAP PAYS THIS, INCLUDING A BALANCE-RESTORING ONE.** 420 ppm, the
     /// exact flat tier §E311 deleted. Owner, 2026-09-08: *"the minimum swap fee was just the fact
     /// that all swaps even balance restoring must pay at least the minimum."*
@@ -936,35 +856,9 @@ library SwapLib {
     /// assertion that move (see `LevMath`'s worked example and `Alles.t.sol`'s TWAP-deviation cap).
     uint internal constant RANGE_DELTA = 200;
 
-    // DYNAMIC CAP calibration. Instead of a fixed 3%, the ceiling tracks the native-BTC MM's
-    // REAL drain-edge cost, which is dominated by the BTC-price risk while its capital is
-    // locked from committing sats until the swap-in settles + it holds the USD (~6 confs ≈ 1
-    // hour). That cost ≈ σ over the confirmation window · a safety multiple + the splice fee.
-    uint internal constant CONF_FRAC_WAD = 114_000_000_000_000; // ≈ 1hr / 1yr (WAD) — confirmation-window fraction of a year
-    uint internal constant SPLICE_FLOOR  = 2e15;                // 0.2% — on-chain splice-fee floor (the feerate term)
-    // ETH settles in ~one block — NO ~1hr confirmation-capital lock and NO splice — so its cap uses a
-    // one-block settlement window and a zero splice floor. Charging ETH the BTC 1hr window over-priced its cap.
-    uint internal constant ETH_CONF_FRAC_WAD = 380_000_000_000; // ≈ 12s / 1yr (WAD) — one-block settlement window
 
-    /// §ISBTC-SPLIT — THE PER-ASSET RISK PROFILE, PASSED AS NUMBERS. The skew math used to take a
-    /// `bool isBTC` purely so it could look up WHICH of the constants above to use. That is the
-    /// hand-rolled dispatch this refactor removes, one layer down: the instance knows its own risk
-    /// parameters, so it hands them over and the math stops knowing what an asset is. A THIRD range
-    /// then needs no edit here at all -- it brings its own numbers.
-    /// ⚠️ A STRUCT, NOT TWO PARAMETERS, DELIBERATELY. `sellSkew` sits EXACTLY at the stack limit
-    /// (`via_ir = false`; its own comments record two measured stack-too-deep incidents), and one
-    /// memory pointer costs less stack than two values -- CLAUDE.md's stated remedy.
-    struct Risk { uint confFracWad; uint spliceFloor; }
 
-    /// The two canonical profiles, named. Callers that are not an instance (tests exercising the
-    /// pure math, chiefly) state WHICH profile they mean instead of passing a boolean the function
-    /// would have to resolve -- the numbers are the subject, so they are what appears.
-    function btcRisk() internal pure returns (Risk memory) { return Risk(CONF_FRAC_WAD, SPLICE_FLOOR); }
-    function ethRisk() internal pure returns (Risk memory) { return Risk(ETH_CONF_FRAC_WAD, 0); }
 
-    function _risk(address core) private view returns (Risk memory rk) {
-        (rk.confFracWad, rk.spliceFloor) = ICore(core).riskParams();
-    }
 
 
 

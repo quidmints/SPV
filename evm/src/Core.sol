@@ -172,7 +172,6 @@ contract Core {
     // notional in `swap` (range + well both route through it). Read DECAYED via
     // flowEwmaUsd(). One register per instance.
     struct Flow { uint128 vol; uint64 ts; }   // vol: 6-dec USD EWMA · ts: last touch
-    Flow internal _flow;   // §ISBTC-SPLIT: one per instance
     /// ⛔ §E55 — ONE FLOW REGISTER, AND A SECOND "SLOW" LEG MUST NOT BE RE-ADDED. A fast/slow pair
     /// read as `min(fast, slow)` cannot bind: both legs are fed the FULL notional and both are
     /// decaying SUMS, so a slower decay retains MORE ⇒ `slow >= fast` at every ratio ⇒ the min is
@@ -212,82 +211,11 @@ contract Core {
         f.ts  = uint64(block.timestamp);
     }
 
-    /// @notice Fold a SWAP's USD notional into this pool's flow EWMA. ONE call site, in `swap`.
-    /// 🔴 **§SESS-18 — SWAPS ARE NOT THE ONLY FLOW, AND THAT IS WHY THIS IS NOT THE ONLY REGISTER.**
-    ///    The skew's `target` is *"scarcity is inventory against the flow we shed into"*, and a
-    ///    REDEMPTION sheds range inventory exactly as a swap does. `unwindForRedeem` is a BURN, so it
-    ///    reaches no swap seam and can never arrive here; it feeds `_redeemFlow` through
-    ///    `bumpRedeemFlow`, and `skewTargetUsd()` sums the two. Reading `flowEwmaUsd()` alone as the
-    ///    target is what systematically under-counted the demand the range serves.
-    /// 📊 **MEASURED (§SESS-16, `evm/test/SkewTollCurve.t.sol`):** at live inputs `inv/target` read
-    ///    **4.54** — the pool looked 4.5x over-stocked — and the drain toll was **0 bps at 1/5/10/25%
-    ///    depletion, 1 bps at 50%**, only reaching 96 bps at 90%. Holding inventory and drain fixed and
-    ///    varying `target` alone: **×5 ⇒ 34 bps, ×10 ⇒ 279 bps.** The omission was the difference
-    ///    between a mechanism that fires and one that does not.
-    function _bumpFlow(uint usd6) internal {
-        _bumpEwma(_flow, usd6);
-    }
-
-    /// @notice §SESS-18 — fold a REDEMPTION's realised range unwind into the flow EWMA.
-    ///
-    /// ⭐ **WHY THIS IS A SEPARATE, EXPLICIT ENTRYPOINT RATHER THAN A BUMP INSIDE THE SHARED BURN.**
-    ///    `_poolUsdInRange`'s burn arm also serves an **LP withdrawing their own position**, and that is
-    ///    NOT demand for the range's service — it is capital leaving, shrinking inventory and the LP base
-    ///    together. Bumping there would inflate `target` on withdrawals and price scarcity that no one
-    ///    asked to be served. **Only the redemption unwind is flow**, so only it may call this.
-    ///
-    /// ⭐ **AND IT MOVES BOTH SKEW DIRECTIONS THE RIGHT WAY, WHICH IS WHY ONE REGISTER SUFFICES.**
-    ///    · **Drain** (`skewWad`): higher `target` ⇒ lower `inv/target` ⇒ scarcity actually prices.
-    ///    · **Refill** (`sellSkew`): its rule is `inv <= target ⇒ EXEMPT`, so a higher `target` keeps the
-    ///      refill direction **free across a WIDER range** and starts the overshoot charge later.
-    ///    ⇒ draining dearer AND refilling free for longer, from one number — no new mechanism, no
-    ///    third party paid, nothing borrowed, no inventory held.
-    ///
-    /// 🔴 **AND IT GETS ITS OWN REGISTER RATHER THAN BUMPING `_flow`, WHICH IS THE WHOLE POINT.**
-    ///    `flowEwmaUsd` (GROSS, fed a magnitude) and `netFlowUsd` (SIGNED) are a **matched pair, and the
-    ///    pair IS the wash-trading discriminator** — §E326 measured it: over a round trip `flowEwmaUsd`
-    ///    went `0 → 49,999,999,999 → 99,994,054,053` while the position netted to ~$6, so *"a
-    ///    one-directional drain and a balanced round trip look identical"* to gross alone and only the
-    ///    signed counter separates them.
-    ///    ⛔ **FOLDING REDEMPTIONS INTO `_flow` WOULD HAVE BROKEN THAT CHECK BEFORE IT IS BUILT:** a
-    ///    redemption wave raises gross and moves net not at all — **precisely the wash signature** — so
-    ///    the discriminator would false-positive on the most legitimate flow there is.
-    ///    ⇒ `_flow` stays SWAP-ONLY and stays paired with `netFlowUsd`; `_bumpFlow` keeps its single
-    ///    call site, so §E326's *"`_bumpFlow` has ONE call site, inside `swap`"* remains TRUE.
-    /// ⚠️ **`netFlowUsd` IS DELIBERATELY NOT TOUCHED.** It is the SIGNED companion recording
-    ///    basket↔volatile *travel*; a redemption unwind is a PROPORTIONAL burn of both legs (§SESS-1/R1:
-    ///    *"both legs fall by the same number"*), not directional travel. Adding a sign here would
-    ///    invent a direction the burn does not have.
-    /// @param usd6 the REALISED 6-dec USD delta the unwind freed — measured, never the amount asked for
-    ///        (`unwindForRedeem` UNDER-frees by `basketUsd/POOLED_USD` whenever LPs hold an increment,
-    ///        which is the normal state).
-    function bumpRedeemFlow(uint usd6) external onlyUs {
-        if (usd6 != 0) _bumpEwma(_redeemFlow, usd6);
-    }
-
-    /// @notice This pool's decayed REDEMPTION-unwind EWMA (6-dec USD). Same decay as `_flow`.
-    function redeemEwmaUsd() public view returns (uint) { return _decayed(_redeemFlow); }
-
-    /// @notice ⭐ **THE SKEW'S TARGET — the ONE place the two flow sources are composed.**
-    ///         `skewWad` and `sellSkew` read THIS, not `flowEwmaUsd`, so if the two sources are ever
-    ///         to be weighted differently that is a change to one function rather than to two
-    ///         money-path call sites that could drift apart.
-    function skewTargetUsd() public view returns (uint) {
-        return flowEwmaUsd() + redeemEwmaUsd();
-    }
 
 
-    /// @notice This pool's decayed swap-flow EWMA (6-dec USD) — the adaptive
-    ///         normal-flow buffer the skew target is built on. Pure decay of the stored
-    ///         register to now; NO governance constant.
-    /// §E55 — ADAPTIVE BECAUSE THE MARKET WRITES IT, NOT BECAUSE THE DECAY IS TUNED. There is ONE
-    /// register and ONE half-life (`FLOW_DECAY`, 48h): the window is wide enough that lifting this
-    /// number takes sustained fake volume rather than one block, and a decaying SUM of real notional
-    /// needs no fitted parameter to track a regime change. See the declaration for why a second,
-    /// slower leg read as a `min` could never bind.
-    function flowEwmaUsd() public view returns (uint) {
-        return _decayed(_flow);
-    }
+
+
+
 
     /// @notice This pool's decayed RETAINED-PREMIUM EWMA (6-dec USD) — the range's realized
     ///         market-making earnings over the trailing ~48h window. θ's numerator (#107/D3):
@@ -309,14 +237,6 @@ contract Core {
         return _levDebtUsd18() / 1e12;
     }
 
-    /// @notice This range's risk profile for the skew's ADVERSE-SELECTION BASE: the settlement-window
-    ///         fraction of a year and the on-chain splice floor. Returned as a PAIR so `SwapLib` needs
-    ///         no asset flag. ⚠️ NOT "the skew cap" — §E79 inverted `SwapLib._maxWellSkew` from a
-    ///         CEILING to an ADDITIVE BASE, and nothing in the tree compares a skew against it. The
-    ///         only bound on the skew is `_boundToFullHaircut`'s `SKEW_UNFILLABLE`.
-    function riskParams() external view returns (uint confFracWad, uint spliceFloor) {
-        return (CONF_FRAC, SPLICE);
-    }
 
     /// @notice This range's aggregate levered GROSS collateral in NATIVE units (wei for ETH, sats for BTC), read
     ///         live from the range manager (0 before the Vault pin lands). The well skew's LOCKED-INVENTORY
@@ -662,8 +582,6 @@ contract Core {
     /// take a `bool isBTC` solely to choose between two constants; the instance owns which pair
     /// applies, so it hands over the NUMBERS. BTC locks capital through ~1hr of confirmations and
     /// pays an on-chain splice fee; ETH settles in ~one block with neither.
-    uint public immutable CONF_FRAC;
-    uint public immutable SPLICE;
     /// §ISBTC-SPLIT — THIS INSTANCE'S VOLATILE ASSET, passed to the constructor and never chosen at
     /// runtime. The money-path sites that price against it (`getTWAPforAsset`, `assetPriceFeed`)
     /// read this slot, instead of making an EXTERNAL CALL into Aux to fetch WBTC-or-WETH and then
@@ -807,12 +725,10 @@ contract Core {
     ///      is, and inferring it from `VOL_DECIMALS` (8 vs 18) is the same class of mistake as
     ///      reading a stable's decimals off its slot index. The profile is deploy-time
     ///      CONFIGURATION, which is the one place a per-instance constant honestly belongs.
-    constructor(address asset_, SwapLib.Risk memory risk) {
+    constructor(address asset_) {
         DEPLOYER = msg.sender;
         ASSET        = asset_;
         VOL_DECIMALS = IERC20Min(asset_).decimals();
-        CONF_FRAC    = risk.confFracWad;
-        SPLICE       = risk.spliceFloor;
     }
 
     /// @param _range            this instance's range manager (`Quid` on ETH). ZERO on the BTC
@@ -1082,13 +998,6 @@ contract Core {
             int256 usdLeg = delta.usd;
             uint usd6 = uint(usdLeg < 0 ? -usdLeg : usdLeg);
             if (usd6 != 0) {
-                _bumpFlow(usd6);
-                // §E320-SSRN — KEEP THE SIGN. The line above is where it was being destroyed: the
-                // magnitude drives the EWMA that `skewWad`/`sellSkew` read as `target`, and the
-                // direction — the whole of what the basket↔volatile travel WAS — went nowhere.
-                // `usdLeg` already carries it under the delta convention, so this needs no branch
-                // and cannot disagree with the settlement legs about which way the trade went.
-                netFlowUsd += usdLeg;
             }
         }
 
@@ -1600,14 +1509,12 @@ contract Core {
     /// `_prem`) by RAW INDEX, and its own guard says a stale slot does NOT fail — `vm.load` reads the
     /// wrong variable and the test passes while measuring something else. Appending keeps every
     /// existing slot fixed. **Do not move this declaration up.**
-    int256 public netFlowUsd;
 
     /// @notice §SESS-18 — the REDEMPTION-unwind flow EWMA, kept SEPARATE from `_flow` on purpose.
     /// ⚠️ **APPENDED, for the same reason `netFlowUsd` above is:** `DrainAtomicity._flowTs` reads Core
     ///    slots **262/263** (`_flow`, `_prem`) by RAW INDEX and its guard does NOT fail on a stale slot,
     ///    so a shifted layout would let that test pass while measuring the wrong variable. Appending
     ///    keeps both fixed — asserted, not assumed, by `forge inspect Core storageLayout`.
-    Flow internal _redeemFlow;
 
     /// @notice §E345 — σ² MEASURED OFF THE CHAINLINK ANCHOR, ON A SERIES NO TRADER CAN SHAPE.
     ///

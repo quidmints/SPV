@@ -62,7 +62,6 @@ contract SkewVsUniswapV3Test is AllesFixture {
         uint px = _seed();
         emit log_named_uint("oracle px (usd18/ETH)", px);
         emit log_named_uint("our sigma^2          ", CORE.realizedVarianceWad());
-        emit log_named_uint("our flowEwmaUsd      ", CORE.flowEwmaUsd());
         emit log_named_uint("our POOLED (ETH)     ", CORE.POOLED());
         emit log_string("size_usd | uniV3_bps | our_skew_bps | cheaper");
 

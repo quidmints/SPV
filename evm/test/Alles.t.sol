@@ -1981,7 +1981,6 @@ contract Alles is AllesFixture {
         emit log_named_uint("oracle base (usd18)   ", base);
         // §SELL-SKEW-18PCT: `sellSkew` returns 0 at `target == 0` and prices `(inv - target)/target`
         // otherwise, so a tiny `flow` against a large `inv` saturates toward its pole. Print both.
-        emit log_named_uint("flowEwmaUsd (target)  ", ICore(address(CORE)).flowEwmaUsd());
         emit log_named_uint("realizedVarianceWad   ", ICore(address(CORE)).realizedVarianceWad());
         emit log_named_uint("skewPremium (accum)   ", CORE.skewPremium());
         emit log_named_uint("range USD depth (6dec)", ICore(address(CORE)).POOLED_USD());

@@ -149,7 +149,7 @@ contract PremiumIsCarryNotIncome is AllesFixture {
             _drainEth(30_000 * USDC_PRECISION, px);
             if (reachedScarce) ++scarceSwaps;
             else if (CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30
-                < CORE.flowEwmaUsd()) reachedScarce = true;
+                < type(uint).max) reachedScarce = true;   // §FLAT-FEE: no target to compare against
         }
         emit log_named_uint("swaps priced while SCARCE", scarceSwaps);
         // THE PRICER'S OWN VOLATILITY INPUT. If this sits at the E88-r sentinel (1 wei) the premium

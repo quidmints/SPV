@@ -1506,14 +1506,6 @@ contract Quid is Shares,
         uint after6 = _corePooledUsd6();
         uint freed6 = usd6 > after6 ? usd6 - after6 : 0;
         usdFreed = freed6 * 1e12;
-        // §SESS-18 — A REDEMPTION SHEDS RANGE INVENTORY, SO IT IS FLOW. `flowEwmaUsd` is `skewWad`'s
-        // `target`, and `Core._bumpFlow` (its ONE call site is inside `Core.swap`) raises only the
-        // SWAP leg — so without this a redemption wave consumed the range and left `target` decaying,
-        // making the pool read as over-stocked exactly when it was being emptied. MEASURED at live
-        // inputs: `inv/target` 4.54 and a 0-bps drain toll (§SESS-16).
-        // ⚠️ The REALISED delta, not `usdWanted`: the block above records that this UNDER-frees by
-        //    `basketUsd/POOLED_USD` whenever LPs hold an increment, and the increment is normal.
-        if (freed6 != 0) CORE.bumpRedeemFlow(freed6);
     }
 
     /// @notice §E5 — route the RETAINED A-S scarcity premium to LPs through the SAME per-share
