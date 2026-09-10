@@ -3828,7 +3828,7 @@ contract Alles is AllesFixture {
         // §WRONG-RANGE — this is test_RunSim_AllExit_BtcLp: a BTC LP's premium and pooled depth
         // live on the BTC instance. `BCORE()` (= BTC.CORE()) already exists and line ~4285 of
         // this same file declares an identically-named `pooledBtc0` using it correctly.
-        uint premBefore = BCORE().skewPremiumCum();
+        uint premBefore = BCORE().skewPremium();
 
         // Two BTC LPs; fund POOLED_USD (median-governed) so SOME of their
         // sats pair into active virtual liquidity and the rest is retention.
@@ -3872,7 +3872,7 @@ contract Alles is AllesFixture {
         // the premium reach the LP through the fee leg, so the proxy broke while the INVARIANT —
         // no proceeds were minted — still holds. Bound = the premium ACTUALLY CHARGED + the
         // original 1e18 dust allowance, so a real proceeds claim (orders larger) still fails.
-        assertLt(qdGain, (BCORE().skewPremiumCum() - premBefore) * 1e12 + 1e18,
+        assertLt(qdGain, (BCORE().skewPremium() - premBefore) * 1e12 + 1e18,
             "only fee dust + retained premium minted (no proceeds claim when delivered==0)");
         // Virtual consistency: the shared POOLED didn't go negative / wrap.
         assertLe(BCORE().POOLED(), pooledBtc0, "POOLED only shrank - no over-burn across LPs");

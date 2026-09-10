@@ -49,3 +49,26 @@ swapOutDeliverUnlevered  # 🔴 STILL UNREACHABLE IN PRODUCTION, BUT NO LONGER U
 #     Under §POOL-VENUE withdrawPool writes NO per-LP units, so withdrawing against one LP with no debt
 #     to pair the repay against dilutes EVERY LP pro-rata — the 4,801 bps cross-subsidy
 #     (LeverageCrossSubsidyProbe) arriving through a second door. Needs its own fork test; do not guess.
+#
+# CLASS 4: OURS, READ ONLY BY TESTS. Their SRC consumer was deleted, deliberately, and the quantity
+# is not otherwise readable — so the accessor is what makes an invariant ASSERTABLE. An entry here is
+# a claim that a test would go blind without it; if that test goes, so does this.
+rangeEquityUsd18         # THIS range's net equity (`basketUsd·1e12 − levDebt`, floored). Its src
+                         #   caller was `SwapLib._sharedScarcityWad`, DELETED 2026-09-10 with the
+                         #   scarcity kernel (§NO-GAMEABLE-BOUND). The internal `_rangeEquityUsd18`
+                         #   is still live — `_reportEquity` calls it — so this is only the external
+                         #   face. It pins the DECOMPOSITION of `committedUsd18` into its two
+                         #   per-range terms: UnificationControls.t.sol:942 asserts
+                         #   `committedUsd18() == ethEquity + BTC.CORE().rangeEquityUsd18()`, and
+                         #   LevCascade.t.sol:1048 reads the BTC term. Without it a test can see the
+                         #   SUM and not the addends, which is where the two ranges' floors hide.
+retainedEthPremium       # Cumulative premium retained in WEI on the sell legs. §E42-DENOM measured
+                         #   that folding it into `POOLED` DOUBLE-COUNTS (rangeETH already holds the
+                         #   WETH at Aux), so it is a counter by design, not an omission. It exists
+                         #   because the quantity was UNREADABLE, and that is what stopped the real
+                         #   identity being assertable: LevYbReal.t.sol:577 pins
+                         #   `POOLED + retainedEthPremium == rangeETH + levBuf`, i.e. the
+                         #   CONSERVATION statement this whole design serves (TARGET-DESIGN §1).
+                         #   ⚠️ TARGET-DESIGN §5a lists this as "safe to delete — a counter nothing
+                         #   reads". That was measured against `evm/src` only and is WRONG about the
+                         #   tests; the §5a row is superseded by this entry.

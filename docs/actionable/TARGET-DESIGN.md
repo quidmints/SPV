@@ -163,7 +163,7 @@ same fees: a Uniswap LP's 10% is gross MINUS LVR; ours is gross ≈ net.**
 |---|---|
 | `refillNeeded`, `proRataShortfall` (+ `RefillTriggerAndProRata.t.sol`) | 0 src callers; `internal` ⇒ 0 bytes, but dead source |
 | `swapOutDeliverUnlevered` + `…Body` (~850 B) | 0 Solidity callers, 0 tests; held open only by an unwritten §M.1 fork test |
-| `retainedEthPremium` | the one `check-orphans` hit; a counter nothing reads |
+| ~~`retainedEthPremium`~~ **RETRACTED 2026-09-10** | 🔴 *"a counter nothing reads"* was measured against `evm/src` ONLY and is FALSE about the tests. `LevYbReal.t.sol:577` pins `POOLED + retainedEthPremium == rangeETH + levBuf` — the CONSERVATION statement of §1. Now in `orphans-allow.txt` CLASS 4 with that reason. |
 | `_applySkew`, `OracleLib.curvePriceWad` | booked unwired |
 | `openLevCount`, `openLpAt` | the ONLY on-chain readers of `_openLps`, and both are `external view` |
 | tick/curve tombstones | ~185 `tick` matches in `evm/src`, **every one a comment** |
@@ -277,6 +277,37 @@ now carries one): `tools/check-skew-agnostic.py` (five of eight skew functions d
 because the sell-in capacity term must not read a v4 concept or a measured flow), `tools/verify-seq-audit.py`
 (fourteen symbols moved LIVE → GONE), `tools/check-signer-allowlist.py` + `evm_validating_signer.rs`
 (both batch selectors removed as ORPHANs — signable surface nothing sends).
+
+---
+
+## §6c — THE DEVIATION GUARD COMPARES CHAINLINK WITH CHAINLINK ✅ (measured 2026-09-10)
+
+Not created by any removal — but the removals made it the guard's **only** remaining justification, so
+it can no longer sit behind σ².
+
+**The chain of facts, all read from code:**
+1. `Aux.getTWAPforAsset` → `Aux.resolvedTwap` → `SwapLib.twapBody` (the ring's TWAP) cross-checked by
+   `SwapLib.twapResolve` against the pinned Chainlink feed; >5% apart ⇒ **return Chainlink**.
+2. `Core._observeIfSourced` writes the ring. Its `src == address(0)` arm reads the **Chainlink anchor**
+   and writes that.
+3. `setObservationSource` has **zero non-test callers and no deploy script calls it** (its own docblock
+   says so, and `DeployLib` confirms it).
+⇒ The ring is a time-weighted average **of Chainlink**, checked against **Chainlink**. The guard fires
+on staleness. It cannot fire on manipulation of the source, because there is only one source.
+
+**Why this is now sharper than before.** §E222's independent-source rule had two consumers: the
+deviation guard and σ². σ² is deleted, so the rule stands or falls on the guard alone — and
+`OneInchGasProbe` (which measured 1inch's `getRate` at **31.7M gas**, past a whole block, corroborated
+by the node refusing at its own 16.7M estimation ceiling) records that the obvious independent source
+is not callable on chain. Curve's on-pool EMA was the fallback pick and the only ETH/USD pool
+(TriCrypto) is removed from this codebase as a venue *and* as a read.
+
+**The decision this owes.** Either (a) pin a genuinely independent source and accept a weaker one than
+1inch (one venue, different MECHANISM — an EMA of executed trades vs a pushed feed), or (b) state that
+Chainlink is the trust root, delete the ring as a smoother that cannot detect what it was built to
+detect, and read the anchor directly. **Do not leave it implicit.** ⏸️ Owner ruling needed — (b) is a
+removal of live, working code whose value is real (it smooths a single bad round), so it is not a
+sweep-up.
 
 ---
 

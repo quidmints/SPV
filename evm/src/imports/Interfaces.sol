@@ -676,7 +676,6 @@ interface ICore {
     /// amount: it is that they are CUMULATIVE, which makes them the liveness signal a decayed EWMA
     /// cannot be. `flow == 0` is ambiguous between a DEAD pool and a NEW one; `skewPremium > 0`
     /// resolves it, because a pool that has never traded cannot have accrued any.
-    function skewPremiumCum() external view returns (uint);
     /// §E59 — realized tick variance from the STORED observations (per-second, WAD) + the measured
     /// span. Reads the RING, so it never sees observe()'s interpolation, which used to manufacture
     /// zeros in any stretch quieter than the old wall-clock sample grid. span 0 = UNKNOWN, not calm.

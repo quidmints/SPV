@@ -47,13 +47,13 @@ contract SkewPremiumReachesLPs is AllesFixture {
         assertGt(sharesDenom, 0, "PREMISE: LP shares must exist, else feeIncrements credits nobody");
 
         // Drain hard enough that the range goes scarce and the drain leg charges the A-S premium.
-        uint chargedBefore = CORE.skewPremiumCum();
+        uint chargedBefore = CORE.skewPremium();
         uint usdFeesBefore = ETH.USD_FEES();
         for (uint i = 0; i < 20; ++i) {
             _drainEth(40_000 * 1e18);
-            if (CORE.skewPremiumCum() > chargedBefore) break;
+            if (CORE.skewPremium() > chargedBefore) break;
         }
-        uint charged = CORE.skewPremiumCum() - chargedBefore;
+        uint charged = CORE.skewPremium() - chargedBefore;
         assertGt(charged, 0,
             "PREMISE: the drain must actually charge a premium, else this measures nothing");
 

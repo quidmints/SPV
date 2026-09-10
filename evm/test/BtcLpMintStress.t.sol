@@ -833,7 +833,7 @@ contract BtcLpMintStress is AllesFixture {
         // bounds the ORDINARY fee; the premium becomes an explicit TERM read from what was actually
         // charged. §E81-r: re-express, never weaken — raising the bound would hide a future real
         // over-mint behind a premium-sized allowance.
-        uint premBefore = CORE.skewPremiumCum();   // the only new local; delta is taken inline
+        uint premBefore = CORE.skewPremium();   // the only new local; delta is taken inline
         uint proceeds = _swapOuts(ch, cid, ftx, 1, lpPk, lpEth, 5, 500 * USDC_PRECISION);
         assertGt(proceeds, 0, "swap-outs delivered BTC so the LP earned proceeds");
         // Deliver-time minted the realized proceeds (+ tiny USD-leg fee dust) — never
@@ -844,7 +844,7 @@ contract BtcLpMintStress is AllesFixture {
         // notional — measured at a constant 4.2bps across 500/1200/2500 notionals — so an ABSOLUTE
         // allowance can never fit it. Bound = 6bps of the expected value (4.2bps measured + margin)
         // plus the original 1e15 for rounding. DERIVED from the fee rate; do NOT raise until green.
-        assertApproxEqAbs(QUID.balanceOf(lpEth) - qdBeforeDeliver, (proceeds + CORE.skewPremiumCum() - premBefore) * 1e12, proceeds * 1e12 * 6 / 10000 + 1e15,
+        assertApproxEqAbs(QUID.balanceOf(lpEth) - qdBeforeDeliver, (proceeds + CORE.skewPremium() - premBefore) * 1e12, proceeds * 1e12 * 6 / 10000 + 1e15,
             "deliveries mint ~EXACTLY the realized proceeds (+ fee dust, no over-mint)");
         assertGe(QUID.balanceOf(lpEth) - qdBeforeDeliver, proceeds * 1e12,
             "LP received AT LEAST its full proceeds");
@@ -876,7 +876,7 @@ contract BtcLpMintStress is AllesFixture {
         // bounds the ORDINARY fee; the premium becomes an explicit TERM read from what was actually
         // charged. §E81-r: re-express, never weaken — raising the bound would hide a future real
         // over-mint behind a premium-sized allowance.
-        uint premBefore = CORE.skewPremiumCum();   // the only new local; delta is taken inline
+        uint premBefore = CORE.skewPremium();   // the only new local; delta is taken inline
         uint proceeds = _swapOuts(ch, cid, ftx, 2, lpPk, lpEth, 3, 400 * USDC_PRECISION); // modest delivery
         assertGt(proceeds, 0, "some BTC delivered");
         // Deliver mints the obligation (+ tiny fee dust), NOT inflated by any
@@ -886,7 +886,7 @@ contract BtcLpMintStress is AllesFixture {
         // notional — measured at a constant 4.2bps across 500/1200/2500 notionals — so an ABSOLUTE
         // allowance can never fit it. Bound = 6bps of the expected value (4.2bps measured + margin)
         // plus the original 1e15 for rounding. DERIVED from the fee rate; do NOT raise until green.
-        assertApproxEqAbs(QUID.balanceOf(lpEth) - qdBeforeDeliver, (proceeds + CORE.skewPremiumCum() - premBefore) * 1e12, proceeds * 1e12 * 6 / 10000 + 1e15,
+        assertApproxEqAbs(QUID.balanceOf(lpEth) - qdBeforeDeliver, (proceeds + CORE.skewPremium() - premBefore) * 1e12, proceeds * 1e12 * 6 / 10000 + 1e15,
             "deliver mints ~EXACTLY the swapper's USD (no inflation, + fee dust)");
         assertGe(QUID.balanceOf(lpEth) - qdBeforeDeliver, proceeds * 1e12,
             "LP received AT LEAST its full proceeds");
@@ -944,7 +944,7 @@ contract BtcLpMintStress is AllesFixture {
         emit log_named_uint("cumMinted            ", cumMinted);
         emit log_named_uint("cumProceeds*1e12     ", cumProceeds * 1e12);
         emit log_named_uint("gap (mint - proceeds)", cumMinted - cumProceeds * 1e12);
-        emit log_named_uint("skewPremiumCum(BTC)  ", CORE.skewPremiumCum());
+        emit log_named_uint("skewPremium(BTC)     ", CORE.skewPremium());
         assertGe(cumMinted, cumProceeds * 1e12, "LPs received their full realized proceeds");
         // §E89-a — THE PREMIUM IS BACKING THAT `cumProceeds` CANNOT SEE, SO IT IS NOW AN EXPLICIT
         // TERM RATHER THAN SLACK IN A DUST WINDOW. `creditSwapOutBody` scales the buy-driving USD
@@ -959,7 +959,7 @@ contract BtcLpMintStress is AllesFixture {
         //   skew-dependent movement and none of the residual.
         // This makes the check STRICTER, not looser: unexplained dust drops from 6 QUID to 2.5.
         assertLe(cumMinted,
-            cumProceeds * 1e12 + CORE.skewPremiumCum() * 1e12 + 2.5e18,
+            cumProceeds * 1e12 + CORE.skewPremium() * 1e12 + 2.5e18,
             "cumulative mint stays within proceeds + retained premium (+ constant fee dust)");
     }
 
