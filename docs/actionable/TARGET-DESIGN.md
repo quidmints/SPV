@@ -321,3 +321,80 @@ sweep-up.
   too**; it survives only on the sell-in side, where the rate rises toward capacity.
 - **Responsiveness as the liquidation defence**, with its four failure modes written down: gap risk ·
   the de-lever refusing to execute · permissionless ≠ someone calls · acting on a price up to 5% stale.
+
+---
+
+## §8 — THE POOLED DELTA TARGET, WHICH GATES EVERY REMAINING REMOVAL ✅ algebra, ⏸️ one decision
+
+Everything still on the §5b list (`Types.Pos.ilBasisPx`/`entryEquity`, `debtDeltaToTarget`,
+`_targetInputs`, `deleverRepayUsd`, `ilTargetBps`, the flash on the delivery side) is a **replace**,
+not a remove, and this is what replaces it. It is also the answer to *"how/when does borrow fire"*.
+
+### What the per-LP target actually is (read from code, not reasoned)
+- `LevMath.ilTargetBps(b_i, px, cap) = min(cap, 1 − √(b_i/px))`, and **0 when `px ≤ b_i`** —
+  up-side-only by design, because down-side IL heals and a below-entry short would realise it.
+- `LevMath.entryEquityUsd(entryEquity_i, px) = entryEquity_i · px / 1e18`, and `entryEquity_i` is
+  **fixed at open** (`LevBase.sol:384` — *"the IL base, FIXED at open"*).
+- So each LP's target debt is `target_i · e0_i`, and the pool's correct debt is the **SUM of the
+  individual targets** — *not* an average target applied to aggregate equity. Those differ, and the
+  difference is a cross-subsidy between LPs who entered at different prices.
+
+### ⭐ THE SUM DISTRIBUTES — SO THE POOLED TARGET IS O(1), NOT A WALK
+Unclamped, for one LP:
+
+```
+target_i · e0_i = (1 − √(b_i/px)) · entryEquity_i · px / 1e18
+                = [ entryEquity_i·px  −  entryEquity_i·√b_i·√px ] / 1e18
+```
+
+`√` does not distribute over a sum, but it does not have to: `√(b_i/px)` factors into `√b_i · (1/√px)`,
+and `√b_i` is a **per-LP constant**. Summing:
+
+```
+D*_raw = ( px·S1  −  √px·S2 ) / 1e18
+   S1 = Σ entryEquity_i                 (native units)
+   S2 = Σ entryEquity_i · √b_i
+```
+
+**Two scalars, both updated only on open/close.** Every LP's own entry basis is preserved *exactly* —
+there is no averaging and therefore no cross-subsidy — and a price move re-prices the whole book with
+one `sqrt`. This is the same trick §POOL-VENUE used on debt: the aggregate is a function of two sums,
+so the array holding the addends was never the thing that made it computable.
+
+### ⏸️ THE ONE DECISION: THE TWO CLAMPS DO NOT DISTRIBUTE, AND THEY BIND PER-LP
+`min(cap, …)` and `max(0, …)` each bind at a price threshold **that differs per LP** (`px ≤ b_i`, and
+`px` where `1 − √(b_i/px)` reaches `cap`). The closed form ignores both:
+
+- **Below entry**, `1 − √(b_i/px)` goes **negative**, so a below-entry LP would *subtract* from `D*`
+  and cancel part of an above-entry LP's legitimate hedge. The direction is safe (less debt, less
+  leverage) but it is wrong, and it is a cross-subsidy in the opposite direction.
+- **Deep in the money**, LPs clip at `TARGET_LTV_CAP_BPS` and the closed form does not, so `D*` would
+  over-borrow.
+
+Three ways out, with a recommendation:
+
+| | how | cost | cross-subsidy |
+|---|---|---|---|
+| **(a) BUCKET `b_i` — recommended** | keep `(S1, S2)` per fixed entry-price tier; a price move touches only tiers whose threshold it crossed | O(tiers), a constant — not O(LPs) | **none**: each LP keeps its own basis, exactly |
+| (b) one pooled `ilBasisPx` | equity-weighted entry price for the whole book | O(1), simplest | **yes, by construction** — a late entrant is hedged against an early entrant's basis. This is the thing §POOL-VENUE was fighting |
+| (c) lazy sum | maintain `D*` on each LP's own touch | O(1) per touch | none, but `D*` **lags** between touches, and the lag is exactly the crash window |
+
+⇒ **(a).** It is the only option that is both O(constant) and free of cross-subsidy, and the tier count
+is the single tunable. (b) reintroduces the defect the pooled venue exists to remove; (c) trades the
+cross-subsidy for staleness on the one path where staleness is the whole risk (responsiveness is the
+liquidation defence — §7).
+
+### WHEN BORROW FIRES, ONCE THIS EXISTS
+`D*` is a **function of price and the two sums, evaluated on read.** So:
+- a **drain** raises no debt and lowers LTV; the proceeds **repay** toward `D*` (§3);
+- a **sell-in** supplies collateral and **borrows** toward `D*`, bounded by the capacity term (§4);
+- a **price rise** raises `D*` (more up-side IL to cancel) ⇒ the keeper levers up;
+- a **price fall** lowers `D*` ⇒ repay, which is the same call the crash path makes.
+There is no separate schedule and no forecast: **borrow fires whenever live debt ≠ `D*(px)` by more
+than the band**, and the band is §6b debt 2 (to be derived from carry, not gas, not LVR).
+
+📌 **`_bandBps` and this share an input.** `borrowRateRay(extraBorrow)` is declared on BOTH venue
+classes (`LevVenueBase.sol:536` and `:811`), has **zero callers**, and is allowlisted as a
+§MULTI-VENUE orphan. It is the carry the band must be derived from *and* §6 check 3 (*"is carry
+expensive at our notional?"*). One fork measurement answers both. ⏸️ Not taken — the owner stopped
+test runs (*"i dont care about tests at all now. dont run any until i explicitly tell you"*).
