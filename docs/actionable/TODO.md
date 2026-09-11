@@ -17,6 +17,118 @@ or superseded, NOT that it never existed - check the archive before concluding a
 
 ## Live now — opened or reopened 2026-08-13..15, not yet in the numbered scheme
 
+## 🧭 §PROVING-ARCHITECTURE-8288 — **EVERY STATEMENT IS REWRITTEN FOR THE leanSTARK / RISC-V WORLD, WITH NO REDEPLOY WHEN 8288 SHIPS. DECIDED 2026-09-11.**
+
+Owner: *"i need everything to be rewritten in such a way that we dont need a redeploy for 8288 … i
+really wanna get rid of that stupid aggregated withdraw stuff and make the most reuse of all the
+vitalik stuff."* The pinning authority is the enclave-image msig: *"we need an msig for our lightning
+daemon enclave image anyway so that holds for the post 8288 pin."*
+
+**What the target is, precisely.** [EIP-8288](https://eips.ethereum.org/EIPS/eip-8288) (Draft, merged
+2026-09-09, floated for I-star after Hegota) extends [EIP-8141](https://eips.ethereum.org/EIPS/eip-8141)
+frame transactions (Draft, 2026-01-29, the native-AA candidate) with `DEP_VERIFY_FRAME_MODE = 3`: a
+transaction DECLARES cryptographic dependencies as 96-byte triples `(scheme ‖ data_hash ‖
+verification_key_hash)` — `LEANSPHINCS_SCHEME = 0x10`, `LEANSTARK_SCHEME = 0x11` — and block validity
+carries ONE recursive STARK (header field `recursive_stark = [stark_proof, block_deps_hash]`) proving
+every dependency in the block. Per dependency: `LEANSTARK_VERIFICATION_GAS = 30_000`. There is no
+leanSTARK toolchain to target today; what exists is what it will aggregate — RISC-V zkVMs with
+hash-based STARK backends (SP1, RISC Zero, Airbender, Jolt). **The durable artifact is therefore the
+STATEMENT as a Rust program and its public-value layout; the proof format is swappable underneath.**
+
+### THE TWO ERAS, AND WHY THEY ARE THE SAME CODE
+| | today (no 8288) | after 8288 |
+|---|---|---|
+| who amortises verification | **we do** — one on-chain verify covers K withdrawals | **the mempool does** — each tx declares its proof; the block proves them all |
+| our batching | a zkVM program that runs the withdraw statement K times and emits K nullifiers; one wrapped proof on-chain | **none** — one tx per withdrawal, its own dependency. The batch program is deleted. |
+| the contract | `adapter.verify(journal, proof)` then applies nullifiers | `adapter.verify(journal, "")` — the adapter reads the frame; no proof bytes reach us |
+| on-chain verification | the zkVM vendor's STARK→Groth16/PLONK wrapper (~250–300k gas, pairing-based ⇒ NOT PQ on-chain yet) | native, ~30k gas, PQ |
+| trusted setup | the vendor's one-time universal wrapper setup, inherited, never run by us, same for 1 program or 88 | **none** |
+
+**THE INVARIANT — four rules, and breaking any one re-introduces a redeploy:**
+1. **The unit is the single statement**, one Rust crate each: `withdraw(root, nullifier, recipient,
+   amount ‖ note_secret, path)`, `register(…)`, `ragequit(…)`, `notary_action(…)`, `title_holder(…)`,
+   `escrow_envelope(…)`. Its public values are an ABI-encoded tuple with no cleverness — that tuple
+   is what 8288 hashes into `data_hash` (*"For `LEANSTARK_SCHEME`, this is the public inputs hash"*).
+2. **The batch program is a thin wrapper** calling the withdraw crate K times. Disposable by design;
+   deleting it removes zero statement code.
+3. **Money contracts never touch a proof.** `PrivacyPool`, `HolderRegistration`, the registries
+   consume a JOURNAL struct and make exactly one call — `adapter.verify(journal, bytes proof) → bool`
+   — on ONE msig-pinned address. No `IVerifier` import, no public-input positions, no proof parsing
+   anywhere else. ⛔ The two habits the Honk integration has and the rewrite must actively remove:
+   each generated verifier bakes `NUMBER_OF_PUBLIC_INPUTS`, and the pool indexes into the array.
+4. **Nothing is committed to a proof format.** SP1/RISC Zero STARKs are not leanSTARK; the same Rust
+   program is re-proven when the lean prover exists. Only the adapter and its pinned vkey change.
+
+### WHICH ADAPTER 8288 GIVES US — RESOLVED FROM THE SPEC TEXT, NOT FROM COVERAGE
+The cheap one. EIP-8141: the frame instructions are *"available to any EVM code executed within that
+transaction, including code reached via CALL/DELEGATECALL at any depth"*, and introspection *"reveals
+all frames of the tx, not just executed ones."* EIP-8288: *"Contracts can iterate over all frames in
+the transaction using `FRAMEPARAM` to identify `DEP_VERIFY_FRAME_MODE` frames, then use
+`FRAMEDATASIZE` and `FRAMEDATACOPY` to read the dependency data."* ⇒ the 8288-era adapter is: scan
+frames for mode 3 → find the triple whose `verification_key_hash` equals the pinned vkey → hash the
+calldata journal → compare to `data_hash` → `true`. `FRAMEPARAM` is 2 gas; `FRAMEDATACOPY` prices as
+`CALLDATACOPY`. Block validity is what makes "present in the frame" mean "proven". Replay is closed by
+the journal's own content (the pool spends the nullifier), not by who declared the dependency.
+**Residual unknowns, all contained in the adapter:** (a) the hash behind `pub_input_hash` is
+*"unspecified … currently leading choice is BLAKE3"* — no precompile, so a Solidity BLAKE3 over a
+~200-byte journal unless one ships; (b) users must submit withdrawals as frame transactions (type
+`0x06`) — the wrapper adapter stays pinned until wallets can; (c) both EIPs are Draft.
+
+### THE PIN — ONE GOVERNED POINTER IS THE PRICE OF NO REDEPLOY
+The adapter address is settable ONLY by the enclave-image msig (the same 2-of-3 that authorises
+`MigrationAuth`), timelocked, and **era-locked**: settable once to the 8288 adapter, then frozen.
+Without the era-lock the msig can accept any proof forever — a bigger knob than the enclave image.
+⚠️ The grow-then-freeze msig is not built (`migration.rs:97` is a `const` owner array —
+`§MSIG-GROWS-THEN-FREEZES` in SPRINT history); the pointer is pinned by the fixed 2-of-3 until it is.
+The alternative — zero knobs — costs a redeploy of the thin verifier layer AND the pool (immutable
+means immutable). Owner chose the pin.
+
+### WHAT IS STILL A DECISION, NOT A BUILD
+**Proving location.** Today the phone proves locally (`bb.js`), so the passport and the note secret
+never leave the device. zkVM proving of an RSA-2048/P-256 passport is tens of millions of cycles —
+minutes on a laptop, not a phone. Delegating it means the prover sees the witness: for `register`
+the passport, for `withdraw` the note being spent, i.e. the linkage the pool exists to hide. Options:
+a prover inside our own SGX/SEV enclave (consistent with "the enclave is the whole protection" for
+BTC custody, much weaker for identity privacy); mobile-class provers when they exist; or accept the
+wrapper path for the pool first, where the witness is only note ownership. ▶️ Owner decides; the
+pool statements are built first regardless because their delegated-proving question is narrower.
+
+### THE PORT — measured 2026-09-11, ~6–7 engineer-weeks to proving-layer parity
+| today (Noir) | in a zkVM |
+|---|---|
+| `register_identity` + `_td1` + `_light` (~290 lines) over `noir_dl_lib` (**16,404** lines of in-circuit RSA/RSA-PSS/P-256/brainpool/SHA-1/256/bignum), instantiated as **88 profiles** ⇒ 88 vkeys | **one** Rust program with stock crates (`rsa`, `p256`, `sha1/2`; brainpool in software — no precompile anywhere). The profiles exist only because Noir monomorphises array sizes; Rust parses lengths at runtime. **Parser coverage to carry over:** the six "orphan" document shapes (`EC_LEN` quantised by data-group count) and the seven profiles never generated — enumerate from `passport-profiles.json`, not from memory. 2–3 weeks. |
+| pool: `withdraw`, `ragequit`, holder root, blacklist/ASP, envelope, title, notary, query ×2 (~2,140 in `pp` + ~800 in mains) | ~1,500 lines of Rust. Trees are keccak (`2.18eq`) — a precompile in every zkVM. The blacklist predicate (one tree, three domains) ports unchanged. ~2 weeks. |
+| `build-recursion-tree.py`, `TreeRoot8/16/32`, `batch-witnesses/`, `BatchCommitmentLib`/`BatchVerifierLib` | **deleted.** The batch is a loop. Days. |
+| 19 generated `*HonkVerifier.sol` (~47k lines) | one vendored zkVM verifier + one vkey per program; journal seam in the contracts. ~1 week. |
+**Order:** pool statements → batch wrapper → journal seam + adapter + pin → registration program →
+delete Noir. Write the Merkle gadget generic: Hegota's candidate state tree is
+[EIP-7864](https://eips.ethereum.org/EIPS/eip-7864) (a binary hash tree; Verkle is dropped — its
+Pedersen/IPA commitments are not PQ), under which "this note exists" can become a proof against
+Ethereum state at a recent block and the pool's own LeanIMT/SMT go away. Not locked; design for it.
+
+### BACKEND — the queue
+- [ ] `crates/statements/{withdraw,ragequit,holder,notary,title,envelope}`: the single statements, journal = ABI tuple, keccak Merkle gadget generic over tree shape.
+- [ ] `crates/statements/batch`: the disposable K-loop wrapper.
+- [ ] `crates/statements/register`: one program for all passport shapes; carry the orphan/missing-profile coverage; brainpool in software.
+- [ ] `evm/src/identity`: journal seam — `adapter.verify(journal, proof)` is the only proving contact; delete `NUMBER_OF_PUBLIC_INPUTS` indexing and every `IVerifier` reference from the pool/registries.
+- [ ] `ProofAdapter` (wrapper era) + `ProofAdapter8288` (frame scan, written when 8141/8288 are Final); msig-pinned, timelocked, era-locked pointer.
+- [ ] Delete: 19 `*HonkVerifier.sol`, `build-recursion-tree.py`, `batch-witnesses/`, `codegen-*-verifiers.sh`, `passport-vks/`, `noir_dl_lib`, the Noir mains — once each replacement is proven end-to-end, not before.
+- [ ] Prover service or on-device: the decision above, then its build.
+
+### FRONTEND — the queue (the client is one app; see §ONE-WALLET-APP below)
+- [ ] Replace `sdk/circuits.ts` / `prove.ts` (`bb.js`, six bundled ACIR artifacts that were never wired — `14b94fde`) with the zkVM client: witness assembly + either local proving or the delegated-prover call, per the location decision.
+- [ ] Submit withdrawals through the journal ABI; when 8141 lands, as frame transactions (type `0x06`) with the dependency frame — until then the wrapper path.
+- [ ] `check-client-abis.py` must read `app/` (it never has — `§ONE-WALLET-APP`) so the journal ABI cannot drift between the two trees.
+
+### WHAT THIS RETIRES (removed from this file 2026-09-11; `git log -S` finds them)
+The Honk/Noir aggregation-and-folding economics — 2.18dy · dx · dw · dv · du · dr · ds · dq · do · dp
+· dn · dm · dl · dk · dj · di · dh · dg · dd · dc — the per-profile specialisation rows 2.18cz · cy ·
+da · df · ek, the `bb` pin 2.18eh, and the batch-commitment guard 2.18ec. Their measurements were
+true of a stack this decision replaces; their coverage facts are carried into the port table above.
+Ceremonies: none needed at any layer (see the eras table) — the `2.18du`/`dn` decider-ceremony
+question dissolves.
+
+
 ### ⚖️ TRIAGE — order this work by whether a wrong outcome is PROVABLY WRONG AFTERWARDS
 
 Derived from the UMA/Polymarket failure. Attacker payoff scales with what is being decided; defender
@@ -81,52 +193,17 @@ a gap where one used to be.
       label and blacklist it — a false positive nobody could explain and the holder could not appeal,
       because the tree would be CORRECT. Pinned by `domains_do_not_collide`. The issuing state is
       likewise part of the identifier, not context: numbers are unique only within an issuer.
-      🔴 **THE REMAINING WIRING IS ONE ATOMIC CHANGE — IT CANNOT BE SPLIT, AND IT CANNOT START UNTIL
-      `bb` IS BACK** (owner, 2026-08-24: *"they should be one thing"* — correct, and the blast radius
-      is why).
-      **Everything below moves together or the tree is broken in a way that only shows at proving
-      time:**
-        1. `withdraw.nr`: taint key becomes `blacklist_key(DOMAIN_LABEL, w.label)`. **Changes the
-           constraint system** ⇒ invalidates `WithdrawalHonkVerifier.sol`.
-        2. `build-recursion-tree.py`: `PUB_LEN` **7 → 8** (the leaf folds `2 x 7` and the withdrawal
-           has carried 8 signals since the taint root landed) ⇒ invalidates
-           `TreeRoot8/16/32HonkVerifier.sol`.
-        3. `BatchCommitmentLib.PUB_LEN` **7 → 8** — must equal (2) exactly.
-        4. Rename `taint_root` → `blacklist_root` through `withdraw.nr`, `ProofLib`,
-           `PrivacyPool.taintRoot`/`setTaintRoot`, the wallet and the tests. Positional, so no ABI
-           risk; it is the SEMANTICS that moved — "taint" names one domain and the root now spans
-           three.
-        5. Regenerate **four of the five checked-in verifiers** — `WithdrawalHonkVerifier`,
-           `TreeRoot8`, `TreeRoot16`, `TreeRoot32` (only `RagequitHonkVerifier` is untouched).
-      ⛔ **WHY A PARTIAL LAND IS WORSE THAN NO LAND: THE VERIFIERS ARE CHECKED IN.** They are Solidity
-      files in `contracts/pool/verifiers/`, not build artifacts — so shipping (1)–(4) without (5)
-      leaves the contracts computing a commitment the deployed verifier cannot match. **Nothing
-      reverts at compile time and nothing fails a Solidity test; it fails when someone tries to
-      prove.** That is the exact shape of failure this repo's rules exist to prevent, so **do not
-      land any prefix of this list.**
-      ✅ **CORRECTION — `bb` IS INSTALLED AND WAS ALL ALONG.** I ran `which bb`, got nothing, and
-      called it a blocker. It is an **npm package, not a PATH binary**, which
-      `codegen-verifiers.sh:51` states outright: *"bb 6.0.0-nightly — an npm package, NOT bbup"*.
-      It lives at `backend/circuits/node_modules/.bin/bb`, pinned in that directory's
-      `devDependencies`, and reports **6.0.0-nightly.20260804** — the exact `REQUIRED_BB`. ⇒ **Invoke
-      it by path.** Same mistake shape as the capability search: absence from where I looked, read as
-      absence.
+      ▶️ **THE REMAINING WIRING, under §PROVING-ARCHITECTURE-8288:** the taint key becomes
+      `blacklist_key(DOMAIN_LABEL, label)` inside the `withdraw` statement crate, and `taint_root` is
+      renamed `blacklist_root` through the journal, `PrivacyPool.taintRoot`/`setTaintRoot`, the wallet
+      and the tests (positional, so no ABI risk; the SEMANTICS moved — "taint" names one domain and
+      the root spans three). There are no verifiers to regenerate and no batch width to keep in
+      step: the batch wrapper calls the same statement, so it inherits the predicate by construction.
       ▶️ **AND ONE PART IS BLOCKED BEYOND THE TOOLCHAIN:** the `DOMAIN_DOCUMENT` term needs the
       identity leaf BOUND to a document nullifier (sec. 4's *"bind the leaf to a document nullifier
       (trap 6), not to `sk_identity`"*), or a prover names any clean document and the term is
       vacuous. `DOMAIN_ADDRESS` needs nothing extra once (1) lands — same call, different domain.
 
-- [ ] 🔴 **The BATCH path does not carry it — and the cause moved, so re-read this before acting.**
-      The item used to name `aggregate_withdrawals`; that circuit was **deleted in `aa50335`** when the
-      flat aggregator was retired for the recursion tree. **The gap survived the migration intact**,
-      because the tree inherited the same width: `build-recursion-tree.py:127` generates a leaf that
-      *"pins `withdraw_identity` and folds 2 x 7 signals"*, and `BatchVerifierLib.PUB_LEN` is still
-      **7**. So a batched withdrawal still bypasses non-association.
-      Closing the path was tried once and REVERTED: it deleted the guard coverage (nullifier reuse,
-      context binding, proof rejection) and traded a known gap for untested code.
-      ⇒ Widen the LEAF template in `build-recursion-tree.py` to EIGHT signals, regenerate every level
-      and the `TreeRoot{8,16,32}` verifiers, and widen `PUB_LEN` in both batch libraries — **before
-      enabling batching on a pool with a non-empty taint root.**
 - [ ] Anchor the taint root: seed set + deterministic propagation, and a setter path from the
       registry. `setTaintRoot` is entrypoint-gated and defaults to 0 (empty).
 - [ ] 🔴 **`setForwarder` IS THE UNGUARDED TWIN OF `pinWorkflow`, AND IT IS THE TOTAL BYPASS**
@@ -1097,12 +1174,6 @@ derived from the document. What remains is the product decision in items 2-3, no
 - [ ] Then retire `registerDocumentViaNoir`/`renewDocumentViaNoir` and update the wallet SDK in the
 - [ ] The revoke path is separate: it is the holder revoking their OWN document, so a signer there is
 
-### 2.18df THE SIZE-CLASS QUESTION IS ANSWERED - and the answer is FIVE, measured (user, 2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 8009</sub>
-
-- [ ] Prototype ONE 2^18-class circuit with padded arrays + true lengths as witnesses, and check it
-- [ ] Do NOT pursue a single universal circuit (128x). Size classes only.
-
 ### 2.18ez FOUR CORRECTIONS, AND THE SCARCITY ARGUMENT HAS AN ALLOWLIST UNDER IT (user, 2026-08-06)
 <sub>archive: `TODO-ARCHIVE.md` line 8051</sub>
 
@@ -1194,144 +1265,6 @@ derived from the document. What remains is the product decision in items 2-3, no
 - [ ] **Set the Forwarder at deployment.** A one-time step with no default; an anchor without it
 - [ ] 2.18cm's "replace REGISTRY_POSTMAN with quid's write-once forwarder address" is DONE in
 
-### 2.18ek THE FOLD CEILING IS 25, AND IT IS THE FOLD'S ALONE - the tree has none (user, 2026-08-05)
-<sub>archive: `TODO-ARCHIVE.md` line 8961</sub>
-
-- [ ] Build a tree at 64 if a batch that size is ever wanted. Depths 3, 4 and 5 all give the same
-
-### 2.18eh 5.1.0 DELETED - one pin, in one file, for host and container (user, 2026-08-05)
-<sub>archive: `TODO-ARCHIVE.md` line 9134</sub>
-
-- [ ] The nargo pin is still `1.0.0-beta.26+quid-icefix1` on the host and stock `1.0.0-beta.26` in the
-
-### 2.18ec THE BATCH COMMITMENT HAD SILENTLY DIVERGED, and its guard could not fire (2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 9442</sub>
-
-- [ ] **Audit the other cross-language pins for the same shape.** `NotaryRegistryProofTest` is cited
-
-### 2.18dy The folded stack, built and measured (2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 9679</sub>
-
-- [ ] Fold a real sixteen-withdrawal stack end to end. Needs witnesses threaded through the chain
-- [ ] Generate the wrapper's EVM verifier and check it against `BatchVerifierLib`, which must move from
-
-### 2.18dx Designing the fold to keep its advantages, not just its gate count (user, 2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 9719</sub>
-
-- [ ] Thread the accumulated COUNT through the kernels so the wrapper can expose it, and check it
-
-### 2.18dw The folding number, measured directly (2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 9760</sub>
-
-- [ ] Restructure `withdraw_identity` to `return_data`, and write the kernel and hiding circuits.
-- [ ] Write our own chonk-verifying wrapper, the analogue of `rollup_tx_base_private`, and emit its EVM
-- [ ] Decide whether to move the whole repo to a 6.0 toolchain or keep 5.1.0 for everything except this
-
-### 2.18dv The decider number, found (2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 9797</sub>
-
-- [ ] Build `bb-avm` from barretenberg source to compile and measure our own wrapper. That is now the
-
-### 2.18du Folding researched properly: Aztec's is coupled, the general one is unfinished, and its decider needs a ceremony (2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 9836</sub>
-
-- [ ] Recheck sonobe when ProtoGalaxy (PR 247), the decider (PR 259) and the Noir frontend land. If the
-
-### 2.18dr Folding: accumulation is ~57x cheaper, and the decider needs a circuit we do not have (2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 9950</sub>
-
-- [ ] To measure the decider we need either Aztec's hiding kernel circuit, or a folding implementation
-
-### 2.18ds Batch sizes are fixed per circuit, and the multi-prover choice (user, 2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 9994</sub>
-
-- [ ] Wire elect-to-wait at deposit: a queue the batcher serves, with the immediate path as the
-- [ ] Decide which fixed sizes to run. 16 fills sooner and saves less; 256 saves 12x more and will not
-- [ ] The multi-prover choice (2.18do) sits on top of this, and its blocker is the ceremony rather than
-
-### 2.18dq Folding measured as far as it goes: accumulation is ~57x cheaper, the decider is still unmeasured (2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 10017</sub>
-
-- [ ] Work out the app/kernel structure chonk expects, or find whether a plain stack is supported at
-
-### 2.18do Two withdrawal paths, and what stands between us and them (user, 2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 10055</sub>
-
-- [ ] Prototype the translation and on-device proving with a **throwaway single-contributor key**,
-- [ ] Test the translated circuit adversarially. Witnesses that must fail, confirmed failing. Seam 1 is
-- [ ] Freeze the withdrawal circuit before the real ceremony. Every revision needs a new one, and this
-- [ ] Only then the ceremony, with open contribution, published transcript, and a final random beacon.
-- [ ] Dispatcher and wallet path selection last. Worthless without the above.
-- [ ] Keep the batched Honk path as the default, so the yield floor and the timing cohort are what
-
-### 2.18dp The batcher as a standing target (user, 2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 10117</sub>
-
-- [ ] Measure the folding decider against the recursive baseline in 2.18dk. It decides whether the
-
-### 2.18dn COSTING GROTH16 FOR WITHDRAWALS - and it would make the aggregator redundant (user, 2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 10142</sub>
-
-- [ ] Prototype `noir-gnark` on `withdraw_identity` FIRST. Everything else is routine; this is the
-- [ ] Do NOT build the depth-2 tree until this is decided - it is 256-slot fill for a saving the
-
-### 2.18dm AGGREGATION IS A THROUGHPUT WIN, NOT A PER-WITHDRAWAL ONE - and Groth16 wins the thin case (user, 2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 10184</sub>
-
-- [ ] Fix `verifyBatch`'s unreachable `signals.length < maxBatch` branch - require a full batch, or
-- [ ] Decide the FILL POLICY: settle singly below 2 pending, batch above. Nothing does this today.
-- [ ] Price the hybrid seriously: Groth16 withdrawal (one ceremony) + Honk registration. On the thin
-- [ ] Note the tension with the depth-2 tree (2.18dl): 256 slots make fill HARDER, so the tree pays
-
-### 2.18dl THE AGGREGATION ECONOMICS, MEASURED ON-CHAIN AT LAST (2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 10240</sub>
-
-- [ ] Build the depth-2 tree (N=256). Largest measured efficiency win available, no new primitives.
-- [ ] Consider EIP-4844 blobs for the signal calldata at large N - at N=256 signals are ~917k gas, the
-
-### 2.18dk THE N=16 BASELINE, MEASURED END-TO-END ON THE CURRENT PIN (2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 10281</sub>
-
-- [ ] Minor: `BATCH_N=1` fails to compile (N=2 and N=16 are fine) - unexamined, and it would make the
-- [ ] Minor: `inner_vk.nr`'s header says "112 field elements"; it is **115**. Stale comment.
-
-### 2.18dj FOLDING ATTACKS THE 28 GB WITHOUT LEAVING THE STACK - and `bb` already ships it (user, 2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 10326</sub>
-
-- [ ] Prototype `bb prove -s chonk --ivc_inputs_path <stack>` over 16 `withdraw_identity` instances and
-- [ ] Then price the final UltraHonk wrap of the folded accumulator (one recursive verification, not
-
-### 2.18di WHAT STAYING FULLY NOIR ACTUALLY COSTS (user, 2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 10371</sub>
-
-- [ ] Revisit annually, not continuously, and revisit on EVIDENCE: (a) does `acvm-backend-plonky2` or a
-
-### 2.18dh TESTING THE STARK PATH AS FAR AS THIS MACHINE ALLOWS - and "no rewrite" is mostly RIGHT (user, 2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 10425</sub>
-
-- [ ] Cheapest decisive test, in order: (a) does our ACIR load in that backend at all, given the
-- [ ] Do NOT restate "we would rewrite every circuit" - measured false. The circuits are Noir; the
-
-### 2.18dg "BUT WE DO AGGREGATION" - the gas argument against STARKs does not survive it (user, 2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 10474</sub>
-
-- [ ] If the on-device constraint ever relaxes (server-side proving, or a delegated prover that does
-
-### 2.18dd IT WAS NEVER THE STACK - it is PER-PROFILE SPECIALISATION (user, 2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 10552</sub>
-
-- [ ] Do NOT re-open Noir vs Groth16 on the strength of this (2.18dc): the verifier count is a circuit
-
-### 2.18dc IS NOIR/ULTRAHONK STRICTLY BETTER THAN CIRCOM/GROTH16? NO - and the reason we chose it is one axis (user, 2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 10591</sub>
-
-- [ ] When EIP-170 is finally addressed (deferred by the repo owner until last), remember the cause is
-
-### 2.18da THE ORPHANS ARE ENUMERABLE AFTER ALL - EC_LEN is quantised by data-group count (user, 2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 10622</sub>
-
-- [ ] Cheap first check before building: 2.18cy showed `SA_LEN`/`DG1_LEN`/`N` are recoverable from the
-
 ### 2.18db KECCAK vs POSEIDON IS PRINCIPLED - but self-proved non-membership breaks the split (user, 2026-08-04)
 <sub>archive: `TODO-ARCHIVE.md` line 10664</sub>
 
@@ -1362,17 +1295,6 @@ derived from the document. What remains is the product decision in items 2-3, no
       anchored Poseidon one. Keeping both costs 4M gas of hashing at SDN scale and buys *"the leaf set
       provably corresponds to a root this contract derived"*. **Measure whether that property is worth
       4M gas before assuming either way.**
-
-### 2.18cz WHAT FOLDS AND WHAT CANNOT - and 7 profiles we are missing (user, 2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 10693</sub>
-
-- [ ] ~~Treat the OPRF as a dependency of self-proved non-membership.~~ **RE-ORDERED by 2.18er**: the
-
-### 2.18cy THE SIX ORPHANS: EC_LEN IS THE ONLY MISSING GENERIC, AND IT IS DOCUMENT-SPECIFIC (2026-08-04)
-<sub>archive: `TODO-ARCHIVE.md` line 10747</sub>
-
-- [ ] Six orphans need one SOD each. NOT RAM-blocked, NOT toolchain-blocked - the swap fix does not
-- [ ] Until then the Groth16 verifiers for those six MUST stay: they are those profiles' only
 
 ### 2.18cw REMOVING ALL FOUR, AND EACH REPLACEMENT IS STRICTLY STRONGER (user, 2026-08-03)
 <sub>archive: `TODO-ARCHIVE.md` line 10788</sub>
@@ -1444,6 +1366,51 @@ derived from the document. What remains is the product decision in items 2-3, no
 ---
 
 ## 🖥️ FRONTEND — ADDED 2026-08-30 (owner direction; mirrored from `SPRINT.md` PARALLEL TRACK E)
+
+📌 **RESTORED HERE 2026-09-11** — cut from `SPRINT.md` in the 55k→5.6k pass; the seeker-app ⇄ identity-wallet UNION merge itself is DONE (`2d36a4e0`, `14b94fde`, 2026-08-28/29); what follows is the NEXT consolidation, `app/` ⇄ `spa/`.
+### 📱 §ONE-WALLET-APP — **CONSOLIDATE THE TWO CLIENT TREES. DEFERRED TO THE FRONTEND PHASE.**
+
+Owner, 2026-09-09: *"its one single wallet app, there should be no split. create a consolidation task
+for later (when we reach frontend only work like puppeteer, etc). for now focus on finishing the
+entire backend side of sprint.md."*
+⛔ **DO NOT START THIS DURING BACKEND WORK.** It is booked here so it is not rediscovered, and it is
+explicitly scheduled for the frontend-only phase alongside Puppeteer and the rest of the client work.
+
+**THE MEASURED STATE, so whoever picks it up does not re-derive it:**
+`app/features/identity/chain/` and `spa/src/lib/` are two copies of the same client layer. Twelve
+files exist in both; `app/`'s copies never received the §E235 or §OOR-BOOK-DELETED corrections —
+`chains.ts` differs by **129 lines**, `abi.ts` by 124, `protect.ts` by 206, `eth.ts` by 55, `pnl.ts`
+by 43. **Zero files outside that directory import anything from it**, so `app/`'s copy is dead by
+consumption, not by content.
+⚠️ **BUT IT IS NOT SIMPLY THE STALE ONE.** `taproot.ts`, `schnorr.ts`, `keys.ts`, `encode.ts`,
+`boot.ts` and now `channelTruth.ts` exist **ONLY** in `app/` — every BTC and §T9 primitive was written
+there, and it is the only tree with a custody story for a BTC key (`boot.ts::useLocalKey` →
+`normaliseKey().xOnly`). ⇒ **The merge is bidirectional: `spa/` holds the current EVM corrections,
+`app/` holds the entire Bitcoin surface.** Neither is the winner.
+
+🔴 **AND THE REASON THE DRIFT WAS INVISIBLE, WHICH MUST BE FIXED IN THE SAME PASS OR IT RECURS:**
+`tools/check-client-abis.py:16` hardcodes `ABI = ROOT/"spa"/"src"/"lib"/"abi.ts"` and `:226` scans
+`TSX_DIR = ROOT/"spa"/"src"`. **It has never read `app/` at all.** The gate reported "0 drifted" while
+`app/`'s mirror carried `outOfRange`, `POOLED_USD_ETH/BTC`, `observe(uint32[],bool)`, `vogueETH()`,
+`autoManagedBTC`, `lpSharesBTC` and a `channels(bytes32)` with SIX return words against the contract's
+seven — every one against an entrypoint that does not exist. `encode.ts` passed FIVE arguments to a
+FOUR-argument `outOfRange`, so it would have thrown on arity before reaching a selector that is not on
+chain either. **A gate whose scope is narrower than its claim certifies the part it cannot see.**
+
+▶️ **WHY THE SPLIT EXISTS AT ALL** (do not read it as a design): `app/features/` partitions the app
+into the **Solana** Mobile Wallet Adapter scaffold (`account/`, `network/`, plus
+`hooks/useSolanaProgram.ts`, `context/WalletProvider.tsx`, `components/LoginScreen.tsx`) and QU!D
+(`identity/`). `chain/` then grew *inside* `identity/` because that feature needed EVM reads first,
+and the whole chain surface accreted around it — `taproot`, `keys`, `schnorr`, `hop`, `leverage`,
+`protect`, `pnl`, `market`, `kalman`, `quant`. **There is no identity primitive in `chain/`.**
+📌 So the deferral on identity scope covers `passport/`, `pp/` and `sdk/` and does NOT cover `chain/`
+— but the PATH makes any work there look like a scope violation, which is the second reason to move it.
+
+▶️ **THE TASK:** one client layer, imported by both surfaces; `chain/` out from under `identity/`;
+`check-client-abis.py` walking every tree that encodes a selector — **including the Rust encoders,
+which no tool compares against a TS client today.**
+
+---
 
 ### 🖥️ **E1 — BUILD THE BASKET CONVERGENCE IN THE CLIENT (SPA + react-native). THE OWNER'S 2026-08-22 DESIGN, NEVER IMPLEMENTED.**
 **What the user hits:** selling ETH/BTC for dollars pays out of a 14-stable basket. `_takePreferred`
