@@ -387,6 +387,42 @@ Each was carried as open, some in red, some for weeks.
    1800 (`AUX.getTWAPforAsset(ASSET, 1800)`).
 
 ### TIER 2 — RESOLVED BY THE MODEL, once item 0 lands.
+**14b. 🔴 `§HOP-PICKS-THE-REVERSAL-FLOOR`** — booked 2026-09-11 from the owner's principle
+   (*"i dont believe rust is the place to be charging anything"*), applied as a check across all four
+   swap-in entrypoints rather than to fees alone. **The generalised form: Rust may MIRROR a number that
+   moves money; it must never be the AUTHORITY on one.** Measured, and three of the four are already
+   right:
+   · ✅ `settleSwapInProven` — `sats` comes from `_provenDeposit` (SPV-proven from the raw Bitcoin tx)
+     and the floor from `BitcoinTx.settleFloorUsd(terms, sats)`, **recomputed on-chain from the
+     seller's signed `terms`.** The daemon's `swap_in_floor_usd` is a mirror with no authority.
+   · ✅ `refundExpiredSwapOut(swapId, minDeliveredUsd)` — gated `msg.sender == so.swapper`, so the
+     SWAPPER supplies their own floor. Correct by construction: it is their protection to set.
+   · 🔴 **`reverseSwapOut(swapId, minDeliveredUsd, requireFull)` — `_onlyHop()`, and the floor is a
+     CALLER-SUPPLIED PARAMETER the contract never recomputes** (`BTCChannels.sol:649-659`). The hop
+     decides how much slippage protection the swapper gets on a reversal; `minDeliveredUsd = 0` fills
+     at any price. **Not a fee — the same trust shape as one**, and the only swap-in path where a
+     number that decides what a user receives is authored by the daemon.
+   ▶️ **The fix is available on-chain and needs no new state:** the reversal already knows what the
+   swapper committed — `so.usd` is read two lines above and passed to `btc.subPendingSwapOut(so.usd)`.
+   Derive the floor from it instead of accepting one. ⚠️ **Price the liveness side before landing:** a
+   floor at the full `so.usd` reverts when the pool cannot deliver it, and the escape is
+   `refundExpiredSwapOut` after `SWAPOUT_REFUND_BLOCKS` — so the question is what haircut the reversal
+   may take, not whether to bound it at all.
+   📌 **Not the weakest link TODAY** — the hop holds both halves of every 2-of-2
+   (§NO-SELF-PROVISIONED-LPS), so hop discretion over a floor is far from the largest trust it already
+   has. It is booked because it is CHEAP to remove on-chain and because item 0 is meant to end exactly
+   this class of delegation; a floor the daemon authors would survive item 0 unless it is fixed here.
+
+**14c. `§FLOOR-HAS-NO-CROSS-LANGUAGE-VECTOR`** — `BitcoinTx.settleFloorUsd` and
+   `quid_hop::swap::swap_in_floor_usd` compute the SAME quantity and are logically identical
+   (`sats*price/1e8`, then `(10_000 − slippageBps)/10_000`, both flooring to 0 at ≥ 10_000 bps). **They
+   are pinned to DIFFERENT vectors and never to each other:** Solidity asserts `742_500_000` at
+   `SwapInDeposit.t.sol:159`, Rust asserts `usd(24_750)` at `swap.rs:202`, different inputs, no shared
+   constant. ⇒ **exactly the `test_openparams_abi_ground_truth` class**, which was red for weeks
+   because each side agreed with itself. Lower severity than that one — the contract RECOMPUTES on the
+   proven path, so a drift cannot under-deliver — but it can quote a seller one floor and enforce
+   another, or make the hop accept a swap the contract then reverts. **One shared vector fixes it.**
+
 **15. 🔴 `§T9` + the delivery rework — ONE CHANGE** (`§BTC-2.1` + `§BTC-2.5c`; `§BTC-2.2` and `§BTC-1`
    merged in 2026-09-09). ⛔ **DO NOT BUILD THE REFUSAL ALONE** — the rework makes the **hop** the
    initiator toward a blind signer, so a predicate written against today's LP-initiated shape is
