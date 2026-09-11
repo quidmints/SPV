@@ -94,6 +94,21 @@ cast send --rpc-url "$ANVIL_RPC" --from "$USDC_WHALE" --unlocked "$USDC_ADDR" \
   "transfer(address,uint256)" "$ACCT0_ADDR" 1000000000000 >/dev/null                          # 1,000,000 USDC (6-dec)
 cast rpc --rpc-url "$ANVIL_RPC" anvil_stopImpersonatingAccount "$USDC_WHALE" >/dev/null
 
+# ANGEL seed NFT: `DeployLib` approves Aux for Foundation tokenId `Basket.ANGEL` (16508) mid-deploy
+# and Basket's constructor REQUIRES that approval — so the deployer must OWN it, exactly as the
+# production msig does. `Alles.t.sol:775` prank-transfers it from whoever holds it at the fork
+# head; do the same here, or the deploy dies at `approve` with
+# "ERC721: approve caller is not owner nor approved for all" (measured 2026-09-11).
+F8N_COLLECTION="0x3B3ee1931Dc30C1957379FAc9aba94D1C48a5405"
+ANGEL_ID=16508
+ANGEL_OWNER="$(cast call --rpc-url "$ANVIL_RPC" "$F8N_COLLECTION" "ownerOf(uint256)(address)" "$ANGEL_ID")"
+log "handing ANGEL #$ANGEL_ID to $ACCT0_ADDR from its holder $ANGEL_OWNER (fork impersonation)"
+cast rpc --rpc-url "$ANVIL_RPC" anvil_impersonateAccount "$ANGEL_OWNER" >/dev/null
+cast rpc --rpc-url "$ANVIL_RPC" anvil_setBalance "$ANGEL_OWNER" 0xde0b6b3a7640000 >/dev/null
+cast send --rpc-url "$ANVIL_RPC" --from "$ANGEL_OWNER" --unlocked "$F8N_COLLECTION" \
+  "transferFrom(address,address,uint256)" "$ANGEL_OWNER" "$ACCT0_ADDR" "$ANGEL_ID" >/dev/null
+cast rpc --rpc-url "$ANVIL_RPC" anvil_stopImpersonatingAccount "$ANGEL_OWNER" >/dev/null
+
 # ── 3+4. deploy FRESH contracts per test, then run that ONE test ─────────────
 # Each test drives its OWN regtest chain into the SPVGateway, so the tests MUST
 # NOT share a gateway: the first test advances the gateway to its chain's headers,
@@ -108,9 +123,12 @@ deploy_and_run() {
   # foundry.toml's [etherscan] interpolates ${ETHERSCAN_L1} at config-load even
   # without --verify; give it a dummy. (Full compile incl. tests — no shortcuts.)
   local deploy_out gw ch
+  # `|| true`: under `set -e` a failing command substitution in an assignment kills the script
+  # BEFORE the echo below, losing the only copy of forge's error (measured 2026-09-11 — the log
+  # ended at "deploying …" with nothing after it). Let the address check below report it.
   deploy_out="$(cd "$EVM_DIR" && ETHERSCAN_L1="${ETHERSCAN_L1:-dummy}" PRIVATE_KEY="$ACCT0_KEY" \
     forge script script/DriverE2E.s.sol:Deploy --rpc-url "$ANVIL_RPC" --broadcast --skip '*.t.sol' \
-      --disable-code-size-limit --non-interactive 2>&1)"
+      --disable-code-size-limit --non-interactive 2>&1 || true)"
   echo "$deploy_out" >&2
   gw="$(echo "$deploy_out" | grep -E "^\s*QUID_SPV_GATEWAY " | tail -1 | awk '{print $2}')"
   ch="$(echo "$deploy_out" | grep -E "^\s*QUID_BTC_CHANNELS " | tail -1 | awk '{print $2}')"
