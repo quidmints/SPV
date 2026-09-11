@@ -544,21 +544,31 @@ pub async fn drive_close<R: JsonRpc>(cfg: Arc<BridgeConfig>,
         &incl.merkle_proof,
         incl.tx_index,
     );
+    let diag_calldata = calldata.clone();
     let ok = estimate_gas_and_send(&evm, &rpc, btc_channels, calldata, cfg.gas_limit).await?;
     if !ok {
         // Reverted — most likely a race (someone else recorded it, since close is
         // permissionless). Re-read: if now CLOSED it's benign, else surface it.
-        let rpc = rpc.clone();
-        let state = tokio::task::spawn_blocking(move || read_channel_state(&*rpc, btc_channels, cid))
+        let rpc_read = rpc.clone();
+        let state = tokio::task::spawn_blocking(move || read_channel_state(&*rpc_read, btc_channels, cid))
             .await
             .context("post-revert read join")??;
         if state.status == STATUS_CLOSED {
             info!(%close_txid, "close reverted but channel is CLOSED (raced); ok");
             return Ok(());
         }
+        // Surface WHY, the way drive_open does: replay as eth_call and decode the revert.
+        // Without it a real close failure reads as "reverted" with no selector (2026-09-11).
+        let from = evm.address();
+        let rpc_diag = rpc.clone();
+        let reason = tokio::task::spawn_blocking(move || {
+            eth_call_revert_reason(&*rpc_diag, from, btc_channels, &diag_calldata)
+        })
+        .await
+        .unwrap_or_else(|e| format!("revert-reason probe join error: {e}"));
         // Both kinds call the single recordClose entrypoint; log the close KIND,
         // not a (now-nonexistent) per-kind function name.
-        anyhow::bail!("recordClose ({}) reverted for {close_txid} (cid {})", match kind {
+        anyhow::bail!("recordClose ({}) reverted for {close_txid} (cid {}): {reason}", match kind {
             CloseKind::Cooperative => "cooperative",
             CloseKind::Force => "non-coop",
         }, hex::encode(cid));

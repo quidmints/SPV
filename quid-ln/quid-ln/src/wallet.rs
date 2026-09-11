@@ -971,7 +971,7 @@ impl OnchainWallet {
     ///
     /// Returning a fixed external address is extremely simple and ensures we
     /// always pick up force close outputs, at the cost of rare address reuse.
-    pub(crate) fn get_destination_script(&self) -> bitcoin::ScriptBuf {
+    pub fn get_destination_script(&self) -> bitcoin::ScriptBuf {
         let spk = self.write().external_spk_0();
         self.trigger_persist();
         spk

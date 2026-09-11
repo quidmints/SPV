@@ -133,8 +133,11 @@ fn lp_identity(o: &Opened, recipient_seed: u8) -> LpIdentity {
     ).expect("funding pubkeys");
     let lp_pk = bitcoin::secp256k1::PublicKey::from_slice(&pb).expect("LP funding pubkey");
     let lp_eth = quid_hop::evm_codec::evm_address_of(&lp_pk);
-    let sk = bitcoin::secp256k1::SecretKey::from_slice(&[recipient_seed; 32]).unwrap();
-    let recipient = bitcoin::secp256k1::Keypair::from_secret_key(&secp, &sk);
+    // The payout key is the LP node's wallet external-0 — the script its cooperative close pays
+    // and the one `_lpFinalBalance` credits. A throwaway key here registers a payout the contract
+    // never sees paid, and every close reverts `StaleClose` (harness_consent::lp_wallet_recipient).
+    let _ = (&secp, recipient_seed);
+    let recipient = quid_bridge::harness_consent::lp_wallet_recipient(&o.node_b, bitcoin::Network::Regtest);
     let btc_recipient = bitcoin::secp256k1::XOnlyPublicKey::from_keypair(&recipient).0.serialize();
     LpIdentity { lp_eth, recipient, btc_recipient }
 }

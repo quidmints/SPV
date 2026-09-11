@@ -59,6 +59,43 @@ pub fn set_btc_recipient_call(
     (quid_hop::evm_codec::encode_set_btc_recipient(xonly, recipient_pop(recipient, digest)), xonly)
 }
 
+/// The LP's payout key AS THE CONTRACT WILL LOOK FOR IT. `btcRecipientOf[lpEth]` must be the
+/// x-only OUTPUT key of the LP node's wallet external-index-0 P2TR — that is the script LDK's
+/// cooperative close pays (`get_shutdown_scriptpubkey`, `commit_upfront_shutdown_pubkey`) and the
+/// one `BTCChannels._lpFinalBalance` credits. Register any other key and a legitimate close pays
+/// a script the contract does not attribute to the LP: payout 0 < checkpoint ⇒ `StaleClose`
+/// (measured 2026-09-11, the first harness registered a throwaway keypair).
+///
+/// BIP86: `m/86'/coin'/0'/0/0` off the node's master xprv, key-path tweaked (no script tree), so
+/// the PoP is signed with the TWEAKED keypair — the on-chain key is the tweaked one. The result
+/// is asserted against the wallet's own destination script so a derivation drift fails here,
+/// not at `recordClose`.
+pub fn lp_wallet_recipient(lp: &HopNode, network: bitcoin::Network) -> Keypair {
+    use bitcoin::bip32::{ChildNumber, DerivationPath};
+    use bitcoin::key::TapTweak;
+    let secp = Secp256k1::new();
+    let coin_type = if network == bitcoin::Network::Bitcoin { 0 } else { 1 };
+    let path: DerivationPath = vec![
+        ChildNumber::from_hardened_idx(86).unwrap(),
+        ChildNumber::from_hardened_idx(coin_type).unwrap(),
+        ChildNumber::from_hardened_idx(0).unwrap(),
+        ChildNumber::from_normal_idx(0).unwrap(),
+        ChildNumber::from_normal_idx(0).unwrap(),
+    ]
+    .into();
+    let xprv = lp.master_xprv.derive_priv(&secp, &path).expect("bip86 external-0");
+    let internal = Keypair::from_secret_key(&secp, &xprv.private_key);
+    let tweaked = internal.tap_tweak(&secp, None).to_keypair();
+    let xonly = XOnlyPublicKey::from_keypair(&tweaked).0;
+    let expected = bitcoin::ScriptBuf::new_p2tr_tweaked(bitcoin::key::TweakedPublicKey::dangerous_assume_tweaked(xonly));
+    let wallet_spk = lp.wallet.get_destination_script();
+    assert_eq!(
+        expected, wallet_spk,
+        "harness-derived external-0 P2TR must equal the LP wallet's destination script"
+    );
+    tweaked
+}
+
 /// The LP's own Lightning payment basepoint for `ldk_id`, read off the LP node's channel
 /// signer — what the LP's wallet derives in production (`hop.ts::deriveLpPaymentPoint`).
 pub fn lp_payment_point(lp: &HopNode, ldk_id: lightning::ln::types::ChannelId) -> Option<[u8; 33]> {
