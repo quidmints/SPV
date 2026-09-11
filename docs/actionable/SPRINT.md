@@ -46773,34 +46773,47 @@ never the blocker anyone thought it was. Keep the rule; the three functions it w
 ⚠️ **AND THE META-LESSON THIS ROW DOCUMENTS IS §PLP-9's:** a finding, its withdrawal, and the
 withdrawal's own justification were each invalidated by a deleted symbol in turn. **Three layers, same
 defect class.**
-## §PLP-Q — OPEN QUESTIONS REGISTER
+## §PLP-Q — OPEN QUESTIONS REGISTER. **Re-graded against the model 2026-09-11.**
 
-**Q1 — gates the scope.** Q1.1 ✅ **RESOLVED: pro-rata** · Q1.2 ✅ **RESOLVED: both legs, oracle-valued,
-signed.**
-**Q2 — cheap reads that could INVALIDATE a finding.** Q2.1 ✅ **RESOLVED** (⚠️ its reasoning re-corrected,
-§SESS-2) · **Q2.2** does `levPooled` go stale between a swap-forced delever and the next `syncLev`? ·
-Q2.3/Q2.4 ✅ **MOOT** · **Q2.5 (Y1)** how far can a permissionless caller push TWAP lag within the
-slippage floor, and is it repeatable per block? · **Q2.6** ✅ **RESOLVED 2026-09-05 — `_bandFor` gates BOTH
-legs (§SESS-1)** · **Q2.7** is the skew error from a 300-bps-off `RANGE_ANCHOR` first-order?
-**Q3 — booked in SPRINT, unresolved, upstream of work here.** Q3.1 per-LP debt against ONE pooled position
-(`§STALE-BRANCH`, `§M.1`) · Q3.2 Σbacking + non-toxicity of the swap-forced delever · Q3.3 Cluster 1's
-target fix, **which ARMS the σ² sentinel** · Q3.4 `§UNIT-C-DISAMBIG`.
-**Q4 — contradictions I cannot settle.** Q4.1 `§E79` vs the 0.00023 bps arithmetic · Q4.2 can θ hit
-`1 − √(entry/now)` exactly, or only track its direction?
-**Q5 — found here, unbooked elsewhere.** Q5.1 **no `deliverableBTC`** · Q5.2 `Vault.sol:244`'s
-`delta = 200` seed — **10× K error** · Q5.3 `K` has **two** consumers · Q5.4 θ's missing venue-yield term
-is **LATENT, not inert** — **fix it IN the σ²-pinning landing, not after** · Q5.5 `rebalanceMany` is the
-un-collapsed action-side Σ-loop.
-**Q6 🔴 THE METHODOLOGICAL ONE.** **Every substantive correction in the scope came from the owner, not
-from re-reading** — always the same shape: a comment narrating a deleted object. ⇒ **treat every claim
-sourced only from a docblock as unverified.** The places bodies were read are the ones that held.
-⭐ **A second pattern worth trusting: when a residual needs a BOUND, first ask whether the structure that
-created it should exist.** Twice the answer removed the defect outright. **Bounding was the wrong instinct
-both times.**
-⭐ **The mechanised fix (§PLP-9's grep test) — 🔴 RULED OUT BY THE OWNER 2026-09-05.** See §SESS-3.
+**Q1 ✅ RESOLVED, BUT NOT AS RECORDED.** Q1.1 was closed as *"pro-rata"* — and §PLP-A's branch, which
+this closure voided, is the one the model took. ⇒ **Part I §6b settles it properly: pro-rata on VALUE
+for SOLVENCY, denominated in THE ASSET for EXPOSURE.** Q1.2 (both legs, oracle-valued, signed) stands.
 
----
+**Q2 — cheap reads.** Q2.1 🪦 **moot** (`_batch`/`_poolSwap`/`rebalanceMany` all deleted — §PLP-Z) ·
+**Q2.2 ⏸️ LIVE and now sharper:** does `levPooled` go stale between a swap-forced de-lever and the next
+`syncLev`? The swap-forced de-lever is the **drain-side absorption** (Part II), so this is a staleness
+question on a path the model relies on · Q2.3/Q2.4 ✅ moot · **Q2.5 (Y1) ⏸️ LIVE** — how far can a
+permissionless caller push TWAP lag within the slippage floor, and is it repeatable per block? Survives
+every pricing change because it is about the FLOOR, not the charge · Q2.6 ✅ resolved · **Q2.7 🪦 moot**
+— *"is the skew error from a 300-bps-off `RANGE_ANCHOR` first-order?"* There is no skew.
 
+**Q3 — upstream.** Q3.1 ⏸️ **LIVE** (per-LP debt against ONE pooled position — `§STALE-BRANCH`, `§M.1`;
+still `orphans-allow.txt` CLASS 3) · Q3.2 ⏸️ **LIVE and load-bearing** (Σbacking + non-toxicity of the
+swap-forced de-lever — this is the model's drain absorption, unverified by execution) · **Q3.3 🪦 moot**
+— *"Cluster 1's target fix, which ARMS the σ² sentinel"*: no target, no sentinel · Q3.4 🪦 moot.
+
+**Q4 — contradictions.** Q4.1 ⏸️ open · **Q4.2 🪦 MOOT — and its disappearance is informative.** It
+asked *"can θ hit `1 − √(entry/now)` exactly, or only track its direction?"* **Both sides are deleted:**
+θ by §NO-GAMEABLE-BOUND, and `1 − √(entry/now)` as a CFMM composition law (Part I §7). A question whose
+two terms both dissolve was a question about the curve, not about us.
+
+**Q5.** Q5.1 ⏸️ **LIVE** (no `deliverableBTC` — and Part I §6 says the tenor must key off DELIVERABLE,
+so this is now a gap in the model's own input) · Q5.2/Q5.3 🪦 **moot** (K is deleted; the `delta = 200`
+seed is now the LIVE width, not a 10× error — the widening made the seed correct) · Q5.4 🪦 moot (θ) ·
+Q5.5 ✅ **DONE** (`rebalanceMany` collapsed — §PLP-X).
+
+### 🔴 Q6 — THE METHODOLOGICAL ONE. **It was right, and this session proved it again three times.**
+> *"Every substantive correction in the scope came from the owner, not from re-reading — always the
+> same shape: a comment narrating a deleted object. ⇒ **treat every claim sourced only from a docblock
+> as unverified.** The places bodies were read are the ones that held."*
+
+⭐ **AND ITS SECOND PATTERN IS THE MOST REUSED SENTENCE IN THIS FILE:** *"when a residual needs a BOUND,
+first ask whether the structure that created it should exist. Twice the answer removed the defect
+outright. **Bounding was the wrong instinct both times.**"* Count is now far above twice — the kernel,
+the batch walk, the θ budget and the dwell were all removed rather than bounded.
+🔴 **A THIRD PATTERN, ADDED 2026-09-11:** *a status marker is not evidence.* §PLP-A was marked **VOIDED**
+and was the row that was right; §SEAM-SWEEP's F1 was the file's top 🔴🔴🔴 and was already fixed. **A row
+closed or voided against a superseded model can be the row you need.**
 # 🔍 §SEQ-AUDIT-2026-09-06 — **WHAT THE 461 MARKERS MEAN, AND EXACTLY HOW FAR THEY WERE VERIFIED**
 
 **461 rows in this file now carry a `§SEQ-AUDIT` marker and nothing defined the tag — a dangling
