@@ -492,6 +492,65 @@ draining dollars, and draining dollars costs them the drain. Costly to move ≠ 
 correct and both are now moot — kept in §10 only as the record of a road not taken.
 ---
 
+## §13 — 🔗 **ONE DEFERRAL PRIMITIVE. THERE ARE THREE IN THE TREE AND THEY DISAGREE.**
+
+Owner: *"collapse the two deferrals into one mechanism."* Measured first — **there are three**, and
+finding the third is what makes the collapse obvious.
+
+### THE PRIMITIVE, stated once
+> **The pool owes you `X` of asset `A` and holds less than `X`. It issues you a DATED CLAIM on `A`,
+> and pays you what `A` EARNS while it is undelivered.**
+
+That is the whole mechanism, in either direction. The asset you are waiting for keeps working; the
+yield it makes is what compensates the wait. Nothing is forecast, nothing is borrowed, and the
+protocol's cost is zero because it is paying out yield it would not otherwise have owed.
+
+### THE THREE IMPLEMENTATIONS, AND WHICH ONE IS WRONG
+| # | site | asset | dated? | paid for the wait? |
+|---|---|---|---|---|
+| 1 | **QU!D vintages** — `Basket.mint(…, when)`, `balanceOf[holder][when]` | dollars | ✅ `when` | ✅ `calcMintYield`: `yield × months` |
+| 2 | **`waitNft`** — `QuidLib.waitNft` → ether.fi `requestWithdraw` | volatile | ✅ the NFT's own queue | ✅ eETH staking yield accrues to the holder |
+| 3 | 🔴 **`usd_owed`** — `Quid.sol:543-551`, `:822`, `:974` | dollars | ❌ **undated** | ❌ **nothing** |
+
+⇒ **1 and 2 ARE ALREADY THE SAME MECHANISM** — one for each asset, each paying that asset's own yield.
+They look different only because one is ours and one is ether.fi's. **`usd_owed` is the outlier:** a
+deferral that pays the deferred party *nothing*, tracked in a bespoke per-LP register instead of the
+vintage ledger that already exists. Its docblock calls it *"a deferred, unrealized claim — strictly
+conservative, no mint"*, and conservative is exactly right about SUPPLY and exactly wrong about the LP,
+who is lending the protocol money for free.
+
+### THE COLLAPSE
+1. **`usd_owed` becomes a QU!D vintage.** Accrue the LP's USD fee leg as `mint(lp, amount, token, when)`
+   rather than into a private register. Same ledger, same maturity semantics, same redemption path —
+   and the LP is paid `avgYield × months` for the wait instead of nothing. **Deletes a register and a
+   realisation branch** (`:974`'s mint-out-on-full-exit), because the claim is already a token.
+2. **The swap's partial-fill refund becomes opt-in deferral.** Today an inventory-bounded swap takes a
+   partial fill and refunds the rest — a REFUSAL, not a deferral. Under the primitive the swapper
+   chooses: take the refund, or take a dated claim on the remainder and be paid for the wait. That is
+   the owner's *"defer should be opt-in"*, and it is the same choice in both directions.
+3. **The two directions stop being separate subsystems.** Dollar-short ⇒ dated dollar claim (1).
+   Volatile-short ⇒ dated volatile claim (2). The sell-in and the drain are then one rule with a sign.
+
+### ⚠️ WHAT THE COLLAPSE COSTS, stated because it is not free
+Converting `usd_owed` to a vintage **MINTS**, where today it deliberately does not. `totalSupplies[when]`
+rises, and `Basket.mint`'s supply cap applies to protocol-internal mints (strict after month 12). So
+this trades a silent, unpaid IOU for a supply-capped, yield-bearing one — better for the LP and more
+honest in the accounting, but it consumes cap headroom that the current design leaves untouched.
+**That is a real trade and the owner should see it before it lands, not after.**
+
+✅ **CHECKED — DIRECTION 2 IS A ONE-LINE REACH.** `QuidLib.waitNft(amount, recipient, cfg)` already
+takes an arbitrary `recipient` and passes it straight to `IEtherFiLiquidityPool.requestWithdraw(recipient, eeth)`.
+A swapper can be that recipient today.
+⭐ **AND THE CODE ALREADY DEFENDS THE SEMANTICS WE NEED.** A standing warning at that call site records
+that the NFT was briefly repointed to `address(this)` on 2026-08-06 so it could repay a WETH borrow,
+that the borrow *"does not exist, and worse, cannot exist against this venue"*, and that while mis-set
+**every exit reaching this rung delivered the withdrawer NOTHING while taking their weETH** — caught by
+three tests reporting *"delivered ETH: 0"*. The note ends *"do not repoint this again"*. Issuing the
+claim **to the waiting party** is therefore not a new decision; it is the one the tree already made and
+paid for.
+
+---
+
 ## §11 — ✅ THE NO-TRADE BAND IS **NEITHER A WIDTH NOR A DWELL — IT IS A REALISED-COST ACCUMULATOR**
 
 §6b debt 2 asked for `_bandBps` to be derived from carry rather than from gas (*"gas has nothing to do
