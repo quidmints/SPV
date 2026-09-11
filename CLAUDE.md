@@ -1512,7 +1512,7 @@ vars-and-auth,modifiers,entry-points,require,variable-order,human-summary,loc \
 
 One invocation compiles once and emits every printer. `vars-and-auth` is the one to reach for when the
 question is *who can call what and what does it write* — it is the fastest check on the
-ownership/renounce posture that `docs/FAQ.md` Part 6 argues to counsel. `.dot` files render with
+ownership/renounce posture (FAQ.md is deleted; read the code). `.dot` files render with
 `dot -Tsvg`. Slither is also a static analyser, so a bare `slither ..` surfaces real findings on the
 same compile.
 
@@ -2237,16 +2237,19 @@ JURISDICTION-SCOPED, not a contradiction of this.
   ⚠️ **Do not restate it in `QUEUE.md`.** The SPV rows (§E170/§E171-r/§E174/§E187/§E188) now keep
   only the protocol-side facts and point at §3b; two copies of a spec drift, and the one that drifts
   is always the copy in the repo that cannot build the thing.
-- ⛔ **`docs/informational/` IS DELETED (2026-09-11) — consolidated into `docs/FAQ.md`** (owner: *"one of
-  the goals was to consolidate all those docs into one faq"*). It had contradicted the contracts in ~10
-  verified places, and **three of its nine files carried their own OVERRULED banners.** Five were deleted
-  as stale-or-disproven; four were folded into FAQ answers (vault health vs depeg, the single ETH venue,
-  the line on discretion, the netting thesis, the Parisian-knock-out definition).
-  ⚠️ **FAQ.md IS NOW THE OUTWARD-FACING DOC AND IT INHERITS THE HAZARD, NOT IMMUNITY FROM IT.** Measured
-  the day it absorbed them: FAQ's own skew answer still explained the **deleted** Avellaneda-Stoikov
-  kernel — `Γ·σ²·q̄`, the variance registers, `recordSkewPremium` — with confident `file:line` citations,
-  and had **zero** mentions of the flat 420 ppm that replaced it. **Consolidating does not destale; check
-  FAQ against the code exactly as hard as you would have checked that folder.**
+- ⛔ **THERE IS NO PROSE DESCRIPTION OF THIS SYSTEM. `docs/informational/`, `docs/FAQ.md` and
+  `docs/identity/` ARE ALL DELETED (2026-09-11)** — owner: *"we have to rewrite the docs anyway so
+  remove them entirely."* ~20,900 lines.
+  ⭐ **THE REASON IS THE ONE THIS FILE ALREADY GIVES FOR STALES, AT DOCUMENT SCALE: a confident wrong
+  description is worse than none.** Measured on the way out — FAQ's skew answer explained the
+  **deleted** Avellaneda–Stoikov kernel (`Γ·σ²·q̄`, the variance registers, `recordSkewPremium`) with
+  `file:line` citations, and mentioned the flat 420 ppm that replaced it **zero times**. Three of the
+  nine informational files carried their own *OVERRULED* banners.
+  ⇒ **`docs/actionable/` is WORK, not description, and it survives**: `SPRINT.md` is the queue,
+  `TARGET-DESIGN.md` is the model and is the authority on intent (its own header: *"THE CODE IS NOT
+  THE AUTHORITY HERE. THE MODEL IS"*).
+  ⛔ **Do not reconstruct a description from git history to answer a question.** Those files are
+  recoverable and every one of them is wrong. Read the code, or the model.
 - `SPRINT.md` `§BUILD-QUEUE-FOLD` is a folded **append-only archive**: its evidence (traces,
   `file:line`, measurements) is authoritative, its **status markers are not**. Current status lives in
   `docs/actionable/SPRINT.md` itself and is updated in place. Some of its citations point at `/home/rico`

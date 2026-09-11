@@ -4959,8 +4959,8 @@ lazily. It costs a wider `h` and a larger `C·K·σ²·h/2` term, and **no new m
    **278 bytes** (21,519 → 21,241; margin 3,057 → 3,335). ⛔ **And it leaves a LIVE OWNER on a contract
    whose deploy comment says every function is permissionless** — `owner()` returns the deployer
    forever and `transferOwnership` is callable, granting nothing today and contradicting the stated
-   posture to anyone who reads the chain rather than the comment. **`docs/FAQ.md`'s trust-model
-   section is argued from that posture.**
+   posture to anyone who reads the chain rather than the comment. **(The FAQ's trust-model section was
+   argued from that posture; it is deleted along with every other prose description, 2026-09-11.)**
    ✅ **DECIDED AND LANDED 2026-09-08 (owner: *"delete the ownable, no owner"*).** `is Ownable` is
    GONE from `BTCChannels`: **21,519 → 21,241 bytes (margin 3,057 → 3,335)**, and `owner`,
    `transferOwnership` and `renounceOwnership` are out of the ABI — verified by reading the rebuilt

@@ -116,17 +116,23 @@ canonical for status.
 | What is the status of X? What order should work be done in? | `docs/actionable/SPRINT.md` |
 | What is still open? | `docs/actionable/TODO.md` |
 | What crosses a chain boundary? | `docs/actionable/CHAIN-COUPLING.md` |
-| What is QU!D, for a reader not in the code? | `docs/FAQ.md` |
-| How does the economics work? | `docs/FAQ.md` |
 | How do I deploy, or run the hop and LP daemons? | `deploy/PRODUCTION-LAUNCH.md`, `deploy/README.md` |
 | What must the front end enforce? | `spa/FRONTEND-TODO.md` |
 
-📌 `docs/informational/` was DELETED on 2026-09-11 and consolidated into `docs/FAQ.md`. It was prose
-written to persuade, contradicted the contracts in several verified places, and three of its nine files
-carried their own OVERRULED banners. Five were deleted outright; four were folded into FAQ answers.
-⚠️ **The θ/K/LVR figures that folder carried are gone with it, and that is deliberate** — every one was
-computed on a range geometry that had since changed, so they described a pool that no longer existed.
+🪦 **THERE IS NO PROSE DESCRIPTION OF THIS SYSTEM RIGHT NOW, AND THAT IS DELIBERATE** (owner,
+2026-09-11: *"we have to rewrite the docs anyway so remove them entirely"*). `docs/informational/`
+(nine files) and `docs/FAQ.md` (2,746 lines) are deleted, along with `docs/identity/` (17,800 lines,
+deferred scope).
 
-⚠️ `docs/FAQ.md` has not been reconciled against the current contracts. It still describes Uniswap
-v4, per-venue deposit codes, Euler, eleven stablecoins, a `setTargetLtv` entrypoint, a Safe-governed
-hop registry and an attestation gate — none of which exist. Read `spec.md` instead.
+**Why deletion rather than repair:** every one of them described a design the tree no longer has.
+The FAQ still explained the Avellaneda–Stoikov scarcity kernel — `Γ·σ²·q̄`, the variance registers,
+the confirmation-cost base — with confident `file:line` citations, and mentioned the **flat 420 ppm
+that actually replaced it ZERO times.** Three of the nine informational files carried their own
+*OVERRULED* banners. A confident wrong description is worse than none: a reader who finds nothing
+goes and measures, and a reader who finds a stale paragraph stops.
+
+⇒ **`docs/actionable/` is what survives, and it is WORK, not description** — `SPRINT.md` is the
+queue, `TARGET-DESIGN.md` is the model and is the authority on intent. Anything outward-facing gets
+written once the implementation is finalized, against the code that exists then.
+⛔ **Do not reconstruct a description from git history.** The deleted files are recoverable
+(`git show <sha>:docs/FAQ.md`) and every one of them is wrong.
