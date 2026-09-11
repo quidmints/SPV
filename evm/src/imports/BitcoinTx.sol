@@ -404,6 +404,18 @@ library BitcoinTx {
         assembly { r := mload(add(w, 32)) sig := mload(add(w, 64)) }
     }
 
+    /// §PQ-SEAM. The STRUCTURE half of `verifyDeadManExit`, without the secp signature check.
+    ///
+    /// Parsing is scheme-agnostic — locktime equality, "spends this funding outpoint", and the sum of
+    /// outputs paying the LP script are facts about bytes, not about a curve — so a v2 channel reuses
+    /// all of it and replaces only `_verifyExitSignature` with `IPqVerifier.verifyExit`.
+    function exitStructure(
+        bytes calldata signedExitTx, ExitCheck calldata c, bytes calldata lpPayoutScript
+    ) external pure returns (uint paidToLp) {
+        return _exitStructure(
+            signedExitTx, c.fundingTxId, c.fundingVout, lpPayoutScript, c.cltvDeadline);
+    }
+
     function verifyDeadManExit(
         bytes calldata signedExitTx,
         ExitCheck calldata c,

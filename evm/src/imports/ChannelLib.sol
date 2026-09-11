@@ -393,17 +393,19 @@ library ChannelLib {
         bytes calldata rawFundingTx,
         bytes32[] calldata fundingMerkleProof,
         address lpEth,
-        ISPVGateway spv
+        ISPVGateway spv,
+        bytes memory fundingSpk
     ) external view returns (
         bytes32 channelId,
         Types.BTCChannel memory channel
     ) {
         if (p.amountSats == 0) revert InvalidParam();
-        if (p.lpPubkey.length != 33 || p.hopPubkey.length != 33) revert InvalidParam();
+        // §PQ-SEAM: the 33-byte secp shape is checked by the CALLER, on the v1 branch only — a
+        // post-quantum funding key is not 33 bytes and this check was a second secp assumption.
 
         bytes32 fundingTxId;
         uint32 vout;
-        (fundingTxId, vout) = _verifyAndLocate(p, rawFundingTx, fundingMerkleProof, spv);
+        (fundingTxId, vout) = _verifyAndLocate(p, rawFundingTx, fundingMerkleProof, spv, fundingSpk);
 
         channelId = keccak256(abi.encode(p.lpPubkey, p.hopPubkey, fundingTxId, vout));
 
@@ -413,6 +415,7 @@ library ChannelLib {
             lpEth:          lpEth,
             fundingVout:    vout,
             status:         STATUS_OPEN,
+            form:           0,
 
             keysHash:       keccak256(abi.encode(p.lpPubkey, p.hopPubkey)),
 
@@ -439,7 +442,8 @@ library ChannelLib {
         Types.OpenParams calldata p,
         bytes calldata rawFundingTx,
         bytes32[] calldata fundingMerkleProof,
-        ISPVGateway spv
+        ISPVGateway spv,
+        bytes memory fundingSpk
     ) private view returns (bytes32 fundingTxId, uint32 vout) {
         fundingTxId = BitcoinTx.txid(rawFundingTx);
         if (!spv.checkTxInclusion(
@@ -448,10 +452,9 @@ library ChannelLib {
             revert BadSPV();
 
         uint outputSats;
-        (vout, outputSats) = BitcoinTx.findOutputByScript(
-            rawFundingTx,
-            BitcoinTx.buildTaprootScriptPubKey(p.fundingTaproot)
-        );
+        // §PQ-SEAM: the caller supplies the script. `BTCChannels` owns the POLICY (which form, which
+        // verifier); this library only matches bytes, which is why it no longer names taproot.
+        (vout, outputSats) = BitcoinTx.findOutputByScript(rawFundingTx, fundingSpk);
         if (outputSats != p.amountSats) revert AmountMismatch();
     }
 }

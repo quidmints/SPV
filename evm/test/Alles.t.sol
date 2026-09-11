@@ -315,7 +315,7 @@ contract AllesFixture is ForkPin, ExitFixture {
             fundingTaproot:     bytes32(0), lpIdentityPubkey: vm.parseJsonBytes(j, string.concat(b, "lpPubkey")) });
         p.fundingTaproot = _taprootQ(p.lpPubkey, p.hopPubkey);
         bytes memory spk = buildTaprootFundingSpk(p.lpPubkey, p.hopPubkey);
-        (, bytes32 fundingTxId, , uint32 vout, , , ) = ch.channels(cid);
+        (, bytes32 fundingTxId, , uint32 vout, , , , ) = ch.channels(cid);
         spliceTx = abi.encodePacked(
             hex"02000000", hex"01",
             fundingTxId, _le(vout, 4), hex"00", hex"ffffffff",
@@ -665,6 +665,7 @@ contract AllesFixture is ForkPin, ExitFixture {
             // (E164) MAIN_HOP must be the address tests prank as, or every channel op reverts.
             mainHop: makeAddr("hop"), fallbackHop: makeAddr("hop-fallback"),
             btcDepositKey: bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)),
+            pqAdmin: address(0),
             ethFeed: 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419,   // Chainlink ETH/USD
             btcFeed: 0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c,   // Chainlink BTC/USD
             weth: address(WETH), wbtc: address(WBTC), gho: address(GHO), usdg: address(USDG),
@@ -2549,7 +2550,7 @@ contract Alles is AllesFixture {
     ///         swap-IN) - exercised here.
     function testSwapOut_RequestCreditAndFailureReversal() public {
         address hop = makeAddr("hop");
-        BTCChannels ch = new BTCChannels(_realSPV(), address(BTC), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        BTCChannels ch = new BTCChannels(_realSPV(), address(BTC), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)), address(0));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
 
@@ -2652,7 +2653,7 @@ contract Alles is AllesFixture {
     ///         the timeout, by a non-swapper, double-refund).
     function testSwapOut_SwapperSelfRefundAfterTimeout() public {
         address hop = makeAddr("hopTO");
-        BTCChannels ch = new BTCChannels(_realSPV(), address(BTC), hop, makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        BTCChannels ch = new BTCChannels(_realSPV(), address(BTC), hop, makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)), address(0));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
 
@@ -4400,7 +4401,7 @@ contract Alles is AllesFixture {
         (bytes memory lpPubkey, bytes memory hopPubkey, ) = ownedChannelKeys("alles-chan");
 
         // Real BTCChannels with a mock SPV gateway, wired as THE btcChannels.
-        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(BTC), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(BTC), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)), address(0));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
 
@@ -4506,7 +4507,7 @@ contract Alles is AllesFixture {
         // (E128) OWNED keys. These were hardcoded points with no known discrete log, so no
         // dead-man exit could ever be signed for the resulting `Q` — and arming now VERIFIES.
         (bytes memory lpPubkey, bytes memory hopPubkey, ) = ownedChannelKeys("alles-chan");
-        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(BTC), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(BTC), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)), address(0));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
         // (§E183 item 1 / #21) `lpEth` is DERIVED from the channel key — the same
@@ -4578,7 +4579,7 @@ contract Alles is AllesFixture {
         // (E128) OWNED keys. These were hardcoded points with no known discrete log, so no
         // dead-man exit could ever be signed for the resulting `Q` — and arming now VERIFIES.
         (bytes memory lpPubkey, bytes memory hopPubkey, ) = ownedChannelKeys("alles-chan");
-        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(BTC), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        BTCChannels ch = new BTCChannels(address(new MockSPV()), address(BTC), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)), address(0));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
         // (§E183 item 1 / #21) `lpEth` is DERIVED from the channel key — the same

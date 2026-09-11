@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {IBtc} from "./imports/Interfaces.sol";
+import {IBtc, IPqVerifier} from "./imports/Interfaces.sol";
 import {Types, AlreadyOpen, BadSPV, ChannelKeysMismatch, InvalidParam} from "./imports/Types.sol";
 import {ISPVGateway} from "./spv/interfaces/ISPVGateway.sol";
 import {BitcoinTx} from "./imports/BitcoinTx.sol";
@@ -31,6 +31,10 @@ contract BTCChannels {
     mapping(bytes32 => bool) public migrationNonceUsed;
 
     mapping(address => bytes32) public btcRecipientOf;
+
+    /// §PQ-SEAM. Set once, beside `btcRecipientOf`, by whichever possession proof verified. See
+    /// `_lpPayoutScript` for why the form is stored rather than derived or threaded.
+    mapping(address => bool) public btcRecipientIsV2;
 
     mapping(address => bool) public btcRecipientLocked;
 
@@ -224,12 +228,64 @@ contract BTCChannels {
         return BitcoinTx.sumOutputValuesToScript(rawSpliceTx, p2tr);
     }
 
+    /// §PQ-SEAM. **The form follows the DESTINATION, not the caller's context, and that is why it is
+    /// one stored bit rather than a threaded argument.** `btcRecipientOf` is keyed by address and is
+    /// read from four places — two channel paths, the splice withdrawal, and the swap-out destination
+    /// at `requestSwapOutOnchain`, which has no channel to take a form from. A bit set once at
+    /// registration makes all four correct with no signature change; the raw `bytes32` cannot be
+    /// classified by inspection, because roughly half of all merkle roots are also valid x-only keys
+    /// by chance.
     function _lpPayoutScript(address lpEth) private view returns (bytes memory) {
+        if (btcRecipientIsV2[lpEth])
+            return IPqVerifier(pqVerifier).payoutScript(btcRecipientOf[lpEth]);
         return abi.encodePacked(bytes1(0x51), bytes1(0x20), btcRecipientOf[lpEth]);
     }
 
+    /// §PQ-SEAM. The ONLY authority this contract has ever had, and it can do exactly one thing:
+    /// name the post-quantum verifier, once. It is the operator Safe that already authorises
+    /// enclave-image migration (`OPERATOR_SAFE` / `guard_prod_trust_anchors`), so this reuses a trust
+    /// anchor rather than creating one — but note it was previously enforced only in Rust, so this IS
+    /// the first ON-CHAIN governance surface here.
+    address public immutable PQ_ADMIN;
+
+    /// §PQ-SEAM. `address(0)` until P2MR/OP_CAT activate, and while it is zero **no v2 channel can be
+    /// opened at all** — which is what stops witness v2 being accepted while it is still
+    /// anyone-can-spend. Write-once: a replaceable verifier would let the admin re-point the referee
+    /// for channels it has already been judging.
+    address public pqVerifier;
+
+    error PqVerifierPinned();
+    error NotPqAdmin();
+    event PqVerifierSet(address verifier);
+
+    function setPqVerifier(address v) external {
+        if (msg.sender != PQ_ADMIN) revert NotPqAdmin();
+        if (pqVerifier != address(0) || v == address(0)) revert PqVerifierPinned();
+        pqVerifier = v;
+        emit PqVerifierSet(v);
+    }
+
+    /// §PQ-SEAM. Which script this channel's funding output must pay, and the `form` that answer
+    /// implies. **The form is DERIVED FROM THE BITCOIN TRANSACTION, never claimed in `OpenParams`** —
+    /// the output either pays the secp taproot script or the verifier's, and whichever it pays is
+    /// what the channel IS. That is why no field was added to `OpenParams` and no cross-language
+    /// struct hash moved.
+    /// ⚠️ Own frame: `openChannel` is already at the legacy stack limit (`via_ir = false`).
+    function _fundingForm(Types.OpenParams calldata p)
+        private view returns (bytes memory spk, uint8 form)
+    {
+        address v = pqVerifier;
+        if (v != address(0) && p.lpPubkey.length != 33) {
+            spk = IPqVerifier(v).fundingScript(p.lpPubkey, p.hopPubkey);
+            form = 1;
+        } else {
+            if (p.lpPubkey.length != 33 || p.hopPubkey.length != 33) revert InvalidParam();
+            spk = BitcoinTx.buildTaprootScriptPubKey(p.fundingTaproot);
+        }
+    }
+
     constructor(address _spv, address _btcVault, address _mainHop, address _fallbackHop,
-                bytes32 _btcDepositKey)
+                bytes32 _btcDepositKey, address _pqAdmin)
     {
         if (_mainHop == address(0) || _fallbackHop == address(0) || _mainHop == _fallbackHop)
             revert InvalidParam();
@@ -238,6 +294,7 @@ contract BTCChannels {
         MAIN_HOP = _mainHop;
         FALLBACK_HOP = _fallbackHop;
         BTC_DEPOSIT_KEY = _btcDepositKey;
+        PQ_ADMIN = _pqAdmin;
     }
 
     address public immutable MAIN_HOP;
@@ -270,17 +327,23 @@ contract BTCChannels {
         if (btcRecipientLocked[lpEth] && btcRecipientOf[lpEth] != auth.btcRecipient)
             revert WrongBtcRecipient();
 
-        _requireRecipientPoP(lpEth, auth.btcRecipient, auth.btcRecipientPoP,
-                             keccak256(auth.lpPaymentPoint));
-        _registerBtcRecipient(lpEth, auth.btcRecipient);
+        _registerBtcRecipient(lpEth, auth.btcRecipient,
+            _requireRecipientPoP(lpEth, auth.btcRecipient, auth.btcRecipientPoP,
+                                 keccak256(auth.lpPaymentPoint)));
         btcRecipientLocked[lpEth] = true;
 
         Types.BTCChannel memory channel;
-        (channelId, channel) = ChannelLib.openChannelBody(
-            p, rawFundingTx, fundingMerkleProof, lpEth, spv
-        );
-
-        _proveFundingKeys(p);
+        {
+            (bytes memory fundingSpk, uint8 form) = _fundingForm(p);
+            (channelId, channel) = ChannelLib.openChannelBody(
+                p, rawFundingTx, fundingMerkleProof, lpEth, spv, fundingSpk
+            );
+            channel.form = form;
+            // The secp MuSig2 2-of-2 proof is the v1 binding between the two keys and the funding
+            // output. On v2 that binding IS `IPqVerifier.fundingScript`, which the output was just
+            // matched against — running the secp check there would reject a valid PQ channel.
+            if (form == 0) _proveFundingKeys(p);
+        }
         if (channels[channelId].amountSats != 0) revert AlreadyOpen();
 
         _useOutpoint(channel.fundingTxId, channel.fundingVout);
@@ -443,6 +506,26 @@ contract BTCChannels {
         checkpointOf[channelId] = hi;
     }
 
+    /// §PQ-SEAM. A v2 channel's exit: shared structure check, then the verifier's signature check.
+    /// ⚠️ Own frame — `_armDeadManExit` is already at the legacy stack limit (`via_ir = false`).
+    function _verifyExitPq(
+        bytes32 channelId, Types.OpenParams calldata p, Types.ExitArming calldata exit
+    ) private view returns (uint paid) {
+        paid = BitcoinTx.exitStructure(
+            exit.signedExitTx,
+            BitcoinTx.ExitCheck({
+                fundingTxId: channels[channelId].fundingTxId,
+                fundingVout: channels[channelId].fundingVout,
+                fundingSats: channels[channelId].amountSats,
+                q:           bytes32(0),
+                cltvDeadline: exit.cltvDeadline
+            }),
+            _lpPayoutScript(channels[channelId].lpEth));
+        if (!IPqVerifier(pqVerifier).verifyExit(
+                exit.signedExitTx, p.lpPubkey, p.hopPubkey, exit.prevValues, exit.prevScripts))
+            revert BitcoinTx.ExitSignatureInvalid();
+    }
+
     function _armDeadManExit(
         bytes32 channelId,
         Types.OpenParams calldata p,
@@ -451,7 +534,12 @@ contract BTCChannels {
 
         if (exit.cltvDeadline == 0) revert InvalidParam();
 
-        uint paid = BitcoinTx.verifyDeadManExit(
+        // §PQ-SEAM. The structure check is shared; only the signature scheme differs. A v2 channel's
+        // 2-of-2 is not a secp MuSig2 aggregate, so `schnorrVerify` over a BIP-341 key-path sighash
+        // would reject every valid PQ exit.
+        uint paid = channels[channelId].form == 1
+          ? _verifyExitPq(channelId, p, exit)
+          : BitcoinTx.verifyDeadManExit(
             exit.signedExitTx,
             BitcoinTx.ExitCheck({
                 fundingTxId: channels[channelId].fundingTxId,
@@ -780,8 +868,8 @@ contract BTCChannels {
 
         if (btcRecipientLocked[msg.sender]) revert BtcRecipientLockedErr();
 
-        _requireRecipientPoP(msg.sender, xOnlyKey, pop, bytes32(0));
-        _registerBtcRecipient(msg.sender, xOnlyKey);
+        _registerBtcRecipient(msg.sender, xOnlyKey,
+            _requireRecipientPoP(msg.sender, xOnlyKey, pop, bytes32(0)));
     }
 
     function btcRecipientPoPDigest(address lpEth, bytes32 bindHash) public view returns (bytes32) {
@@ -789,19 +877,39 @@ contract BTCChannels {
         return sha256(abi.encode(block.chainid, address(this), lpEth, bindHash));
     }
 
+    /// §PQ-SEAM. Returns TRUE when the destination proved itself under the post-quantum scheme.
+    ///
+    /// 🔑 **THE PROOF IS THE DISCRIMINATOR, NOT THE SHAPE.** A 32-byte destination cannot be
+    /// classified by looking at it — about half of all merkle roots are on-curve x-only keys by
+    /// chance — so the form is decided by WHICH PROOF VERIFIES. v1 is tried first, so behaviour is
+    /// byte-identical while `pqVerifier` is unset and for every existing secp holder afterwards.
+    /// ⛔ **A destination that proves NEITHER is refused.** There is no unproven registration path:
+    /// §E138 exists because test keys were valid points with no known secret, and an LP who registers
+    /// a destination it does not control is the one who loses the payout.
     function _requireRecipientPoP(address lpEth, bytes32 xOnlyKey, bytes calldata sig, bytes32 bindHash)
-        private view {
-        if (sig.length != 64) revert NotPubkeyHash();
-        bytes32 r; bytes32 s_;
-        assembly { r := calldataload(sig.offset) s_ := calldataload(add(sig.offset, 32)) }
-        if (!BitcoinTx.schnorrVerify(xOnlyKey, r, s_, btcRecipientPoPDigest(lpEth, bindHash)))
+        private view returns (bool isV2) {
+        bytes32 digest = btcRecipientPoPDigest(lpEth, bindHash);
+        if (sig.length == 64) {
+            bytes32 r; bytes32 s_;
+            assembly { r := calldataload(sig.offset) s_ := calldataload(add(sig.offset, 32)) }
+            if (BitcoinTx.schnorrVerify(xOnlyKey, r, s_, digest)) return false;
+        }
+        address v = pqVerifier;
+        if (v == address(0) || !IPqVerifier(v).verifyPossession(xOnlyKey, digest, sig))
             revert NotPubkeyHash();
+        return true;
     }
 
-    function _registerBtcRecipient(address who, bytes32 xOnlyKey) internal {
+    function _registerBtcRecipient(address who, bytes32 xOnlyKey, bool isV2) internal {
         if (xOnlyKey == bytes32(0)) revert NotPubkeyHash();
 
-        if (!BitcoinTx.isValidXOnlyKey(xOnlyKey)) revert NotPubkeyHash();
+        // §PQ-SEAM. The on-curve check is the v1 destination-validity rule; on v2 the verifier's
+        // `payoutScript` IS the rule and reverts on a malformed destination. Possession has already
+        // been proved under whichever scheme set `isV2`, so this only has to reject a shape the
+        // payout path could not later build a script from.
+        if (isV2) IPqVerifier(pqVerifier).payoutScript(xOnlyKey);
+        else if (!BitcoinTx.isValidXOnlyKey(xOnlyKey)) revert NotPubkeyHash();
+        btcRecipientIsV2[who] = isV2;
         btcRecipientOf[who] = xOnlyKey;
         emit BtcRecipientRegistered(who, xOnlyKey);
     }

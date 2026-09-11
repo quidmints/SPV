@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {ExitFixture} from "./btc/ExitFixture.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
-import {Types} from "../src/imports/Types.sol";
+import {Types, InvalidParam} from "../src/imports/Types.sol";
 
 /// @notice Focused coverage for the openChannel sig-recovery FRONT-RUN FIX.
 ///         We exercise the auth digest + signature recovery in isolation —
@@ -26,8 +26,67 @@ contract BTCChannelsAuthTest is Test, ExitFixture {
     function setUp() public {
         // Minimal deploy. Constructor is (spv, aux, range, hopNode); we only call
         // the view digest + the recovery path, which don't depend on them.
-        ch = new BTCChannels(address(0xCA11), address(0x4006), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        ch = new BTCChannels(address(0xCA11), address(0x4006), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)), address(0));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
+    }
+
+    /// @notice §PQ-SEAM — THE GUARD THAT MAKES THE SEAM SAFE TO DEPLOY. **Fails on any build where
+    ///   the v2 branch is reachable before an admin has named a verifier.** Witness v2 is
+    ///   ANYONE-CAN-SPEND until P2MR activates, so a contract that accepted a v2 funding script while
+    ///   `pqVerifier == address(0)` would pay LPs to a script anyone can sweep. `address(0)` is the
+    ///   deployed state and must be inert.
+    /// @dev The PREMISE is asserted first: the same params on the v1 path reach a DIFFERENT revert.
+    ///   Without that, `InvalidParam` would prove only that something rejected the call — the vacuous
+    ///   shape this repo has been caught by before.
+    function test_pqSeam_v2_isUnreachable_untilAVerifierIsNamed() public {
+        assertEq(ch.pqVerifier(), address(0), "PREMISE: the seam ships shut");
+        Types.OpenParams memory p = _params();
+        // A post-quantum funding key is not 33 bytes. With no verifier there is nothing that can
+        // build a script for it, so the open must be refused rather than fall through to secp.
+        p.lpPubkey = new bytes(64);
+        vm.prank(makeAddr("hop"));
+        vm.expectRevert(InvalidParam.selector);
+        ch.openChannel(p, hex"00", new bytes32[](0),
+            Types.OpenAuth({ btcRecipient: bytes32(0), btcRecipientPoP: "", lpPaymentPoint: ""}),
+            _ladder(Types.ExitArming({prevValues: new uint64[](1), prevScripts: new bytes[](1),
+                                      cltvDeadline: 1, checkpointSats: 0, signedExitTx: hex"00"})));
+    }
+
+    /// @notice §PQ-SEAM — the setter is the ONLY authority this contract has, and all three of its
+    ///   bounds are asserted: gated, one-shot, and never zero.
+    /// @dev One-shot is the load-bearing one. A replaceable verifier would let the admin re-point the
+    ///   referee for channels it has ALREADY been judging, which is a different and much larger
+    ///   authority than "may offer a new channel type".
+    function test_pqSeam_setter_isGated_oneShot_andNeverZero() public {
+        BTCChannels c = new BTCChannels(address(0xCA11), address(0x4006), makeAddr("hop"),
+            makeAddr("hop-fallback"),
+            bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)),
+            makeAddr("pqAdmin"));
+
+        vm.expectRevert(BTCChannels.NotPqAdmin.selector);
+        c.setPqVerifier(makeAddr("v"));
+
+        vm.prank(makeAddr("pqAdmin"));
+        vm.expectRevert(BTCChannels.PqVerifierPinned.selector);
+        c.setPqVerifier(address(0));
+
+        vm.prank(makeAddr("pqAdmin"));
+        c.setPqVerifier(makeAddr("v"));
+        assertEq(c.pqVerifier(), makeAddr("v"), "named once");
+
+        vm.prank(makeAddr("pqAdmin"));
+        vm.expectRevert(BTCChannels.PqVerifierPinned.selector);
+        c.setPqVerifier(makeAddr("v2"));
+    }
+
+    /// @notice §PQ-SEAM — a deployment with NO admin can never open the seam. `address(0)` is a real
+    ///   configuration (`DeployLib.StackConfig.pqAdmin`), and `msg.sender` can never be zero, so the
+    ///   setter is unreachable by construction rather than by policy.
+    function test_pqSeam_zeroAdmin_canNeverName_averifier() public {
+        assertEq(ch.PQ_ADMIN(), address(0), "PREMISE: this deployment has no PQ admin");
+        vm.prank(makeAddr("anyone"));
+        vm.expectRevert(BTCChannels.NotPqAdmin.selector);
+        ch.setPqVerifier(makeAddr("v"));
     }
 
     function _params() internal view returns (Types.OpenParams memory p) {

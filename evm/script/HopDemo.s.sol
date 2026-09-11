@@ -52,7 +52,7 @@ contract HopDemo is Script {
         // (E164) demo wiring: two distinct hop addresses (the constructor rejects equal ones).
         BTCChannels ch = new BTCChannels(address(spv), address(aux),
                                          msg.sender, address(uint160(msg.sender) + 1),
-                                         bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+                                         bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)), address(0));
         vm.stopBroadcast();
         console.log("BTCChannels", address(ch));
         console.log("MockHopAux ", address(aux));

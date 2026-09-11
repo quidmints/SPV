@@ -54,7 +54,7 @@ contract SmartWalletLpTest is Test, ExitFixture {
     }
 
     function setUp() public {
-        ch = new BTCChannels(address(0xCA11), address(0x4006), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        ch = new BTCChannels(address(0xCA11), address(0x4006), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)), address(0));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         (ownerAddr, ownerPk) = makeAddrAndKey("safe-owner");
         wallet = new OwnerSignedWallet(ownerAddr);

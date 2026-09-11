@@ -327,6 +327,8 @@ contract Deploy is Script {
             btcFeed: 0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c,   // Chainlink BTC/USD
             mainHop: mainHop_, fallbackHop: fallbackHop_,
             btcDepositKey: vm.envOr("BTC_DEPOSIT_KEY", bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798))),
+            // §PQ-SEAM: OPERATOR_SAFE, the enclave-image authority. 0 = the seam stays shut forever.
+            pqAdmin: vm.envOr("OPERATOR_SAFE", address(0)),
             weth: address(WETH), wbtc: address(WBTC), gho: address(GHO), usdg: address(USDG),
             aaveSpoke: aaveSpoke, aaveHub: aaveHub,
             stables: STABLECOINS, vaults: VAULTS,

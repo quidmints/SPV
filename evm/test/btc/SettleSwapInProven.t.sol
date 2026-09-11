@@ -41,7 +41,7 @@ contract SettleSwapInProvenTest is Test {
     function setUp() public {
         vault = new MockBtcVault();
         ch = new BTCChannels(address(new SpvYes()), address(vault),
-                             hop, makeAddr("hop-fallback"), INTERNAL);
+                             hop, makeAddr("hop-fallback"), INTERNAL, address(0));
     }
 
     function _terms() internal pure returns (Types.Terms memory) {
@@ -122,7 +122,7 @@ contract SettleSwapInProvenTest is Test {
     /// unconfirmed, and crediting it would pay for a transaction that may never be mined.
     function test_anUnprovenDepositIsRefused() public {
         BTCChannels no = new BTCChannels(address(new SpvNo()), address(vault),
-                                         hop, makeAddr("hop-fallback"), INTERNAL);
+                                         hop, makeAddr("hop-fallback"), INTERNAL, address(0));
         vm.prank(hop);
         vm.expectRevert(BadSPV.selector);
         no.settleSwapInProven(_terms(), _proof(), _paid());
