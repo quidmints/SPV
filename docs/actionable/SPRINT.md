@@ -144,7 +144,31 @@ rows (the function is live), `§OBSERVATION-SOURCE-UNSET` and `§E343` (they are
    turned green weeks earlier. A stale ✅ hides work; **a stale ⛔ SUPPRESSES it, and nothing fails to
    tell you.** When a row forbids something, re-run its evidence before obeying it.
 
-## 🔴🔴🔴 §SEAM-SWEEP-2026-09-09 — **THE SHIPPED ROSTER HAS A ~2x REDEEM OVER-DELIVERY AND NO FIXTURE CAN SEE IT**
+## ✅ §SEAM-SWEEP-2026-09-09 — ~~**THE SHIPPED ROSTER HAS A ~2x REDEEM OVER-DELIVERY**~~ **CLOSED. VERIFIED IN CODE 2026-09-11.**
+
+> 🔴 **THIS WAS THE FILE'S TOP MARKER — 🔴🔴🔴, FIRST SECTION AFTER THE NAVIGATION — AND ITS HEADLINE
+> DEFECT WAS ALREADY FIXED. The fix never came back to update the row that reported it.** That is the
+> §SEQ-AUDIT failure mode exactly: a finding louder than its own resolution.
+>
+> **F1 IS FIXED, BY THE STRUCTURAL ROUTE THE BRIEF ITSELF RECOMMENDED** (*"structural fix is `uint[16]`
+> + `amounts[nStables]`"*). Verified at `Aux.sol:1195-1203`:
+> `uint nStables = stables.length; … amounts[nStables] = spTotal;` — the hardcoded `amounts[13]` is
+> gone, the total moved to `amounts[15]`, and `Aux.sol:1183-1194` carries the whole diagnosis plus the
+> owner's ruling (*"it must be counted in drawable. do not hardcode 13"*).
+>
+> **THE ARITHMETIC NOW CLOSES AT THE SHIPPED N=14**, checked rather than assumed: `len = N−1 = 13`, so
+> `BasketLib:172`'s `amounts[i+1]` writes slots **1..13** from `stables[0..12]`; BOLD is `stables[13]`
+> and lands in `amounts[14]`; the TVL total is `amounts[15]`. `_takeProRata`'s
+> `for (i = 1; i <= stables.length; i++)` therefore reaches 14 and reads **BOLD's slot, not the total**
+> — so `slotDep == totalDep` is now unconstructible by indexing, which was the entire ~2x mechanism.
+> Every stable has exactly one slot; nothing is clobbered and nothing is phantom.
+>
+> ⇒ **F1 joins F2·F3·F9·F12·F13·F14·F15 as landed.** The ✅ block below lists those seven and omits F1,
+> which is why the section still read as open.
+> ⏸️ **WHAT REMAINS IS VERIFICATION, NOT DEFECT** — see §F-TESTS-UNRUN. None of these fixes has been
+> proven by execution, and "landed" still must not be read as "proven".
+
+
 
 Fifteen findings from a seam hunt aimed at the four defect SHAPES that have actually bitten this repo.
 Ranked below by what I VERIFIED MYSELF, not by what was reported. The lane downgraded five of its own
