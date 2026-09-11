@@ -558,6 +558,17 @@ library LevMath {
         pulled = ILevVenue(venueAddr).withdraw(lp, (collUnits * 10_000) / (10_000 - cfg.maxSlippageBps));
     }
 
+    function _repayAndPullPooled(uint256 assets, address venueAddr, address stable, uint256 extractUsd, uint256 pxWeth, ExtractCfg memory cfg)
+        private returns (uint256 pulled)
+    {
+        IERC20OZ(stable).safeTransfer(venueAddr, assets);
+        uint256 repaid = ILevPooled(venueAddr).repayPool(assets);
+        if (pxWeth == 0) revert NoPrice();
+        uint256 ethAmt = ((_toUsd18(cfg.aux,stable, repaid) + extractUsd) * 1e18) / pxWeth;
+        uint256 collUnits = (ethAmt * 1e18) / IWeETH(cfg.weeth).getEETHByWeETH(1e18);
+        pulled = ILevPooled(venueAddr).withdrawPool((collUnits * 10_000) / (10_000 - cfg.maxSlippageBps));
+    }
+
     function _pullForExtract(uint256 assets, address venueAddr, address stable, uint256 extractUsd, ExtractCfg memory cfg)
         private returns (uint256 pulled)
     {
