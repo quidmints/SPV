@@ -349,9 +349,12 @@ contract Core {
         if (usdDelta > 0) {
             usdAmount = uint(usdDelta);
             _poolUsdInRange(usdAmount, false, basketLeg);
-            if (!keep && token != address(0))
-
-                AUX.take(who, BasketLib.from6(usdAmount, token), token, 0);
+            if (!keep && token != address(0)) {
+                uint want = BasketLib.from6(usdAmount, token);
+                uint sent = AUX.take(who, want, token, 0);
+                if (want != 0 && sent < want)
+                    _poolUsdInRange(usdAmount - Math.mulDiv(usdAmount, sent, want), true, basketLeg);
+            }
         } else if (usdDelta < 0) {
             usdAmount = uint(-usdDelta);
             _poolUsdInRange(usdAmount, true, basketLeg);
