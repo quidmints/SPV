@@ -278,6 +278,57 @@ Each was carried as open, some in red, some for weeks.
    cannot reach `Core`. Counted, not audited: `Quid` 11 `nonReentrant`, `Vault` 8, `Aux` 8 — **a count
    is not coverage.** 📌 Same object as item 27 (`§BTC-10b`), which owns the settlement-layer audit;
    do it there rather than twice.
+**13b. 🔴 `§SPLICE-NONCE-PER-CANDIDATE` — THE ONE REAL KEY-LEAK PATH LEFT IN THE SIGNER, AND IT IS A
+   FORK CHANGE.** Booked 2026-09-11 out of the `b9213c55` post-mortem (`7a0549ae`).
+   **The hazard:** two different messages signed under one MuSig2 nonce give
+   `x = (s1 − s2)/(e1 − e2)` — the funding key. `splice_nonce_height(prev_funding_txid)` is
+   **CONSTANT across a negotiation**, so an RBF, a fee change or a revised contribution is a second
+   message at the same height. Commitment and close do NOT have this: their heights key on the
+   commitment number and `closing_round`, both per-attempt and both persisted by LDK. **Splice is the
+   only path whose height has no per-attempt component.**
+   **Why it is not already closed:** `PolicyState::bind_nonce` REFUSES a second different message
+   under one nonce — but `nonce_bindings` is an in-memory `HashMap` (`validating_signer.rs:194`) and a
+   restart clears it. Negotiate candidate A → restart → peer re-drives → candidate B signs at the same
+   height. A counterparty can wait for a restart or induce one.
+   ⛔ **DO NOT FIX IT BY SPICING THE NONCE. THAT IS `b9213c55` AND IT BROKE EVERY SPLICE, EVERY
+   COMMITMENT AND EVERY COOP-CLOSE.** MuSig2 commits nonces BEFORE the message exists; at
+   `splice_init` there is no message and no peer nonce to spice with, so a pre-advertised nonce cannot
+   be message-bound. The fork says so itself (`channel.rs:6595`): *"the SAME height
+   `partially_sign_splice_shared_input` uses, so the advertised nonce equals the one we sign with."*
+   ⛔ **AND DO NOT FIX IT BY PERSISTING `nonce_bindings` TO THE `Ffs`.** The `Ffs` is host-owned and
+   **rollback-able by the exact adversary this defends against** — `quid-hop/src/freshness.rs` says so
+   in its own opening: *"Sealing does NOT stop a malicious host from serving an OLDER monitor on
+   boot."* A journal the attacker can rewind is not a journal.
+   ▶️ **THE FIX, AND IT IS SMALL BECAUSE THE COUNTER ALREADY EXISTS AND IS ALREADY PERSISTED.**
+   `PendingSplice::negotiated_candidates: Vec<FundingScope>` (`channel.rs:2775`) is **serialized with
+   the channel** (field `(3, negotiated_candidates, required_vec)`, `:2786`), increments per candidate,
+   and is stable within one candidate — exactly the three properties the height needs.
+   1. Thread `candidate_index: u64` through `TaprootChannelSigner::generate_splice_nonce` **and**
+      `partially_sign_splice_shared_input`; both LDK call sites (`channel.rs:13123`, `:13466`) already
+      hold the `PendingSplice`.
+   2. `splice_nonce_height(prev_funding_txid, candidate_index)` folds it in, staying inside
+      `[2^48, 2^48+2^56)` so the disjointness test at `validating_signer.rs:3992` still passes.
+   3. Mirror both in `quid-ln/src/validating_signer.rs`. **Advertise == sign is preserved** — both
+      sides read the same index.
+   ⇒ with a per-candidate height, two different messages can never share a nonce, so **this subsumes
+   the persistence question entirely** and `bind_nonce` goes back to being a backstop.
+   ⚠️ **CROSS-REPO: the trait lives in `quidmints/rust-lightning`** (pinned `7c50bb5`, on disk at
+   `~/.cargo/git/checkouts/rust-lightning-10549f9c9c9e9643/7c50bb5`). Needs a fork commit, a `Cargo`
+   re-pin, then the mirror here. **Not attempted in `7a0549ae` because a half-landed trait change is
+   worse than a booked one.**
+   📌 **Also needed in the fork, independently (rule 3):** `ConstructedTransaction::finalize` drops a
+   failed partial verification through `.ok()?` with **no log** (`interactivetxs.rs`), which is why a
+   fully-negotiated splice vanished silently for 108 s instead of erroring. That silence is what made
+   `b9213c55` cost an e2e run to find rather than a log line.
+
+**13c. `§DEAD-SPICED-NONCE-HELPERS`** — `taproot_signer::our_key_path_partial_counterparty` and
+   `KeyPathFirstRound::new_counterparty` have **ZERO production callers** after `7a0549ae`; the only 4
+   references are in `taproot_signer.rs`'s own test module. ⚠️ **Check before deleting:** those tests
+   may be what pins the holder/counterparty/deadman **domain separation**, and `local_pubnonce_deadman`
+   / `new_deadman` (the message-spiced pair the dead-man exit uses) are the one place spicing is
+   CORRECT — that path never advertises over the wire, because the fleet holds both halves. Deleting
+   the tag without reading them could strip the argument for why the deadman domain is separate.
+
 **14. `§MIN-CHARGE-MISSES-THE-SWAP-IN-RAIL`** — the BTC swap-IN is the **refill direction** and misses
    all four skew sites, so the owner's minimum charge never reaches it.
 
