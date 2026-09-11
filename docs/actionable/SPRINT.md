@@ -400,6 +400,54 @@ several in red — over code that already does the thing. `§NEW-3-STILL-OPEN` n
 `B8` names a mint defect whose symbols no longer exist. **Acting on any of them means editing working
 code to match a stale description.**
 
+## 3c · LANDED 2026-09-11, AND THE REASONING THAT LIVED ONLY IN DOCBLOCKS
+
+⚠️ **BANKED HERE BECAUSE `561a36f7` STRIPPED EVERY COMMENT FROM `evm/src` (24,983 → 10,322 lines).**
+`Aux.sol` was excluded as another session's in-flight work and is the one file that still carries
+docblocks. **These three reasonings existed ONLY there and in commit messages — recoverable by
+`git show`, but not discoverable by anyone reading the tree.** A decision you cannot find is a
+decision that gets re-litigated.
+
+**1. `§BTC-2.6` STEP 2 IS DONE: the BTC shortfall drop is observable.** `Aux.btcShortfall` resolved
+`btcRecipientOf(sender)` and, on zero, `return`ed — **no revert, no event**, so a recognised obligation
+evaporated with nothing for anyone on or off chain to notice, reconcile or replay. It now emits
+`BTCShortfallDropped(sender, shortfall)`.
+🔑 **WHY AN EVENT AND NOT A REVERT, so nobody "hardens" it later:** an unregistered recipient is a real
+reachable state (an LP that never opened a channel), and reverting would fail the CALLER's settlement
+over a condition the caller did not create. **A no-op is an acceptable POLICY; an UNOBSERVABLE no-op is
+not, because it is indistinguishable from the rail working.** Observability was the requirement, not
+fatality.
+⛔ **DO NOT READ THE EVENT AS THE RAIL WORKING.** `BTCHopRequest` still has **zero consumers tree-wide**.
+Steps 1 and 3 remain owner decisions — and per `§MIXED-SETTLEMENT` step 1 should probably resolve to
+*"not live"*, since mixed settlement removes the condition that made the rail urgent.
+
+**2. `btcHopRequestId` DELETED — a storage slot, a public getter and an SSTORE on every shortfall,
+bought to index an event nobody consumes.** Its only three references were the declaration, the `++`
+and the `emit`; `grep` found zero consumers in `spa/`, `app/` or `quid-ln/`. **A log is already
+uniquely identified by `(txHash, logIndex)`**, and `recipient` stays `indexed`, so filtering is
+unaffected. The `requestId` field went with it. ⇒ rule 23: the counter re-stated something the log
+position already said.
+📌 **TWO NEAR-IDENTICAL VARIABLES WERE DELIBERATELY LEFT ALONE** — `netIssuanceUsd` and
+`retainedEthPremium` are also production-write-only (read only by tests), but both are labelled
+deliberate instruments (*"INSTRUMENT ONLY"*, *"the ONLY measurement of mint/redeem flow"*). **Deleting
+them would sacrifice observability, which is the one thing the reduction was told not to sacrifice.**
+
+**3. TWO FALSE CLAIMS REMOVED FROM `BTCHopRequest`'s DOCBLOCK:** *"the V4 BTC pool"* (**there is no
+V4**, §BTC-7) and *"Hop node listens and executes on-L1"* (**nothing listens**). Also recorded there:
+**how the sats would be produced is nowhere specified** — splice-out, hop wallet or purchase — so no
+mechanism should be inferred from the words "on-L1".
+
+### 🔴 RULE-15 DEBT CARRIED BY `47759214` — BOOKED SO IT SURVIVES THIS SESSION
+`§VBTC-COLLATERAL-DELETED` shipped with **5 tests ported to the Aave-WBTC fixture and 1 moved to
+`EthLevDeleverLegs`, none of which have been RUN.** Both builds are green; a green build is not a green
+suite. ▶️ **Run `tools/forge-test.sh --match-path 'evm/test/VBtcLevFeeLane.t.sol'` and confirm against
+the control below before treating that commit as verified.**
+📌 **CONTROL, measured 2026-09-11 on a pinned fork: 1,185 passed / 26 failed.** Of those 26: **13 were
+the vBTC-collateral breakage `47759214` deletes** (expect them gone), 2 `Slippage()` in
+`EthLevDeleverLegs`, 1 `MintAtTheMark` incumbent-dilution assertion, and ~6 that self-describe as
+market-state or fixture calibration (G7, PLP6 ×2, FLOOR ×2, RUN-HAPPENED). **Quote this as the control
+rather than treating any of them as new.**
+
 ## 4 · THE RECONCILIATION REGISTER — do not re-derive these
 
 ⛔ **SELF-CONTRADICTING ROWS ARE THIS FILE'S SIGNATURE FAILURE: a screaming red header with a quiet ✅
