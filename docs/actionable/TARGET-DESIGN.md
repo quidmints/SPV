@@ -250,8 +250,34 @@ those two are the distinction the whole design turns on.
 2. **Does `immatureSupply()` have a real maturity PROFILE**, or is it a headline number? Redemption is
    marked `min($1, solvent/matureSupply)`, so immature supply is excluded from the claim — but a
    schedule that can mature quickly is not a fundable base.
-3. **`borrowRateRay(extraBorrow)` at our notional** — it has **zero callers** and has never been
-   called. If carry is expensive at our size, "transient is free" fails.
+3. ✅ **RESOLVED 2026-09-10 — `borrowRateRay` RAN, AND IT SPLITS THE QUESTION IN TWO.**
+   `test/CarryAtOurNotional.t.sol`, live mainnet, all four DEPLOYED venues:
+
+   | venue | base | +$1M | +$10M | +$50M | +$100M |
+   |---|---|---|---|---|---|
+   | AaveV3 WBTC/**USDC** (BTC) | 4.29% | +0 bps | +1 | +9 | **+321** (7.51%) |
+   | AaveV3 weETH/**USDT** (ETH) | 4.27% | +0 | +1 | +7 | +84 (5.11%) |
+   | Morpho weETH/**RLUSD** | 3.88% | **+108** | **+1,102** | ⛔ unfundable | ⛔ |
+   | Morpho weETH/**PYUSD** | 4.38% | ⛔ **unfundable at $1M** | ⛔ | ⛔ | ⛔ |
+
+   **(a) THE LEVEL IS NOT FREE: ~4.3%/yr ≈ 1.18 bps/day.** So §3's *"transient is free"* is FALSE as
+   stated. What is true is the weaker claim it needs: **the MARGINAL cost of our own draw is ~0 up to
+   $50M** (≤9 bps on either Aave venue). Absorption is cheap; HOLDING is not. ⇒ the sell-in leg needs
+   the capacity term §4 already plans, and a position held across days needs carry priced into the LP's
+   IL-protect accounting — not into the swapper's charge, which is what would make it gameable.
+
+   **(b) CONVEXITY IS A CLIFF, NOT A CURVE.** USDC goes +9 bps at $50M and **+321 bps at $100M** — the
+   kink sits between. This is the measured case FOR §MULTI-VENUE: the allocator's entire value is
+   keeping each venue on the near side of its own kink, and the optimum is interior precisely because
+   the curve is convex there.
+
+   **(c) 🔴 THE TWO MORPHO weETH VENUES ARE DECORATIVE AT OUR SIZE, AND THIS WAS NOT KNOWN.**
+   PYUSD **cannot fund $1M**. RLUSD costs +108 bps at $1M, +1,102 bps at $10M, and is unfundable at
+   $25M. Both are in the deployed `vs[]` set (`DeployL1_s:694/:698`) and a naive allocator ranking by
+   BASE rate would pick RLUSD first — it is the cheapest at 3.88% and the worst at any size we would
+   actually borrow. **Ranking on `borrowRateRay(0)` is the exact mistake this accessor exists to
+   prevent**, and nothing in the tree currently ranks on anything else.
+   ⇒ Real ETH-side borrow capacity today is the **Aave USDT venue**, alone.
 4. **Are `haircutTvl` + the tranches a real attachment point**, or bookkeeping?
 
 📌 **Also unresolved and load-bearing:** what `L` actually is per venue, because `(1 − L)` is the
@@ -267,9 +293,10 @@ depends on my commit messages being read.
 | # | debt | evidence |
 |---|---|---|
 | 1 | **THE KEEPER HAS NO POOL-LEVEL DE-LEVER.** ✅ `LevManager.deleverToVault` is the pooled crash response (`repayPool` + `withdrawPool` + sell, O(1)) but it is RANGE-gated: `LevManager.sol:584` `if (msg.sender != RANGE && msg.sender != address(this)) revert NotGov()`. Only a redeem/swap-out settle can reach it. My own commit `acf8bb50` said *"the keeper's de-lever is now the pooled `deleverToVault`"* — **that is wrong as written**; the keeper cannot call it. | `deleverOne` is LP-only (`msg.sender != lp` → `Auth()`), so the keeper's surviving actuator is the permissionless per-LP `rebalance(address,uint256,uint256,uint256,bytes)`, which carries the down-leg. The Rust keeper now loops it, urgent first. O(N) txs where the pooled call would be one. |
-| 2 | **`_bandBps` IS A CONSTANT PLACEHOLDER.** ✅ `LevBase._bandBps` returns a literal `300`. §DERIVED-BAND derived it from `kLvrWad`, which is deleted with θ. The band must be re-derived from CARRY (owner: *"gas has nothing to do with lvr"*). | `LevBase.sol` — `function _bandBps(uint256, ILevVenue) internal pure returns (uint256) { return 300; }` |
+| 2 | **`_bandBps` IS A CONSTANT PLACEHOLDER.** ⭐ Its input is now measured: carry is **~4.3%/yr = 1.18 bps/day** on both Aave venues (§6 check 3), so a band is "how many days of drift before a rebalance pays for its round trip". At a ~17 bps round trip that is ~14 days of carry — the band must be derived from that, not from the literal `300`. ✅ `LevBase._bandBps` returns a literal `300`. §DERIVED-BAND derived it from `kLvrWad`, which is deleted with θ. The band must be re-derived from CARRY (owner: *"gas has nothing to do with lvr"*). | `LevBase.sol` — `function _bandBps(uint256, ILevVenue) internal pure returns (uint256) { return 300; }` |
 | 3 | **THE ENUMERATION MOVED TO LOGS.** ✅ `openLevCount`/`openLpAt` are gone, so both Rust keepers now build the open set from `Opened`/`Closed` events (`lev_keeper::open_lps_from_logs`, shared by the ETH and BTC keepers). Same-block open-then-close resolves as CLOSED, deliberately. | The events are declared on `LevBase` (`:260`, `:261`), so one helper serves both managers. |
 | 4 | **`SkewVsUniswapV3` MUST COME BACK AS AN ASSERTION.** ⏸️ It was deleted because it only LOGGED. The competitive ceiling in §4 is a requirement, and nothing currently falsifies it. | Rebuild as `ourCost ≤ theirs at every size we serve`. |
+| 6 | **THE SPA SHOWS USERS A PRICING MODEL THE PROTOCOL NO LONGER IMPLEMENTS.** ✅ `spa/src/lib/quant.ts` exports `K_LVR = 0.71` and `avellanedaStoikov()`, and `spa/src/components/app/InfoTab.tsx:518-523` renders an A–S inventory cost to users at `K·σ²`. `kLvrWad` is DELETED on chain and the charge is a flat 420 ppm. This was booked as `§PLP-4` in SPRINT.md ("`quant.ts` HOLDS A RETIRED MODEL") and never done; that row is now cut, so it lives here. | User-facing, so it is worse than a stale comment. |
 | 5 | **DELETING IT COST THE ONLY IN-TREE ABI FOR THE V3 QUOTER, AND A GATE SAYS SO.** ✅ `tools/check-client-abis.py` goes 4 → 6 RUST DRIFT on this lane, and the two new hits are `getPool(address,address,uint24)` and `quoteExactInputSingle((address,address,uint256,uint24,uint160))` — both declared ONLY in `SkewVsUniswapV3.t.sol` and `PermittedPoolSet.t.sol`. The Rust keeper still calls both against live Uniswap; nothing now checks its encoding. | The other four drifts are pre-existing on `main` (third-party venue reads with no in-tree declaration — the same false-positive class as `orphans-allow.txt` CLASS 1). Rebuilding #4 closes #5 as a side effect, which is a second reason to do it rather than a separate task. |
 
 **Gates that were updated deliberately rather than dropped** (each demands a stated reason, and each
