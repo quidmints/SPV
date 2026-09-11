@@ -46468,73 +46468,39 @@ second and deliver against the first.
 against channel or hop capacity. **A larger gap than ETH's, and unbooked.** 🔗 **Same object as §BTC-9c's
 `max`-not-`sum` ceiling, seen from the EVM side — settle them together.**
 
-## §PLP-6 🔴 THE LEVER-UP LEG, AND THE VALUE-NEUTRALITY CLAIM THAT RESTS ON IT
+## §PLP-6 ✅ **THE LEG IS THE MODEL'S DRAIN-SIDE ABSORPTION, AND §PLP-6b's OWN FIX IS DONE**
 
-`SwapLib.deleverEthOnDelivery` exists — delegatecalled by `Quid` from `_sendETH` when the venue base
-can't cover a swap-out. It sources the swap's **own proceeds** via `Aux.takeToSettle`, repays pooled
-debt, delivers freed collateral. The swapper's USD funds the repay, so the delever creates no external
-sale and no slippage exposure of its own. 🔴 Marked **UNVERIFIED (forge OOM)** pending fork tests of the
-gating chain, the Σbacking invariant (`DeleverEthBackingProbe`) and **non-toxicity** — `§M.1`.
+**The main claim stands and is now load-bearing.** `SwapLib.deleverEthOnDelivery`, delegatecalled by
+`Quid` from `_sendETH` when the venue base cannot cover a swap-out, sources the swap's **own proceeds**
+via `Aux.takeToSettle`, repays pooled debt, and delivers freed collateral. **The swapper's USD funds
+the repay, so the de-lever creates no external sale and no slippage exposure of its own.**
+⇒ `TARGET-DESIGN` Part II lists this as the **drain-side absorption, BUILT** — and this row is where
+the mechanism is described. It is also what corrected my own §0b claim that *"a swap does not touch the
+lever"*: it does, through a path that greps of `SwapLib`/`Core.swap` do not reach.
+⏸️ Still **UNVERIFIED BY EXECUTION** (`§M.1`) — see the `§PLP-6-*` measurement trail below, which
+established that the leg runs, skips on dust, and is not what repays a material shortfall.
 
-### ⛔ §PLP-6a — WITHDRAWN. The up-leg is NOT dead.
-It claimed `_batch:346`'s hardcoded `""` route killed the buy side via `_aggSwap`'s empty-route refusal.
-**§PLP-Z Q2.1 withdrew it** on the grounds that the leg reaches `_poolSwap`, not `_aggSwap`.
-🔴 **RE-CHECKED 2026-09-05 AND THE WITHDRAWAL'S REASONING IS ITSELF STALE — the conclusion survives for a
-different reason (§SESS-2).** **`_poolSwap` was DELETED by §C2.1** (`LevMath.sol:970`, owner: *"we dont need
-v3 anymore pull it out and delete it completley"*); every volatile hop now goes through `_aggSwap`. The
-up-leg is not dead because **`_aggSwap` guards on `dex == 0`, not on an empty `route` bytes**, and
-`_batch` DOES supply `dexes[i]`. ⇒ **`route` is unused on that branch; `dex` is what matters.**
-⚠️ **This is §PLP-9's pattern producing a THIRD instance — a stale comment invalidating a WITHDRAWAL.**
-✅ **§PLP-6b and §PLP-6c stand.**
-🔴 **AND THE REAL RESIDUAL, which neither the finding nor the withdrawal named:** `_batch:345` hardcodes
-`this.rebalanceOne(lp, minOuts[i], dexes[i], 0, "")` and **`rebalanceMany` has no `dex2`/`route`
-parameters at all.** With `dex2 == 0`, `_stableToWethSor` is forced down the **legacy single-hop branch
-through the USDC hub**. ⇒ **the keeper-allowlisted path can never reach the two-hop `routedSwap`, while a
-direct `rebalance` call can.** Two entrypoints to one operation with different routing capability, and
-the allowlist pins the weaker one.
+### 🪦 §PLP-6a — MOOT. Every symbol it argues about is deleted.
+It turned on `_batch:346`'s hardcoded `""` route and whether the up-leg reached `_aggSwap` or
+`_poolSwap`. ✅ **Measured 2026-09-11: `_batch`, `rebalanceOne`, `rebalanceMany`, `cascadeDelever` and
+`_poolSwap` all have ZERO references in `evm/src`.** Its residual — *"the keeper-allowlisted path can
+never reach the two-hop `routedSwap` while a direct `rebalance` call can; two entrypoints to one
+operation with different routing capability, and the allowlist pins the weaker one"* — **is resolved by
+deletion in both halves**: the weaker entrypoint is gone, and both selectors were removed from
+`evm_validating_signer.rs` as orphans.
 
-### 🟠 §PLP-6b — `rebalanceMany` IS THE UN-COLLAPSED Σ-LOOP, AND THAT IS THE REAL FIX
-`LevBase:437` — **all open LPs sit in ONE venue position**, `poolVenue` pinned on first open.
-`LevBase:490` gives the argument: `LevMath.deliverableDollars` is **non-linear in LTV**, so *"a sum of
-per-LP results systematically DIFFERS from the aggregate — the same sum-of-floors error that made
-`totalNetEquity` over-count and tripped `checkBacking`. One position means one evaluation."* All four
-**view** aggregates were collapsed on that reasoning.
-⇒ **`_batch` is the same shape on the ACTION side and was not collapsed.** It walks LPs; `rebalanceOne`
-reads `pos[lp]`; `deleverRepayUsd(lp)` carries the same non-linearity. Each LP's rebalance moves the
-shared position, so LP *i+1* is evaluated against a state LP *i* already changed — **the batch's outcome
-depends on array order.**
-⭐ **THE FIX IS NOT A ROUTE PARAMETER ON `rebalanceMany`.** It is to collapse the walk to ONE pooled
-rebalance, at which point it takes a route exactly as `rebalance`/`rebalanceOne` already do and the empty
-literal **disappears with the walk.**
-⚠️ **`cascadeDelever` has the identical shape** and inherits the question.
-⚠️ **The keeper allowlist pins exactly `cascadeDelever` and `rebalanceMany`.** Collapsing either changes
-what the hot key can sign — `§E357` flags widening that authority as a real cost.
-⚠️ **Whether the walk is WRONG or merely redundant is `§STALE-BRANCH`'s open question**: per-LP debt still
-exists via `debtOf`/`positionOf` while the repay is pool-wide — *"a money-path question that needs a fork
-test, not a guess."*
-📌 **OWNER DIRECTION 2026-09-05: HOLD.** Needs the keeper-allowlist decision and `§STALE-BRANCH`'s fork
-test first. **Do not land it as part of a routing change.**
-
-### §PLP-6c — the `g` term, and why `_aggSwap` is on the passive-LP money path after all
-`cost(h) = g·σ²/(4h²) + C·K·σ²·h/2`, minimised at `h³ = g/(C·K)`. **`g` is the per-rebalance cost**, and
-the up-leg's cost is the `_stableToWethSor` → `_aggSwap` leg — **the exact leg `LevMath`'s size-aware
-floor measures** (`25 bps + 25 bps/$1M, capped at 100`; USDT→WETH 11 bps at $1M, 56 at $5M; USDC→WETH 44
-and 224; GHO usable to ~$250k, 23.4% at $500k).
-⇒ 🔴 **§PLP-11's retraction was too broad.** That curve is out of scope for the **toll** (the range's own
-delivery never traverses it) and **in scope for `g`**, because `autoManaged` is every deposit, so the
-lever rebalance IS on the passive LP's money path. **`g` is currently a frozen fitted curve where §PLP-1
-asks for a measurement.**
-⚠️ **`g` is also where an up-leg failure shows up as a number**, not just an event.
-⛔ **DO NOT MOVE THE RELEVER INLINE.** The `g·σ²/(4h²)` term models rebalance frequency on **price
-drift**. An inline relever fires on **flow**, which the derivation does not model, and an adversary
-grinds `g` by generating swaps. **Keeper-driven keeps the band owning frequency.**
-**On IL: bounded, and `§C19` is why.** A forced delever crystallises at the swap's price, not one the LP
-chose — but the entry price stays pinned (`entryEquity` re-bases, entry does not), so the recovery basis
-survives, and below entry `ilTargetBps` is 0. **The exposure is timing on the upside recovery, not a
-reset of the basis.**
-⚠️ **Open, unchecked:** whether `levPooled` goes stale between the swap and the next `syncLev`.
-✅ **`dex2 = 0`'s "legacy hub hop" IS a live path (measured 2026-09-05)** — it is the branch `_batch`
-forces. **It does not bypass `_aggSwap`**; it selects the single-hop-via-USDC form of it.
+### ✅ §PLP-6b — **DONE, AND ITS PREDICTION WAS RIGHT.**
+It argued the real fix was not a route parameter but **collapsing the walk to ONE pooled rebalance**,
+because `LevMath.deliverableDollars` is non-linear in LTV so *"a sum of per-LP results systematically
+DIFFERS from the aggregate"*, and because each LP's rebalance moves the shared position — **"the
+batch's outcome depends on array order."**
+⇒ **That collapse happened.** `deleverToVault` (`LevManager.sol:581`) is the pooled call; the walk and
+its four entrypoints are deleted. ⭐ **And the consequence it predicted — *"the empty literal
+disappears with the walk"* — is exactly what occurred:** the hardcoded `""` was never fixed, it ceased
+to exist. A defect removed by deleting its container rather than by patching it.
+⚠️ Its flagged risk — *"the keeper allowlist pins exactly `cascadeDelever` and `rebalanceMany`;
+collapsing either changes what the enclave can sign"* — **was real and was handled**: both entries are
+out of the allowlist, and the keeper now sends per-LP `rebalance`, which was already listed.
 
 ## §PLP-8 — ORDER-INSENSITIVITY WITHOUT AUCTIONS
 
