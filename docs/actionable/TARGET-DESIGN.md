@@ -910,6 +910,54 @@ class as §VACUOUS-TEST — the NAME and the EVENT assert the property; the body
 be the single BTC exit for everyone.** That also answers the collateral question honestly rather than
 leaving a function whose name implies an exit that does not exist.
 
+### ✅ §BTC-IL-VIA-VBTC — **BUILT, 2026-09-11. THE SECTION BELOW IS MY OWN STALE AND IS KEPT ONLY FOR THE
+### REASONING THAT WAS WRONG.** Owner: *"do the identical thing with vbtc as you do for eth."*
+⛔ **WHAT I GOT WRONG, AND IT WAS THE LOAD-BEARING CLAIM:** I argued the ETH structure could not mirror
+to BTC because *"sats in a Lightning channel cannot be seized."* **The collateral is never the channel
+sats.** On ETH it is **weETH** — a token the protocol produces from deposited ETH — and the mirror is
+**vBTC**, a token the protocol produces from deposited BTC. **Both are ordinary EVM ERC-20s and both
+seize atomically.** I compared the wrong pair of objects: the depositor's asset instead of the
+collateral token.
+⭐ **THE ONE REAL BLOCKER WAS NEITHER TOXICITY NOR LIQUIDATION — IT WAS THAT vBTC HAD NO LEDGER.**
+`2d3141c7` made `VBtc.balanceOf` a **projection** of `Vault.sharesOf`, and `MorphoEscrowVenue.supply`
+must *physically custody* what it posts (`approve(MORPHO)` then `supplyCollateral`). **A projection
+cannot be custodied**, so `COLL.transfer(venue, …)` resolved to `transferShares(manager, venue, …)`,
+the manager had no `pooled`, and every call reverted `InsufficientChannelBtc()` — measured by
+`47759214`, not theorised.
+▶️ **SO THE FIX WAS THREE PIECES, ALL FETCHED FROM GIT (owner: *"dont rebuild files that you can just
+fetch out of history"*), AND IT BUILDS — `forge build` exit 0, 0 errors:**
+| piece | source | what it does |
+|---|---|---|
+| `VBtc.sol` | `0783c95a` | the **LEDGER** back: real `balanceOf` mapping, `totalSupply`, `mintTo`/`burnFrom` `onlyVault` ⇒ **custodiable, exactly as weETH is** |
+| the contract path | `git revert 47759214`, scoped so Euler stayed dead | `BtcLevManager`'s COLL branch, `Vault.exposeBtcToLev`/`unexposeBtcFromLev`, the `BtcLib` bodies, the `Interfaces` members |
+| the market | `3440c742^`, through the existing `_mkMorphoVenue` helper | `{USDC, ETH.VBTC(), RealRateBtcMorphoOracle, ADAPTIVE_IRM, LLTV 86%}`, `vsB` = 1. The helper inherits the `MORPHO_ALLOW_CREATE` gate, so a typo'd constant fails loud instead of creating an empty twin |
+
+🔑 **AND THE KEYSTONE WAS IN NO COMMIT — history had the ledger without the market, or the market
+without the ledger, never the pair.** `vbtcExposeBody` only did `levPooled[lp] += sats`, so the manager
+never held vBTC and had nothing to transfer. **`Vault.exposeBtcToLev` now `VBTC.mintTo(LEV_MANAGER,
+sats)` and `unexposeBtcFromLev` `burnFrom`s it.** ⇒ the loop closes: channel sats are exposed, vBTC is
+minted against them, the manager posts it to Morpho, **and the LP brings no external token** — which is
+the whole point, since a BTC depositor holds no WBTC.
+📌 **The 2026-09-07 "toxic loop" ruling is overruled by the owner, and its argument never separated the
+legs anyway:** *borrow stables against the asset to buy more of the asset* is verbatim what `LevManager`
+does with weETH. **It was never an asymmetry.** `openBtcLev`'s WBTC else-branch and the `#36a` test that
+asserted vBTC is inadmissible are gone with it.
+
+### 🔴 FOUR THINGS STILL OPEN ON THIS, none of them guesses
+1. 🔴 **`totalSupply == Σ levPooled` IS NOW A LOAD-BEARING SOLVENCY INVARIANT AND NOTHING ASSERTS IT.**
+   A real ledger means vBTC supply and exposed sats are **two pieces of state that can diverge**, where
+   the projection made divergence unconstructible. **This is the mint-side bound §VBTC-IS-THE-SHARES
+   already named** (*"`sats <= plainNet(pooled, levPooled)`… a MINT-side invariant"*) — now it has a
+   second mirror to stay in step with. ▶️ **The test is a stress test, not a unit test:** random
+   interleavings of expose / unexpose / resize / liquidation, asserting the equality after each.
+2. **`loanToken` is USDC** while the ETH leg was deliberately moved off it for depth (*"dont even borrow
+   usdc, too thin"*). One line; needs the owner's pick.
+3. **Lever-up has no stables→vBTC route.** Collateral posts and the borrow works, but vBTC only mints
+   against real deposits, so the *"buy more of the asset"* leg the ETH side closes with a DEX buy has no
+   analogue. **The hedge can be OPENED but not LEVERED.**
+4. **`openBtcLev`'s WBTC else-branch is unreachable** — no WBTC venue is deployed. Removal candidate.
+
+### (superseded — the reasoning below was wrong, see above)
 ### 🔴🔴🔴 §BTC-IL-IS-NOT-CONSTRUCTIBLE — **THE DELETION REASON IS FOUND, IT IS THE OWNER'S OWN, AND IT
 ### COLLIDES HEAD-ON WITH THE REQUEST TO RESTORE THE MARKET**
 ⭐ **PRIMARY SOURCE, `3440c742` (2026-09-07) — not CLAUDE.md's account, the commit message itself:**
