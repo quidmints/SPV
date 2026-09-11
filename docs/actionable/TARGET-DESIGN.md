@@ -343,6 +343,40 @@ sweep-up.
 
 ---
 
+## §0b — ⏸️ **IS THE NEW DESIGN BUILT? NO. HERE IS EXACTLY WHAT IS AND IS NOT** (owner asked, 2026-09-11)
+
+**Short answer: the SUBTRACTION is complete; the ADDITION has not started.** Everything removed is
+removed, and the flat fee is live — but the mechanism in §3 that makes a flat fee *safe*, the balance
+sheet absorbing the imbalance, is **not wired to the swap path at all.**
+
+### ✅ BUILT (verified in code, not recalled)
+| piece | evidence |
+|---|---|
+| **Oracle settlement, no curve** | §V4-CUT. One price for the whole size, bounded by inventory. |
+| **The flat fee** | `wellSkew`/`sellSkew` both `return MIN_SWAP_SKEW_WAD` (420 ppm); `retainSkewPremium` credits it to LPs; `SkewPremiumReachesLPs.t.sol` asserts the credit arrives. |
+| **No gameable bound anywhere on the charge** | every EWMA, variance register and θ consumer is deleted — `grep` for them returns comments only. |
+| **One pooled venue position** | `repayPool`/`withdrawPool`, `poolLtvBps`, `totalDeliverableDollars`. |
+| **Per-LP IL targeting inside it** (§8, option (c)) | `debtUnits[lp]`/`collUnits[lp]`, `repay(lp)`/`withdraw(lp)`, `debtDeltaToTarget(lp)` — O(1), exact, no aggregate needed. |
+| **Redeem-side de-lever** | `BasketLib._deleverBookForRedeem` → `deleverBook` → `deleverToVault`. |
+
+### 🔴 NOT BUILT — and the first row is the whole design
+| piece | measured state |
+|---|---|
+| **§3 BALANCE-SHEET ABSORPTION** | **`SwapLib` contains ZERO `borrow`/`repay` references outside comments, and `Core.swap` calls only `_fillDelta` → `_observeIfSourced` → `_handleDelta` → `_shortfallLoadBalance`.** A swap does not touch the lever. On an ETH inventory shortfall `RANGE.onShortfall` is *"a deliberate no-op"* and the swap PARTIAL-FILLS. ⇒ today the pool serves what it holds; it does not borrow to serve more, and it does not repay from proceeds. |
+| **The sell-in capacity term** (§4) | `sellSkew` is the same flat constant as `wellSkew`. The `(1−L)` residual that motivates it is unpriced. |
+| **`_bandBps` from carry** (§6b·2) | still the literal `300`. Its input is now measured (1.18 bps/day) but nothing consumes it. |
+| **A keeper-callable pooled de-lever** (§6b·1) | `deleverToVault` is RANGE-gated; the keeper holds the book position-by-position via `rebalance(lp)`. |
+| **The competitive-ceiling assertion** (§6b·4) | nothing falsifies *"our cost ≤ theirs at every size we serve"*. |
+| **The borrow split** (§9) | deferred by the owner. |
+
+### ⚠️ WHY THIS MATTERS MORE THAN A TODO LIST
+A flat fee and oracle settlement are only safe **because** something else carries the inventory risk.
+§3 is that something. Until it is wired, the protocol is a no-slippage oracle venue that partial-fills
+when it runs out — which is a coherent product, and is NOT the design in this document. **Do not read
+the deletions as the design having shipped.**
+
+---
+
 ## §9 — ⏸️ SPLIT THE BORROW ACROSS STABLES (owner, 2026-09-11) — DEFERRED, BUT THE NUMBER IS NOW MEASURED
 
 Owner: *"the borrow cost is too high, must be split between stables to be small… but we'll get to that
