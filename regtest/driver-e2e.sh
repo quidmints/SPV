@@ -143,11 +143,14 @@ deploy_and_run() {
   # foundry.toml's [etherscan] interpolates ${ETHERSCAN_L1} at config-load even
   # without --verify; give it a dummy. (Full compile incl. tests — no shortcuts.)
   local deploy_out gw ch
+  # `--slow`: send one tx, wait for its receipt, send the next. Without it forge's batched broadcast
+  # against a forked anvil HUNG for 3h27m after a 5-minute simulation (measured 2026-09-11: 32 txs
+  # planned, 0 receipts, anvil never past fork+4); with it the same 32 land in ~5 minutes.
   # `|| true`: under `set -e` a failing command substitution in an assignment kills the script
   # BEFORE the echo below, losing the only copy of forge's error (measured 2026-09-11 — the log
   # ended at "deploying …" with nothing after it). Let the address check below report it.
   deploy_out="$(cd "$EVM_DIR" && ETHERSCAN_L1="${ETHERSCAN_L1:-dummy}" PRIVATE_KEY="$ACCT0_KEY" \
-    forge script script/DriverE2E.s.sol:Deploy --rpc-url "$ANVIL_RPC" --broadcast --skip '*.t.sol' \
+    forge script script/DriverE2E.s.sol:Deploy --rpc-url "$ANVIL_RPC" --broadcast --slow --skip '*.t.sol' \
       --disable-code-size-limit --non-interactive 2>&1 || true)"
   echo "$deploy_out" >&2
   gw="$(echo "$deploy_out" | grep -E "^\s*QUID_SPV_GATEWAY " | tail -1 | awk '{print $2}')"
