@@ -801,6 +801,30 @@ again at `:488-490` for the unpaired leg), so `venueBm[user] = plainNet(NEW pool
 and `venueOwed − venueBm == 0` immediately after joining. **A joiner is owed nothing retroactively on the
 venue leg either.** ⇒ credit-then-checkpoint is correct and deliberate; the attack is unconstructible.
 
+### 🔑 BREAKS 9-11 CHECKED AGAINST THE BTC MIRROR — **AND THE MIRROR SETTLES BREAK 11**
+The two ranges are one implementation in two instances, so every finding on the ETH leg has an
+obligation to be checked on the BTC leg. **All three, measured:**
+| break | BTC leg | evidence |
+|---|---|---|
+| **9** — `feesPerShare` can never be non-zero | 🔴 **SAME DEFECT** | `BtcLib.rebalanceBody` assigns `spotPrice`, `loPrice`, `upPrice`, `myLiquidity`, `anchorPrice` — **and no fee field**, so `Vault.sol:151`'s `feesPerShare += o.feesPerShareInc; USD_FEES += o.usdFeesInc;` is `+= 0` twice over. `Vault.creditFee:101` passes a literal `0` for the token leg, exactly as `Quid` does. ⇒ **`feesPerShare` is structurally zero on BOTH instances**; on BTC, `USD_FEES` is fed only by `creditFee` |
+| **10** — the venue-fee ratchet | ✅ **DOES NOT EXIST THERE** | `venueFeesPerShare` and `venueBm` have **zero occurrences** in `Vault.sol` and `BtcLib.sol`. The ratchet is ETH-venue-only, so its blast radius is one instance |
+| **11** — `usd_owed` deleted unpaid | ✅ **THE BTC LEG DOES IT RIGHT** | `resizeBtcLpTail:83` calls `settleBtcLp(LP, **a.lpEth**, quid, …)` — `payTo` is the LP, **non-zero** — *before* `delete autoManaged[a.lpEth]` at `:103`. So `settleBtcLp` takes the `payTo != address(0)` branch: `usdR += LP.usd_owed; LP.usd_owed = 0; IBasket(quid).mint(payTo, …)`. **The claim is PAID** |
+
+⭐ **THAT LAST ROW IS THE STRONGEST EVIDENCE BREAK 11 IS A DEFECT AND NOT A DESIGN CHOICE.** The BTC
+range, doing the same job through the same `Types.Deposit`, **settles-and-pays inside the shared callee,
+before the delete — which is exactly the root fix rule 17 prescribes for the ETH side.** ⇒ **the two
+instances disagree, and the BTC one is correct.** The fix is not a design decision anyone has to make;
+it is **copying the shape that already exists one file over**, and it deletes `Quid:399`'s call-site
+copy rather than adding a second.
+
+⚠️ **AND I NEARLY BOOKED THE BTC LEG AS BROKEN TOO — the near-miss is the reusable part.** I read
+`resizeBtcLpTail` from `:90`, saw `delete autoManaged[a.lpEth]` with no settle anywhere in view, and was
+composing the finding. **The settle is at `:83`, seven lines above the window I had read.** ⇒ **READ THE
+WHOLE FUNCTION, NOT THE WINDOW AROUND THE SYMBOL YOU GREPPED.** Same class as this repo's *"read the
+docblock, not the diff"* — a grep centres you on the symbol, and the discipline that governs it is
+usually **above** the centre. **A finding derived from a window is unverified until the window is the
+function.**
+
 ### ✅ AND ONE BOUND THAT IS FINE, checked so the absence is not read as unexamined
 `LevVenueBase._unitSlice(u, tot, bal) = fullMulDiv(u, bal + 1, tot + 1e6)` floors, and `_unitsFor` floors
 on the way in — so **collateral rounds against the LP at both ends (conservative) and debt rounds in the
