@@ -510,6 +510,40 @@ volatile-leg fee inflation in `POOLED_USD` propagates into `basketUsd` at the ne
 and not who DERIVES it. **Grep the assignments, not just the mentions**, and this repo has a rule for
 it: *when two identities separate, grep the ASSIGNMENTS.*
 
+### 🔴🔴🔴 BREAK 7: **ONE STALE ORACLE, THREE SURFACES — AND THE EXIT DOOR IS THE CHEAPEST TO ATTACK**
+Every one of these reads the same `AUX.assetPrice(...)`:
+| surface | site | what staleness does |
+|---|---|---|
+| **swap pricing** | `Core.swap:176` | the arb measured at §0a-bis. Needs a second venue to close the loop |
+| 🔴 **LP EXIT valuation** | `Quid._pricingBacking:702` via `_wethTwap` | **needs no second venue at all** |
+| **hedge sizing** | `LevBase:37/171/220/225/245` | the borrow is sized off a stale price, so the hedge is systematically mis-sized in the direction the market has already moved |
+
+**THE EXIT ATTACK, and it is cheaper than the swap one.** An LP's claim is
+`rangeETH + (usd6 − base6)·1e12 / px`. The USD surplus is converted to the asset **at `px`** — so a
+**LOW** `px` hands the exiter **MORE** of the asset.
+> ETH really rises. Chainlink has not updated, so `px` is stale-low. An LP exits: their USD leg
+> converts at the stale-low price, they take more ETH than their share is worth, **and the remaining
+> LPs fund it.**
+
+⭐ **WHY IT IS WORSE THAN THE SWAP ARB DESPITE BEING SMALLER PER EVENT:** the swap arb must sell the
+asset somewhere else to realise the gain — they carry execution risk and pay a second venue's costs.
+**The exiting LP does not. They just leave.** No counter-leg, no slippage elsewhere, no inventory risk.
+⚠️ **AND IT COMPOUNDS WITH §E313 AT THE SAME DOOR.** The first-out advantage (measured 15.2 bps) and
+the stale-conversion advantage are **independent and additive**, and both are collected by being early.
+⇒ **exit ordering is not one problem with two descriptions; it is two problems sharing a door.**
+
+📌 **THE FRAMING THAT MATTERS MORE THAN ANY SINGLE BREAK:** the staleness is not "a swap-pricing
+issue." **It is one defect reaching three surfaces**, and the remedies proposed so far only address the
+first. A fresh price (§0a-quinquies) fixes **all three at once**, which is a second and independent
+argument for it — it is the only remedy in this document with that property.
+
+### ✅ AND ONE ATTACK THAT FAILED, recorded because a clean result is evidence too
+I expected the classic accumulator theft: deposit just before a fee event, withdraw after, capture
+fees you did not earn. **Defended.** `feesPerShare`/`USD_FEES` are per-share accumulators and
+`QuidLib._refreshBookmarks` → `SwapLib.refreshBookmarks(LP, weight, feesPerShare, usdFees)` checkpoints
+the depositor at entry, with a separate `venueBm` bookmark for the venue leg. **A joiner is owed
+nothing retroactively.** ⇒ the mechanism is correct and the attack is unconstructible.
+
 ### ⚠️ AND A NOTE ON WHAT I HAVE NOT BROKEN, so the absence is not read as endorsement
 I have not been able to break: §7c's argument that a pro-rata claim cannot be short (it is arithmetic);
 §12's finding that collateral is weETH/WBTC only (read from the deploy); §NO-GAMEABLE-BOUND's two
