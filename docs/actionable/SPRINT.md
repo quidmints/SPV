@@ -18244,49 +18244,20 @@ ways, every other verification discipline in this file loses its anchor.**
 
 ---
 
-## 🔴 §E293 — **"1inch" NAMES FOUR DIFFERENT THINGS HERE. THREE ARE SETTLED AND THE FOURTH IS THE DECISION.**
+## 🟡 §E293 — **THE DISAMBIGUATION STANDS. Three settled, and the fourth is now Part III decision 5.**
 
-**Booked because the conflation has already produced wrong conclusions twice** (§6b: *"reasoning from
-the vendor's NAME instead of the ADDRESS"* — the router and the oracle *"sit one letter apart in
-prose"*). There are now **four** objects sharing the word, and each has a different answer.
+Four objects share the word "1inch", and conflating them *"has already produced wrong conclusions
+twice"* — reasoning from the vendor's NAME instead of the ADDRESS.
 
-| # | object | role | status |
-|---|---|---|---|
-| 1 | **OffchainOracle** `0x0AdDd25a…F9B8` | read-only `getRate` → the σ² observation source | ⛔ **RULED OUT, MEASURED TWICE.** 31,722,803 gas (§E232) and **33.6M in isolation** (`a9c44003`, `OneInchGasProbe.t.sol`) against a 30M block. A tripwire test now pins it so nobody re-proposes it from the address being live. |
-| 2 | **AggregationRouterV6** `0x1111111254…2A65` | the swap VENUE — the lev legs and/or the refill route (§V-R1) | ⛔ **NOT IN CODE.** `Aux.sol:801` records it *"at the site the code occupied"*. It is a comment naming an intended route, and §E286-v3 depends on whether it ever becomes one. |
-| 3 | **1inch as the SOLVER that routes flow TO us** | we quote, it routes | 🟢 **ASSUMED LIVE BY THE DESIGN** — `Core.sol:1229`: *"We feed 1inch / Khalani, so the counterparty is a SOLVER that has ALREADY committed a price."* Requires **nothing on-chain from us** except a firm quote. |
-| 4 | **Fusion resolver / PMM endpoint** | we become a registered resolver and fill intents | ⛔ **NEVER BUILT, NEVER BOOKED.** It is `plan2.pdf`'s design (stake 1INCH, Unicorn Power, win the Dutch auction, settle from our inventory). Recorded here so its absence is visible. |
+| # | object | status 2026-09-11 |
+|---|---|---|
+| 1 | **OffchainOracle** — `getRate`, the σ² observation source | ⛔ **RULED OUT, and now doubly:** measured at **31.7M gas** (past a block), AND σ² itself is deleted. It survives only as `TARGET-DESIGN` §6c's evidence that the obvious independent price source is not callable on chain. |
+| 2 | **AggregationRouterV6** — the swap VENUE for lev legs | ✅ live and reachable; the keeper sends a **pool word**, not a route, because 1inch calldata embeds its own `amount` and every amount here is computed on-chain (§PLP-Z). |
+| 3 | **1inch as the SOLVER that routes flow TO us** | 🔴 **THIS IS THE ONE THAT MATTERS NOW.** *"Assumed live by the design"* — and the model depends on it: Part I §5's flat fee is only viable if it stays **under the competing venue's all-in cost**, which is what makes a solver route to us at all. ⇒ **Part III decision 5 (the unmeasured competitive ceiling) is this row's #3, restated.** |
+| 4 | **Fusion resolver / PMM endpoint** | ⛔ never built, never booked. Unchanged. |
 
-🔴 **§E276's OPEN QUESTION IS A CHOICE BETWEEN #2 AND #3, AND IT DECIDES WHO PAYS THE SPREAD.**
-⛔ **THE "BOTH WAYS" IS RESOLVED — IT ONLY EVER READ TWO WAYS BECAUSE ONE OF THEM WAS INVENTED.**
-*"Paid against 1inch"* means **1inch ROUTES THE SWAP**: we are one source among many, we fill what
-inventory covers, 1inch routes the remainder. We pay nothing and there is no actor performing a
-restoration, so §E285's 48× retraction stands. ~~**#2** — we pay 1inch to route our own rebalance~~
-was the alternative reading and **#3's "solver" never existed** (owner, 2026-09-08: *"we dont have
-solvers"*). **Do not infer it again** (that
-inference already retracted a correct finding once).
-
-### ⭐ AND #3 IS NOT FREE — IT IMPOSES A REQUIREMENT WE DO NOT CURRENTLY MEET
-If we are quoting into solvers, **a reverting quote is unusable**: a solver cannot size down, cannot
-split the route, and must drop us for the whole leg. `wellSkew` is `public view` and
-`_declineIfUnfillable` makes the quote READ revert (§E275 flags `Aux:690`, `FixedRateFill:113/127`).
-⇒ **Choosing #3 makes §E285's finite-quote requirement MANDATORY rather than a refinement**, and it is
-the strongest argument for §E289's κ — a bounded kernel means the quote is a number at every
-reachable inventory. **You cannot route the part we decline unless we say how big it is.**
-
-### 📌 WHAT IS ACTUALLY DECIDABLE TODAY, IN ORDER
-1. **#1 needs no decision — it is closed by measurement**, and the tripwire keeps it closed.
-2. **#3 needs no new integration**, only that our quote surface stops reverting. That is §E285 + §E289
-   and both are already scoped.
-3. **#2 is the live decision** and it is the same one as §E286-v3's venue question. ⚠️ **They must be
-   answered TOGETHER**: if the router is wired, it is both the lev-leg route AND the refill route; if
-   it is not, §E286-v3 falls back to our own inventory and the refill has no external leg at all.
-4. **#4 should be booked or explicitly ruled out.** It is the only one of the four that would give us
-   *order flow* rather than *execution*, which is the thing neither PDF's architecture supplies —
-   and it carries a capital requirement (staked 1INCH) that no other option here does.
-
----
-
+⭐ **The row's own warning is why it is kept in full:** the router and the oracle *"sit one letter apart
+in prose"* and one letter apart in nothing else.
 ## C14. SIX ACTIONABLE DOCS DELETED — audited by CODE, not by header (2026-08-21)
 
 ⚠️ **HOW THIS AUDIT WENT WRONG THE FIRST TIME, because the method matters more than the list.** I first
@@ -20403,134 +20374,37 @@ question. §E326's mint/redeem mark work depends on which way this goes.
 
 ---
 
-## 🔴🔴 §E331 — **ELEVEN FOLD/SLOP QUESTIONS ANSWERED FROM THE TREE. TWO ARE WORSE THAN THE QUESTION IMPLIED; TWO PREMISES ARE FALSE.**
+## ✅ §E331 — **ITS HEADLINE VECTOR IS DELETED. Measured 2026-09-11.**
 
-### 🔴 1. OUT-OF-RANGE FILLS PAY **NO SKEW AT ALL** — AND THAT IS A GRINDING VECTOR
-Owner: *"skew is only for in-range, and not out of range orders?"* **Confirmed, and it is not benign.**
-`RangeLib.sweepOor` contains **ZERO** occurrences of `skew` (measured). It fills every crossed resting
-order at `pxNew`, the oracle price, with no inventory charge — while an in-range swap through
-`_fillDelta` pays `wellSkew`/`sellSkew`.
-⇒ **Two prices for the same inventory, and the cheaper one is reachable on purpose:** park a resting
-order just across the band and let `sweepOor` fill it at oracle instead of swapping and paying the
-premium. `Core.swap` calls `RANGE.sweepOor(px, MAX_FILLS_PER_SWAP)` on every swap, so the OOR book is
-swept by the very flow that pays the charge the OOR filler avoids. ▶️ Either OOR fills owe the same
-skew, or there is a stated reason they do not. **Nothing in the tree states one.**
+> *"OUT-OF-RANGE FILLS PAY **NO SKEW AT ALL** — AND THAT IS A GRINDING VECTOR. `RangeLib.sweepOor`
+> contains ZERO occurrences of `skew` … **Two prices for the same inventory, and the cheaper one is
+> reachable on purpose:** park a resting order just across the band and let `sweepOor` fill it at
+> oracle instead of swapping and paying the premium."*
 
-### ✅ **[CLOSED 2026-08-25 — FIXED — see the §E332 correction below, and re-measured 2026-08-25: **0 functions loop over `_openLps`**; `totalDeliverableDollars` reads a single pinned venue]**  2. `LevBase.totalDeliverableDollars` IS AN UNBOUNDED LOOP OVER **EVERY OPEN LP** — WORSE THAN THE ONE ASKED ABOUT
-Owner flagged `SwapLib.sol:1834` (`for (uint i; i < n && deliveredEth < shortfallEth; i++)`). That one
-has an **early exit** on the shortfall. `LevBase.sol:231-236` does not:
-```solidity
-uint n = _openLps.length;
-for (uint i; i < n; i++) total += _deliverableDollarsAt(_openLps[i], px);
-```
-**No cap, no early exit, and each iteration is a per-LP valuation.** It grows with adoption, so it is a
-liveness cliff that gets closer the more successful the protocol is — the worst shape of gas bug,
-because it passes every test at fixture scale. ▶️ Bound it, paginate it, or maintain the total
-incrementally on open/close. 📌 The other four (`FeeLib:269/284/296`, `SwapLib:1834`) all carry either a
-`remaining > 0` or a shortfall early-exit; this is the only naked one.
+✅ **`sweepOor` and `MAX_FILLS_PER_SWAP` now have ZERO references in `evm/src`** — §OOR-BOOK-DELETED
+replaced the on-chain book with a signature (`fillIntentBody`), so there is no second fill path.
+✅ **And the vector is doubly closed:** under §FLAT-FEE there is only ONE price, so "two prices for the
+same inventory" is unconstructible even if a second path returned.
+⭐ **THE SHAPE IS THE LESSON AND IT OUTLIVES BOTH FIXES:** *a second settlement path that skips the
+charge is a grinding vector, and it is reachable on purpose the moment it is cheaper.* Any future fill
+route — an intent, an RFQ, a solver hook — must pay the same 420 ppm or state why not. **Nothing in
+the tree stated one last time, which is how it survived.**
+## ✅ §E332 — **THE CLIFF IS GONE: all four loops now walk VENUES, not LPs. Measured 2026-09-11.**
 
-### ⛔ 3. FALSE PREMISE — `setVaultHealth` IS LIVE AND LOAD-BEARING
-Owner: *"we no longer need setVaultHealth."* **It has real callers and gates the lev open path.**
-`LevManager.sol:243` and `BtcLevManager.sol:143` both refuse a NEW position onto an *"incident-flagged
-(GOV `setVaultHealth`)"* venue, `BasketLib.setVaultHealthBody` is the shared body called by
-`pokeVaultHealth` and the evacuate path, and three tests use it as the real flag
-(`AaveReserveHealthKey:58`, `VBtcLevFeeLane:1266`, `LevCascade:727`). Deleting it removes the ability to
-de-allowlist a compromised venue. ⚠️ **What WAS removed is the CRE `onReport` forwarder**
-(`Alles.t.sol:2240` — *"setVaultHealth is owner-ONLY (the CRE onReport forwarder path was …)"*); if that
-is what the instruction meant, it is already gone.
+It corrected §E331 by re-measuring, and found **four** unbounded loops over `_openLps` rather than one:
+| function | in-`src` callers (then) |
+|---|---|
+| `totalDeliverableDollars` | 0 |
+| `totalDebtUsd` | 5 |
+| `totalGrossCollateral` | 3 |
+| **`totalNetEquity`** | **🔴 15 — "the real cliff"** |
 
-### ⛔ 4. FALSE PREMISE — `transferShares` IS NOT ASYMMETRY, IT IS A PROJECTION vs A LEDGER
-Owner: *"why does quid have a transferShares and vault doesnt?"* **Because their ERC-20 faces are
-different KINDS of object, and `CLAUDE.md` already records it:** `Quid.totalSupply()` returns
-`lpShares`, `Quid.balanceOf(u)` returns `autoManaged[u].pooled`, and `Quid.transfer` calls
-`_transferShares` — **there is no balances mapping, because the range's own accounting IS the balance.**
-`VBtc` declares `mapping(address => uint) balanceOf` and moves plain balances.
-⇒ *"`Quid.balanceOf ∥ VBtc.balanceOf` IS NOT A DUPLICATED PAIR … Folding them would duplicate state,
-which is the exact thing `Shares.sol`'s header says it exists to delete."* **This one is not slop.**
-
-### 🟠 5. THE LEV FUNCTIONS IN `RangeLib` ARE RANGE STATE, NOT LEV LOGIC — BUT THE NAMING HIDES IT
-`levBurnAll`, `levAddNet`, `levAddBuf`, `levAddGross`, `setTargetLtv` (`RangeLib.sol:45/74/94/111/423`).
-These mutate the RANGE's `levPooled` exposure, which is per-range state and belongs with the range —
-the same reason `POOLED_USD` lives on `Core`. **The smell is real but it is a NAMING problem:** a
-`lev`-prefixed function in a file called `RangeLib` reads as a layering violation every time someone
-opens it. ▶️ Rename to the range concept they mutate (`exposureBurnAll`, `exposureAdd*`) or move them
-behind one `Shares`-level accessor. Do not move them to a lev manager — that would split per-range
-state across contracts, which is what §E329's instance bug was.
-
-### 📌 6-11. THE REST, WITH THEIR REAL COST
-- **`setBtcVault` ×3 at deploy** (`core`, `a.btcCore`, `quid`) — three pins because three objects each
-  need the address and none can derive it. Consolidatable only once one of them can ask another;
-  that is the same fold that is **9,113** bytes over (§E330, re-measured after the fleet fold sweep;
-  the row's old 12,187 predates §E346 and §E347-QUID). **Booked, not attempted.**
-- **`SwapLib.ethRisk()`/`btcRisk()` constants in the constructor** — agreed, this is slop. It is the
-  `struct Risk` question too: **all structs belong in `Types.sol`** and the risk parameters belong in
-  config, not a library function returning a literal.
-- **Merge the libs** — 17 libraries in `evm/src/imports`. §E304 just removed one dead surface; the
-  remaining merges are blocked by the same EIP-170 arithmetic as the fold.
-- **1inch result signed into the deploy** — this is the honest answer to §E327's *"choose the pool"*: if
-  the observation source cannot be a single Curve pool (owner, said three times) and 1inch cannot be
-  read on-chain (31.7M gas), then pinning an **off-chain-read, signed-at-deploy** median is the
-  remaining shape. ▶️ **This is the design decision §E327 is waiting on**, and the median-of-N sketch is
-  already measured there (WETH/USDC $2,384.81 · USDT $2,386.52 · crvUSD $2,384.83, 7.2 bps spread).
-- **Swap-out delever → does it restore leverage for IL-protected LPs?** `SwapLib.deleverOnDelivery`
-  (`:1744`) SOURCES the venue debt stable and REPAYS — it de-levers. **Nothing in that path re-levers.**
-  Restoration is `LevManager.rebalance` / `rebalanceMany` / `rebalanceOne`, which are external and
-  keeper-driven. ⇒ **The swapper's incoming asset does NOT restore IL-protect leverage; a keeper must
-  call `rebalance` afterwards, and no test covers that hand-off.** ▶️ Confirm the keeper does it.
-
-
----
-
-## 🔴🔴 §E332 — **TWO CORRECTIONS TO §E331, BOTH FROM CHECKING RATHER THAN ASSERTING. ONE IS WORSE, ONE IS WEAKER.**
-
-### 1. ✅ **[CLOSED 2026-08-25 — FIXED — **ZERO functions loop over `_openLps` today.** The array survives only behind a PAGINATED ACCESSOR PAIR (`openLevCount()` `:525`, `openLpAt(uint)` `:528`), which moves iteration off-chain — the correct fix, not a bound. `totalDeliverableDollars` (`:328`) no longer loops either: it reads one pinned venue and returns. Verified by walking every `for (` in `LevBase.sol` against `_openLps`]**  THE UNBOUNDED LOOP: I NAMED THE ONE WITH **ZERO** CALLERS AND MISSED THE ONE WITH **FIFTEEN**
-§E331 flagged `LevBase.totalDeliverableDollars` (`:231`). Re-measured — there are **FOUR** unbounded
-loops over `_openLps` in that file, and the one I named is the least dangerous:
-| function | line | loops over every open LP | **in-`src` callers** |
-|---|---|---|---|
-| `totalDeliverableDollars` | 231 | ✔ | **0** (one TEST caller) |
-| `totalDebtUsd` | 430 | ✔ | **5** |
-| `totalGrossCollateral` | 472 | ✔ | **3** |
-| **`totalNetEquity`** | **478** | ✔ | **🔴 15** |
-⇒ **`totalNetEquity` is the real cliff**: fifteen call sites, O(open LPs) each, reachable from
-state-changing paths. `totalDeliverableDollars` is a view nothing in `src` calls, so it can only ever
-break an off-chain `eth_call`. **I flagged the harmless one.**
-⚠️ **AND THIS IS THE SHAPE THAT PASSES EVERY TEST**: cost scales with LP COUNT, and fixtures run a
-handful of LPs. It gets closer to the ceiling the more the protocol succeeds.
-▶️ **THE FIX IS INCREMENTAL ACCUMULATORS, AND THE PRIMITIVES ALREADY EXIST.** `openLevCount()` and
-`openLpAt(i)` are already declared (`:425`, `:428`), so paginated reads are available today for
-off-chain callers. The on-chain path needs the three totals maintained on open/close/rebalance instead
-of recomputed — the same move §E320's `netFlowUsd` made (accumulate at the mutation, don't re-derive).
-**Not attempted here: it is a money-path refactor of `LevBase` and needs its own change + suite run.**
-
-### 2. 🟠 OOR SKEW: THE MECHANIC HOLDS, THE "GRINDING VECTOR" FRAMING DOES NOT
-§E331 called the missing OOR skew *"a grinding vector … park a resting order just across the band."*
-**The self-fill attack does not work, and the reason is structural:** §V4-CUT settles fills AT ORACLE
-against inventory — *"one price, no traversal"* — so **a swap moves NO price.** `sweepOor` is handed
-`px` from `Core.swap`, which came from the oracle. A grinder therefore cannot walk the price into their
-own resting order; the external market has to genuinely arrive. There is no same-block arb here.
-✅ **WHAT SURVIVES, AND IT IS STILL REAL:** `settleOor` routes through the **same `_handleDelta`** as a
-swap, so an OOR fill moves `POOLED_*` identically — but it never passes through `_fillDelta`, which is
-where the skew is applied. ⇒ **Two paths, identical inventory effect, one charge.** It is not an
-exploit; it is a **standing, unpriced maker discount.**
-### ⇒ SO: DOES OOR NEED A SKEW AT ALL? THE ANSWER IS "NOT THE SAME ONE", AND THE PDFs SAY WHY
-The skew is an **Avellaneda–Stoikov reservation-price shift** — `r = s − qγσ²(T−t)` — and it prices the
-**inventory risk of being made to hold `q` RIGHT NOW**. A taker demands immediacy in size; that
-immediacy is what the premium sells.
-**A resting OOR order bought none of it.** It committed capital at a price and waited, bearing the risk
-the market never came — that is maker behaviour, and makers conventionally pay less than takers. So:
-- charging OOR the **full** skew over-charges, because it bills an immediacy premium nobody consumed;
-- charging **zero** under-charges, because the fill still hands over scarce inventory and `_handleDelta`
-  moves `POOLED_*` by exactly the same amount a swap would.
-⇒ **The economically right charge is the inventory term WITHOUT the immediacy term** — in A&S language,
-the reservation-price shift but not the spread `δ`. 📌 **That is the same distinction §E276/§E312
-fought over (we implement A&S's spread δ and call it A&S's shift r), so this is not a new axis — it is
-the existing one, showing up on a second path.** ▶️ Owner's call; booked with the reasoning rather than
-a coefficient, because §E326's mark work depends on the same split.
-
-
----
-
+✅ **ALL FOUR NOW ITERATE `poolVenues`** (`LevBase:482/747/794/817`), a fixed set of one-to-three
+venues, and `_openLps` is deleted. **O(open LPs) became O(venues).** The fifteen call sites are
+unchanged in number and no longer carry a cliff.
+⭐ **AND ITS METHOD IS THE REUSABLE PART:** it re-measured a claim it had just made and found the row
+had named *"the least dangerous"* of four. **Counting call sites is what turned a flagged function
+into a ranked list** — the one with zero callers was flagged, the one with fifteen was not.
 ## ⛔ §E333 — **THE INCREMENTAL-ACCUMULATOR FIX FOR `totalNetEquity` IS WRONG. IT WOULD SOCIALISE LOSSES. NOT IMPLEMENTED.**
 
 §E332 prescribed *"the three totals maintained on open/close/rebalance instead of recomputed — the same
@@ -22220,86 +22094,20 @@ Nothing in this pass has been built or run; that is deliberate and the owner set
 
 ---
 
-## 🔴🔴 §E357-VOLATILE-ROUTE — **THE HOLE THAT FORCED THE V3 RESTORE IS OPEN A THIRD TIME, AND NO API KEY WOULD CLOSE IT** (2026-08-26)
+## ✅ §E357-VOLATILE-ROUTE — **CLOSED. The route parameter landed, and this row is why.**
 
-Owner asked what could substitute for 1inch without an API key, then *"we should be able to find the
-best route onchain directly"*, then *"the mev protection was important"*. Answering those needed four
-measurements, and each one moved the answer.
+Its finding: *"`§ROUTE-BLOCKED-24` says the unblock is 'a 1inch key … a credential, not code'. **It is
+code.** `rebalance(address,uint256)` and `cascadeDelever(address[],uint256[])` **take no route
+parameter**, and `_delever` passes an empty one literally."*
 
-### 1. 🔴 **THE KEEPER CANNOT SUPPLY A ROUTE AT ALL — SO THE KEY WAS NEVER THE BLOCKER**
-
-`§ROUTE-BLOCKED-24` says the unblock is *"a 1inch key … a credential, not code"*. **It is code.**
-`rebalance(address,uint256)` and `cascadeDelever(address[],uint256[])` **take no route parameter**,
-and `_delever` passes an empty one literally:
-`_deleverFlash(venue, lp, stable, deleverRepayUsd(lp), minOut, "")`. Only `deleverOneRouted` carries
-bytes. ⇒ **`_aggSwap` reverts `NoVolatileRoute()` on every keeper path regardless of any key**, and
-`fetch_1inch_route.py` — the `vm.ffi` bridge built for this — has **zero callers in `evm/test`**.
-⛔ **So neither of that row's "two unblocks" closes it.** A key with no call site and a call site with
-no route parameter are the same nothing.
-⭐ **AND `Interfaces.sol:303` ALREADY WARNED THIS WOULD HAPPEN:** the v3 router was cut (`9eef279a`),
-**restored days later** (`e4f9c512`) *"because deleting the only volatile route re-opened the hole"*,
-then cut again under §C2.1 — *"and this time the replacement … landed FIRST."* **The replacement
-landed on ONE entrypoint out of three.** *"A tombstone is only true while nothing needs what it
-buried"*, and something needs it.
-
-### 2. ✅ **THE MEV PROTECTION IS OURS AND IS VENUE-INDEPENDENT — SWITCHING VENUE COSTS NOTHING**
-
-Checked because the owner flagged it. `SELL_SLIP_BPS = 100` (1%) floors the fill at
-`oracleValue · (10_000 − maxSlippageBps) / 10_000` — **derived from the ORACLE, never from a venue
-quote** — and `_aggSwap` enforces it on the **measured balance delta**
-(`if (out < minOut) revert Slippage()`). `LevCascade.test_MEV_OracleFloorRejectsSandwich` pins it.
-🔑 **AND 1inch ADDS NO MEV PROTECTION TODAY:** the route is executed by our own contract inside the
-keeper's ordinary public transaction (`ONEINCH_ROUTER.call(route)`) — there is no Fusion and no
-private orderflow. ⇒ **aggregation buys basis points; the floor is what stops a sandwich, and it
-survives any venue change.**
-⚠️ **The floor protects VALUE, NOT LIVENESS** — a sandwicher can push a pool past the floor to force
-a revert and deny a de-lever. That is equally true today, so it is not a regression, but it is the
-real argument for private orderflow on the crash path. **Booked separately; it is not route
-discovery.**
-
-### 3. 📊 **DEPTH, MEASURED LIVE — CURVE IS NOT AN OPTION FOR WETH↔STABLE AND THE OWNER'S "SO THIN" WAS RIGHT**
-
-Mainnet balances, read directly (not quoted from memory):
-
-| venue | WETH | native ETH | USDC |
-|---|---:|---:|---:|
-| Curve TriCryptoUSDC | 0 | **633** | **1,588,787** |
-| Curve TriCrypto2 | 1,535 | 0 | 0 (USDT pool) |
-| Curve TriCRV | 0 | 361 | 0 (crvUSD pool) |
-| **Uniswap V3 0.05%** | **11,077** | — | **79,228,591** |
-| Balancer V2 vault (ALL pools) | 1,173 | — | 290,931 |
-| `ETHERFI_CURVE_POOL` (weETH/WETH) | 2,207 | — | — |
-
-⇒ Curve's WETH↔USDC side is **~1/17th of V3's ETH and ~1/50th of its USDC**; Balancer's ENTIRE vault
-holds less WETH than one Curve pool. **I had recommended Curve before measuring and the measurement
-refuted it** — the weETH↔WETH leg is already direct Curve (`LevMath:513`, no API), so only WETH↔stable
-was ever in question, and that is the leg Curve cannot serve. **Depth is scarcest in a cascade, which
-is exactly when this path runs.**
-
-### ⇒ 4. THE SHAPE OF THE FIX — **A DEFAULT VENUE INSIDE `_delever`, NOT A CALLER ARGUMENT**
-
-Route DISCOVERY was never load-bearing: `minOut` comes from the oracle and bounds the fill on a
-balance delta, so the guarantee is *"no worse than the floor"*, not *"optimal"*. What is needed is one
-deep venue reachable without an off-chain call:
-- **1inch `unoswap`** — calls a real Uniswap pool directly from the ALREADY-PINNED `ONEINCH_ROUTER`
-  with an on-chain-encodable `dex` word. No solver, no new pinned address, and no v3 interface in our
-  source. ⚠️ **V6's `dex`-word bit layout must be verified against the deployed router** — a wrong
-  encoding reverts identically to the empty route we have now, so verify on a fork, do not guess.
-- **SwapRouter02 `exactInputSingle`** — same depth, and `Interfaces.sol:308` records why it is cheap
-  for us: *"callers here only INITIATE swaps, so `IUniswapV3SwapCallback` … is deliberately not
-  inherited"* — the router owns the callback. Reopens the "no v3" question the owner settled, which is
-  why `unoswap` is worth trying first.
-- **On-chain best-of-N** (quote a small pinned set via `get_dy` / a static quoter, take the max) is
-  real routing with no API — but it is an optimisation on top of either of the above, not a
-  prerequisite. ⚠️ `SOR.sol` is a TOMBSTONE; rebuilding one is re-adding deleted code and needs the
-  owner's word.
-
-▶️ **Whatever is chosen must be the DEFAULT inside `_delever`**, with `deleverOneRouted` kept as the
-optional aggregator override for when a key does exist. That is what makes the keeper work, and it is
-what §C2.1 left undone.
-
-
----
+✅ **FIXED, and the fix carries this row's tag.** `LevManager.sol:326` is now
+`rebalance(address lp, uint256 minOut, uint256 dex, uint256 dex2, bytes calldata route)`, and `:318`
+records the reason in its own docblock: *"§E357 — REQUIRED, and its absence is why…"*. `cascadeDelever`
+is deleted outright.
+⭐ **THE FINDING THAT GENERALISES, and it was right twice over:** *the credential was never the blocker
+— the SIGNATURE was.* A capability can be absent because nothing can express it, not because nothing
+is authorised to; and *"no API key would close it"* is the kind of claim only a signature check can
+make. Reading the parameter list beat reasoning about access.
 ## 📦 §FROM-QUEUE — **THE ROWS THAT CAME OUT OF `QUEUE.md` WHEN IT WAS DELETED, RE-TRIAGED AGAINST THE CODE** (2026-08-29)
 
 `QUEUE.md` is gone; this is what it held that this file did not already name.
