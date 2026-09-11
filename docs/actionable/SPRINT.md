@@ -329,8 +329,34 @@ Each was carried as open, some in red, some for weeks.
    CORRECT — that path never advertises over the wire, because the fleet holds both halves. Deleting
    the tag without reading them could strip the argument for why the deadman domain is separate.
 
-**14. `§MIN-CHARGE-MISSES-THE-SWAP-IN-RAIL`** — the BTC swap-IN is the **refill direction** and misses
-   all four skew sites, so the owner's minimum charge never reaches it.
+**14. 🔴 `§MIN-CHARGE-MISSES-THE-SWAP-IN-RAIL`** — ✅ **CONFIRMED AGAINST CODE 2026-09-11, AND IT IS A
+   SECURITY FINDING, NOT A REVENUE ONE. THE ROW UNDERSTATES IT.**
+   **Measured — the two BTC rails are SIBLINGS and only one charges:**
+   · `creditSwapOutBody` → `_swapOutPrep` → `retainSkewPremium(core, sr, wellSkew(core, basePrice,
+     amount), false)` — **pays `MIN_SWAP_SKEW_WAD` = 4.2e14 wad = 420 ppm.**
+   · `creditSwapInBody` → `_swapInSettle` → `BasketLib.routeSwap` — **no `wellSkew`, no `sellSkew`, no
+     `retainSkewPremium`. Zero.** (The user swap path charges at `SwapLib.sol:240-241`; the swap-in
+     path does not reach it.)
+   **Both fill at the SAME oracle:** `_priceOr(priceHint, aux, wbtc)` → `getTWAPforAsset(asset, 1800)`
+   when there is no repack hint. ⇒ **the BTC swap-IN is a FREE OPTION against our own 30-minute-stale
+   TWAP.** If BTC moves inside the window, a seller swaps sats in at the stale favourable price and the
+   basket eats the difference; the identical trade in the other direction pays 420 ppm for exactly that
+   option. **The charge is not a fee here — it is the premium on an option the oracle grants, and on
+   this rail the option is given away.**
+   🔑 **THE ASYMMETRY IS THE EVIDENCE THAT THIS IS AN OMISSION, NOT A POLICY.** Same contract, same
+   file, same helper, same oracle, opposite directions — the §TWINS-THAT-DISAGREE shape, where one
+   sibling carries the guard. A deliberate "refills are free" policy would not leave the sibling
+   charging through a helper the other never calls.
+   ⏸️ **OWNER DECISION, because it changes money-path economics in the direction the protocol WANTS to
+   encourage.** The fix is one line — call `retainSkewPremium(…, wellSkew(…), …)` in `creditSwapInBody`
+   exactly as `_swapOutPrep` does. ▶️ **Recommendation: charge it.** "Refills are good" is an argument
+   for a LOWER premium, not a zero one; zero is not a discount, it is an unpriced option, and the
+   counterparty who takes it is by construction the one who knows the oracle is stale.
+   ⚠️ **AND THE 420 ppm ITSELF IS UNMEASURED AGAINST THAT WINDOW** — project-a1 is measuring exactly
+   that on the ETH side (adverse selection vs `TWAP_WINDOW_SECS = 1800`). **Do not read "charge 420
+   ppm" as "correctly priced"**; it is "priced at all", which is the difference between this rail and
+   its sibling. Whatever number that measurement produces lands here too — `Core.swap` reads the same
+   1800 (`AUX.getTWAPforAsset(ASSET, 1800)`).
 
 ### TIER 2 — RESOLVED BY THE MODEL, once item 0 lands.
 **15. 🔴 `§T9` + the delivery rework — ONE CHANGE** (`§BTC-2.1` + `§BTC-2.5c`; `§BTC-2.2` and `§BTC-1`
