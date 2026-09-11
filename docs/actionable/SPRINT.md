@@ -11566,25 +11566,20 @@ building either first bakes the wrong assumption into the share maths.
 
 ---
 
-## 0-CRITICAL. ⏸️ §E257 — **NO LONGER SHIPPING: MOOT BY CONFIGURATION, AND STILL LATENT**
-⏸️ **RE-POINTED 2026-08-22 (§E303) — NOT CLOSED, DELIBERATELY.** The headline below is false today:
-`setObservationSource` has **zero call sites in `DeployLib`**, so the 33.6M read is never reached;
-every surviving `getRate` in `Core.sol` is a comment.
-⚠️ **DESTALED 2026-08-25 — THE SECOND HALF OF THAT SENTENCE IS NOW FALSE AND ITS OLD FORM READ AS A
-GUARANTEE.** It said `_observeIfSourced` *"returns at its `src == address(0)` guard"*. It no longer
-does: §OBSERVATION-SOURCE-UNSET (`fae2201a`) made the unset case FALL BACK to the Chainlink anchor and
-write an observation, because returning early meant the ring never fed itself and σ² stayed 0. **The
-gas protection is unchanged** (the fallback is `SwapLib.twapResolve`, not `getRate`), but *"nothing is
-pinned ⇒ nothing happens"* is no longer a true description of that function. 🔴 **But it returns the instant anyone pins 1inch, and §C1 is actively choosing a
-source** — so the protection is *"nothing is pinned"* plus `OneInchGasProbe.t.sol` as a tripwire, not
-a fix. **Rule 16: conditional on a choice not yet made ⇒ ⏸️, never ✅.**
-⭐ **THE PATH FORWARD IS NO LONGER THIS ROW'S.** The pull source stays unset; §E294's PUSH path is the
-live mechanism, its caller now exists (`script/PushObservation.s.sol`), and σ² has been measured
-moving **0 → 7.7e17** through it. ⛔ **Do not resurrect `curvePriceWad` on the strength of the text
-below** — a single Curve pool was pinned and then removed on the owner's instruction.
+## 0-CRITICAL. ✅ §E257 — **SUPERSEDED BY `TARGET-DESIGN` §6c, WHICH IS THE SAME FACT WITH THE STAKES RAISED**
 
-*(original finding follows — its gas measurement is still why 1inch cannot be a PULL source)*
-
+Its state was *"moot by configuration, and still latent"*: `setObservationSource` has zero call sites
+in `DeployLib`, so the 33.6M `getRate` read is never reached.
+✅ **Still exactly true, and now it is the LOAD-BEARING half of an owner decision rather than a latent
+footnote.** With σ² deleted, §E222's independent-source rule has exactly ONE consumer left — the
+`twapResolve` deviation guard — and the unset source means `Core._observeIfSourced` feeds the ring from
+the **Chainlink anchor**, so the guard compares Chainlink with Chainlink. **It fires on staleness and
+cannot fire on manipulation.**
+⇒ Full chain of evidence and the ruling needed: **`TARGET-DESIGN` Part III decision 1.**
+⭐ Its own destaling note is the lesson worth keeping: the row once said `_observeIfSourced` *"returns
+at its `src == address(0)` guard"*, and `fae2201a` changed that arm to FALL BACK and write an
+observation. **A row describing a guard is invalidated by a change to what the guard does, not only by
+the guard's removal.**
 ## ~~0-CRITICAL.~~ §E257 — `main` SHIPS A SWAP PATH THAT CANNOT FIT IN A BLOCK
 
 **Found 2026-08-17 while auditing the queue. It is one hour old, it is on `main`, and it is not mine
@@ -11802,17 +11797,22 @@ consumers use `plainNet(pooled, levPooled)`, which *subtracts*; none adds. Withd
 
 ---
 
-## 3. 🔴 §E244 — THE ATOMIC HEDGE'S REMAINING TESTS
+## 🔴 §E244 — **ITS PRESCRIBED FIX IS NOW UNBUILDABLE, AND WHAT REPLACED THE REVERT IS WORSE**
 
-`LevCascade`'s `NoVolatileRoute` failure is **gone** — the pinned pool restored the ETH hedge, and
-`VBtcLevFeeLane` is back to its 19/2 baseline with `testReal_WbtcLev_FoldUp_Then_FlashDelever`
-passing. What remains is the tests that assert on a *lever actually executing*.
+It asked for the lever tests to either wire a mock router or *"assert
+`vm.expectRevert(NoVolatileRoute.selector)` so they state the current truth"*, with the explicit
+warning that *"the unacceptable resolution is a tolerance that makes them pass (rule 4)."*
 
-▶️ Either wire a mock router, or assert `vm.expectRevert(NoVolatileRoute.selector)` so they state the
-current truth. ⚠️ **The unacceptable resolution is a tolerance that makes them pass** (rule 4).
-
----
-
+🔴 **`NoVolatileRoute` NO LONGER EXISTS AS A REVERT.** Measured 2026-09-11: 12 occurrences in
+`evm/src`, **all of them prose**, and **zero references in `evm/test`**. §SESS-91 deleted it —
+`routedSwap` now synthesises a zero route, so an empty one is **skipped inside `convertTo` and the call
+SUCCEEDS having moved nothing** (§EMPTY-ROUTE-IS-SILENT, recorded at `LevManager`'s `deleverOne`).
+⇒ **The second remedy cannot be written, and the first is now the ONLY one.**
+⚠️ **AND THE CHANGE MADE THE ORIGINAL PROBLEM WORSE, NOT BETTER.** A test that asserted the revert
+would at least have failed loudly when the behaviour changed. **A leg that silently succeeds having
+moved nothing is precisely the "plausible-but-wrong output" class** — the row's own rule-4 warning
+arriving through the fix rather than through a tolerance.
+▶️ **Live and re-pointed: wire the mock router.** There is no longer an assert-the-revert shortcut.
 ## 4. ✅ §E247 — THE ALLOWLIST DETECTION GAP — CLOSED 2026-08-18 (session `0131QZjc`, `70fa49cd`)
 
 `rebalanceWbtc` was **never** in `HOP_SIGNED_FN_SIGS`, and the enclave policy **fails closed** — so
@@ -11838,32 +11838,16 @@ listed. It also deleted a duplicate `settleSwapInBuffered` (already arriving via
 
 ---
 
-## 5. 🔴 §E249 — AUDIT THE OPEN/CLOSE ASYMMETRY *CLASS*
+## ✅ §E249 — **CLOSED. The class was audited and is clean on both remaining pairs.**
 
-`closeBtcLev` burned vBTC that was never minted and never returned the LP's WBTC, because
-`openBtcLev` **branches** on venue collateral and the close did not. Fixed.
-
-**The class is not audited.** Grep every other open/close pair for an **entry path that discriminates
-on venue collateral while its exit path does not**.
-✅ **AUDITED 2026-08-28 — THE CLASS IS CLEAN ON BOTH REMAINING PAIRS.** The asymmetry LOOKS present in
-the signatures and is not: `openLev(ILevVenue venue, …)` and `openBtcLev(uint, ILevVenue venue)` both
-take a venue while `closeLev(uint,uint)` and `closeBtcLev()` take none — **but both closes RECOVER it
-from stored position state rather than re-deriving or ignoring it**:
-`LevManager._closeLev:461-464` → `Types.Pos storage p = pos[lp]; ILevVenue venue = p.venue;
-venue.stable()`; `BtcLevManager.closeBtcLev:343-349` → `Types.Pos memory p = pos[lp];
-p.venue.debtOf(lp)`, `p.venue.collateralOf(lp)`, `p.venue.withdraw(lp, rem)`.
-⚠️ **SO THE SIGNATURE IS THE WRONG PLACE TO AUDIT THIS CLASS, WHICH IS THE REUSABLE PART.** A close
-that omits the venue parameter is not evidence of the defect — it is the normal shape, because the
-position remembers. The defect is a close that reads the venue and then takes a branch the open did
-not, or one that reads NO venue at all. Grep `pos[lp].venue` in the exit path, never the parameter
-list.
-
-⚠️ The reason it survived: the sole `closeBtcLev` test — added because that function *"had ZERO test
-callers"* — opens a **vBTC** position. **The branch that was broken is the branch the test does not
-take.** A function having "a test" is not coverage of its branches.
-
----
-
+`closeBtcLev` burned vBTC that was never minted and never returned the LP's WBTC, because `openBtcLev`
+**branches** on venue collateral and the close did not. Fixed, and then the *class* was audited:
+**every other open/close pair checked for an entry path that discriminates on venue collateral while
+its exit path does not.** Clean on both remaining pairs (2026-08-28).
+⭐ **THE METHOD IS THE KEEPER, AND IT GENERALISES BEYOND THIS PAIR:** a fix that repairs one instance
+is not finished until the *shape* has been grepped for. **Asymmetric branching between an entry and an
+exit is a defect class, not an incident** — and it is exactly the shape §E339's top-up landmine has
+(an `openPos` that overwrites where no close blends).
 ## 6. 🟡 THE MANAGER MERGE — REMAINING EXTRACTION
 
 🔴 **CORRECTION, ADDED 2026-08-17 AFTER RE-MEASURING — THIS SECTION AS FIRST WRITTEN MADE THE MERGE
@@ -11992,34 +11976,22 @@ lever measured to be large enough. So the sequence is **wire `Shares` → then f
 
 ---
 
-## 7. 🟡 §E242 — REMAINING DE-INLINING CANDIDATES
+## 🟡 §E242 — **THE RULE STANDS; ITS NUMBERS ARE STALE AGAIN AND MUST BE RE-MEASURED, NOT READ**
 
-An **internal-only** library is copied into every consumer; making it `external` deploys it once.
-`BitcoinTx` proved it: **−1,985 B across four consumers**, and `BTCChannels` went 144 → 815 bytes of
-headroom, moving the binding constraint to `Quid` (558). ⛔ **NO LONGER TRUE (2026-08-23): the fold sweep took `Quid` to 21,856 (2,720) and `BTCChannels` is now the binding contract at 1,163 — the constraint moved BACK. The `BitcoinTx` de-inlining result itself is unaffected; only where the pressure sits.**
+**The rule:** an `internal`-only library is copied into every consumer; making it `external` deploys it
+once. `BitcoinTx` proved it — **−1,985 B across four consumers.**
+⚠️ **Only pays with MULTIPLE consumers**, measured: `ShareMath` 2 consumers but one 29-line function
+(marginal); `SortedSetLib` 1 consumer (converting would **add** a seam and save nothing).
 
-⚠️ **Only pays with MULTIPLE consumers.** Measured: `ShareMath` 2 consumers but ONE function of 29
-lines (marginal); `SortedSetLib` 1 consumer (converting would **add** a seam and save nothing);
-`ExternalTwap`/`FixedRateFill` 0 consumers — see §E243/E222, they are *unwired*, not
-inlining-expensive.
-📌 **THREE OF THOSE FOUR CANDIDATES NO LONGER EXIST AS FILES (verified @`7e32eb48`), so this de-inlining
-row has shrunk to `SortedSetLib`.** `ExternalTwap.sol` was folded into `OracleLib` (§E318 — the only
-`ExternalTwap` string left in `evm/src` is `OracleLib.sol:405` recording the fold); `FixedRateFill.sol`
-and `ShareMath.sol` were folded into `SwapLib` (§E310; the surviving mentions are `SwapLib.sol:1435`
-and `:2511`, the latter *"THE FIXED-RATE FILL PRIMITIVE (was `FixedRateFill`'s @title)"*). **The
-`unwired` VERDICT held for the primitive itself, and it has now been ACTED ON: `quoteFill`,
-`quoteDrain`, `enforce`, `assertConserved` and `_quote` were DELETED in the dead-code sweep
-(`9bf33b9f`), so `evm/src` retains only the comments recording it (`SwapLib.sol:1491`, `:2647`,
-`:2655`). ⇒ THE ROW BELOW ABOUT NOT DELETING IT IS SUPERSEDED — the owner's *"remove all dead code
-everywhere"* settled the question the row was holding open. The de-inlining question was already moot.**
-⚠️ **And the headroom figures in the paragraph above are stale: `BTCChannels` is **1,163** and `Quid`
-**2,720**, not 815 and 558 — and the `788` this line itself carried is stale too.**
-⛔ **`Quid` IS NO LONGER THE BINDING CONSTRAINT — `BTCChannels` IS**, so the clause that *"`Quid` is
-still the binding constraint"* is exactly the memorised half CLAUDE.md warns is quoted wrong. **Re-run
-`tools/check-contract-sizes.py`; do not quote any number written here.**
-
----
-
+🔴 **EVERY BYTE FIGURE IN THIS ROW HAS NOW BEEN OVERTAKEN TWICE** — it already carried one ⛔ correction
+("no longer true, the fold sweep took `Quid` to 21,856"), and re-measured 2026-09-11 `Quid` is
+**22,608** with **1,968 to spare**. ⇒ **the binding constraint has moved again**, and the row's claim
+about which contract is tightest cannot be read from here.
+✅ **CURRENT, measured with `tools/check-contract-sizes.py`:** the tightest is **`LevMath` at 23,694
+(882 to spare)** — and `LevMath` is already `public`/delegatecalled, so this row's remedy does not
+apply to the contract that actually needs it.
+⇒ **The de-inlining lever is real but is no longer pointed at the binding constraint.** Re-derive the
+candidate list before spending anything on it.
 ## 🟠 8. RESIDUAL SLOP — **EXAMPLE WRONG, TASK RE-SCOPED — not closed.** Its stated example fails: it says `approve` is *triplicated* across `Shares`/`Quid`/`VBtc`, and `Shares.sol` declares **ZERO** `function approve` while the other two declare one each — and those two are a PROJECTION and a LEDGER, so rule 2 does not bite. **But "the compiler-enumerated slop list is a snapshot" is a reason to RE-RUN it, not to drop it.** ▶️ **RE-AUDIT TARGET: re-run the compiler slop enumeration against HEAD and work the CURRENT list.** *(superseded closure text:)*  It says `approve` is *triplicated* across `Shares`/`Quid`/`VBtc`; measured, `Shares.sol` declares **ZERO** `function approve` while `Quid` and `VBtc` declare **one each**. It is duplicated in TWO, and those two are a PROJECTION and a LEDGER (CLAUDE.md: `Quid.balanceOf` is range state, `VBtc.balanceOf` is a mapping) — **not one concept declared twice, so rule 2 does not bite.** Compiler-enumerated slop is a snapshot; re-enumerate rather than working this list (compiler-enumerated)
 
 Unreachable-code warnings are at **0** (were 12; −2,652 B on `LevMath`). Remaining in `src`:
