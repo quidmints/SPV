@@ -375,10 +375,42 @@ checked by opening the symbol.
 | ⚠️ **MISSTATED — corrected in place** | 5 (six sites, not five) · 12 (fork IS readable) · 19 (claim-gating built) · 20 (seed-sibling claim false) · 23 (P2A, not ephemeral anchor) · 28 (5 files, not 10) | real subject, wrong description |
 
 🔑 **THE TWO HIGHEST-CONFIDENCE OPENS, AND THEY ARE THE DEADLINE-BEARING ONES (item 1):**
-- **`§BTC-2.4b.1`** — its body says *"a freshness rotation must be atomic with arming a valid replacement
-  rung, or revert … **Enforce it in `BTCChannels`, not in the daemon**."* Code: `commitFreshness`
-  (`BTCChannels.sol:1646`) is `_onlyHop` + monotonic + jump-ceiling and **writes `freshnessSeq` with no
-  coupling to `_armDeadManExit`/`exitArmedOnOutpoint` and no LP signature.** The invariant is absent.
+- **`§BTC-2.4b.1`** — ✅ **RESOLVED 2026-09-11 AS `§FRESHNESS-DEEPEST-RUNG`, AND THE ROW AS WRITTEN WAS
+  UNBUILDABLE AND POINTED AT THE WRONG MECHANISM. Read this before re-opening it.**
+  Its body said *"a freshness rotation must be atomic with arming a valid replacement rung, or revert …
+  **Enforce it in `BTCChannels`, not in the daemon**."* **Two things are wrong with that.**
+  1. ⛔ **IT NAMES `commitFreshness`, WHICH IS A DIFFERENT MECHANISM WEARING THE SAME WORD.**
+     `freshnessSeq` / `commitFreshness` is the **anti-rollback anchor for LDK CHANNEL-MONITOR
+     PERSISTENCE** (`quid-hop/src/freshness.rs`: *"a malicious host serving an OLDER monitor on boot"*),
+     reached through `quid-bridge/src/freshness_ledger.rs`. It has nothing to do with exits. The exit
+     ladder's freshness is the **#114 FRESHNESS UTXO** — a designated fleet-controlled Bitcoin output
+     every emitted exit spends as input 1. Two unrelated mechanisms, one noun, and the row conflated them.
+  2. ⛔ **THE ATOMICITY INVARIANT CANNOT BE ENFORCED ON-CHAIN AT ALL.** The rotation is a BITCOIN
+     transaction spending a UTXO the contract has never heard of. A malicious hop spends it and simply
+     never calls the contract; there is no transaction for a guard to sit on. **A ceremony the attacker
+     can decline to enter is decorative** — standing rule 3, and the `minReturn = 1` family exactly.
+  ▶️ **WHAT THE ROW WAS REACHING FOR IS REAL AND IS NOW BUILT STRUCTURALLY, IN THE TRANSACTION SHAPE:**
+  **the DEEPEST rung of a pre-signed ladder must spend the funding outpoint ALONE.** BIP-341 takes the
+  key-path sighash over `Prevouts::All`, so a rung commits to every prevout it spends; binding all of
+  them to one shared UTXO is a fleet-held kill switch on the LP's whole escape
+  (`§E158-freshness-killswitch`). With the deepest rung carrying no freshness input, **a compromised hop
+  can DEFER an LP's escape to that deadline but can never VOID it**, and the shallow rungs stay
+  revocable — which is what freshness is for. No LP liveness, no contract knowledge of the UTXO, no
+  cross-channel blast radius.
+  🔑 **AND THE SEAM WAS DEAD ON ARRIVAL — #114 COULD NEVER HAVE ARMED.** `build_exit_arming` sent
+  `prev_values: vec![0u64]` unconditionally while `build_deadman_exit_tx` appends a SECOND input
+  whenever freshness is `Some`; `BitcoinTx._sigParts:519` reverts `PrevoutCountMismatch` unless both
+  arrays are exactly `t.inputs.length`. **Every freshness-bound emission would have reverted**, the
+  heartbeat logs it as a per-channel *"emitDeadManExit reverted"* and then VETOES the retirement — so
+  the fleet stops rotating with nothing in the logs naming the cause. The arrays are now sized off the
+  signed transaction itself, so the disagreement is unconstructible rather than caught.
+  📌 **Landed:** `BTCChannels._armLadder` (ascending deadlines — which also deleted the `distinct`/`first`
+  locals — plus `DeepestRungNotFundingOnly`), `gen_deadman_exit_fixture.py signfresh` (the tree's only
+  two-input exit builder; the single-input path regenerates byte-identical), `ExitFixture.signedExitFresh`,
+  `build_exit_arming`'s prevout sizing. **Measured:** `BTCChannels` 21,432 → **21,528** (+96, 3,048 spare).
+  **Test:** `test_deepestRungMustSpendTheFundingOutpointAlone` — a known positive whose CONTROL ARM is
+  the load-bearing half: the same two-input rung at position 0 OPENS, which is the first time anything
+  in this tree has verified a freshness-bound exit end to end.
 - **`§BTC-2.6`** — its body says *"an **on-chain fulfilment record plus reversal**. An event a listener
   may ignore is enclave-level trust."* Code: `grep BTCHopRequest` → **two hits, both in `Aux.sol`** (the
   `emit` and the `event` decl). **Zero consumers, zero fulfilment state.**

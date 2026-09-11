@@ -197,6 +197,67 @@ contract BtcLpMintStress is AllesFixture {
         ch.openChannel(p_, fundingTx, new bytes32[](0), auth, tooDeep);
     }
 
+    /// @notice §FRESHNESS-DEEPEST-RUNG — KNOWN POSITIVE FOR THE KILL-SWITCH GUARD. **Passes on the
+    ///   code that shipped before `DeepestRungNotFundingOnly`**, where EVERY rung of a ladder could
+    ///   be bound to the fleet's shared freshness UTXO. BIP-341 takes the key-path sighash over
+    ///   `Prevouts::All`, so a rung commits to every prevout it spends — one shared UTXO under ALL
+    ///   of them is a fleet-held kill switch on the LP's whole escape (§E158-freshness-killswitch):
+    ///   spend it and no rung is valid, and the contract never sees the spend because it happens on
+    ///   Bitcoin. Requiring the DEEPEST rung to spend the funding outpoint alone turns "void" into
+    ///   "defer" — the hop keeps revoking the shallow rungs, which is what freshness is FOR.
+    /// @dev THE CONTROL IS THE SECOND ARM AND IT IS LOAD-BEARING: the SAME two-input rung at
+    ///   position 0 OPENS. Without it, a guard that simply could not verify any multi-input exit
+    ///   would look identical to this one — and would silently disable freshness altogether.
+    function test_deepestRungMustSpendTheFundingOutpointAlone() public {
+        BTCChannels ch = _deployChannels();
+        _openMixedLadder(ch, 777_004, true);   // freshness on the DEEPEST rung  ⇒ refused
+        _openMixedLadder(ch, 777_005, false);  // freshness on the shallow rung ⇒ opens
+    }
+
+    /// Own frame per attempt (legacy stack, no `via_ir`).
+    /// ⚠️ EVERY FFI RUNS BEFORE `expectRevert` — `ownedChannelKeys`, `mkAuth`, `armingFor` and
+    ///   `_freshRung` all shell out, and a cheatcode call consumes a pending `expectRevert`.
+    function _openMixedLadder(BTCChannels ch, uint seed, bool freshOnDeepest) private {
+        (bytes memory lpPubkey, bytes memory hopPubkey_, ) =
+            ownedChannelKeys(string.concat("mintstress-", vm.toString(seed)));
+        (Types.OpenParams memory p, bytes memory fundingTx, bytes32 fundingTxId) =
+            _mkFunding(seed, 1_000_000, lpPubkey, hopPubkey_);
+        bytes32 payout = payoutKeyOnly(abi.encode(p.lpPubkey));
+        Types.OpenAuth memory auth = mkAuth(p.lpPubkey, payout);
+        Types.ExitArming memory plain = armingFor(
+            string.concat("mintstress-", vm.toString(seed)), fundingTxId, 0, p.amountSats,
+            abi.encodePacked(hex"5120", payout),
+            freshOnDeepest ? EXIT_DEADLINE : EXIT_DEADLINE + LADDER_SPACING, 1_000);
+        Types.ExitArming memory fresh = _freshRung(
+            seed, fundingTxId, p.amountSats, payout,
+            freshOnDeepest ? EXIT_DEADLINE + LADDER_SPACING : EXIT_DEADLINE);
+        vm.prank(makeAddr("hop"));
+        if (freshOnDeepest) vm.expectRevert(BTCChannels.DeepestRungNotFundingOnly.selector);
+        ch.openChannel(p, fundingTx, new bytes32[](0), auth,
+                       freshOnDeepest ? ladder2(plain, fresh) : ladder2(fresh, plain));
+    }
+
+    /// (#114) One rung spending the funding outpoint AND the fleet's shared freshness UTXO.
+    /// The freshness prevout is passed to the signer AND declared at `prevValues[1]`/
+    /// `prevScripts[1]`: `_verifyExitSignature` overwrites only the funding entry, so the
+    /// freshness entry is what the contract's recomputed sighash commits to.
+    function _freshRung(uint seed, bytes32 fundingTxId, uint sats, bytes32 payout, uint64 deadline)
+        private returns (Types.ExitArming memory r)
+    {
+        uint64 freshSats = 10_000;
+        bytes memory freshSpk = abi.encodePacked(hex"5120", keccak256("freshness-utxo-spk"));
+        r.prevValues  = new uint64[](2);
+        r.prevScripts = new bytes[](2);
+        r.prevValues[1]  = freshSats;
+        r.prevScripts[1] = freshSpk;
+        r.cltvDeadline = deadline;
+        r.signedExitTx = signedExitFresh(
+            string.concat("mintstress-", vm.toString(seed), "-lp"),
+            string.concat("mintstress-", vm.toString(seed), "-hop"),
+            fundingTxId, 0, sats, abi.encodePacked(hex"5120", payout), deadline, 1_000,
+            keccak256("freshness-utxo-txid"), 0, freshSats, freshSpk);
+    }
+
     /// (§E233-ladder) cid -> the label seed it was opened under (see `_open`).
     mapping(bytes32 => uint) internal _seedOf;
 

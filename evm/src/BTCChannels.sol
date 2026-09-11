@@ -78,6 +78,7 @@ contract BTCChannels {
     error FundingKeyNotTwoOfTwo();
     error ForeignSpliceOutput();
 
+    error DeepestRungNotFundingOnly();
     error FreshnessNotMonotonic();
     error FreshnessJumpTooLarge();
     error ManagerFreshnessNotMonotonic();
@@ -430,15 +431,15 @@ contract BTCChannels {
 
         if (exits.length > MAX_LADDER_RUNGS) revert LadderTooDeep();
 
+        if (exits[exits.length - 1].prevValues.length != 1) revert DeepestRungNotFundingOnly();
+
         uint hi;
-        bool distinct;
-        uint64 first = exits[0].cltvDeadline;
         for (uint i; i < exits.length; ++i) {
+            if (i != 0 && exits[i].cltvDeadline <= exits[i - 1].cltvDeadline)
+                revert LadderTooShallow();
             _armDeadManExit(channelId, p, exits[i]);
-            if (exits[i].cltvDeadline != first) distinct = true;
             if (exits[i].checkpointSats > hi) hi = exits[i].checkpointSats;
         }
-        if (!distinct) revert LadderTooShallow();
         checkpointOf[channelId] = hi;
     }
 

@@ -122,6 +122,37 @@ abstract contract ExitFixture is Test {
         return vm.ffi(cmd);
     }
 
+    /// (#114) A TWO-INPUT exit: the channel funding outpoint plus the fleet's shared FRESHNESS
+    /// UTXO, in that order. The BIP-341 key-path sighash is taken over `Prevouts::All`, so the
+    /// signature on input 0 commits to BOTH prevouts — which is the mechanism itself: spending
+    /// the one freshness UTXO makes every exit bound to it consensus-invalid at once.
+    ///
+    /// ⚠️ **THE CALLER MUST PASS `freshSats`/`freshSpk` STRAIGHT INTO `prevValues[1]`/
+    /// `prevScripts[1]`.** `BitcoinTx._verifyExitSignature` overwrites only the FUNDING entry with
+    /// what the contract already knows; the freshness entry is honoured verbatim and is what the
+    /// recomputed sighash commits to. A wrong value there fails as `ExitSignatureInvalid`, which
+    /// reads as a broken taproot tweak rather than a wrong prevout.
+    function signedExitFresh(
+        string memory lpLabel, string memory hopLabel, bytes32 txid, uint32 vout, uint sats,
+        bytes memory payoutScript, uint64 deadline, uint fee,
+        bytes32 freshTxid, uint32 freshVout, uint64 freshSats, bytes memory freshSpk
+    ) internal returns (bytes memory) {
+        string[] memory cmd = new string[](15);
+        cmd[0] = "python3"; cmd[1] = _gen(); cmd[2] = "signfresh";
+        cmd[3] = lpLabel; cmd[4] = hopLabel;
+        cmd[5] = vm.toString(txid);
+        cmd[6] = vm.toString(uint(vout));
+        cmd[7] = vm.toString(sats);
+        cmd[8] = vm.toString(payoutScript);
+        cmd[9] = vm.toString(uint(deadline));
+        cmd[10] = vm.toString(fee);
+        cmd[11] = vm.toString(freshTxid);
+        cmd[12] = vm.toString(uint(freshVout));
+        cmd[13] = vm.toString(uint(freshSats));
+        cmd[14] = vm.toString(freshSpk);
+        return vm.ffi(cmd);
+    }
+
     /// (E138) Set a swap user's payout key WITH its proof. One helper because the key and the
     /// proof must come from the SAME derivation — inlining both was what produced a nest of
     /// parentheses that compiled to the wrong shape.

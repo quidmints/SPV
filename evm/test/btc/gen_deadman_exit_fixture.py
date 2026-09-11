@@ -86,7 +86,7 @@ def _bip340_sign(d, msg):
 
 
 def build_exit(funding_txid_internal, vout, funding_sats, q, payout_spk, deadline, out_value,
-               pool_spk=None, pool_value=0):
+               pool_spk=None, pool_value=0, fresh=None):
     # A negative output is unrepresentable in Bitcoin, and without this the failure surfaces as
     # `OverflowError: can't convert negative int to unsigned` from inside `_le`'s byte packing --
     # four frames from the cause, naming neither the amount nor the fee. Foundry then reports only
@@ -107,22 +107,37 @@ def build_exit(funding_txid_internal, vout, funding_sats, q, payout_spk, deadlin
         outs.append((pool_value, pool_spk))
     ser_outs = b"".join(_le(v, 8) + bytes([len(spk)]) + spk for v, spk in outs)
 
-    def tx(sig):
-        return (bytes.fromhex("02000000") + b"\x00\x01" + b"\x01"
-                + funding_txid_internal + _le(vout, 4) + b"\x00" + bytes.fromhex("ffffffff")
-                + bytes([len(outs)]) + ser_outs
-                + b"\x01" + bytes([len(sig)]) + sig + _le(deadline, 4))
+    # (#114) ONE INPUT OR TWO. `fresh` is (txid_internal, vout, value, spk): the fleet's shared
+    # FRESHNESS UTXO, appended as input 1 exactly as `quid-ln::build_deadman_exit_tx` appends it.
+    # BIP-341 takes the key-path sighash over `Prevouts::All`, so input 0's signature commits to
+    # BOTH prevouts -- which is the whole mechanism: spend that one UTXO and every exit bound to
+    # it is consensus-invalid at once. The INPUT ORDER is load-bearing; the contract recomputes
+    # these hashes from `prevValues`/`prevScripts` in the same order and a swap verifies against
+    # a transaction nobody signed.
+    ins = [(funding_txid_internal, vout, funding_sats, bytes.fromhex("5120") + q)]
+    if fresh is not None:
+        ins.append((fresh[0], fresh[1], fresh[2], fresh[3]))
+    ser_ins = b"".join(t + _le(v, 4) + b"\x00" + bytes.fromhex("ffffffff") for t, v, _s, _k in ins)
 
-    spk = bytes.fromhex("5120") + q
+    def tx(sig):
+        # Every input needs a witness field. Input 1's is never read by the contract
+        # (`_verifyExitSignature` verifies at the FUNDING index only), but it must parse.
+        wit = b"\x01" + bytes([len(sig)]) + sig
+        wit += (b"\x01" + bytes([len(sig)]) + sig) * (len(ins) - 1)
+        return (bytes.fromhex("02000000") + b"\x00\x01" + bytes([len(ins)])
+                + ser_ins
+                + bytes([len(outs)]) + ser_outs
+                + wit + _le(deadline, 4))
+
     h = lambda b: sha256(b).digest()                                     # noqa: E731
     sighash = _tagged("TapSighash",
         b"\x00"                       # epoch
         + b"\x00"                     # SIGHASH_DEFAULT
         + _le(2, 4) + _le(deadline, 4)
-        + h(funding_txid_internal + _le(vout, 4))                        # sha_prevouts
-        + h(_le(funding_sats, 8))                                        # sha_amounts
-        + h(bytes([len(spk)]) + spk)                                     # sha_scriptpubkeys
-        + h(bytes.fromhex("ffffffff"))                                   # sha_sequences
+        + h(b"".join(t + _le(v, 4) for t, v, _s, _k in ins))             # sha_prevouts
+        + h(b"".join(_le(s_, 8) for _t, _v, s_, _k in ins))              # sha_amounts
+        + h(b"".join(bytes([len(k)]) + k for _t, _v, _s, k in ins))      # sha_scriptpubkeys
+        + h(bytes.fromhex("ffffffff") * len(ins))                        # sha_sequences
         + h(ser_outs)                                                    # sha_outputs (ALL of them)
         + b"\x00"                     # key path, no annex
         + _le(0, 4))                  # input_index
@@ -206,6 +221,27 @@ def _cli():
         sig, px = _bip340_sign(d, msg)
         assert px == x, "payout key parity handling is wrong"
         print("0x" + (x + sig).hex())
+        return True
+    if a and a[0] == "signfresh":
+        # (#114) Sign a TWO-INPUT exit: the channel funding outpoint plus the fleet's shared
+        # freshness UTXO. Same label convention as `signfull`. This is the ONLY way to produce
+        # the shape `_armLadder`'s deepest-rung guard and the heartbeat's rotation both turn on,
+        # and nothing else in the tree can build one -- `quid-ln` builds it in Rust, which the
+        # Solidity suite cannot call.
+        (_, lpl, hopl, txid, vout, sats, payout, deadline, fee,
+         ftxid, fvout, fsats, fspk) = a
+        d_lp, lp33 = channel_keypair(lpl)
+        d_hop, hop33 = channel_keypair(hopl)
+        q = taproot_2of2_output_key(lp33, hop33)
+        d_agg = aggregate_secret(d_lp, lp33, d_hop, hop33)
+        _hx = lambda v: bytes.fromhex(v[2:] if v.startswith("0x") else v)   # noqa: E731
+        sats_i, fee_i = int(sats), int(fee)
+        tx, sighash = build_exit(
+            _hx(txid), int(vout), sats_i, q, _hx(payout), int(deadline), sats_i - fee_i,
+            fresh=(_hx(ftxid), int(fvout), int(fsats), _hx(fspk)))
+        sig, qx = _bip340_sign(d_agg, sighash)
+        assert qx == q, "aggregate secret does not correspond to Q"
+        print("0x" + tx(sig).hex())
         return True
     if a and a[0] == "signfull":
         # (E128) Sign for a channel whose keys came from SOMEWHERE ELSE's label convention --
