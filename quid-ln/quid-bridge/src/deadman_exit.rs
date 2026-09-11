@@ -9,25 +9,34 @@
 //! real and enforced: the heartbeat disables itself on `None` and must never re-derive the half
 //! locally.
 //!
-//! ⛔ **WHAT THIS HEADER USED TO SAY, AND IT IS FALSE:** *"they describe a deployment no
-//! configuration currently produces… there is no flag, config or binary that starts the fleet
-//! without a vault seed ⇒ in every deployment that ships today, one process still reaches both
-//! funding halves."* **`bin/quid-lp-daemon.rs` EXISTS and is the production LP path** —
-//! `deploy/PRODUCTION-LAUNCH.md` §"Three deployable units" lists *"LP enclaves (many) —
-//! `quid-lp-daemon`, each self-hosted by an LP (own SGX, or own laptop+watchtower). LPs are their
-//! **own** trust root; they do not provision into foundation infra"*, and `deploy/run-lp.sh`
-//! builds and execs it. The cited `daemon.rs:235` has also rotted.
+//! ⛔ **WHAT THIS HEADER USED TO SAY, AND THE CODE REFUTES IT:** *"there is no flag, config or
+//! binary that starts the fleet without a vault seed ⇒ in every deployment that ships today, one
+//! process still reaches both funding halves."*
+//! **There IS a flag, and it DEFAULTS TO OFF:** `quid-bridge-daemon.rs` —
+//! `let cohost_vault: bool = env_parse("QUID_FLEET_COHOSTS_VAULT", false)?;` then
+//! `let vault = if cohost_vault { … }`. **Co-hosting is opt-in**, and opting in logs
+//! *"this fleet holds BOTH halves of every 2-of-2. The multisig is nominal in this deployment"*.
+//! There is also a second binary, `bin/quid-lp-daemon.rs`, which boots the same `boot_vault` with
+//! `hop_addr` pointed at the fleet. The cited `daemon.rs:235` has rotted.
 //!
-//! ✅ **WHAT IS STILL TRUE, and is the part worth keeping:** `quid-bridge-daemon` **co-hosts a
-//! vault**, so for any LP served in **fleet** mode (the hop advertises to *"the LPs it serves —
-//! fleet / family / self"*) one process does reach both halves, and for those channels no exit,
-//! ladder or splice policy binds the fleet. ⇒ **The trapdoor is per-LP-HOSTING-MODE, not
-//! per-deployment.** Check which mode an LP is on before reasoning about what binds the fleet.
+//! ✅ **WHAT IS TRUE, AND THE CODE SAYS WHY IT MATTERS — this is the part to keep:** when
+//! co-hosting IS enabled the 2-of-2 is **nominal, not merely co-located**, because the fleet's
+//! vault seed is `derive_vault_seed(&root_seed)` — **an HKDF SIBLING of its hop seed**. `lp-daemon`
+//! states the consequence exactly: *"whoever holds the hop seed derives it — one custodian wearing
+//! two hats. A seed provisioned HERE has no such relationship: the fleet cannot derive it, and its
+//! `MigrationAuth` cannot reach it either, because it was never in the fleet's enclave to
+//! migrate."* ⇒ **The trapdoor is per-LP-HOSTING-MODE, not per-deployment**, and in co-host mode it
+//! is not "two keys on one box" — it is **one key wearing two hats**, which no key-separation
+//! control can fix.
 //!
 //! 🔑 **WHY THE OVERSTATEMENT MATTERED: it understated the security posture of the shipped
 //! system and would have been read as an argument that the split is vapour.** A stale
-//! "nothing works yet" is as costly as a stale "this is done" — it invites rebuilding what
-//! exists. ⇒ **quote `deploy/PRODUCTION-LAUNCH.md` for topology, never a source header.**
+//! "nothing works yet" is as costly as a stale "this is done" — it invites rebuilding what exists.
+//! ⛔ **AND THE FIRST CORRECTION OF THIS BLOCK CITED `deploy/PRODUCTION-LAUNCH.md`, WHICH IS ALSO
+//! PROSE AND ALSO CAN ROT (owner: *"docs might be stale. look at code before making decisions"*).**
+//! The doc happened to agree — but it does not mention `QUID_FLEET_COHOSTS_VAULT`, its default, or
+//! the HKDF-sibling relationship that is the actual security content. ⇒ **Cite the `env_parse`
+//! default and `derive_vault_seed`; a topology doc is a summary of code, never evidence about it.**
 //!
 //! Per open vault-owned channel, each heartbeat tick it
 //! 1. re-derives BOTH funding-half signers (the hop node's + the vault node's) off their OWN
