@@ -528,8 +528,8 @@ export default function InfoTab({ address }: { address?: string | null }) {
                     <p className="text-[11px] opacity-70">
                       On most venues a desk constantly shifts its prices <em>against</em> your order to offload its own
                       inventory — that hidden skew is how it earns from your flow. QU!D can’t do that: it quotes a
-                      <strong> symmetric range</strong>, so you pay one <strong>flat, bounded cost</strong> (a small price
-                      lag, capped near 0.5%) — the same whether your trade helps or hurts the pool.
+                      <strong> symmetric range</strong>, so you pay one <strong>flat cost of 0.042%</strong> (420 ppm,
+                      the same in both directions) — the same whether your trade helps or hurts the pool.
                     </p>
                     {live != null && Math.abs(inv as number) > 0.005 ? (
                       <p className="text-[11px] opacity-70">

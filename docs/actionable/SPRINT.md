@@ -923,6 +923,70 @@ new symbol, so the tool has no edge to follow and a base-class change is invisib
 That is how an `Ownable` removal verified at *"133/0 across the BTC suites"* could sit beside a red lev
 suite. ▶️ Add it to the tool's docblock beside the existing address / raw-slot / deploy-script caveats.
 
+## 🔴🔴 §LANE-CUT-NEVER-MERGED — **33 COMMITS OF DESIGN, FIXES AND TESTS ARE NOT ON `main`, AND ONE OF THEM IS A LIVE USER-FACING MISSTATEMENT** (2026-09-11)
+
+Owner asked whether the early-session work is booked. **Checking that found something worse than
+unbooked: three items are UNMERGED**, and `CLAUDE.md`'s own warning is the diagnosis —
+*"a branch that is not `main` accumulates work whose only fate is to be re-derived or abandoned."*
+
+| on `lane/CUT` only | consequence on `main` |
+|---|---|
+| `spa/`, `app/` and `IL-CERTIFICATION.md` destale | 🔴 **`InfoTab.tsx:532` told users the swap cost was *"capped near 0.5%"* when it is **0.042%** — a 12× overstatement, in the app, live.** ✅ **FIXED ON `main` IN THIS COMMIT**, because a one-line user-facing misstatement should not wait for a branch merge |
+| `evm/test/CarryAtOurNotional.t.sol` | the borrow-cost fork measurement **does not exist on `main`** |
+| `evm/test/ProRataShortfall.t.sol` + `SwapLib.proRataShortfall` | **`grep proRataShortfall evm/src` on `main` = 0.** The third deletion is still live here; only `lane/CUT` carries the restore and its three exit-ordering tests |
+| `TARGET-DESIGN.md` PART I-IV (478 lines) | `main` carries a **different 242-line document under the same name** — §LANE-CUT divergence, already booked in §COLLATERAL-ANSWER |
+
+▶️ **MERGE `lane/CUT` TO `main`.** Lanes are short-lived by rule; this one is 33 commits old and holds
+the model, a restored money-path mitigation, and two test files. ⛔ **Until it merges, `main` is missing
+`proRataShortfall` entirely** — so the 15.2 bps first-out exit advantage §E313 measured is unmitigated
+on the branch everything else is being built on.
+
+### ✅ AND THE BOOKING ANSWER THE OWNER ASKED FOR — what was dropped, what survived, and where it is
+**DROPPED AS NO LONGER RELEVANT** (all verified 0 references in `evm/src`, and none of it is coming back):
+the A-S scarcity kernel and every input to it — σ², Γ, κ, ρ, θ, K, the 48h flow/redeem EWMAs,
+`premiumEwmaUsd`, `_varSq`/`_varDt`/`_varPx`, `FLOW_DECAY`, `struct Flow`, `_prem`, `skewPremiumCum`,
+`_sharedScarcityWad`, `RANGE_DELTA`'s θ half · the **refill** (`refillNeeded`, `refillPlacement`) · the
+**flash delever** · and on the Rust side `cascade_delever`, `rebalance_many`, `encode_batch5`, `CD_SIG`,
+`RM_SIG`, `batch_gas`, `openLevCount()`/`openLpAt(i)` (replaced by a log scan), `lev_keeper_e2e.rs`.
+**Reason, one line:** every input was measured state the priced counterparty could starve — §NO-GAMEABLE-BOUND.
+
+**STILL RELEVANT REGARDLESS OF ANY DESIGN DECISION, and their booking status:**
+| item | booked? |
+|---|---|
+| exit ordering / `proRataShortfall` | ✅ `§E313`, with the model's answer written in — **but unmerged, see above** |
+| the borrowing-split allocator (owner raised it explicitly) | ✅ was **D4**; **RETIRED** by *"only borrow from Aave v4"* — see `§COLLATERAL-ANSWER` |
+| `§SPLIT-WEIGHTS` — raised in-thread and never booked | ✅ now in the queue |
+| the competitive ceiling the 420 ppm must stay under | ✅ **D5**, and still **UNMEASURED** — §5 says *"if that band ever closes, this stops being a constant question"*, so the central charge rests on a number nobody has |
+| 🔴 the borrow-cost ladder (`CarryAtOurNotional`) | **WAS NOT BOOKED ANYWHERE.** Booked below |
+| 🔴 the user-facing cost copy | **WAS NOT BOOKED ANYWHERE.** Booked below |
+
+### 🔴 THE BORROW-COST LADDER — MEASURED AND CITED NOWHERE UNTIL NOW
+`evm/test/CarryAtOurNotional.t.sol` (on `lane/CUT`) measures `borrowRateRay(size)` on all four deployed
+venues from **+\$5k to +\$100M**. It was never referenced by any row, so the result was one `rm` from
+being lost:
+| venue | base APR | +\$5k | +\$10M | +\$25M |
+|---|---|---|---|---|
+| AaveV3 WBTC/USDC | 429 bps | 429 | 431 | 434 |
+| AaveV3 weETH/USDT | 427 bps | 427 | 428 | 431 |
+| Morpho weETH/RLUSD | 388 bps | **394 — CHEAPEST of the four at small size** | 1,491 | **UNFUNDABLE** |
+| Morpho weETH/PYUSD | 438 bps | **UNFUNDABLE at +\$1M** | UNFUNDABLE | UNFUNDABLE |
+⭐ **AND IT IS DIRECT EVIDENCE ON THE DECISION JUST TAKEN.** *"Only Aave v4"* replaces venues whose
+measured Aave-v3 legs sit at **427-429 bps flat to \$25M**, with a v4 leg capped at **~\$369k of borrow
+capacity** (§COLLATERAL-ANSWER). ⇒ **the ruling trades a flat, deep, measured rate for a hard ceiling**,
+and that is the trade to state to the owner rather than discover at launch.
+⛔ **AND THE METHOD LESSON THAT COST A WRONG CONCLUSION:** the ladder originally started at \$1M and I
+concluded *"the two Morpho venues are decorative — exclude them."* Re-measured from \$5k, **RLUSD is the
+cheapest of the four.** *A ladder's floor is a measurement boundary, not a starting point.*
+
+### 🔴 THE USER-FACING COST COPY MUST NOT DRIFT BACK — a constraint, not a fix
+The SPA, the wallet and `IL-CERTIFICATION.md` all described a pricing model the protocol **deleted**, and
+the number they quoted was **12× the real charge**. ⛔ **THE CONSTRAINT: any user-facing statement of the
+swap cost is `SwapLib.MIN_SWAP_SKEW_WAD` = 4.2e14 = 420 ppm = 0.042%, FLAT, BOTH DIRECTIONS.** There is no
+cap, no band, no scarcity term and no size dependence to describe, because there is no kernel.
+▶️ **`grep -rn "capped near\|0\.5%\|scarcity\|skew" spa/ app/ docs/informational/` before any release**
+— that is the check, and it found a live instance today on `main` after the same sweep had already been
+run on `lane/CUT`.
+
 ## ⛔ §STRIPPED-CONSTRAINTS — **93 PROHIBITIONS THE COMMENT STRIP DELETED WITH NO SECOND COPY ANYWHERE. RESTORED HERE, NOT IN CODE** (2026-09-11)
 
 `561a36f7` removed every comment from `evm/src` (24,983 → 10,322 lines) on the owner's *"remove all
