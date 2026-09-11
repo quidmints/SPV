@@ -23,7 +23,8 @@ the three documents that tell you WHAT ORDER to work in are buried at the very e
 
 | what it answers | where | why you need it FIRST |
 |---|---|---|
-| **What order across the whole file** | **`§MASTER-ORDER-2026-09-05`, line ~52,108** — GATES 0–9 | 94% of the way down. Its three rules — *evidence before inference · decision before construction · immutable before mutable* — are why GATE 3 (`BTCChannels`) cannot be resequenced later |
+| 🔴 **THE BITCOIN SCOPE, IN ONE ORDER** | **`§BITCOIN-ORDER-2026-09-11`, immediately below this table** | **Read it before any BTC row anywhere else in this file.** It supersedes `§MASTER-ORDER`'s gates for Bitcoin, and it names ~40 rows that are **not tasks** |
+| ~~**What order across the whole file**~~ **`§MASTER-ORDER` IS RETIRED FOR BITCOIN** | GATES 0–9 still schedule the **non-BTC** scope (§PLP, lever, range) | ⛔ Owner, 2026-09-11: *"there is no such thing as master order anymore. no segregstion just one order."* Its three generating rules survive **inside** the order below — *evidence before inference · decision before construction · immutable before mutable* |
 | **Who owns which files** | **`§LANES-2026-09-06`, line ~55,053** — L1 prose · L2 rust · L3 btc · L4 lever · L5 range/swap · L6 tests · L7 reads | The collision partition. `LevManager` and `SwapLib` are single-lane BY PHYSICS (EIP-170 margin), not preference |
 | **Bitcoin, in dependency order** | **`D2`, line ~13,310** | The only scope with a finished dependency ordering. Most of its 22 rows are ✅ — read the state column, not the number |
 | ~~**Γ, κ, the skew kernel, and whether the refill exists**~~ **RETIRED 2026-09-10** | **`§SESS-121-INDEX`, at the END of this file** — now a history block, not a queue | 🔴 The kernel is DELETED (§NO-GAMEABLE-BOUND: every input was starvable by the priced counterparty). `wellSkew`/`sellSkew` return a flat 420 ppm. **Three attempts to make the reserve vol-sensitive were BUILT AND REVERTED, and a fourth is now moot.** Replacement: `docs/actionable/TARGET-DESIGN.md` |
@@ -113,6 +114,177 @@ rows (the function is live), `§OBSERVATION-SOURCE-UNSET` and `§E343` (they are
 §6c), `§RANGE-DELTA-WIDENED` (`RANGE_DELTA` is live; only its θ half died), `§SESS-21` and the
 `LevCascade` rows (`deleverOne`'s route widening survives the cascade's deletion), and the owner's own
 `FLASH COSTS` note.
+
+# 🟠 §BITCOIN-ORDER-2026-09-11 — **THE WHOLE BITCOIN SCOPE, ONE ORDER, RECONCILED**
+
+> Built by reconciling **398 Bitcoin headings across all 55,861 lines** — rows against rows first, not
+> against code, because *"there is no guarantee that what is currently in the code represents that
+> version of the model"* (owner). Six passes, disjoint ranges. **What follows is the residue after
+> duplicates, supersessions and model-dead rows were removed.**
+
+## 1 · THE MODEL — decided, not inferred. Everything below is judged against it.
+
+**Every LP holds its own funding half, in its own wallet, and runs NOTHING. There is ONE enclave, and
+it is the hop's.**
+
+⭐ **THIS IS NOT A READING. IT IS RECORDED FOUR TIMES, AND THE STRONGEST IS THE OWNER'S OWN:**
+1. **Owner, in this file (`:13620`):** *"every LP has their funding half in their wallet … there is
+   only one enclave for everybody."*
+2. **`§M1#2` keystone (`§ARCH-ASSUMPTION`):** *"LP holds its OWN funding half, fleet runs vault-less
+   (1a); LP-hosted vault also supported (1b, `quid-lp-daemon`)."*
+3. **`§BTC-2.5d`:** *"The LP does not need to be an LN peer. **It needs to be a REMOTE
+   `ChannelSigner`.**"* The hop holds channel state, builds the splice, computes the sighash; the
+   device returns a MuSig2 partial. No BOLT messaging, no channel state, no wallet, no chain view.
+4. **`§BTC-1` synthesis, on the CURRENT state:** *"the vault holds the LP's half and co-signs
+   in-process ⇒ **Goal 3 holds today BY CUSTODY, NOT BY CONSTRUCTION.**"*
+
+⛔ **`1b` IS DELETED** (owner, 2026-09-11: *"there are no self provisioned lps"*). `quid-lp-daemon`,
+`deploy/run-lp.sh`, `lp_seed.rs` and `QUID_FLEET_COHOSTS_VAULT` are gone (`8faddbb1`).
+⚠️ **SO THE TREE IS CURRENTLY IN NEITHER 1a NOR 1b.** The fleet boots a vault unconditionally and its
+seed is `derive_vault_seed(&root_seed)` — an HKDF **sibling** of the hop seed. That is **one key
+wearing two hats**, not two keys, so no key-separation control reaches it. **This is a TEMPORARY
+custodial posture, not the design**, and `§BTC-2.5c` step 3 names its end: *delete `derive_vault_seed`*.
+⇒ **§3's item 0 is the whole of the security story. Everything else is smaller.**
+
+## 2 · WHAT THIS DELETES — ~40 rows that are NOT TASKS
+
+⛔ **DO NOT WORK THESE. They presuppose `1b` (an LP that runs a node) or a model already ruled out.**
+Each was carried as open, some in red, some for weeks.
+- **Anything requiring an LP-side LDK node**: `§NO-PENALTY-WATCHTOWER` / `WatchtowerPersister` (an LP
+  producing justice packages), `D7-LADDER`/`D7-REGISTRY` (*"The LP's node is a full LDK node"*),
+  `§DELIVERY-MUST-BE-LP-INITIATED`, `§COHOST-FLAG-IS-NOT-THE-WORK`, `D2#15`'s LP-disk channel
+  monitors, `§E158-why-self-hosted`'s family/individual daemons.
+- **Anything requiring an attestation gate or a hop registry**: `S29`, `I.1`/`J.6`'s *"DCAP-attested
+  fleet"*, `E115`, `§E158-registry-is-load-bearing`. ⇒ **`§E111-DROPPED` is terminal** (owner: *"we
+  dont need the registry ever, drop it"*), and `T5`/`M1` already say attestation gates nothing.
+- **Anything requiring an operator to set a parameter**: `E112` (dynamic fee floor), `B1-K` (shard
+  dial). ⇒ **`§NO-OPERATOR`: there is no operator; parameters self-tune or are fixed at deploy.**
+- **Pool-inventory rows**: the whole `poolOwnedSats`/`poolSatsParker`/`parkProvenSats` family
+  (`§POOL-SATS-SEGREGATION`, `§BTC-SCOPE-SYNTHESIS`, `NEW-2`, `§AUDIT-POOLPARKER-PHANTOM`).
+  **Deleted by `§POOL-INVENTORY-PURGED`; `grep evm/src` returns zero.** `§AUDITS-RATED`'s row for it
+  cites `BTCChannels.sol:1359-1396`, which does not exist in a 2,565-line file.
+- **`§MASTER-ORDER`'s GATE scheme itself** — retired for Bitcoin per the owner.
+
+## 3 · THE ORDER
+
+### TIER 0 — IMMUTABLE. `BTCChannels` deploys ONCE; none of this can be added later.
+> `§BTC-8d`: **no upgrade path**, and it *"outranks the size budget"*. `§LANES`: *"GATE 3 IS ONE
+> ATTEMPT."* Recovery from a miss = closing every channel with every LP online.
+
+**0. 🔴🔴 GIVE THE LP BACK ITS OWN HALF — the remote `ChannelSigner`.**
+   Everything in Tier 0 is cheaper to get right once this is the shape. `derive_channel_signer`
+   (`keys_manager.rs:307`) is the seam and is already policy-wrapped. **`§BTC-2.5c` names the real
+   blocker: *"the app-side signer is greenfield … That — not LDK, not the contract — is why this has
+   not happened."*** ⇒ **This is the critical path for the entire Bitcoin scope.**
+   ⚠️ Closes with: delete `derive_vault_seed`, and the fleet holds no LP key by CONSTRUCTION.
+**1. 🔴🔴 THE TWO ITEMS THAT EXIST ONLY AS MARGINALIA — the highest-risk finding of the reconciliation.**
+   Two `§SEQ-AUDIT` annotations assert **GATE 3 (immutable)** placement for items that appear in **no
+   checklist anywhere**. If they are missed at deploy they are unrecoverable:
+   - **`§BTC-2.4b.1`** — the freshness keep-alive **atomicity invariant**, whose own text says it
+     *"must be the CONTRACT"*.
+   - **`§BTC-2.6`** — the WBTC shortfall rail's **fulfilment record**, whose own text says it *"needs
+     on-chain state, not an event"*. ⚠️ It was a numbered PHASE-2 **security** item and GATE 2.1
+     silently demoted it to *"downstream of an undecided product ruling"* while `#11` still reads 🔴.
+**2. 🔴 `§E99`: `claimedBy` storage must exist at deploy** even though the multi-daemon lease is closed
+   outright. A ✅-headed row whose tail says **FORECLOSED at deploy**. Storage cannot be added later.
+**3. 🔴 `§LPETH-THIRD-FIELD`** — ✅ **LANDED `b573c101`.** Kept here because it is Tier-0 class and the
+   reasoning must not be undone: `lpPubkey`/`hopPubkey` carry the **byte-sorted** pair (required —
+   `channelId` and the funding SPK are rebuilt from them), so the LP's identity needed its own field.
+   ⛔ **A possession proof cannot substitute** — the hop holds that slot's key half the time.
+**4. 🔴 `§R-P2MR`** — two enumerated SPK forms; activation **derived from Bitcoin**, never from an
+   authority. ⚠️ **The matcher `_FIRST_TO_V1_OR_V2` is landed but UNREACHED, deliberately: witness v2
+   is anyone-can-spend until activation, so an ungated matcher is a custody hole.**
+   🔑 **THE CONTRADICTION THIS RESOLVES, AND IT IS IN THE FILE:** `§BTC-9`'s principle says
+   *"parameters are settable, addresses are settable"*; GATE 3.4/3.5 rule **no setters, no owner**.
+   `§BTC-4.6g`'s *"one-way k-of-n flag"* **is** an authority. The owner's Bitcoin-derived latch is the
+   only resolution present in the whole scope.
+**5. `§BTC-4.6g-bis`** — five derive-a-script-from-a-key sites pinned as **opaque bytes**.
+**6. `§BTC-4.6n`** — `verifyDeadManExit` verifies an **enumerated** signature scheme.
+**7. `7f` `PendingOnchainSwapOut.sats`** — narrow the guard to the stored width (owner-ruled).
+**8. `§BTC-4.3`** — per-epoch funding derivation. ⚠️ Its own note: **"decide before the app signer is
+   written"** ⇒ it is upstream of item 0, and **`§MASTER-ORDER` scheduled it in no gate at all.**
+
+### TIER 1 — TRUE REGARDLESS OF THE MODEL. Pure code or arithmetic; no topology can retire these.
+> `§ARCH-ASSUMPTION` isolates this class explicitly: *"TRUE REGARDLESS OF ANY ASSUMPTION."*
+**9. `NEW-1` / `§AUDIT-SPV-RETARGET`** — SPV retarget brick. **`%2016` alignment ✅ LANDED**; the
+   **`§AUDIT-REORG-DOS`** fork-switch walk-back (O(depth) SLOAD+SSTORE) is **still open**.
+**10. `§AUDIT-JUSTICE-WEIGHT`** — `WEIGHT_REVOKED_OUTPUT = 155` is the legacy **P2WSH** weight; a
+   taproot justice tx **asserts and panics**. Breach path.
+**11. `NEW-3` / `§NEW-3-STILL-OPEN`** — `swapOutDeleverAmt` withhold-vs-repay.
+**12. `§MUSIG-UNSPICED-CLOSE-AND-SPLICE`** — ✅ **FIXED in `quid-ln`.** ▶️ **The LDK fork at `7c50bb59`
+   still carries it** and cannot be edited from this tree. **Handoff, not done.**
+**13. `§AUDIT-REENTRANCY-GAP`** — `Vault.creditSwapIn`/`creditSwapOut` lack `nonReentrant`; `Core` has
+   no `ReentrancyGuard` at all. Latent until a hookable stable lands.
+**14. `§MIN-CHARGE-MISSES-THE-SWAP-IN-RAIL`** — the BTC swap-IN is the **refill direction** and misses
+   all four skew sites, so the owner's minimum charge never reaches it.
+
+### TIER 2 — RESOLVED BY THE MODEL, once item 0 lands.
+**15. 🔴 `§T9` + the delivery rework — ONE CHANGE** (`§BTC-2.1` + `§BTC-2.5c`; `§BTC-2.2` and `§BTC-1`
+   merged in 2026-09-09). ⛔ **DO NOT BUILD THE REFUSAL ALONE** — the rework makes the **hop** the
+   initiator toward a blind signer, so a predicate written against today's LP-initiated shape is
+   written against the shape 4b replaces.
+   **State, measured:** step 1 ✅; `check_splice_continues_funding` ✅ (the continuing-2-of-2 lock);
+   **the non-continuing outputs are UNBOUND** — `ChannelTruthSource::verify` covers only the funding
+   pair and value, so a delivery output has **no authorisation source**. That extension (trait in
+   `quid-ln`, impl in `quid-bridge` over `eth_read_agreed`) is the remaining work.
+   ⛔ **Do NOT build the `CidRegistry` binder** — `channelId` is computable.
+**16. `§BTC-2.4d` / `4c`** — derive the LP's payment basepoint **in the app**. Unblocked.
+**17. `§BTC-2.4` / `4d`** — force-close shortfall check. **Emit only; re-value nothing, revert nothing.**
+**18. `4e`** — `reverseSwapOut` floor **and** the skimmed-fee bound. **One finding, two places, one change.**
+**19. `§LN-SWAPIN-REMAINDER` / `R-17`** — ✅ ruled: **never take what you cannot pay for, AND keep the
+   refund, because the availability check is a TOCTOU.** `read_consumed_sats` inverted ✅;
+   `settleSwapInProven` all-or-nothing and the claim-gating **unbuilt**.
+**20. `§AUDIT-SWAPOUT-CONCURRENT`** — ✅ single-writer rail B landed. ⚠️ **Its reachability was argued
+   from `1b`, which is deleted; it survives because MAIN/FALLBACK reach it without `1b`.**
+   📌 **And they are seed-siblings off one `root_seed` — the fleet is ONE identity with HA siblings,
+   not two parties.** The fallback's takeover-on-dead-main hand-off is **not built**.
+**21. `R-MIGRATION-BINDS-THE-INSTANCE`** — bind the seed export to the successor's attested ephemeral
+   key (`report_data`), then **delete the nonce, `markMigrationNonceUsed` and its mapping** — freeing
+   immutable-contract bytes. ⚠️ Operators then sign **per migration**, against a live successor.
+**22. `R-10`** — key recovery = a **second registered BIP-340 key**. 🔑 **`§LADDER-VALUE-IS-CONDITIONAL`:
+   the exit ladder protects NOTHING without this**, because every rung pays a locked `btcRecipientOf`.
+**23. `§BTC-2.4c` / `4k`** — keyless fee bump via **ephemeral anchor, NOT `bump.rs`**. Same reason: a
+   fixed `DEAD_MAN_FEE_SATS` breaks the keyless-recovery path.
+**24. `§SWAPOUT-DRAINS-THE-EXIT`** — a fill may drain to the last sat; the delivery must arm an exit
+   over the residue. ⚠️ Presupposes **one channel per pool**; the multi-channel case is untraced.
+**25. `B8` / `§7540`** — ✅ **both halves now owner-decided**: the claim is immediate
+   (`§7540-CLAIM-IS-IMMEDIATE`) and **the token IS the shares** (`R-9`). Remaining work is the fold,
+   and **`Vault.exposeBtcToLev` minting the LP's shares to `LEV_MANAGER` is the defect to fix.**
+   ⚠️ **Lane L5, not a Bitcoin lane.** ⛔ Re-derive its scope from code — it cites three symbols that
+   never existed in this tree.
+
+### TIER 3 — TESTS AND PROSE. After the code they describe is settled.
+**26. 🔴 `4j` / `§BTC-9b-bis` — broadcast a matured dead-man exit on regtest, end to end.**
+   **The single highest-value test in the Bitcoin scope**, and still **half-covered**: the freshness
+   script exists, nothing broadcasts a matured exit. ⚠️ **Until it runs, "refundable trustlessly" is
+   a design intention, not a measured property.**
+**27. `§BTC-10b` — the settlement layer has NEVER been audited** (`_resize`, `requestDeposit`,
+   `creditSwapIn/Out`): *"where value is created and destroyed."* Called **a new audit area, not a
+   leftover** — and **no gate ever opened it.**
+**28. `§BTC-7` / `9b`** — the `btcRecipient` pubkey-hash cluster **first**: its event and error names
+   are **ABI a client acts on**, so it misleads a consumer, not just a reader. ⚠️ 15 sites became
+   **10 files, 7 of them inside the vendored LDK — which is now deleted.** Re-measure.
+**29. `§BTC-4.5` — ML-KEM on RA-TLS.** The strongest quantum item, and **PHASE 4 was scheduled by no
+   gate at all.** ⭐ `§NO-POST-QUANTUM-ANYWHERE` ranked taproot first and **retracted itself**: the
+   exposure is the **transport** (HNDL on the migration path), not the channels.
+
+## 4 · THE RECONCILIATION REGISTER — do not re-derive these
+
+⛔ **SELF-CONTRADICTING ROWS ARE THIS FILE'S SIGNATURE FAILURE: a screaming red header with a quiet ✅
+in the tail, or the reverse.** ~40 were found. **Quote the tail, never the header.** Worst instances:
+`§BTC-9` PHASE-0 item 4 (asks for governance-settable values, answers *"FORECLOSED BY CONSTRUCTION"*);
+item 5 (**three** verdicts in one cell); `§BTC-2.5a-ter` (*"✅ CLOSED — MEASURED"* over *"nobody has
+measured the ceiling"*); `T1` (three states); `§BTC-1` (**refutes its own title**, and downstream rows
+cite the tag without the caveat).
+📌 **DANGLING TAGS: `§BTC-9.3` and `§BTC-9.9` are cited ~10 times and DO NOT EXIST. Nor does
+`§BTC-2.5e`.** `9.9` ⇒ PHASE 2 #8; `9.3` ⇒ PHASE 2 #9.
+📌 **TAG COLLISIONS ACROSS TRACKS — some apparent "re-litigation" is mechanical:** `A7`, `T2`,
+`E98`, `E102`, `E103`, `E105` and `§BTC-2.4b.1` each name **different subjects** in the basket,
+enclave and BTC tracks. **Resolving by number alone is ambiguous.**
+📌 **THERE IS NO AGREED TEST BASELINE:** 533/3 · 420/88 · 433/86 · 4,316/3 · 14/8 all appear.
+`B9b-v` says it plainly — *"Both cannot describe the same tree"* — and it is unresolved.
+📌 **VERBATIM DUPLICATES:** `§E182-REKEY` at two lines; `E132`/`E133`/`E130-r`/`E115-b` each twice in
+the QUEUE fold.
 
 ## ⛔ FIVE TRAPS SPECIFIC TO NAVIGATING **THIS** FILE — each cost a session
 1. **STATUS MARKERS IN THE FOLDED ARCHIVES ARE NOT STATUS.** `§FROM-QUEUE` (:24,088), `§BUILD-QUEUE-FOLD`
