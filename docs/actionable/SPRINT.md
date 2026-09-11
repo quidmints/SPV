@@ -46226,35 +46226,28 @@ compensation, and the registers that measure whether any of it worked.
 `§E136-skew` (the target cluster), `§UNIT-C-DISAMBIG` (refill trichotomy), `§M.1`
 (`deleverEthOnDelivery` fork tests + `§STALE-BRANCH`), `§4796-4812` (`onShortfall`).
 
-## §PLP-A ⭐ REBUILT FROM FIRST PRINCIPLES — **AND VOIDED BY Q1.1. READ §PLP-Z FIRST.**
+## §PLP-A ✅ **RESOLVED BY THE MODEL 2026-09-11 — AND THE ANSWER IS THE BRANCH THIS ROW WAS VOIDED FOR**
 
-It derived forward instead of reverse-engineering the code's definitions, and **relocated the ruling**:
-§PLP-0's fork is downstream of a prior question. **The prior question: what is an LP owed?**
-Deposits are **single-sided**, so a 1 ETH depositor should be owed ~1 ETH plus yield — not a share of
-whatever the pool became. A pro-rata claim on a mixed pool makes depositing a **bet on flow direction**,
-which no LP elected.
+This row asked the prior question — **what is an LP owed?** — and tabled two branches:
 
 | if claims are… | then a swap at oracle is… | and the charge is… |
 |---|---|---|
 | pro-rata of a mixed pool | **value-neutral** — nobody loses | inventory risk. A–S, σ², γ, LVR all apply |
 | **denominated** | the pool now **OWES ETH IT DOES NOT HAVE** | **funding on a short position** |
 
-**If denominated: a swap is a BORROW, and the charge is the BASIS** —
-`charge = (ETH borrow rate − USD lend rate) × duration short`. ⭐ It explained every dead end: σ² kept
-coming out irrelevant (a **funding** cost is not a function of volatility) · τ was needed but undefinable
-(τ IS the **duration of the short**) · gross vs net flipped twice (**false choice** — the charge is
-`outstanding × time`) · the pole at `inv = 0` (you cannot owe what you cannot source) · "no external
-arbitrageurs" felt impossible (**charge until the position closes**) · `DEPLETION_RATE_WAD` σ²-free and
-unexplained (right SHAPE, wrong DIMENSION — no time in it). **The rate is OBSERVABLE, not derivable** —
-ETH borrow ~2–3% APR, so 48h ≈ 3 bps and one block rounds to nothing. ✅ **Manipulation-resistant by
-construction:** a wash does not change its own duration; splitting is linear in `size × time`; ordering
-does not matter. ⭐ **`_leverUpBuy` IS the funding leg of the swap business**, not an IL-protect overlay.
+⭐ **THE MODEL TAKES THE SECOND BRANCH, AND THIS ROW PREDICTED BOTH CONSEQUENCES CORRECTLY.**
+`TARGET-DESIGN` Part I §7 sizes the hedge as `drift_i = entryEquity_i − (shares_i/lpShares)·rangeETH`
+— **the LP is owed what it deposited, in kind**. That is *denominated*. And Part I §11's reason for
+leverage — *"the pool must hold dollars as inventory AND be long volatile for the LP; one pot of
+capital cannot be both"* — **is funding on a short position**, exactly as tabled here.
+⇒ The first branch is dead with the kernel: A–S, σ² and γ are deleted, so "inventory risk priced by
+A–S" is no longer an available answer.
 
-🔴 **VOIDED AS STATED — §PLP-Z Q1.1 MEASURED IT.** `Quid._convert` is `amt × lpShares /
-_pricingBacking()` — a standard 4626 share price. ⇒ **claims are PRO-RATA, not denominated.** So
-**§PLP-0's toll-vs-premium fork is LIVE again and §PLP-8/§PLP-11 do NOT dissolve.** ⚠️ **Kept in full
-because the derivation is reusable if the claim model is ever revisited (option F, §PLP-R3), and because
-its dead-end diagnoses are independently useful.**
+🔴 **AND THE VOIDING WAS AGAINST THE OLD MODEL, WHICH IS WHY THIS MATTERS BEYOND ONE ROW.** This was
+marked *"VOIDED BY Q1.1"* and would have been skipped by any sweep that trusts status markers. **A row
+closed or voided against a superseded model can be the row that was right.** Owner, 2026-09-11:
+*"there is no guarantee that what is currently in the code represents that version of the model."*
+
 
 ## 🪦 §REFILL-PROGRAMME-RETIRED-2026-09-10 — ~~the refill funding study, the κ(σ)/ρ(σ) shape attempts, and §PLP-1..4~~
 
@@ -46539,92 +46532,39 @@ left to retire, but **the comparison was never contingent on the leg being broke
 | F13 | a rebalance batch's outcome is invariant to LP array order | §PLP-6b's sum-of-floors |
 | F14 | an up-leg rebalance reaches target rather than emitting `RebalanceFailed` | §PLP-6a — ⚠️ **still worth having even though §PLP-6a is withdrawn: it is the regression test for the routing change** |
 
-## §PLP-T 🔴 THE REBALANCE GAP: NOTHING RESTORES INVENTORY, EVER
+## §PLP-T ✅ **ANSWERED BY THE MODEL 2026-09-11 — THE RESTORING TERM IS THE DATED CLAIM**
 
-**Asked first in review and answered last.** §PLP-V found the repack unfunded and called that *"no leak
-to prevent."* **That framing was wrong — an unfunded rebalance is not a free rebalance, it is an absent
-one.** The band moves; the inventory does not. Fills settle at **oracle**, so the band prices nothing. ⇒
-**A repack lets the pool declare itself centred at spot while holding whatever swaps left it holding.**
+This row's headline was *"nothing restores inventory, ever"*, and its own table dismissed organic
+counter-flow as **"not a mechanism — a hope."**
 
-| candidate | verdict |
-|---|---|
-| the repack | **bookkeeping** — one storage write (§PLP-V) |
-| `onShortfall` | **refuses by design** (`§4796-4812`) |
-| the lever | changes **leverage**, not composition |
-| organic counter-flow | not a mechanism — a hope |
+⭐ **DEFERRAL CONVERTS THAT HOPE INTO A PRICED INSTRUMENT** (`TARGET-DESIGN` Part I §6). The pool does
+not need counter-flow to arrive by a deadline: it issues a **dated claim** on the asset it is short,
+and **pays the waiting party what that asset earns.** Counter-flow then settles the claim when it
+comes, and the wait is compensated when it does not. **That is a mechanism, and it is the restoring
+term this row said did not exist.**
 
-⭐ **THE TRADEOFF, STATED PLAINLY:** *Uniswap pays arbitrageurs to rebalance its LPs, and that payment IS
-LVR. This design refuses to pay arbitrageurs, and so does not get rebalanced.* **LVR was not eliminated;
-the service LVR buys was declined.**
-🔴 **This is a LIVENESS failure, not a value failure — which is why it is easy to miss.** Two-leg NAV
-keeps LPs value-whole through drift (§PLP-Z), so nothing is stolen. But a pool that serves one direction
-earns roughly half the fees, and under sustained directional flow the skew makes draining expensive while
-**nothing makes refilling attractive** — a one-way ratchet with no restoring term.
-⭐ **THE REFRAME THAT MAKES IT TRACTABLE.** Claims are pro-rata on VALUE, so the pool does not owe any
-particular mix. Composition drift is **not a solvency problem** — LPs are whole at every ratio. It is a
-**business** problem. ⇒ **The fix does not have to restore a RATIO. It has to restore the ABILITY TO
-QUOTE BOTH SIDES.** A much weaker requirement, and it admits solutions the ratio framing rules out.
-### The four classes
-**1 — PAY SOMEONE, and this deserves better than its reputation.** The root cause is exact: at oracle
-there is **no mispricing, so no arbitrage, so no arbitrageur ever has a reason to trade with you.** A
-CFMM gets rebalanced because its price is WRONG; we removed the wrongness and removed the service with
-it. Quoting the refill direction better than oracle restores the incentive — **and that is NOT LVR.** LVR
-is what an informed trader extracts when you are passively wrong: unbounded, adverse, unchosen. **A
-posted rebalancing spread is a price you set, bounded by what you post, on the direction you want.**
-⚠️ **Rejecting it as "paying a third party" conflates a CHOSEN cost with an EXTRACTED one.**
-**2 — BORROW THE SCARCE ASSET AGAINST THE ABUNDANT ONE.** Restores **deliverability, not composition**:
-borrow ETH against USD and you hold ETH while owing ETH, so net exposure is unchanged. **But you can
-serve.** Under the reframe that is **sufficient**. `_leverUpBuy`'s shape; machinery present.
-**3 — SOURCE ON DEMAND.** Do not deliver from inventory — buy at fill time and pass through. ⇒ **NOTHING
-TO REBALANCE, because no directional position is ever held.** You quote **oracle + measured route cost**,
-which is where the depth-toll analysis landed independently (§PLP-0). ✅ **The design is already drifting
-here**: the swap-out delever sources from the swapper's own proceeds; the offramp sources from Curve.
-**Inventory then exists only to AVOID route cost, and the skew is the price of using it.**
-**4 — LET THE TARGET DO IT.** `target = flowEwmaUsd` is a **depth** target, so two-directional flow
-mean-reverts drift for free. Only **sustained one-directional** flow breaks it — and that is the case
-where the market is genuinely moving and the anchor reseats anyway. ⇒ **MEASURE THIS FIRST.**
+✅ **AND THE ROW'S OWN REFRAME IS NOW THE DESIGN'S FRAMING, KEPT VERBATIM BECAUSE IT IS THE BEST
+SENTENCE IN THE CLUSTER:** *claims are pro-rata on VALUE, so the pool does not owe any particular mix;
+composition drift is not a solvency problem, it is a business one.* ⇒ **the fix does not have to
+restore a RATIO, it has to restore the ABILITY TO QUOTE BOTH SIDES.**
 
-### 🔴 §PLP-T2 — DRIFT ALSO ARRIVES FROM THE REDEMPTION SIDE
-`_settleRedeem` pays *"from free vault stables first; unwinds the ETH range for the remainder."* ⇒ **a
-redemption wave that exhausts free vault stables reaches into the ETH range's USD leg**, shrinking its
-dollar depth. **A range short of dollars cannot buy ETH** — this section's drift problem arriving through
-redemption, with **no swap having occurred.**
-⇒ **M1–M3's flow measurements are NOT sufficient on their own.** **Add redemption volume and its
-co-timing with swap direction to the empirical set (M7).**
-✅ **R1 RESOLVED 2026-09-05 (§SESS-1) — IT CANNOT REACH LP-OWNED DOLLARS.** `unwindForRedeem` →
-`_burnInRange(…, address(0))` → `SwapLib.burnInRange:2317`, which sizes the USD release as
-**`basketUsd·pulled/pooled`**. Since `pulled = min(amount, pooled)`, **`usdOut ≤ basketUsd` by
-construction**, so `Core._poolUsdInRange`'s burn arm always takes the `usdAmount` branch of
-`min(basketUsd, usdAmount)` — **both legs fall by the same number and the increment `POOLED_USD −
-basketUsd` is INVARIANT.** The arm that *does* consume the increment (`basketUsd < usdAmount`, which that
-block documents) **is unreachable from here.** ⇒ **a redemption wave is NOT a transfer from LPs to QU!D
-holders.**
-🟡 **But the same read found a live defect, now fixed in prose:** `unwindForRedeem`'s claim to free
-*"EXACTLY `usdWanted`"* is **false whenever LPs hold an increment** — the SIZING uses `usd6` (the whole
-USD leg) while the RELEASE is `basketUsd`-proportional, so it **UNDER-frees by `basketUsd/POOLED_USD`**,
-and the fee mint grows that gap by design (`basketLeg = false` on the mint arm). ✅ **Nothing downstream
-is misled** — `usdFreed` measures the real delta.
-⇒ **The drift §PLP-T2 describes is REAL; the ownership question behind it is CLOSED.**
-
-### 🔴 STATUS: OPEN. NOT READY TO CHOOSE. NEEDS EMPIRICAL ANALYSIS.
-**Owner, 2026-09-05.** The four classes are the option space, **not a recommendation**. An earlier draft
-ranked them (*"3 is the structural answer, 2 is what to build now"*); that ranking is **withdrawn** — it
-was argued, not measured.
-
-| # | measurement | which class it moves |
+### The four classes, re-graded against the model
+| | class | verdict |
 |---|---|---|
-| M1 | **flow directionality over 48 h** (net vs gross, per pool) | **gates all of them** — if 4 holds, 1–3 are premature |
-| M2 | **how long does drift actually persist**, and how deep before reversing? | sizes the problem |
-| M3 | **realised one-directional episodes** — frequency, duration, worst depth | 2 vs 3 |
-| M4 | **route cost at realistic size** on the legs class 3 would traverse each fill | 3's viability |
-| M5 | **what spread would actually attract refill flow** | 1's viability — a posted spread nobody takes is not a mechanism |
-| M6 | **directional-loan liquidation tail** — ETH-against-USD is not the near-par pair G has | 2's true cost |
-| **M7** | **redemption volume and its co-timing with swap direction** (§PLP-T2) | **all classes** |
+| **1** | **PAY SOMEONE** — post a rebalancing spread on the direction you want | ⏸️ **STILL OPEN, and its argument survives:** *"LVR is what an informed trader extracts when you are passively wrong: unbounded, adverse, unchosen. A posted rebalancing spread is a price you set, bounded by what you post, on the direction you want."* ⚠️ Note it is compatible with §NO-GAMEABLE-BOUND **only as a constant** — a spread derived from observed flow is the kernel again. |
+| **2** | **BORROW THE SCARCE ASSET** against the abundant one | ✅ **This is the model's lever**, and this row's insight is the one the design now rests on: it restores **deliverability, not composition** — *"you hold ETH while owing ETH, so net exposure is unchanged. But you can serve."* Under the reframe that is **sufficient**. |
+| **3** | **SOURCE ON DEMAND** — buy at fill time, pass through | ✅ **THIS IS NOW THE PRIMARY DRAIN PATH, not a drift.** `QuidLib.sendEth` → `deleverEthOnDelivery` sources at fill time; the offramp sources from Curve. The row said *"the design is already drifting here"* — it has arrived. |
+| ~~**4**~~ | ~~LET THE TARGET DO IT — `target = flowEwmaUsd` mean-reverts drift for free~~ | 🪦 **DELETED.** `flowEwmaUsd` no longer exists (§NO-GAMEABLE-BOUND: a target derived from observed flow is set by the counterparty being priced). The class is unavailable, not merely unmeasured. |
 
-⚠️ **None is answerable from the code.** ⚠️ **And the classes are not mutually exclusive** — 2 and 4
-compose; 1 and 3 do not (a posted spread and pass-through pricing answer the same question twice).
-⚠️ **Consistency note:** class 3 and §PLP-0's depth-toll reading are the SAME position reached from two
-directions. **They must be ruled on together or not at all.**
+### 🔴 §PLP-T2 — drift also arrives from the redemption side
+✅ **R1 RESOLVED (§SESS-1): it cannot reach LP-owned dollars.** `unwindForRedeem` → `_burnInRange(…, 0)`
+sizes the USD release as `basketUsd·pulled/pooled` with `pulled = min(amount, pooled)`, so
+`usdOut ≤ basketUsd` by construction and the increment `POOLED_USD − basketUsd` is **invariant**. The
+arm that would consume it is unreachable from here. ⇒ a redemption wave is **not** a transfer from LPs
+to QU!D holders.
+⏸️ **What remains:** a redemption wave still shrinks the range's DOLLAR depth, and a range short of
+dollars cannot serve a sell-in. Under the model that is not a new mechanism — it is the same capacity
+question the tenor prices (Part I §6), arriving without a swap.
 
 ## §PLP-R2 — "SHORTFALL" NAMES FIVE THINGS, AND THE FIFTH IS UNHANDLED
 
