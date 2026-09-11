@@ -16,6 +16,32 @@ earning its keep.
 ⚠️ `docs/informational/` **contradicts the contracts in ~10 verified places** (`CLAUDE.md`). Never
 quote anything in this directory without checking the code.
 
+---
+
+## 🪦 §KERNEL-IS-DELETED — read this before acting on any skew / Γ / κ / σ² / θ / refill row below (2026-09-11)
+
+**~27% of this file (≈459 lines) is wrong turns inside a design that no longer exists.** The
+Avellaneda–Stoikov scarcity kernel, its parameters (Γ, κ, ρ, the pole, the q̄ integral), σ² and every
+estimator that fed it, the flow/redeem EWMAs, θ and K, and the refill are all DELETED from `evm/src`.
+`wellSkew` and `sellSkew` both return a flat **420 ppm** (`SwapLib.MIN_SWAP_SKEW_WAD`).
+
+**Why, in one sentence:** every input to that kernel was MEASURED STATE THE PRICED COUNTERPARTY COULD
+STARVE — *patience* (stop trading, let the 48h flow EWMA decay, and the target shrinks toward the
+inventory you mean to drain) and *clock-stretching* (space one drain's slices four hours apart, σ²
+falls ~24× and the charge with it, for the same total size). Owner: **"anything that can be gamed is
+useless."**
+
+⭐ **AND THOSE ROWS ARE NOT DELETED FROM THIS FILE, BECAUSE THIS FILE'S OWN RULE SAYS THEY EARN THEIR
+KEEP HERE.** The header two paragraphs up is exactly right: *"a ⛔ row whose symbols are all gone is
+usually a decision that was CARRIED OUT, not a stale row — that is when its warning starts earning its
+keep."* Three attempts to make the reserve vol-sensitive were BUILT AND REVERTED; the rows recording
+why are the reason a fourth is not attempted. **Read them as "do not rebuild this", never as a queue.**
+
+⛔ **DO NOT USE THEM TO PLAN.** Current state is `docs/actionable/TARGET-DESIGN.md` — §4 the charge,
+§5 the removals, §6b/§6c the debts, §10 what remains to build. The corresponding rows in
+`SPRINT.md` were cut across five passes (see `§KERNEL-RETIRED-2026-09-10` there); these survive
+because a wrong-turn archive is the one place a dead design is still worth carrying.
+
 ## Corrections and retractions carried as table rows
 
 | row | body (verbatim from `QUEUE.md`) |

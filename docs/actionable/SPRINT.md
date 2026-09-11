@@ -20058,22 +20058,22 @@ specification question: nobody has ever seen it pass, so it may encode a model t
 - `testSwapPricing_EthSellInRange_PaysAboutOracle`
 - `testTwapAnchorDeadlock_FullFix`
 
-### 🟠 THE 23 NEVER-GREEN
-- `test_BtcRange_ThetaThrottlesInRangePairing`
-- `test_E131_PremiumFundsLvrOverItsPricedWindow`
+### 🟠 ~~THE 23 NEVER-GREEN~~ — **NINE NEVER-GREEN. TEN OF THEM ARE DELETED (re-measured 2026-09-11).**
+
+🔴 **THE LIST WAS 19 NAMES AND TEN NO LONGER EXIST**, every one a kernel test that went with the
+kernel — `ThetaThrottlesInRangePairing`, `PremiumFundsLvrOverItsPricedWindow`,
+`ScarcitySurvivesAPermissionlessReseat`, `PremiumRecordedEqualsPremiumPaid` and the whole
+`UNITB_*` patience/consolidation cluster. They were never green and are now not anything.
+⚠️ **A NEVER-GREEN LIST THAT NAMES DELETED TESTS IS WORSE THAN NO LIST** — it reads as outstanding
+work, and a reader who greps for one finds nothing and cannot tell 'fixed' from 'removed'.
+⇒ The nine below ARE still in the tree and ARE still the question. (The heading said 23 and the
+list held 19; that discrepancy was already there and is not something this edit introduced.)
+
 - `test_E31a_BtcIncrementIsNeverCountedAsRangeEquity`
 - `test_E31b_ClosingBtcLpIsNotPaidTheRangesUsdIncrement`
 - `test_E39_EthTradingNoLongerStarvesTheBtcRangesCapacity`
 - `test_E41_SwapCapacityAndPerRangePnlAttribution`
-- `test_FORELLA_ScarcitySurvivesAPermissionlessReseat`
 - `test_Redeem_UnwindsRangeToFreeCommittedDollars`
-- `test_UNIT_PremiumRecordedEqualsPremiumPaid`
-- `test_UNITB_CounterMatchesWhatTheSwapperLoses`
-- `test_UNITB_FrozenTargetInvertsTheConsolidationDiscount`
-- `test_UNITB_PatienceBackground_DoesOtherFlowDefendThePool`
-- `test_UNITB_PatienceCurve_WhatWaitingBuysTheChopper`
-- `test_UNITB_PinnedEntry_ConsolidationDiscount`
-- `test_UNITB_ProbeSwapIsEntryHistoryIndependent`
 - `test_V1b_CommittedDecomposesPerRangeWithLiveLeverageDebt`
 - `test_V1bdisc_OneRangesDebtExceedingItsOwnLegMustNotEatTheOther`
 - `test_V4_DepositGrowsCommittedByExactlyTheRangeedUsd`
