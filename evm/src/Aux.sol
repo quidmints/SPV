@@ -1095,13 +1095,38 @@ contract Aux is // Auxiliary
     ///         existed and was removed, because it spent the SHARED safety margin to deliver
     ///         WBTC for a usually-impermanent shortfall, compensating the flow at every
     ///         claimholder's expense (toxic).
+    /// 🔴 §BTC-2.6 STEP 2 — **THE DROP IS LOUD NOW. IT USED TO BE SILENT, AND THAT WAS THE WHOLE
+    ///    DEFECT: `if (recipient == bytes32(0)) return;` with no revert and no event.** An obligation
+    ///    the protocol recognised simply evaporated, leaving nothing for anyone — on-chain or
+    ///    off-chain — to notice, reconcile or replay. A no-op is an acceptable POLICY; an
+    ///    *unobservable* no-op is not, because it is indistinguishable from the rail working.
+    /// ⚠️ **THIS IS STEP 2 OF THREE AND IT IS THE ONLY UNCONDITIONAL ONE.** §BTC-2.6 says *"make the
+    ///    silent drop loud REGARDLESS"*, because steps 1 (is the rail meant to be live — if yes it
+    ///    needs a listener AND an on-chain fulfilment record plus reversal; if no, this should
+    ///    revert) and 3 (bound in-range depth against native inventory) are OWNER DECISIONS.
+    /// ⛔ **DO NOT READ THIS EVENT AS THE RAIL WORKING.** `BTCHopRequest` still has **ZERO consumers
+    ///    tree-wide** — no Rust listener exists despite the docstring below claiming the hop node
+    ///    listens. **An event a listener may ignore is enclave-level trust** (§BTC-2.6), which is why
+    ///    the fulfilment record is the part that actually closes this and is still unbuilt.
     function btcShortfall(address sender, uint shortfall) external onlyUs {
         if (sender == address(this)) return;
         bytes32 recipient = IBTCChannels(_btcChannels).btcRecipientOf(sender);
-        if (recipient == bytes32(0)) return;
+        if (recipient == bytes32(0)) {
+            // Not a revert: an unregistered recipient is a real, reachable state (an LP that never
+            // opened a channel), and reverting here would fail the CALLER's settlement over a
+            // condition the caller did not create. Observable is the requirement, not fatal.
+            emit BTCShortfallDropped(sender, shortfall);
+            return;
+        }
         unchecked { btcHopRequestId++; }
         emit BTCHopRequest(btcHopRequestId, recipient, shortfall);
     }
+
+    /// @notice §BTC-2.6 — a recognised BTC shortfall that could NOT be turned into a hop request
+    ///         because `sender` has no registered `btcRecipientOf`. Emitted instead of returning
+    ///         silently, so the obligation is at least auditable. ⚠️ Nothing consumes this yet; it
+    ///         exists so the gap is countable rather than invisible.
+    event BTCShortfallDropped(address indexed sender, uint256 shortfall);
 
     /// @notice Emitted when the V4 BTC pool obligates us to send native
     ///         BTC to a recipient. Hop node listens and executes on-L1.

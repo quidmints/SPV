@@ -104,6 +104,31 @@ const VAULT_SEED_LABEL: &[u8] = b"quid-vault-node-v1";
 /// A genuine second half is therefore a **topology** — the LP running [`boot_vault`] with a seed
 /// the fleet never has (§E175 remainder) — not a seed setting, which is precisely why it cannot
 /// be reached by editing this function.
+/// 🔴🔴 **THIS FUNCTION IS WHERE THE CUSTODIAL PROPERTY IS CREATED. A HACKED DAEMON THAT HAS
+/// `root_seed` RECONSTRUCTS THE LP HALF OF EVERY CHANNEL — HOLDING A KEY DOES NOT HELP IF ITS
+/// DERIVATION IS KNOWN.** (Owner, 2026-09-11, asking exactly this.)
+///
+/// The chain: `boot_vault` seeds a `QuidKeysManager` with this value, and
+/// `derive_channel_signer(channel_keys_id)` derives every channel's funding key from it. So the
+/// fleet does not merely *hold* the LP half — it can **re-derive** it from one secret, for every
+/// channel, at any time, including after the fact.
+///
+/// ✅ **THE PHONE SIDE IS ALREADY INDEPENDENT, AND THAT IS THE IMPORTANT HALF:**
+/// `app/features/identity/identity/root.ts:181` derives the LP's funding key as
+/// `HDNodeWallet.fromPhrase(mnemonic, "", FUNDING_PATH)` — from the **LP's own mnemonic**, never from
+/// `root_seed`. There is no derivation path from the fleet's secret to that key.
+///
+/// ⚠️ **SO THE GAP IS NOT THE DERIVATION SCHEME, IT IS WHICH KEY IS IN THE CHANNEL.** Channels opened
+/// today carry the seed-derived vault half in their 2-of-2, so pointing the LP at its phone key later
+/// is **not a config change** — it needs a funding-key rotation
+/// (`§SPLICE-ROTATES-BOTH-FUNDING-KEYS`, which already re-pins `keysHash`). Plan the migration, not
+/// just the switch.
+///
+/// ⛔ **AND IT CANNOT BE FIXED BY EDITING THIS FUNCTION** — an independently-generated seed here is
+/// still generated *here*, i.e. inside the fleet, and is additionally ABSENT after an enclave
+/// rotation, bricking every channel's vault half. **A genuine second half is a TOPOLOGY: the LP
+/// signing with a key the fleet never had.** `§BITCOIN-ORDER` item 0 is that work, and its closing
+/// move is deleting this function.
 pub fn derive_vault_seed(hop_seed: &RootSeed) -> RootSeed {
     RootSeed::new(hop_seed.derive(&[VAULT_SEED_LABEL]))
 }
