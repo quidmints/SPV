@@ -383,7 +383,8 @@ async fn complete_delivery<R: JsonRpc + Send + Sync + 'static>(
         let rpc2 = rpc.clone();
         let cd = calldata.clone();
         let floor = cfg.gas_limit;
-        tokio::task::spawn_blocking(move || gas_limit_for(&*rpc2, btc_channels, &cd, floor))
+        let from = evm.address();
+        tokio::task::spawn_blocking(move || gas_limit_for(&*rpc2, from, btc_channels, &cd, floor))
             .await
             .context("gas estimate join")?
     };

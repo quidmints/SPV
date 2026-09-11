@@ -40,6 +40,8 @@ pub mod boot;
 pub mod channel_driver;
 pub mod channel_truth;
 pub mod deadman_exit;
+#[cfg(feature = "harness")]
+pub mod harness_consent;
 pub mod recovery_broadcast;
 pub mod vault;
 pub mod client;

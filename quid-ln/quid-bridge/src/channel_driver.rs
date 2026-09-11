@@ -306,13 +306,15 @@ pub(crate) fn eth_call_revert_reason<R: JsonRpc>(
 /// so a call whose cost grows with merkle-proof depth or Quid state can't OOG.
 /// On estimate failure (the call would revert) fall back to `floor` and let
 /// `send_tx` surface the revert.
-pub(crate) fn gas_limit_for<R: JsonRpc>(rpc: &R, to: Address, calldata: &[u8], floor: u64) -> u64 {
+pub(crate) fn gas_limit_for<R: JsonRpc>(
+    rpc: &R, from: Address, to: Address, calldata: &[u8], floor: u64,
+) -> u64 {
     // openChannel/recordClose are ~hundreds of k gas; an estimate far above this
     // is a bogus/lying RPC, not a real cost. Ignore an absurd estimate (use the
     // configured floor) so a malicious node can't inflate our gas_limit into an
     // un-includable or gas-wasting tx.
     const MAX_PLAUSIBLE_GAS: u64 = 15_000_000;
-    match estimate_gas(rpc, to, calldata) {
+    match estimate_gas(rpc, Some(from), to, calldata) {
         Ok(g) if g <= MAX_PLAUSIBLE_GAS => (g.saturating_mul(125) / 100).max(floor),
         _ => floor, // estimate failed OR absurd → configured floor
     }
@@ -332,7 +334,8 @@ pub(crate) async fn estimate_gas_and_send<R: JsonRpc>(
     let gas = {
         let rpc2 = rpc.clone();
         let cd = calldata.clone();
-        tokio::task::spawn_blocking(move || gas_limit_for(&*rpc2, to, &cd, floor))
+        let from = evm.address();
+        tokio::task::spawn_blocking(move || gas_limit_for(&*rpc2, from, to, &cd, floor))
             .await
             .context("gas estimate join")?
     };
@@ -1923,24 +1926,24 @@ mod tests {
     fn gas_limit_for_covers_estimate_with_headroom() {
         // Estimate above the floor → estimate + 25%, never below the estimate.
         let rpc = GasRpc { estimate: Some(900_000) };
-        let g = gas_limit_for(&rpc, Address::ZERO, &[], 400_000);
+        let g = gas_limit_for(&rpc, Address::ZERO, Address::ZERO, &[], 400_000);
         assert_eq!(g, 1_125_000, "estimate*1.25");
         assert!(g >= 900_000, "must cover the estimate");
 
         // Estimate below the floor → floor wins (don't shrink below configured).
         let rpc = GasRpc { estimate: Some(100_000) };
-        assert_eq!(gas_limit_for(&rpc, Address::ZERO, &[], 400_000), 400_000);
+        assert_eq!(gas_limit_for(&rpc, Address::ZERO, Address::ZERO, &[], 400_000), 400_000);
 
         // Estimate reverts → fall back to the floor (send_tx surfaces the revert).
         let rpc = GasRpc { estimate: None };
-        assert_eq!(gas_limit_for(&rpc, Address::ZERO, &[], 400_000), 400_000);
+        assert_eq!(gas_limit_for(&rpc, Address::ZERO, Address::ZERO, &[], 400_000), 400_000);
 
         // Absurd estimate (lying/buggy RPC) → ignored, use the floor (don't let it
         // inflate gas_limit into an un-includable tx).
         let rpc = GasRpc { estimate: Some(100_000_000) };
-        assert_eq!(gas_limit_for(&rpc, Address::ZERO, &[], 400_000), 400_000);
+        assert_eq!(gas_limit_for(&rpc, Address::ZERO, Address::ZERO, &[], 400_000), 400_000);
         let rpc = GasRpc { estimate: Some(u64::MAX) };
-        assert_eq!(gas_limit_for(&rpc, Address::ZERO, &[], 400_000), 400_000);
+        assert_eq!(gas_limit_for(&rpc, Address::ZERO, Address::ZERO, &[], 400_000), 400_000);
     }
 
     // Fault injection: malformed RPC responses / transport errors must never
@@ -1976,10 +1979,10 @@ mod tests {
             let rpc = Canned(v.clone());
             let _ = read_channel_state(&rpc, z, [0u8; 32]); // must not panic
             // gas_limit_for must always yield a usable limit (≥ floor), never panic.
-            assert!(gas_limit_for(&rpc, z, &[], 400_000) >= 400_000);
+            assert!(gas_limit_for(&rpc, z, z, &[], 400_000) >= 400_000);
         }
         assert!(read_channel_state(&Erroring, z, [0u8; 32]).is_err());
-        assert_eq!(gas_limit_for(&Erroring, z, &[], 400_000), 400_000);
+        assert_eq!(gas_limit_for(&Erroring, z, z, &[], 400_000), 400_000);
     }
 }
 
@@ -2021,7 +2024,7 @@ mod proptests {
             let z = Address::ZERO;
             let rpc = Canned(ret);
             let _ = read_channel_state(&rpc, z, [0u8; 32]); // no panic (Ok/Err)
-            prop_assert!(gas_limit_for(&rpc, z, &[], 400_000) >= 400_000);
+            prop_assert!(gas_limit_for(&rpc, z, z, &[], 400_000) >= 400_000);
         }
 
         // (P1b) A clean ≥160-byte return whose amountSats word fits u128 always

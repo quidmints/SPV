@@ -112,6 +112,48 @@ struct Opened {
     chan_id: lightning::ln::types::ChannelId,
 }
 
+/// The LP's identity and consent for an opened channel, produced the way the contract expects
+/// and the fleet now can (§NO-SELF-PROVISIONED-LPS: node_b IS the LP half, in-process).
+///
+/// `lpEth` is DERIVED by the contract from the LP's funding pubkey
+/// (`ChannelLib.lpEthOf(lpIdentityPubkey)`), so it is not a free EVM key: it is
+/// `evm_address_of(pb)` where `pb` is the hop's counterparty = node_b's funding half. The
+/// payout key is a keypair this test holds so it can sign the `btcRecipient` PoP, and the
+/// two-rung ladder is signed by both halves via `deadman_exit::build_exit_arming`.
+struct LpIdentity {
+    lp_eth: Address,
+    recipient: bitcoin::secp256k1::Keypair,
+    btc_recipient: [u8; 32],
+}
+
+fn lp_identity(o: &Opened, recipient_seed: u8) -> LpIdentity {
+    let secp = bitcoin::secp256k1::Secp256k1::new();
+    let (_pa, pb) = channel_funding_pubkeys(
+        &o.node_a.chain_monitor, &o.node_a.channel_manager, o.funding_txid, o.funding_vout,
+    ).expect("funding pubkeys");
+    let lp_pk = bitcoin::secp256k1::PublicKey::from_slice(&pb).expect("LP funding pubkey");
+    let lp_eth = quid_hop::evm_codec::evm_address_of(&lp_pk);
+    let sk = bitcoin::secp256k1::SecretKey::from_slice(&[recipient_seed; 32]).unwrap();
+    let recipient = bitcoin::secp256k1::Keypair::from_secret_key(&secp, &sk);
+    let btc_recipient = bitcoin::secp256k1::XOnlyPublicKey::from_keypair(&recipient).0.serialize();
+    LpIdentity { lp_eth, recipient, btc_recipient }
+}
+
+/// Bind the LP's funding→lpEth mapping AND its consent (OpenAuth + ladder) for the open.
+fn bind_open_consent(
+    registry: &quid_bridge::vault::VaultRegistry, o: &Opened, lp: &LpIdentity, cfg: &BridgeConfig,
+) {
+    registry.bind_funding(&o.funding_txid.to_string(), o.funding_vout, lp.lp_eth);
+    let amount_sats = o.node_b.channel_manager.list_channels()
+        .into_iter().find(|c| c.channel_id == o.chan_id)
+        .map(|c| c.channel_value_satoshis).expect("LP channel value");
+    let consent = quid_bridge::harness_consent::open_consent(
+        &o.node_a, &o.node_b, o.chan_id, amount_sats, &lp.recipient,
+        cfg.chain_id, cfg.btc_channels, lp.lp_eth, o.regtest.tip_height() as u32,
+    ).expect("open consent");
+    assert!(registry.bind_consent(&o.funding_txid.to_string(), o.funding_vout, consent));
+}
+
 async fn open_channel(port_a: u16, port_b: u16) -> Opened {
     let regtest = Regtest::start();
     let seed_a = 0xA11CE_u64;
@@ -226,13 +268,8 @@ async fn channel_lifecycle_open_then_close_on_real_evm() {
     // (B) No lpAuth responder — the LP runs nothing. The LP is a pure EVM identity that
     // signs a COLD delegation authorizing the hop (the tx submitter); the vault registry
     // resolves lpEth from the funding outpoint, so drive_open needs no LN round-trip.
-    let lp_evm_key = bitcoin::secp256k1::SecretKey::from_slice(&[0x42u8; 32]).unwrap();
-    let secp = bitcoin::secp256k1::Secp256k1::new();
-    let lp_eth = {
-        let pk = bitcoin::secp256k1::PublicKey::from_secret_key(&secp, &lp_evm_key);
-        Address::from_slice(&keccak256(&pk.serialize_uncompressed()[1..])[12..])
-    };
-    let btc_recipient = [0x11u8; 32]; // LP payout key (open test)
+    let lp = lp_identity(&o, 0x42);
+    let (lp_eth, btc_recipient) = (lp.lp_eth, lp.btc_recipient);
 
     let rpc = Arc::new(HttpJsonRpc::new(env.cfg.rpc_url.clone()));
     let mk_evm = || {
@@ -271,7 +308,7 @@ async fn channel_lifecycle_open_then_close_on_real_evm() {
     // honest next problem. Before this change they would have failed on a deleted selector
     // first and spent the time debugging the wrong layer.
     let registry = quid_bridge::vault::VaultRegistry::new();
-    registry.bind_funding(&o.funding_txid.to_string(), o.funding_vout, lp_eth);
+    bind_open_consent(&registry, &o, &lp, &env.cfg);
     warm_twap_window(&*rpc); // else openChannel→registerBtcLp reverts "twap: pre-history"
     drive_open(
         Arc::new(env.cfg.clone()), mk_evm(), rpc.clone(),
@@ -412,13 +449,8 @@ async fn swap_out_onchain_delivery_on_real_evm() {
 
     // The LP is a pure EVM identity (cold delegation); node_b is the fleet VAULT that
     // holds the LP-side channel keys, node_a is the hop.
-    let lp_evm_key = bitcoin::secp256k1::SecretKey::from_slice(&[0x42u8; 32]).unwrap();
-    let secp = bitcoin::secp256k1::Secp256k1::new();
-    let lp_eth = {
-        let pk = bitcoin::secp256k1::PublicKey::from_secret_key(&secp, &lp_evm_key);
-        Address::from_slice(&keccak256(&pk.serialize_uncompressed()[1..])[12..])
-    };
-    let btc_recipient = [0x11u8; 32];
+    let lp = lp_identity(&o, 0x42);
+    let (lp_eth, btc_recipient) = (lp.lp_eth, lp.btc_recipient);
 
     let rpc = Arc::new(HttpJsonRpc::new(env.cfg.rpc_url.clone()));
     let mk_evm = || {
@@ -455,7 +487,7 @@ async fn swap_out_onchain_delivery_on_real_evm() {
     // honest next problem. Before this change they would have failed on a deleted selector
     // first and spent the time debugging the wrong layer.
     let registry = quid_bridge::vault::VaultRegistry::new();
-    registry.bind_funding(&o.funding_txid.to_string(), o.funding_vout, lp_eth);
+    bind_open_consent(&registry, &o, &lp, &env.cfg);
     warm_twap_window(&*rpc); // else openChannel→registerBtcLp reverts "twap: pre-history"
     drive_open(
         Arc::new(env.cfg.clone()), mk_evm(), rpc.clone(),
@@ -493,6 +525,7 @@ async fn swap_out_onchain_delivery_on_real_evm() {
     // ── 3. VAULT deliver (B): wrap node_b as the fleet vault, spawn the delivery
     //    correlator, and initiate the swapper-directed splice-out. The vault holds the
     //    LP-side keys and splices its OWN channel — no LP round-trip, no lpAuth. ──
+    let o_chan_id = o.chan_id;
     let Opened { node_a, node_b, regtest, pk_a, .. } = o;
     let mut vault = VaultNode::from_node(
         node_b,
@@ -544,14 +577,16 @@ async fn swap_out_onchain_delivery_on_real_evm() {
         .expect("post-splice funding pubkeys");
     let (params, raw, proof) = build_splice_params(&node_a.esplora, &splice_txid, splice_vout, spa, spb)
         .await.expect("rebuild splice params");
-    // (§E233-ladder) The contract now requires the LP's fresh `ExitArming` ladder for the outpoint
-    // the delivery rotates to (`swap_out_onchain.rs:368`). This harness has no LP-signed consent —
-    // see step 1's note — so this is EMPTY and the contract will refuse it. Not a stub: the run
-    // already stops at `drive_open`'s consent check before reaching here. Since
-    // §NO-SELF-PROVISIONED-LPS the vault holds the LP half in-process, so the fixture is producible
-    // from `deadman_exit::arm_signer`; wiring that is the open item (SPRINT §BITCOIN-ORDER, tier 3).
-    let no_ladder: &[quid_hop::evm_codec::ExitArming] = &[];
-    let cd = encode_deliver_swap_out_onchain(swap_id, cid, &params, &raw, &proof, &swapper_script, no_ladder);
+    // (§E233-ladder) A DELIVERY IS A ROTATION: the contract requires the LP's fresh `ExitArming`
+    // ladder for the outpoint it rotates to (`swap_out_onchain.rs`, `consent_for_funding`). The
+    // vault holds the LP half in-process, so it signs the rungs here exactly as the heartbeat
+    // does — both halves, the ROTATED keys (the monitors' scope is the post-splice funding now).
+    let rotated_ladder = quid_bridge::harness_consent::ladder(
+        &node_a.keys_manager, &node_a.chain_monitor,
+        &vault.node.keys_manager, &vault.node.chain_monitor,
+        o_chan_id, params.amount_sats, btc_recipient, regtest.tip_height() as u32, 101,
+    ).expect("post-delivery ladder");
+    let cd = encode_deliver_swap_out_onchain(swap_id, cid, &params, &raw, &proof, &swapper_script, &rotated_ladder);
     let landed = mk_evm().send_tx(env.cfg.btc_channels, cd.clone(), env.cfg.gas_limit).expect("deliverSwapOutOnchain send");
     if !landed {
         let from = mk_evm().address();
@@ -585,13 +620,8 @@ async fn lp_raw_btc_withdrawal_on_real_evm() {
     let o = open_channel(19_874, 19_875).await;
 
     // A DISTINCT LP identity (cold delegation) — its committed btcRecipient is the payout pin.
-    let lp_evm_key = bitcoin::secp256k1::SecretKey::from_slice(&[0x43u8; 32]).unwrap();
-    let secp = bitcoin::secp256k1::Secp256k1::new();
-    let lp_eth = {
-        let pk = bitcoin::secp256k1::PublicKey::from_secret_key(&secp, &lp_evm_key);
-        Address::from_slice(&keccak256(&pk.serialize_uncompressed()[1..])[12..])
-    };
-    let btc_recipient = [0x11u8; 32];
+    let lp = lp_identity(&o, 0x43);
+    let (lp_eth, btc_recipient) = (lp.lp_eth, lp.btc_recipient);
 
     let rpc = Arc::new(HttpJsonRpc::new(env.cfg.rpc_url.clone()));
     let mk_evm = || {
@@ -628,7 +658,7 @@ async fn lp_raw_btc_withdrawal_on_real_evm() {
     // honest next problem. Before this change they would have failed on a deleted selector
     // first and spent the time debugging the wrong layer.
     let registry = quid_bridge::vault::VaultRegistry::new();
-    registry.bind_funding(&o.funding_txid.to_string(), o.funding_vout, lp_eth);
+    bind_open_consent(&registry, &o, &lp, &env.cfg);
     warm_twap_window(&*rpc); // else openChannel→registerBtcLp reverts "twap: pre-history"
     drive_open(
         Arc::new(env.cfg.clone()), mk_evm(), rpc.clone(),
@@ -642,6 +672,7 @@ async fn lp_raw_btc_withdrawal_on_real_evm() {
     // ── 2. RAW-BTC WITHDRAWAL: the fleet vault calls the PRODUCTION withdraw_raw_btc to
     //    splice `withdraw_sats` out to `0x5120||btcRecipient`. We take the vault's lifecycle
     //    stream directly (no correlator) and read the Spliced event's new outpoint. ──
+    let o_chan_id = o.chan_id;
     let Opened { node_a, node_b, regtest, pk_a, .. } = o;
     let mut vault = VaultNode::from_node(
         node_b,

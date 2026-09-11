@@ -281,7 +281,7 @@ fn fit_batch<R: JsonRpc>(
     let mut n = batch.len().max(1);
     loop {
         let data = encode_add_header_batch(&batch[..n]);
-        let g = estimate_gas(rpc, gateway, &data)?; // Err on revert → propagate (reorg)
+        let g = estimate_gas(rpc, None, gateway, &data)?; // Err on revert → propagate (reorg)
         if g <= budget {
             return Ok(n);
         }
@@ -297,11 +297,21 @@ fn fit_batch<R: JsonRpc>(
 /// `eth_estimateGas` for a call. Returns the gas estimate, or `Err` if the call
 /// REVERTS — letting the relayer tell a too-costly batch (large estimate → split)
 /// apart from a reorg (estimate errors → recovery).
-pub fn estimate_gas<R: JsonRpc>(rpc: &R, to: Address, data: &[u8]) -> anyhow::Result<u64> {
-    let ret = rpc.call(
-        "eth_estimateGas",
-        json!([{ "to": to.to_string(), "data": format!("0x{}", hex::encode(data)) }]),
-    )?;
+///
+/// `from` MUST be the address that will send the transaction whenever the callee gates on
+/// `msg.sender` — every `_onlyHop()` entrypoint on `BTCChannels`. Without it the node
+/// estimates as `address(0)`, the gate reverts, `gas_limit_for` falls back to the configured
+/// floor, and any call that really needs more than the floor is mined OUT OF GAS (measured
+/// 2026-09-11: `openChannel` with a two-rung ladder, 1,995,436 of a 2,000,000 floor). The SPV
+/// relayer's `addBlockHeaderBatch` is permissionless, so it passes `None`.
+pub fn estimate_gas<R: JsonRpc>(
+    rpc: &R, from: Option<Address>, to: Address, data: &[u8],
+) -> anyhow::Result<u64> {
+    let mut req = json!({ "to": to.to_string(), "data": format!("0x{}", hex::encode(data)) });
+    if let Some(from) = from {
+        req["from"] = json!(from.to_string());
+    }
+    let ret = rpc.call("eth_estimateGas", json!([req]))?;
     let s = ret
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("estimateGas: no result"))?;
@@ -590,13 +600,13 @@ mod tests {
             let rpc = Canned(v.clone());
             // INVARIANT: a malformed/garbage response yields Ok/Err, never a panic.
             let _ = read_gateway_height(&rpc, z);
-            let _ = estimate_gas(&rpc, z, &[]);
+            let _ = estimate_gas(&rpc, None, z, &[]);
             let _ = read_gateway_block_exists(&rpc, z, [0u8; 32]);
         }
         // A transport error propagates as Err (never panics, never a sentinel).
         let e = Erroring;
         assert!(read_gateway_height(&e, z).is_err());
-        assert!(estimate_gas(&e, z, &[]).is_err());
+        assert!(estimate_gas(&e, None, z, &[]).is_err());
         assert!(read_gateway_block_exists(&e, z, [0u8; 32]).is_err());
     }
 
@@ -913,7 +923,7 @@ mod proptests {
             let rpc = Canned(ret);
             let _ = read_gateway_height(&rpc, z);
             let _ = read_gateway_block_exists(&rpc, z, [0u8; 32]);
-            let _ = estimate_gas(&rpc, z, &[]);
+            let _ = estimate_gas(&rpc, None, z, &[]);
         }
 
         // (P1b) A clean ≥32-byte word always decodes for the height/hop readers.

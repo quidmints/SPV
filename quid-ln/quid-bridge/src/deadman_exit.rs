@@ -126,30 +126,49 @@ fn arm_signer(
     signer
 }
 
-/// Build the fully-signed exit tx + `emitDeadManExit` calldata for one channel, given
-/// its on-chain record. Pure/sync (no I/O, no `.await`): derives + arms both signers,
-/// pre-signs in-place, and encodes. Returns `(calldata, checkpoint_sats)` or `None` if
-/// a monitor is missing / counterparty params aren't populated / arithmetic underflows.
+/// One fully-signed exit rung for a channel, plus the two funding halves it was signed with.
+/// Returned by [`build_exit_arming`]; consumed by the heartbeat (which wraps it in
+/// `emitDeadManExit` calldata) and by the e2e harness (which stacks rungs into the §E165
+/// ladder an open and a delivery require).
+pub struct ArmedExit {
+    pub exit: quid_hop::evm_codec::ExitArming,
+    /// The HOP's funding half (= the vault monitor's counterparty), compressed.
+    pub hop_half: [u8; 33],
+    /// The VAULT/LP's funding half (= the hop monitor's counterparty), compressed.
+    pub vault_half: [u8; 33],
+    /// What the rung pays the LP: `amount_sats` minus the miner fee and the keyless anchor.
+    pub paid_to_lp: u64,
+}
+
+/// Sign ONE exit rung for a channel with both funding halves, in-process. Pure/sync (no I/O,
+/// no `.await`): derives + arms both signers, pre-signs in-place, and returns the rung.
+/// `None` if a monitor is missing / counterparty params aren't populated / arithmetic
+/// underflows.
+///
+/// `cltv_height` is the rung's ABSOLUTE dead-man deadline. The heartbeat passes
+/// `tip + DEAD_MAN_DELTA_BLOCKS`; a ladder is two or more of these with DISTINCT deadlines
+/// (`BTCChannels._armLadder` rejects `LadderTooShallow` otherwise). `height_counter` is the
+/// per-channel nonce refresh counter (see `presign_deadman_exit`) — advance it per rung.
+///
+/// The two halves are passed as `(keys, monitors)` pairs rather than as node types so the
+/// harness can sign the OPEN ladder before it has wrapped the LP node as a `VaultNode`.
 #[allow(clippy::too_many_arguments)]
-fn build_exit_call(
-    // #114: the shard's freshness UTXO, resolved by the CALLER (the async heartbeat) and
-    // passed in as a value — this fn is documented pure/sync and must stay that way, so it
-    // never reaches into the wallet itself. `None` = pre-rotation channel (today's behaviour).
+pub fn build_exit_arming(
     freshness: Option<(bitcoin::OutPoint, bitcoin::TxOut)>,
     hop_keys: &QuidKeysManager,
     hop_monitors: &HopChainMonitor,
-    vault: &VaultNode,
+    vault_keys: &QuidKeysManager,
+    vault_monitors: &HopChainMonitor,
     ldk_id: lightning::ln::types::ChannelId,
-    on_chain_cid: [u8; 32],
     amount_sats: u64,
     recipient_xonly: [u8; 32],
-    tip_height: u32,
+    cltv_height: u32,
     height_counter: u64,
     secp: &bitcoin::secp256k1::Secp256k1<bitcoin::secp256k1::All>,
-) -> Option<(Vec<u8>, u64)> {
+) -> Option<ArmedExit> {
     // Both nodes' monitors for the SAME channel (LDK channel_id is funding-derived, so
     // it is identical on both sides). Each yields ITS OWN funding-half's keys.
-    let vault_mon = vault.node.chain_monitor.get_monitor(ldk_id).ok()?;
+    let vault_mon = vault_monitors.get_monitor(ldk_id).ok()?;
     let hop_mon = hop_monitors.get_monitor(ldk_id).ok()?;
 
     // The current funding UTXO the exit spends (worth amount_sats) + each half's
@@ -168,11 +187,10 @@ fn build_exit_call(
     let splice_parent = vault_mon.splice_parent_funding_txid();
 
     // Arm both halves (funding key never exported).
-    let vault_signer = arm_signer(&vault.node.keys_manager, vault_ckid, vault_cp, amount_sats, splice_parent);
+    let vault_signer = arm_signer(vault_keys, vault_ckid, vault_cp, amount_sats, splice_parent);
     let hop_signer = arm_signer(hop_keys, hop_ckid, hop_cp, amount_sats, splice_parent);
 
-    // Absolute CLTV dead-man deadline = tip + Δ (always future while alive).
-    let cltv = bitcoin::absolute::LockTime::from_height(tip_height + DEAD_MAN_DELTA_BLOCKS).ok()?;
+    let cltv = bitcoin::absolute::LockTime::from_height(cltv_height).ok()?;
     let recipient = bitcoin::key::XOnlyPublicKey::from_slice(&recipient_xonly).ok()?;
 
     // Drop the monitor guards before signing (they hold a read lock; keep the crypto
@@ -180,6 +198,13 @@ fn build_exit_call(
     drop(vault_mon);
     drop(hop_mon);
 
+    // (#114) The freshness prevout's VALUE and scriptPubKey, captured before the outpoint is
+    // moved into the signer below. `_verifyExitSignature` overwrites the funding entry with what
+    // the contract already knows; this one it honours verbatim, and it is what the recomputed
+    // sighash commits to.
+    let fresh_prevout = freshness
+        .as_ref()
+        .map(|(_, o)| (o.value.to_sat(), o.script_pubkey.to_bytes()));
     let raw_tx = quid_ln::deadman_exit::presign_deadman_exit(
         &hop_signer,
         &vault_signer,
@@ -190,13 +215,86 @@ fn build_exit_call(
         cltv,
         height_counter,
         secp,
-        // #114: forwarded from the heartbeat. `Some` binds this exit to the shard's
-        // freshness outpoint, so spending that one UTXO invalidates every previously
-        // emitted exit at once — which is what stops a matured, superseded exit from
-        // force-closing a live channel.
+        // #114: `Some` binds this exit to the shard's freshness outpoint, so spending that one
+        // UTXO invalidates every previously emitted exit at once — which is what stops a
+        // matured, superseded exit from force-closing a live channel.
         freshness,
     )
     .ok()?;
+
+    // 🔴 ONE ENTRY PER INPUT, AND THE COUNT IS READ OFF THE TRANSACTION ITSELF rather than
+    // re-derived from `freshness`. `BitcoinTx._sigParts` reverts `PrevoutCountMismatch` unless
+    // both arrays are EXACTLY `t.inputs.length` long, and the heartbeat swallows that as a
+    // per-channel "emitDeadManExit reverted" and then vetoes the retirement — so the fleet stops
+    // rotating with nothing in the logs pointing at the cause. Deriving the length from the tx
+    // makes the disagreement unconstructible instead of merely caught. The freshness entry goes
+    // LAST because `build_deadman_exit_tx` appends that input after the funding one.
+    let signed: bitcoin::Transaction = bitcoin::consensus::deserialize(&raw_tx).ok()?;
+    let mut prev_values = vec![0u64; signed.input.len()];
+    let mut prev_scripts = vec![Vec::new(); signed.input.len()];
+    if let Some((sats, spk)) = fresh_prevout {
+        *prev_values.last_mut()? = sats;
+        *prev_scripts.last_mut()? = spk;
+    }
+
+    // 🔴 `checkpointSats` IS WHAT THE EXIT PAYS THE LP, NOT THE FUNDED SIZE. `_armDeadManExit`
+    // reverts `ExitUnderpaysCheckpoint` when `paid < checkpointSats`, and `paid` is the sum of
+    // the exit's outputs to `_lpPayoutScript` — i.e. `amount_sats` MINUS the miner fee and
+    // (§BTC-2.4c) the keyless anchor, both of which are funded from the same input. Passing
+    // `amount_sats` here claimed more than the tx pays, so **every arming reverted, on every
+    // channel, and the heartbeat swallows the revert as a per-channel "log and continue"** —
+    // the same silent-unarmable-exit failure §T9-SORT-NOT-ROLE describes below, arriving
+    // through the value rather than the key order.
+    // ⚠️ It is derived from the SAME two constants the tx builder subtracts, not restated: a
+    // second copy of this arithmetic is a second place for it to drift out of agreement with
+    // the bytes, and the disagreement is invisible until an arming reverts.
+    let paid_to_lp = amount_sats
+        .checked_sub(DEAD_MAN_FEE_SATS)?
+        .checked_sub(quid_ln::deadman_exit::DEAD_MAN_ANCHOR_SATS)?;
+    let exit = quid_hop::evm_codec::ExitArming {
+        prev_values,
+        prev_scripts,
+        cltv_deadline: cltv.to_consensus_u32() as u64,
+        checkpoint_sats: paid_to_lp,
+        signed_exit_tx: raw_tx,
+    };
+    Some(ArmedExit { exit, hop_half: vault_cp.serialize(), vault_half: hop_cp.serialize(), paid_to_lp })
+}
+
+/// Build the fully-signed exit tx + `emitDeadManExit` calldata for one channel, given
+/// its on-chain record. Pure/sync (no I/O, no `.await`). Returns `(calldata, checkpoint_sats)`
+/// or `None` if [`build_exit_arming`] does.
+#[allow(clippy::too_many_arguments)]
+fn build_exit_call(
+    // #114: the shard's freshness UTXO, resolved by the CALLER (the async heartbeat) and
+    // passed in as a value — this fn is documented pure/sync and must stay that way, so it
+    // never reaches into the wallet itself. `None` = pre-rotation channel (today's behaviour).
+    freshness: Option<(bitcoin::OutPoint, bitcoin::TxOut)>,
+    hop_keys: &QuidKeysManager,
+    hop_monitors: &HopChainMonitor,
+    vault: &VaultNode,
+    ldk_id: lightning::ln::types::ChannelId,
+    on_chain_cid: [u8; 32],
+    amount_sats: u64,
+    recipient_xonly: [u8; 32],
+    tip_height: u32,
+    height_counter: u64,
+    secp: &bitcoin::secp256k1::Secp256k1<bitcoin::secp256k1::All>,
+) -> Option<(Vec<u8>, u64)> {
+    // Absolute CLTV dead-man deadline = tip + Δ (always future while alive).
+    let armed = build_exit_arming(
+        freshness,
+        hop_keys,
+        hop_monitors,
+        &vault.node.keys_manager,
+        &vault.node.chain_monitor,
+        ldk_id,
+        amount_sats,
+        recipient_xonly,
+        tip_height.checked_add(DEAD_MAN_DELTA_BLOCKS)?,
+        height_counter,
+        secp,
+    )?;
 
     // (E178) `emitDeadManExit` now takes the channel's `OpenParams` + one `ExitArming`
     // instead of four flat arguments. ⚠️ ONLY THE PUBKEYS ARE READ on this path — the
@@ -220,8 +318,7 @@ fn build_exit_call(
     // convention.
     // 📌 `funding_taproot` never caught it: `taproot_funding_aggregate_xonly` KeySorts internally
     // (BIP-327) and is symmetric in its arguments, so it agrees under either order.
-    let (k0, k1) =
-        quid_hop::evm_codec::sort_funding_pubkeys(hop_cp.serialize(), vault_cp.serialize());
+    let (k0, k1) = quid_hop::evm_codec::sort_funding_pubkeys(armed.hop_half, armed.vault_half);
     let params = quid_hop::evm_codec::OpenParams {
         funding_block_hash_be: [0u8; 32],
         funding_block_height: 0,
@@ -229,36 +326,12 @@ fn build_exit_call(
         lp_pubkey: k0,
         hop_pubkey: k1,
         // §LPETH-THIRD-FIELD — the vault half IS the LP's, independent of sort order.
-        lp_identity_pubkey: vault_cp.serialize(),
+        lp_identity_pubkey: armed.vault_half,
         amount_sats,
         funding_taproot: quid_hop::funding::taproot_funding_aggregate_xonly(&k0, &k1),
     };
-    // 🔴 `checkpointSats` IS WHAT THE EXIT PAYS THE LP, NOT THE FUNDED SIZE. `_armDeadManExit`
-    // reverts `ExitUnderpaysCheckpoint` when `paid < checkpointSats`, and `paid` is the sum of
-    // the exit's outputs to `_lpPayoutScript` — i.e. `amount_sats` MINUS the miner fee and
-    // (§BTC-2.4c) the keyless anchor, both of which are funded from the same input. Passing
-    // `amount_sats` here claimed more than the tx pays, so **every arming reverted, on every
-    // channel, and the heartbeat swallows the revert as a per-channel "log and continue"** —
-    // the same silent-unarmable-exit failure §T9-SORT-NOT-ROLE describes above, arriving
-    // through the value rather than the key order.
-    // ⚠️ It is derived from the SAME two constants the tx builder subtracts, not restated: a
-    // second copy of this arithmetic is a second place for it to drift out of agreement with
-    // the bytes, and the disagreement is invisible until an arming reverts.
-    let paid_to_lp = amount_sats
-        .checked_sub(DEAD_MAN_FEE_SATS)?
-        .checked_sub(quid_ln::deadman_exit::DEAD_MAN_ANCHOR_SATS)?;
-    let exit = quid_hop::evm_codec::ExitArming {
-        // The contract OVERWRITES the funding entry with what it already knows, and only
-        // the freshness input's entry is honoured — so a single placeholder pair is correct
-        // for the base (non-freshness) shape and a wrong value simply fails verification.
-        prev_values: vec![0u64],
-        prev_scripts: vec![Vec::new()],
-        cltv_deadline: cltv.to_consensus_u32() as u64,
-        checkpoint_sats: paid_to_lp,
-        signed_exit_tx: raw_tx.clone(),
-    };
-    let calldata = quid_hop::evm_codec::encode_emit_dead_man_exit(on_chain_cid, &params, &exit);
-    Some((calldata, paid_to_lp))
+    let calldata = quid_hop::evm_codec::encode_emit_dead_man_exit(on_chain_cid, &params, &armed.exit);
+    Some((calldata, armed.paid_to_lp))
 }
 
 /// The periodic dead-man-exit heartbeat. Spawn once at daemon boot (supervised in the
