@@ -212,6 +212,64 @@ charge an order of magnitude under what it must cover.**
 covers adverse selection. If that assumption is false the LP loses on every fill and no amount of
 hedging repairs it — so this is the item that decides whether the rest is worth building.
 
+## 🔑 0a-quinquies. **THE INFERENCE IS BACKWARDS — AND REDSTONE PULL IS THE FIRST REMEDY WE CONTROL** (owner, 2026-09-11)
+
+### ⛔ FIRST, A CORRECTION: *"no serious on-chain trader will use this venue because of the 55 min gap"*
+**The opposite. They will use it, and that is the problem.**
+| who | what they see |
+|---|---|
+| **an UNINFORMED trader** (wants to move size, no view on price) | **0.042% flat, no slippage, any size, settled at an unbiased oracle.** Against a CFMM that charges the curve on size, this is an excellent venue. Staleness is symmetric noise to them — as often in their favour as against |
+| 🔴 **an INFORMED trader** (sees the real market) | a **stale price, a 420 ppm toll, unbounded size, and no slippage.** That is the ideal arbitrage target |
+⇒ **the venue is not unattractive. It is TOO attractive, and it selects for the wrong population.**
+✅ **VERIFIED: nothing bounds a fill but inventory.** `Core._fillDelta` clamps `out` to `held` and does
+nothing else — **no price band, no size cap, no per-block limit, no rate limit** — and `Core.swap` adds
+no guard. One transaction can take the whole pooled side at the stale price.
+
+⭐ **AND THE DEEPER POINT, WHICH IS NOT WRITTEN ANYWHERE ELSE: A CFMM'S CURVE DOES TWO JOBS AND WE ONLY
+COUNTED ONE.** It prices, and it **rations** — an arb's profit shrinks as it takes size, so the curve is
+an accidental defence against exactly this. We deleted the curve deliberately and correctly (it is what
+buys "no slippage", the product's best property), **but the rationing went with it and nothing replaced
+it.** ⇒ *"no slippage"* and *"exposed to informed flow at unbounded size"* are **the same fact**.
+📌 **This is the ordinary market-maker problem, not a fatal flaw.** Every MM earns the spread from
+uninformed flow and pays the informed. It survives iff `420 ppm × uninformed volume > staleness ×
+informed volume` — ⇒ **decision 6 (turnover) is not a parameter, it is the other half of the viability
+condition**, and it is unmeasured.
+
+### ✅ REDSTONE — AND IT ANSWERS BOTH OPEN HALVES, WHICH NOTHING ELSE SO FAR HAS
+📌 **Already in the tree, in the weakest mode:** `DeployL1_s.sol:788` pins a **Redstone
+AggregatorV3** for cUSD/USD. So the integration pattern is present; it is simply not used for the asset
+anchor.
+| mode | what it gives us |
+|---|---|
+| **Redstone Classic (push)** — same `AggregatorV3` interface | a **SECOND independent source**, drop-in. ⇒ Part III decision 1's deviation guard stops being *"build a new source"* and becomes a rewiring. **This alone closes gap 3** |
+| 🔑 **Redstone Core (pull)** — price signed by the oracle nodes, delivered **in the caller's calldata**, verified on-chain | **the counterparty brings a fresh price.** The 55-minute heartbeat gap is replaced by an **acceptance window we choose** |
+
+⭐ **THE PULL MODEL'S PROPERTY IS EXACTLY THE ONE §NO-GAMEABLE-BOUND ASKS FOR.** The trader supplies the
+input, and **cannot forge it** (node-signed) and **cannot stale it** (we bound the timestamp). What they
+retain is the choice of *which* signed price inside the window — so adverse selection is not eliminated,
+it is **compressed to the window's width, and the width is ours to set.**
+
+| acceptance window | exposure | vs the 420 ppm charge |
+|---|---:|---|
+| today (Chainlink heartbeat, **MEASURED**) | **5,058 ppm** | 12× over |
+| 3 min | ~1,181 ppm | over |
+| 1 min | ~682 ppm | over |
+| 30 s | ~482 ppm | marginal |
+| **15 s** | **~341 ppm** | ✅ **under** |
+⚠️ **ONLY THE FIRST ROW IS MEASURED. The rest assume √t scaling — a GBM assumption — and ETH at short
+horizons is fatter-tailed than that.** Treat them as an order of magnitude, not a result.
+▶️ **WHAT WOULD MEASURE THEM: a per-second ETH series, which Chainlink structurally cannot provide.**
+That is the honest gap in the method, and it is the measurement to commission before choosing a window.
+
+⛔ **THE COSTS, STATED RATHER THAN DISCOVERED:** a tight window reverts a trader whose transaction is
+delayed by congestion — **liveness traded for staleness, and 15 s is roughly one block.** And pull
+requires the CALLER to fetch and attach a signed payload, so it is a client change reaching the SPA and
+the keeper, not a contract-only change.
+⇒ **But it is the first remedy in this whole thread that is IN OUR CONTROL and does not change the
+product.** Raising the charge to 4,200 ppm would be a different product; adding a venue we cannot call
+on-chain is not an option; shortening a TWAP window we already deleted is not available. **Setting an
+acceptance window is.**
+
 ## 0b. THE ASSUMPTIONS, EACH GRADED BY HOW WE KNOW IT
 | # | assumption | grade |
 |---|---|---|
