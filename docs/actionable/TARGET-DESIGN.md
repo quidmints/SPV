@@ -301,7 +301,7 @@ depends on my commit messages being read.
 | 2 | **`_bandBps` IS A CONSTANT PLACEHOLDER.** ⭐ Its input is now measured: carry is **~4.3%/yr = 1.18 bps/day** on both Aave venues (§6 check 3), so a band is "how many days of drift before a rebalance pays for its round trip". At a ~17 bps round trip that is ~14 days of carry — the band must be derived from that, not from the literal `300`. ✅ `LevBase._bandBps` returns a literal `300`. §DERIVED-BAND derived it from `kLvrWad`, which is deleted with θ. The band must be re-derived from CARRY (owner: *"gas has nothing to do with lvr"*). | `LevBase.sol` — `function _bandBps(uint256, ILevVenue) internal pure returns (uint256) { return 300; }` |
 | 3 | **THE ENUMERATION MOVED TO LOGS.** ✅ `openLevCount`/`openLpAt` are gone, so both Rust keepers now build the open set from `Opened`/`Closed` events (`lev_keeper::open_lps_from_logs`, shared by the ETH and BTC keepers). Same-block open-then-close resolves as CLOSED, deliberately. | The events are declared on `LevBase` (`:260`, `:261`), so one helper serves both managers. |
 | 4 | **`SkewVsUniswapV3` MUST COME BACK AS AN ASSERTION.** ⏸️ It was deleted because it only LOGGED. The competitive ceiling in §4 is a requirement, and nothing currently falsifies it. | Rebuild as `ourCost ≤ theirs at every size we serve`. |
-| 6 | **THE SPA SHOWS USERS A PRICING MODEL THE PROTOCOL NO LONGER IMPLEMENTS.** ✅ `spa/src/lib/quant.ts` exports `K_LVR = 0.71` and `avellanedaStoikov()`, and `spa/src/components/app/InfoTab.tsx:518-523` renders an A–S inventory cost to users at `K·σ²`. `kLvrWad` is DELETED on chain and the charge is a flat 420 ppm. This was booked as `§PLP-4` in SPRINT.md ("`quant.ts` HOLDS A RETIRED MODEL") and never done; that row is now cut, so it lives here. | User-facing, so it is worse than a stale comment. |
+| 6 | ✅ **FIXED 2026-09-11 — THE SPA SHOWED USERS A PRICING MODEL THE PROTOCOL NO LONGER IMPLEMENTS.** The user-facing copy said the cost was *"a small price lag, capped near 0.5%"* — ~12× the real charge. It now states the flat **0.042% (420 ppm)**, and the A–S block is re-labelled as a model of what a CONVENTIONAL DESK would quote, shown for contrast, with `K_LVR`/`CERTIFIED_THETA` marked ANALYTIC ONLY. ⚠️ `quant.ts`'s header note *"the deployed range is ±0.2%"* was ALSO wrong in the other direction (RANGE_DELTA was widened 20 → 200), and is corrected. ⏸️ Not type-checked — SPA deps are not installed in this tree. | ~~User-facing, so it is worse than a stale comment.~~ Booked as `§PLP-4` in SPRINT.md and never done; that row is cut, so the fix landed here. |
 | 5 | **DELETING IT COST THE ONLY IN-TREE ABI FOR THE V3 QUOTER, AND A GATE SAYS SO.** ✅ `tools/check-client-abis.py` goes 4 → 6 RUST DRIFT on this lane, and the two new hits are `getPool(address,address,uint24)` and `quoteExactInputSingle((address,address,uint256,uint24,uint160))` — both declared ONLY in `SkewVsUniswapV3.t.sol` and `PermittedPoolSet.t.sol`. The Rust keeper still calls both against live Uniswap; nothing now checks its encoding. | The other four drifts are pre-existing on `main` (third-party venue reads with no in-tree declaration — the same false-positive class as `orphans-allow.txt` CLASS 1). Rebuilding #4 closes #5 as a side effect, which is a second reason to do it rather than a separate task. |
 
 **Gates that were updated deliberately rather than dropped** (each demands a stated reason, and each
@@ -340,6 +340,38 @@ Chainlink is the trust root, delete the ring as a smoother that cannot detect wh
 detect, and read the anchor directly. **Do not leave it implicit.** ⏸️ Owner ruling needed — (b) is a
 removal of live, working code whose value is real (it smooths a single bad round), so it is not a
 sweep-up.
+
+---
+
+## §9 — ⏸️ SPLIT THE BORROW ACROSS STABLES (owner, 2026-09-11) — DEFERRED, BUT THE NUMBER IS NOW MEASURED
+
+Owner: *"the borrow cost is too high, must be split between stables to be small… but we'll get to that
+after settling everything else."* Booked here so the arithmetic is not re-derived, and NOT started.
+
+**THE MEASURED CASE, straight off §6 check 3's ladder.** Borrowing $100M on USDC alone costs **7.51%**,
+because that draw crosses the kink. Split $50M/$50M across the two Aave venues instead:
+
+| plan | USDC leg | USDT leg | blended | vs single-venue |
+|---|---|---|---|---|
+| $100M on USDC alone | 4.29% → **7.51%** | — | **7.51%** | — |
+| $50M + $50M | 4.39% | 4.34% | **~4.37%** | **−314 bps ≈ $3.1M/yr** |
+
+⚠️ **AND THE HONEST HALF: SPLITTING KILLS THE CLIFF, NOT THE FLOOR.** The base is ~4.3% on both
+venues and splitting does not move it — that is the market's price for the dollar, and no allocation
+changes it. What splitting removes is the CONVEX part, which is the whole $3.1M. Anyone reading
+*"split it to make it small"* as *"split it to make it cheap"* will be disappointed at small size and
+right at large size; the benefit is zero until a leg approaches its own kink.
+
+⛔ **DO NOT INCLUDE THE TWO MORPHO weETH VENUES IN THE SPLIT.** §6 check 3(c): PYUSD cannot fund $1M
+and RLUSD costs +108 bps at $1M. RLUSD also has the LOWEST BASE RATE of the four, so a splitter that
+allocates by base rate sends the first dollar to the worst venue. **Allocate on `borrowRateRay(size)`,
+never on `borrowRateRay(0)`.**
+
+**WHAT IT NEEDS, so the size of the job is known before it starts:** `borrowRateRay` and
+`supplyHeadroom` are already declared on both venue classes and allowlisted as §MULTI-VENUE orphans;
+the per-venue walk exists at three sites (`LevBase:538/:700/:791`). The single blocker is
+`LevBase:422-423` — `else if (poolVenue != address(venue)) revert VenueNotPooled()` — i.e. the
+one-venue pin, not any missing aggregation. (Recorded in `tools/orphans-allow.txt`, CLASS 2.)
 
 ---
 
