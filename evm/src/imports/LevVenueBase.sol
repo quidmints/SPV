@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-// `IERC20Min` was declared here: a strict SUBSET of `IERC20Min` (4 of its members, identical
-// signatures) — the same rule-2 violation `IERC20Min` records already absorbing once, from Core.
 import {ILevVenue, IERC20Min, IAaveV3Pool, IAaveV3DataProvider,
         IAaveV3RateStrategy, CalcRatesParams, IIrm, MorphoMarket,
         VenuePosition, IOracle} from "./Interfaces.sol";
@@ -10,133 +8,47 @@ import {IMorphoStaticTyping as IMorpho, MarketParams, Id, MarketParamsLib} from 
 import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLib.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-// §E266 — INHERIT MORPHO DIRECTLY. `MarketParams`, `IMorpho` and a hand-rolled
-// `keccak256(abi.encode(m))` market id all lived here. `MarketParams` was compared FIELD-FOR-FIELD
-// against Blue before swapping, because that order is hashed into the market Id and a mismatch
-// would be a live correctness bug rather than duplication. It matched. `IMorphoStaticTyping` is
-// the TUPLE-returning variant, matching the destructuring below; plain `IMorpho` returns structs.
 
-/// Minimal ERC20 surface shared by both weETH lending-venue adapters.
-
-/// @title  LevVenueBase — shared scaffolding for the lev venue adapters
-/// @notice What is ACTUALLY shared lives here and is small: the `MANAGER`-only auth, the reentrancy
-///         guard, the `stable()` accessor and the custody convention.
-///
-/// ⚠️ THE TWO ADAPTERS SHARE A SIX-FUNCTION SHAPE, AND THE VENUE MECHANISM IS THE BODY OF EACH ONE —
-///    so the shape is not itself evidence that more can be hoisted. Measured 2026-08-15:
-///      • `supply`  — Morpho: `approve` + `supplyCollateral(_params(), amt, address(this), "")`.
-///                    Aave:   lazily `new AaveV3Escrow(...)`, transfer to it, `e.supplyColl(amt)`.
-///      • `borrow`  — Morpho: `MORPHO.borrow(..., address(this), address(this))` on the ONE position.
-///                    Aave:   route through the per-LP escrow handle.
-///    What IS shared sits above: the pooled unit ledger (`_mintUnits`/`_burnUnits`/`_unitSlice`),
-///    `positionOf`, `_to18`, the guard and the auth. `position()` is the per-venue half.
-///    ⇒ Hoisting the six BODIES into abstract members SAVES ZERO BYTECODE. Do not read this file as
-///    evidence that a further dedup is available; it was read that way once and the dedup was
-///    refused on measurement (task #48). Nor is `AaveV3Venue` deletable in favour of a Morpho WBTC
-///    market: `DeployL1_s` keeps it on a DEPTH measurement (deepest WBTC/USDC book), which is
-///    a REAL asymmetry, not drift.
-///
-///         (⛔ THERE IS NO BOLD MINT ANYWHERE IN `evm/src`, AND DO NOT ADD ONE HERE. The Liquity-V2
-///         directional long was removed on the owner's finding that weETH cannot be borrowed against
-///         with Liquity at all, so a venue adapter for it would be testing something untestable.
-///         BOLD survives ONLY as basket stable slot 11, SUPPLIED to the Liquity Stability Pool —
-///         held, never minted.)
 abstract contract LevVenueBase is ILevVenue {
     using SafeERC20 for IERC20OZ;
 
-    /// @inheritdoc ILevVenue
-    /// @dev Default NO-OP: a venue whose debt view already reflects accrued interest at read time
-    ///      (Aave) has nothing to do here. `MorphoEscrowVenue` overrides it, because Morpho's
-    ///      `market()` is raw until someone pokes it.
     function accrue() external virtual override {}
 
-    /// @dev §POOL-DONATION — VIRTUAL UNIT OFFSET. Without it the pooled unit model carries the classic
-    ///      FIRST-DEPOSITOR INFLATION ATTACK, and it is reachable here because BOTH venues' pool
-    ///      balances can be raised by a STRANGER: Morpho's `supplyCollateral(m, assets, onBehalf, data)`
-    ///      takes an arbitrary `onBehalf` and is permissionless, and Aave's `supply` likewise.
-    ///      THE ATTACK, concretely: LP1 supplies 1 wei and gets 1 unit; the attacker donates X directly
-    ///      to the venue's position so the pool balance is X+1 while total units is still 1; LP2 then
-    ///      supplies Y and mints `Y·1/(X+1)` = **ZERO units** for any Y ≤ X. LP2's collateral becomes
-    ///      LP1's claim. Real theft, not rounding dust.
-    ///      THE FIX is the standard virtual offset (OpenZeppelin's ERC-4626 mitigation): price units
-    ///      against `total + OFFSET` over `balance + 1`, so an attacker must donate ~OFFSET times the
-    ///      victim's deposit to round it to zero — and forfeits every wei of it. 1e6 puts that cost
-    ///      beyond any griefing budget while costing nothing in precision.
-    /// ⚠️   IT MUST BE APPLIED ON BOTH SIDES OF BOTH VENUES OR IT IS NOT APPLIED. A single un-offset
-    ///      mint site re-opens the whole attack, because the attacker picks which one to enter through.
     uint256 internal constant UNIT_OFFSET = 1e6;
 
-    /// @dev §POOL-UNITS — THE UNIT LEDGER, DECLARED ONCE FOR BOTH VENUES. `MorphoEscrowVenue` and
-    ///      `AaveV3Venue` each grew their own copy (`collUnits/totalCollUnits` and `collUnits/totalCollUnits`)
-    ///      — the SAME four quantities under two spellings, in ONE file. That is standing rule 2, and
-    ///      it is worse than cosmetic here: the donation-inflation fix had to reach every mint site,
-    ///      and two ledgers is two places to miss one.
-    /// ⚠️   `internal`, not `private`, ONLY so the derived venues can read them; neither visibility
-    ///      emits a getter, so there is no ABI consequence.
-    mapping(address => uint256) internal collUnits;   // LP -> units of the pooled COLLATERAL
+    mapping(address => uint256) internal collUnits;
     uint256 internal totalCollUnits;
-    mapping(address => uint256) internal debtUnits;   // LP -> units of the pooled DEBT
+    mapping(address => uint256) internal debtUnits;
     uint256 internal totalDebtUnits;
 
-    /// @dev units minted for `amt` against a pool holding `bal` with `tot` units outstanding.
     function _mintUnits(uint256 amt, uint256 tot, uint256 bal) internal pure returns (uint256) {
         return SoladyMath.fullMulDiv(amt, tot + UNIT_OFFSET, bal + 1);
     }
-    /// @dev units BURNED for `amt` of pool balance leaving. ⚠️ THIS IS DELIBERATELY THE SAME
-    ///      CONVERSION AS `_mintUnits`, AND IT WAS NOT. The burn sites used the RAW form
-    ///      `amt·tot/bal` while the mint sites used the OFFSET form `amt·(tot+OFFSET)/(bal+1)`, so
-    ///      minting and burning units for the SAME quantity of pool balance disagreed — the ledger
-    ///      drifted away from the pool on every borrow→repay cycle, and `debtOf` then read LOW,
-    ///      which makes `netEquity` read HIGH. That is the direction that grows `POOLED_USD` when a
-    ///      seizure should shrink it. **Mint and burn must be one function or they will diverge
-    ///      again.**
+
     function _burnUnits(uint256 amt, uint256 tot, uint256 bal) internal pure returns (uint256) {
         return _mintUnits(amt, tot, bal);
     }
 
-    /// @dev Lift `amt`, expressed with `dec` decimals, to 18. ONE conversion, because the
-    ///      §DECIMAL-BASES trap is this repo's most common bug and a per-venue copy is how the
-    ///      6-vs-18 mistake gets made twice with only one of them noticed.
     function _to18(uint256 amt, uint8 dec) internal pure returns (uint256) {
         return dec >= 18 ? amt / (10 ** (dec - 18)) : amt * (10 ** (18 - dec));
     }
 
-    /// @inheritdoc ILevVenue
-    /// @dev ONE body for both venues, because slicing an aggregate by unit share is the SAME
-    ///      operation whatever the aggregate measures — which is the whole reason the ledger could
-    ///      absorb multi-debt without changing. `position()` is the only per-venue part.
     function positionOf(address lp) external view returns (VenuePosition memory p) {
         VenuePosition memory pool = position();
         p.collateral      = _unitSlice(collUnits[lp], totalCollUnits, pool.collateral);
         p.debt            = _unitSlice(debtUnits[lp], totalDebtUnits, pool.debt);
-        p.liqThresholdBps = pool.liqThresholdBps;   // a venue parameter, not a per-LP one
+        p.liqThresholdBps = pool.liqThresholdBps;
     }
 
-    /// @inheritdoc ILevVenue
     function position() public view virtual returns (VenuePosition memory);
 
-    /// @dev The assets `u` units claim from a pool holding `bal` with `tot` units outstanding.
     function _unitSlice(uint256 u, uint256 tot, uint256 bal) internal pure returns (uint256) {
         return u == 0 ? 0 : SoladyMath.fullMulDiv(u, bal + 1, tot + UNIT_OFFSET);
     }
 
-    /// The lev manager for THIS range (`LevManager` on ETH, `BtcLevManager` on BTC) — the only caller
-    /// the `onlyManager` legs accept. ⚠️ Not the only caller of the CONTRACT: `repayFor` is
-    /// permissionless and caller-funded by design.
-    // ⛔ §SESS-93 — **`public` KILLED ON BOTH: `.MANAGER()` AND `.STABLE()` HAVE ZERO CALLERS.**
-    //    Measured across `src/`, `script/`, `test/` and `quid-ln/`: `.STABLE()` 0, `.MANAGER()` 0,
-    //    `.stable()` 25. So the compiler was emitting two getters per venue for one value that is
-    //    read through a hand-written accessor anyway — dead bytecode in EVERY deployed venue.
-    // ⚠️ **`immutable` ITSELF STAYS.** Making these settable would be a governance knob, and the
-    //    owner's ruling is that this system has none; `stable()` remains the one public face.
-    address internal immutable MANAGER;   // the lev manager for this range
-    address internal immutable STABLE;    // the debt asset this venue lends
+    address internal immutable MANAGER;
+    address internal immutable STABLE;
 
-    /// @notice `borrowRateRay` was asked to price a draw the venue cannot fund.
-    /// @dev    Aave's own rate view reverts on this (its virtual balance underflows); Morpho's does
-    ///         not, so the Morpho venue raises it explicitly to keep the two faces behaving alike.
-    ///         **An unfundable borrow must not return a rate** — a flattering number for a draw that
-    ///         cannot happen is exactly the input that would make an allocator pick it.
     error VenueCannotFund();
 
     uint256 private _lock = 1;
@@ -148,90 +60,22 @@ abstract contract LevVenueBase is ILevVenue {
     function stable() external view returns (address) { return STABLE; }
 }
 
-// ═══ folded from src/MorphoEscrowVenue.sol (2026-08-15) — see the note in the base header ═══
-
-/// Morpho Blue market parameters (the tuple whose hash IS the market id).
-
-/// Minimal Morpho Blue surface used by the IL-protect.
-
-/// @title  MorphoEscrowVenue — generic (escrow-equivalent) collateral / stable-debt `ILevVenue` on Morpho Blue (weETH on ETH, vBTC on BTC)
-/// @notice The weETH lev venue. Since the v2/V4 borrowing venues were removed (2026-08-13) this is the
-///         ONLY ETH-side venue; it still implements `ILevVenue`, so `LevManager` stays venue-agnostic.
-/// 🔴 §POOL-VENUE (2026-08-24) — **ISOLATION IS NOT MORPHO-NATIVE HERE.** There is ONE Morpho position,
-///         held under THIS ADAPTER's address (`onBehalf = address(this)` on every call); a liquidation
-///         hits every LP pro-rata; and there is no per-LP `setAuthorization` to grant, revoke or forget.
-/// ⇒ **ISOLATION IS PROTOCOL-ENFORCED, NOT VENUE-ENFORCED.** `cascadeDelever` and the DERIVED no-trade
-///         band (`LevBase._bandBps`, sized off this venue's own `liqThresholdBps`) are the only things
-///         keeping the aggregate off the liquidation threshold — Morpho will not do it per-LP.
-///         **Treat any change to that band as a change to the liquidation guarantee itself.**
-/// ✅ WHAT IT BOUGHT: the delivery-side de-lever is ONE `repayPool` call instead of one repay per LP, so
-///         swap size is bounded by stable liquidity rather than by how many repays fit in a block
-///         (§E342) — and the whole "stuck LP" class disappears with the authorization it depended on.
-///
-///         INVARIANT #1 (rehypothecation): Morpho Blue supplied COLLATERAL is **not lent** — collateral
-///         in Morpho is never borrowed against the supply side; it just secures the loan. So weETH as
-///         Morpho collateral is escrow-equivalent (still earns ether.fi staking intrinsically, never
-///         re-lent) — the rehyp rule holds natively, no escrow-vault choice needed.
-///
-///         Custody (per ILevVenue): `LevManager` sends weETH/stable to the adapter before `supply`/`repay`;
-///         the adapter forwards borrowed stable / withdrawn weETH back to `LevManager`.
 contract MorphoEscrowVenue is LevVenueBase {
-    using SafeERC20 for IERC20OZ;   // NOT inherited from the base (Solidity >=0.7)
+    using SafeERC20 for IERC20OZ;
 
     IMorpho public immutable MORPHO;
-    address public immutable COLLATERAL;        // collateral (== marketParams.collateralToken)
-    Id public immutable MARKET_ID;      // MarketParamsLib.id(marketParams)    // keccak256(abi.encode(marketParams))
-    uint256 public immutable LLTV;         // 1e18 scale
+    address public immutable COLLATERAL;
+    Id public immutable MARKET_ID;
+    uint256 public immutable LLTV;
 
-    // Cache the market params (Morpho calls take the full struct).
     address private immutable ORACLE;
     address private immutable IRM;
 
-
-    // ═══════════════ §POOL-VENUE — ONE MORPHO POSITION, PER-LP CLAIMS TRACKED HERE ═══════════════
-    //
-    // WHY: `SwapLib.deleverEthOnDelivery` had to repay EACH LP's own position, and a repay cannot be
-    // aggregated across N `onBehalf` accounts on Morpho Blue — so swap size was capped by how many LP
-    // repays fit in a block, and the cap TIGHTENED as the book grew (§E342). One position makes the
-    // repay a single call whose size is bounded by liquidity, not by LP count.
-    //
-    // 🔴 THE PRICE, AND IT IS NOT THE ONE §E338 PRICED. §E338 costs the convexity of one hedge against
-    // many entry prices (~13-15 bp typical, ~147 bp across a cycle). **The larger cost is that
-    // PER-LP LIQUIDATION ISOLATION IS GONE.** With ONE position a liquidation hits EVERY LP pro-rata
-    // and the position is protocol-side, so isolation is PROTOCOL-ENFORCED rather than
-    // MORPHO-ENFORCED: `cascadeDelever` plus the derived no-trade band (`LevBase._bandBps`) must keep
-    // the aggregate away from the liquidation threshold, because Morpho no longer does it for us.
-    // ⚠️ AND IT INTRODUCES A CROSS-LP SUBSIDY ON THAT AXIS: each LP's LTV differs by its pinned
-    // `ilBasisPx`, so pooling averages them and a late high-LTV entrant is carried by an early one.
-    // `LeverageCrossSubsidyProbe` is the test that should be taught to measure it.
-    // ✅ WHAT IT BUYS BESIDES THE AGGREGATE REPAY: the one-time `morpho.setAuthorization(adapter)` every
-    // LP had to send is GONE — the adapter is its own principal now. That retires the entire "stuck LP"
-    // class, whose only reachable cause was a revoked or never-granted authorization.
-    //
-    // THE ACCOUNTING IS TWO LAYERS, AND THE SECOND ONE IS WHY A POOLED REPAY IS O(1):
-    //   • COLLATERAL is raw assets in Morpho (it never accrues), but it is still tracked as UNITS
-    //     here — see the ⭐ below for why the exact-ledger shortcut does not survive.
-    //   • DEBT accrues, so per-LP debt is held as UNITS of the pool, never as Morpho shares. An LP's
-    //     Morpho shares are `poolShares * units[lp] / totalUnits`, so when a pooled repay burns pool
-    //     shares, EVERY LP's implied share falls pro-rata with NO per-LP write. That is the whole
-    //     point: the delever loop becomes one call and one storage write.
-    // ⭐ BOTH SIDES ARE UNITS, AND THE SYMMETRY IS THE POINT — an earlier draft made only DEBT a unit
-    // system and left collateral as a plain per-LP ledger. That breaks at exactly the place this change
-    // exists for: the delivery-side de-lever repays the pool and must then FREE COLLATERAL to deliver,
-    // and with a plain ledger "whose collateral was freed" needs a per-LP loop — the loop being deleted.
-    // ⇒ Units on both sides make `repayPool` and `withdrawPool` each O(1). It is also the CORRECT
-    // semantics, not merely the cheap one: the swapper's input repaid every LP's debt in proportion, so
-    // the collateral it frees must leave in the same proportion. Each position shrinks on both sides by
-    // its own share, which is what "value-neutral per LP" means once the position is genuinely pooled.
-    // §POOL-UNITS — the four unit variables that stood here are declared ONCE on `LevVenueBase`.
-
-    /// @dev The pool's live Morpho collateral (raw assets — Morpho never accrues collateral).
     function _poolColl() internal view returns (uint256) {
         (,, uint128 c) = MORPHO.position(MARKET_ID, address(this));
         return uint256(c);
     }
 
-    /// @dev The pool's live Morpho borrow shares. One read, used by every per-LP debt view.
     function _poolShares() internal view returns (uint256) {
         (, uint128 bs,) = MORPHO.position(MARKET_ID, address(this));
         return uint256(bs);
@@ -250,58 +94,37 @@ contract MorphoEscrowVenue is LevVenueBase {
         return MarketParams({ loanToken: STABLE, collateralToken: COLLATERAL, oracle: ORACLE, irm: IRM, lltv: LLTV });
     }
 
-    /// @notice PERMISSIONLESS caller-funded repay of `lp`'s isolated Morpho debt. The LP's self-hosted
-    ///         keeper protects the position by redeeming the LP's OWN mature QUID -> the venue stable -> here,
-    ///         instead of selling collateral (never a par-burn; redeem is mature-only on-chain). Clamped to the
-    ///         current debt (never over-repay) and pulls exactly what it repays from the caller. Safe to be
-    ///         permissionless: repaying only ever REDUCES an ISOLATED position's debt (helps that LP), credits
-    ///         the LP's own Morpho account, and can never touch another LP or the basket.
     function repayFor(address lp, uint256 amount) external nonReentrant returns (uint256 repaid) {
         if (amount == 0) return 0;
         uint256 d = debtOf(lp);
-        uint256 r = amount > d ? d : amount;                 // clamp to current debt (never over-repay)
+        uint256 r = amount > d ? d : amount;
         if (r == 0) return 0;
         IERC20OZ(STABLE).safeTransferFrom(msg.sender, address(this), r);
-        // Credits the NAMED LP, not the pool at large — a caller-funded repay must help who it names.
+
         repaid = _repayCreditingLp(lp, r);
     }
 
-    /// @notice Permissionless poke that accrues the Morpho market so a subsequent `debtOf`
-    ///         reflects interest pending since `lastUpdate` (a `view` can't call `accrueInterest`). The keeper
-    ///         either sends this before a health tick, or reads a fresh debt via `eth_call` on a wrapper that
-    ///         calls this then `debtOf` — either way removing the pre-accrual drift `debtOf` documents.
-    ///         Harmless to call anytime (idempotent within a block). No effect on an adapter that has none).
-    /// 🔴 §DUST-BLOCKS-THE-LAST-EXIT — **THIS EXISTED AND NOTHING CALLED IT, AND THAT IS THE BUG.**
-    ///    The docblock above already names the exact defect ("removing the pre-accrual drift `debtOf`
-    ///    documents"), but it was written as advice to a KEEPER — *"either sends this before a health
-    ///    tick, or reads a fresh debt via `eth_call`"* — so nothing on the money path was obliged to.
-    ///    A full close then sized its flash off an UNDER-REPORTED `debtOf`, repaid by assets, and left
-    ///    sub-unit shares that `withdrawCollateral` refuses to withdraw the last collateral against.
-    ///    It is now `override` and `_closeLev` calls it BEFORE reading the debt it is about to repay.
     function accrue() external override { MORPHO.accrueInterest(_params()); }
 
-    // ── ILevVenue ────────────────────────────────────────────────────────────────
     function supply(address lp, uint256 collAmount) external onlyManager nonReentrant returns (uint256) {
         if (collAmount == 0) return 0;
-        IERC20Min(COLLATERAL).approve(address(MORPHO), collAmount); // weETH already transferred in by MANAGER
-        // §POOL-VENUE: credits the POOL, and the per-LP ledger below is what makes it the LP's.
+        IERC20Min(COLLATERAL).approve(address(MORPHO), collAmount);
+
         uint256 before = _poolColl();
         MORPHO.supplyCollateral(_params(), collAmount, address(this), "");
-        // Mint units against what the pool held BEFORE, so an LP joining a pool that has already been
-        // drawn down buys in at the CURRENT per-unit value rather than the original one.
-        uint256 mint = _mintUnits(collAmount, totalCollUnits, before);   // §POOL-DONATION
+
+        uint256 mint = _mintUnits(collAmount, totalCollUnits, before);
         collUnits[lp] += mint; totalCollUnits += mint;
         return collAmount;
     }
 
     function borrow(address lp, uint256 stableAmount) external onlyManager nonReentrant returns (uint256) {
         if (stableAmount == 0) return 0;
-        // §POOL-VENUE — NO `isAuthorized` CHECK: the adapter borrows on its OWN behalf, so there is no
-        // LP authorization to grant, revoke, or forget. The one-time `setAuthorization` step is gone.
+
         uint256 before = _poolShares();
         (uint256 got, uint256 sharesUp) = MORPHO.borrow(_params(), stableAmount, 0, address(this), address(this));
-        // Mint units against the shares this borrow added. First borrow anchors 1 unit = 1 share.
-        uint256 mint = _mintUnits(sharesUp, totalDebtUnits, before);      // §POOL-DONATION
+
+        uint256 mint = _mintUnits(sharesUp, totalDebtUnits, before);
         debtUnits[lp] += mint; totalDebtUnits += mint;
         if (got > 0) IERC20OZ(STABLE).safeTransfer(MANAGER, got);
         return got;
@@ -309,165 +132,82 @@ contract MorphoEscrowVenue is LevVenueBase {
 
     function repay(address lp, uint256 stableAmount) external onlyManager nonReentrant returns (uint256) {
         if (stableAmount == 0) return 0;
-        MORPHO.accrueInterest(_params());   // §DUST — `debtOf` below must be post-accrual, not stale
+        MORPHO.accrueInterest(_params());
         uint256 d = debtOf(lp);
-        uint256 r = stableAmount > d ? d : stableAmount; // never over-repay (clamp to THIS LP's share)
+        uint256 r = stableAmount > d ? d : stableAmount;
         if (r == 0) return 0;
-        return _repayCreditingLp(lp, r);   // stable already transferred in by MANAGER
+        return _repayCreditingLp(lp, r);
     }
 
-    /// @dev §POOL-VENUE — ONE repay-and-credit body. `repay` (manager-funded) and `repayFor`
-    ///      (permissionless, caller-funded) differ ONLY in who supplies the stable; both then repay the
-    ///      POOL and burn the named LP's units. Folding them means the unit arithmetic — the part that
-    ///      must keep `sum(units) == totalUnits` — exists once. ⛔ `repayPool` deliberately does NOT
-    ///      route through here: it credits nobody and burns no units, which is what makes it O(1).
-    /// 🔴 §DUST-BLOCKS-THE-LAST-EXIT — **A FULL REPAY MUST BURN SHARES, OR THE LAST LP NEVER LEAVES.**
-    ///    Repaying by ASSETS makes Morpho burn `toSharesDown(assets)`, so even a full repay leaves
-    ///    sub-unit shares. That dust is economically nothing and structurally fatal:
-    ///    `withdrawCollateral` refuses to take the pool to zero collateral while ANY debt remains,
-    ///    and the LAST LP's slice IS the whole pool's collateral. Measured: `borrowShares =
-    ///    1,018,998,152` after repaying the LP's entire `debtOf` — ~a tenth of a cent at Morpho's
-    ///    1e6 `VIRTUAL_SHARES` — blocking **4.998 weETH**, permanently, with no retry that helps.
-    ///    ⚠️ IT ONLY BITES AT 100% OWNERSHIP, WHICH IS WHY IT SURVIVED: with two or more LPs a close
-    ///    withdraws a slice strictly below the pool's collateral and the dust is invisible. Dormant
-    ///    for the pool's whole life, fires on the way out.
-    /// ⭐ **AND WHY THE SHARE PATH IS ONLY SAFE BECAUSE OF THE ACCRUAL ABOVE.** A first attempt at
-    ///    this regressed two green tests, because **Morpho accrues interest INSIDE `repay`**: with a
-    ///    stale market, `toAssetsUp(shares)` at execution exceeds the amount quoted before the call,
-    ///    and an exact approval no longer covers it. `accrue()` first makes the quote and the
-    ///    execution read the SAME market, so `need` is exact rather than a racing estimate. That is
-    ///    the whole reason the ordering is load-bearing and not a tidiness preference.
-    ///    ⛔ The alternative — approving a cushion — would hide an accrual race behind a tolerance
-    ///    (standing rule 3), and would still not guarantee zero.
     function _repayCreditingLp(address lp, uint256 r) private returns (uint256 repaid) {
         uint256 before = _poolShares();
         uint256 sharesDown;
-        uint256 mine = _unitSlice(debtUnits[lp], totalDebtUnits, before);   // this LP's exact share slice
+        uint256 mine = _unitSlice(debtUnits[lp], totalDebtUnits, before);
         uint256 need = mine == 0 ? 0 : _sharesToAssetsUp(mine);
         bool byShares;
         if (mine > 0 && r >= need && IERC20Min(STABLE).balanceOf(address(this)) >= need) {
             IERC20OZ(STABLE).forceApprove(address(MORPHO), need);
-            (repaid, sharesDown) = MORPHO.repay(_params(), 0, mine, address(this), "");  // lands on ZERO
+            (repaid, sharesDown) = MORPHO.repay(_params(), 0, mine, address(this), "");
             IERC20OZ(STABLE).forceApprove(address(MORPHO), 0);
             byShares = true;
         } else {
             IERC20OZ(STABLE).forceApprove(address(MORPHO), r);
-            (repaid, sharesDown) = MORPHO.repay(_params(), r, 0, address(this), "");     // partial: assets
+            (repaid, sharesDown) = MORPHO.repay(_params(), r, 0, address(this), "");
         }
-        // 🔴 §BY-SHARES-LANDS-ON-ZERO — **ON THIS BRANCH THE LP OWES NOTHING BY CONSTRUCTION, SO SAY
-        //    SO INSTEAD OF RE-DERIVING IT THROUGH A FLOOR.** `mine` is the LP's EXACT share slice and
-        //    the branch repays exactly `mine` shares, so the LP's claim is extinguished. Converting
-        //    `sharesDown` BACK to units with `_burnUnits` is the floor-inverse of the floor that
-        //    produced `mine`, and that round trip can return `debtUnits[lp] − 1` — leaving ONE unit of
-        //    dust on a position that is fully repaid.
-        // ⇒ That residual is exactly why `LevManager._closeLev`'s post-condition is `< debtBefore`
-        //    rather than `== 0`. Removing the residual is what lets that tighten (§F-HANDOFFS 2).
-        // ⚠️ THE INVARIANT IS PRESERVED, WHICH IS THE ONLY THING THAT MATTERS HERE: this burns
-        //    `debtUnits[lp]` from BOTH sides, so `sum(units) == totalDebtUnits` still holds — the
-        //    property this body exists to keep in one place.
-        // ⛔ DO NOT extend this to the `else` arm. A partial repay burns whatever shares Morpho
-        //    actually took, and there `_burnUnits` is the correct conversion — the same one the mint
-        //    used. The shortcut is legitimate ONLY because this branch repaid the whole slice.
+
         uint256 burn;
         if (byShares) {
-            burn = debtUnits[lp];                                       // extinguished, exactly
+            burn = debtUnits[lp];
         } else {
-            burn = _burnUnits(sharesDown, totalDebtUnits, before);      // §POOL-UNITS: same conversion as the mint
+            burn = _burnUnits(sharesDown, totalDebtUnits, before);
             if (burn > debtUnits[lp]) burn = debtUnits[lp];
         }
         debtUnits[lp] -= burn; totalDebtUnits -= burn;
     }
 
-    /// @notice §POOL-VENUE — THE AGGREGATE REPAY THIS WHOLE CHANGE EXISTS FOR. Repays the POOL without
-    ///         naming an LP, in ONE call. ⭐ No per-LP write and no loop: `debtOf` converts units through
-    ///         the pool's LIVE shares, so burning pool shares lowers EVERY LP's debt pro-rata by
-    ///         construction. `totalDebtUnits` is deliberately UNTOUCHED — units are a claim on the pool,
-    ///         and the pool got smaller, which is exactly what a pro-rata repay means.
-    /// ⇒ This is what removes the swap-size ceiling: size is now bounded by stable liquidity, not by
-    ///   how many LP repays fit in a block.
-    /// @dev §REPAY-PROVEN — the venue reported a repay that did not reduce `totalDebt()`.
     error RepayNotApplied();
 
     function repayPool(uint256 stableAmount) external onlyManager nonReentrant returns (uint256 repaid) {
         if (stableAmount == 0) return 0;
-        // 🔴 §REPAY-PROVEN-PREACCRUAL — **`d` MUST BE POST-ACCRUAL, AND WITHOUT THIS LINE IT WAS NOT.**
-        //    `MORPHO.repay` ACCRUES INTEREST AS ITS FIRST ACT, so a `d` read before the call is the
-        //    debt at `lastUpdate`, not the debt the repay lands against. The §REPAY-PROVEN check below
-        //    then compares a POST-accrual `totalDebt()` to a PRE-accrual `d` and therefore tests
-        //    `accruedInterest >= repaid` — NOT "the repay failed".
-        //    ⇒ MEASURED SHAPE: $2,000,000 of pool debt at 8% APR, untouched 6h, accrues ~$110. An $80
-        //      repay leaves `totalDebt() == 2,000,030 >= d == 2,000,000` and reverts `RepayNotApplied()`
-        //      on an ORDINARY repay — the de-lever bricks precisely when the market is stalest.
-        //    ⛔ NOT fixed by widening the check: a tolerance there would hide a genuine no-op repay
-        //      (standing rule 3). The two reads simply have to be on the same clock, which is what
-        //      accruing first makes true.
-        //    📌 BOTH TWINS ALREADY DO THIS AND SAY WHY — `repay:~312` (*"`debtOf` below must be
-        //      post-accrual, not stale"*) and `_closeLev`. `repayPool` was the ONE that did not.
-        //    ⇒ The clamp on the next line gets the same correction for free: `r` was capped by a
-        //      stale-LOW `d`, so a full repay could under-repay by the accrued interest.
-        MORPHO.accrueInterest(_params());   // §DUST twin — `totalDebt()` below must be post-accrual, not stale
+
+        MORPHO.accrueInterest(_params());
         uint256 d = totalDebt();
         uint256 r = stableAmount > d ? d : stableAmount;
         if (r == 0) return 0;
         IERC20OZ(STABLE).forceApprove(address(MORPHO), r);
         (repaid,) = MORPHO.repay(_params(), r, 0, address(this), "");
-        // 🔴 §REPAY-PROVEN — THE DEBT MUST ACTUALLY HAVE FALLEN. Every caller checked only
-        //    `repaid != 0`, which is the VENUE's report of what it applied, not evidence the
-        //    position shrank. "How do we know the borrow gets paid off" was answerable only by
-        //    MEASUREMENT (a fork test watched debt reach 0) — a measurement standing in for an
-        //    invariant, which is exactly the substitution this repo keeps being bitten by.
-        //    ⇒ One extra read turns it into an invariant the code enforces.
-        // ⛔ DELIBERATELY `>=`, NOT AN EXACT `d - repaid`. Interest accrues inside the same block on
-        //    Morpho, so an exact equality would revert on ordinary accrual and brick the de-lever —
-        //    a tolerance that bricks is as wrong as a tolerance that hides. ANY decrease is proof the
-        //    repay landed; no decrease is proof it did not, whatever `repaid` reported.
-        // ⚠️ AND THAT SENTENCE WAS THE COVER STORY FOR §REPAY-PROVEN-PREACCRUAL. It is TRUE that
-        //    accrual happens inside `repay`, and it is exactly why `d` had to be read AFTER an
-        //    explicit `accrueInterest` — which it now is (above). Before that line the comparison was
-        //    not "loose about accrual", it was `accruedInterest >= repaid`, i.e. it FIRED on ordinary
-        //    accrual instead of tolerating it. ⇒ `>=` still stays: it is the fail-safe direction and
-        //    costs nothing now that both sides are on the same clock. Do NOT read this note as
-        //    licence to tighten it to `d - repaid`.
+
         if (repaid > 0 && totalDebt() >= d) revert RepayNotApplied();
     }
 
     function withdraw(address lp, uint256 collAmount) external onlyManager nonReentrant returns (uint256) {
         if (collAmount == 0) return 0;
-        // §POOL-VENUE — no authorization to check; the adapter withdraws its own collateral.
+
         uint256 bal = collateralOf(lp);
-        uint256 w = collAmount > bal ? bal : collAmount; // capped at THIS LP's slice of the pool
+        uint256 w = collAmount > bal ? bal : collAmount;
         if (w == 0) return 0;
-        {   // burn the units this withdrawal represents, before the pool shrinks under them
+        {
             uint256 pc = _poolColl();
-            uint256 burn = _burnUnits(w, totalCollUnits, pc);            // §POOL-UNITS: same conversion as the mint
+            uint256 burn = _burnUnits(w, totalCollUnits, pc);
             if (burn > collUnits[lp]) burn = collUnits[lp];
             collUnits[lp] -= burn; totalCollUnits -= burn;
         }
         uint256 before = IERC20Min(COLLATERAL).balanceOf(address(this));
-        MORPHO.withdrawCollateral(_params(), w, address(this), address(this)); // weETH → adapter
+        MORPHO.withdrawCollateral(_params(), w, address(this), address(this));
         uint256 got = IERC20Min(COLLATERAL).balanceOf(address(this)) - before;
         if (got > 0) IERC20Min(COLLATERAL).transfer(MANAGER, got);
         return got;
     }
 
-    /// @dev Reads the LAST-accrued market totals (no `accrueInterest` in a view), so the returned debt is
-    ///      understated by interest pending since `lastUpdate` — the keeper would see the position slightly
-    ///      HEALTHIER than real. Bounded + safe: per-poll (~5min) borrow-interest drift is sub-bp vs the
-    ///      keeper's ~15% (`safety_margin_bps`) urgent margin, and the next tick re-reads. A position genuinely
-    ///      near liquidation is caught by that margin regardless of the drift.
     function debtOf(address lp) public view returns (uint256) {
         uint256 u = debtUnits[lp];
         if (u == 0 || totalDebtUnits == 0) return 0;
-        // §POOL-VENUE: this LP's slice of the POOL's live shares. Interest accrues to the pool, so it
-        // reaches every LP through this one conversion — no per-LP accrual bookkeeping exists or is needed.
+
         return _sharesToAssetsUp(_unitSlice(u, totalDebtUnits, _poolShares()));
     }
 
-    /// @notice The POOL's total debt — O(1), and the reason `LevBase`'s Sigma-loops over `_openLps` can go.
     function totalDebt() public view returns (uint256) { return _sharesToAssetsUp(_poolShares()); }
 
-    /// @dev toAssetsUp (Morpho SharesMathLib): assets = ceil(shares * totalAssets / totalShares).
-    ///      Rounding UP is deliberate and unchanged — it never understates what is owed.
     function _sharesToAssetsUp(uint256 shares) internal view returns (uint256) {
         if (shares == 0) return 0;
         (,, uint128 totalBorrowAssets, uint128 totalBorrowShares,,) = MORPHO.market(MARKET_ID);
@@ -477,19 +217,11 @@ contract MorphoEscrowVenue is LevVenueBase {
     }
 
     function collateralOf(address lp) public view returns (uint256) {
-        return _unitSlice(collUnits[lp], totalCollUnits, _poolColl());   // §POOL-DONATION
+        return _unitSlice(collUnits[lp], totalCollUnits, _poolColl());
     }
 
-    /// @notice The POOL's total collateral — O(1) companion to `totalDebt`.
     function totalCollateral() external view returns (uint256) { return _poolColl(); }
 
-    /// @notice §POOL-VENUE — THE AGGREGATE COLLATERAL WITHDRAW, the mirror of `repayPool` and the other
-    ///         half of a one-call de-lever. Frees `collAmount` from the POOL and hands it to the manager.
-    ///         ⭐ No per-LP write: `totalCollUnits` is untouched, so every LP's `collateralOf` falls
-    ///         pro-rata by construction — the same trick that makes `repayPool` O(1).
-    /// ⚠️      MUST be paired with a `repayPool` of the matching value. Alone it would free collateral
-    ///         while leaving the debt, i.e. raise the pool's LTV toward the liquidation threshold that
-    ///         Morpho no longer enforces per-LP.
     function withdrawPool(uint256 collAmount) external onlyManager nonReentrant returns (uint256 got) {
         uint256 pc = _poolColl();
         uint256 w = collAmount > pc ? pc : collAmount;
@@ -500,21 +232,8 @@ contract MorphoEscrowVenue is LevVenueBase {
         if (got > 0) IERC20Min(COLLATERAL).transfer(MANAGER, got);
     }
 
-    /// Morpho LLTV is 1e18-scaled (1e18 = 100%); convert to bps (1e18/1e14 = 1e4 = 100%).
-    /// @inheritdoc ILevVenue
-    /// @dev Morpho Blue has NO supply cap — a market accepts collateral without limit, which is one
-    ///      of the things an isolated market buys. Uncapped is reported as `max`, the same value the
-    ///      Aave side returns for an uncapped reserve, so a caller never special-cases the venue.
     function supplyHeadroom() external pure returns (uint256) { return type(uint256).max; }
 
-    /// @inheritdoc ILevVenue
-    /// @dev A Morpho market is ISOLATED and single-asset, so there is no basket to aggregate and the
-    ///      venue's own quote unit is simply THE LOAN TOKEN. Collateral is converted at Morpho's own
-    ///      market oracle — the same price its own liquidation check uses — so the ratio this returns
-    ///      is the ratio Morpho enforces.
-    ///      ⚠️ `ORACLE_PRICE_SCALE` is 1e36 and is Morpho's, not ours; `LLTV` is 1e18-scaled, hence
-    ///      the 1e14 divisor to bps. Neither number is commensurable with Aave's — by design, see
-    ///      `ILevVenue.position`.
     function position() public view override returns (VenuePosition memory p) {
         (, uint128 borrowShares, uint128 coll) = MORPHO.position(MARKET_ID, address(this));
         uint8 dec = IERC20Min(STABLE).decimals();
@@ -525,30 +244,16 @@ contract MorphoEscrowVenue is LevVenueBase {
             liqThresholdBps: LLTV / 1e14 });
     }
 
-    /// @inheritdoc ILevVenue
-    /// @dev §CHEAPEST-DOLLAR. Morpho's IRM takes the market state as an ARGUMENT, so pricing a
-    ///      hypothetical draw is just handing it a market with `totalBorrowAssets` already raised —
-    ///      no curve reconstruction, and it tracks whatever IRM this market was created with.
-    ///      ⚠️ `borrowRateView` RETURNS WAD PER SECOND. Aave returns RAY PER YEAR, and `ILevVenue`
-    ///      is declared in Aave's unit, so the ×365d×1e9 lift here is what makes the two venues
-    ///      COMPARABLE AT ALL. Getting it wrong does not revert — it silently reports a venue as
-    ///      ~3e7× cheaper, which is the §DECIMAL-BASES failure wearing a new hat.
     function borrowRateRay(uint256 extraBorrow) external view returns (uint256) {
         (uint128 tsa, uint128 tss, uint128 tba, uint128 tbs, uint128 lu, uint128 fee)
             = MORPHO.market(MARKET_ID);
-        // 🔴 ORDER IS LOad-BEARING: bound in uint256 FIRST, then cast. `tba += uint128(extraBorrow)`
-        //    was a DEFECT — an explicit cast is NOT checked by 0.8's arithmetic, so an `extraBorrow`
-        //    above `2**128` wrapped to a small number and this returned a FLATTERING rate for a draw
-        //    that could never be funded. That is precisely what `VenueCannotFund`'s own docblock says
-        //    must not happen ("a flattering number for a draw that cannot happen is exactly the input
-        //    that would make an allocator pick it") — the guard existed and the cast walked around it.
-        //    Checking `<= tsa` (a uint128) before narrowing makes the cast provably lossless.
+
         uint256 newDebt = uint256(tba) + extraBorrow;
-        if (newDebt > tsa) revert VenueCannotFund();  // unfundable has no rate — as Aave's view
-        tba = uint128(newDebt);                       // safe: bounded by tsa, itself uint128
+        if (newDebt > tsa) revert VenueCannotFund();
+        tba = uint128(newDebt);
         uint256 perSec = IIrm(IRM).borrowRateView(
             _params(), MorphoMarket(tsa, tss, tba, tbs, lu, fee));
-        return perSec * 365 days * 1e9;               // WAD/sec → RAY/yr
+        return perSec * 365 days * 1e9;
     }
 
     function liqThresholdBps() external view returns (uint256) {
@@ -556,12 +261,6 @@ contract MorphoEscrowVenue is LevVenueBase {
     }
 }
 
-// ═══ folded from src/AaveV3Venue.sol (2026-08-15) ═══
-
-/// @title  AaveV3Escrow — the venue's Aave V3 position, owned by the venue
-/// @notice Aave V3 keys a position by the CALLER and has no sub-account/on-behalf-borrow, so a position IS an
-///         escrow. §POOL-VENUE: the venue deploys exactly ONE of these (`poolEscrow`) and tracks per-LP claims
-///         in units, so this holds the whole book rather than a single LP. VARIABLE-rate borrow (mode 2).
 contract AaveV3Escrow {
     using SafeERC20 for IERC20OZ;
 
@@ -569,7 +268,7 @@ contract AaveV3Escrow {
     IAaveV3Pool public immutable POOL;
     address    public immutable COLLATERAL;
     address    public immutable STABLE;
-    uint256    internal constant VARIABLE_RATE = 2;   // Aave V3 interestRateMode
+    uint256    internal constant VARIABLE_RATE = 2;
 
     error OnlyVenue();
     modifier onlyVenue() { if (msg.sender != VENUE) revert OnlyVenue(); _; }
@@ -577,31 +276,17 @@ contract AaveV3Escrow {
     constructor(IAaveV3Pool pool, address coll, address stable) {
         VENUE = msg.sender;
         POOL = pool; COLLATERAL = coll; STABLE = stable;
-        // §PM-INVARIANT-3 — AN INFINITE APPROVAL, AND A DELIBERATE EXCEPTION TO THE EXACT-AMOUNT
-        // RULE. Recorded here rather than left to be rediscovered as an oversight:
-        //   · the spender is PINNED AND IMMUTABLE (`POOL`, set in this constructor, never rotatable),
-        //     so there is no address a later caller can point this allowance at;
-        //   · this escrow holds NOTHING between operations -- the venue transfers the tokens in
-        //     immediately before supply/repay, so a live allowance covers a zero balance;
-        //   · Aave's Pool pulls by `transferFrom` in its OWN context, so a per-op exact approval
-        //     would be two extra SSTOREs per leg for no reachable state a max approval exposes.
-        // ⚠️ THE EXCEPTION RESTS ON THE SECOND BULLET. If this contract ever holds an idle balance,
-        // the infinite approval stops being covered by "nothing to take" and must become exact.
+
         IERC20Min(coll).approve(address(pool), type(uint256).max);
-        // §NONSTANDARD-ERC20 — `forceApprove`, because `IERC20Min.approve` decodes a bool and
-        //    **USDT returns none**, so a USDT-denominated venue could never even be constructed.
-        //    `forceApprove` also handles USDT's refusal of a non-zero to non-zero approve.
+
         IERC20OZ(stable).forceApprove(address(pool), type(uint256).max);
     }
 
-    /// Supply `amt` collateral (already transferred in by the venue) → the escrow's own Aave account, marked as
-    /// collateral (V3 does NOT auto-enable supplied assets as collateral; idempotent on later top-ups).
     function supplyColl(uint256 amt) external onlyVenue {
         POOL.supply(COLLATERAL, amt, address(this), 0);
         POOL.setUserUseReserveAsCollateral(COLLATERAL, true);
     }
 
-    /// Borrow `amt` stable (variable rate) against this account, forward to `to` (venue → MANAGER). Returns delivered.
     function borrowStable(uint256 amt, address to) external onlyVenue returns (uint256 got) {
         uint256 bef = IERC20Min(STABLE).balanceOf(address(this));
         POOL.borrow(STABLE, amt, VARIABLE_RATE, 0, address(this));
@@ -609,57 +294,27 @@ contract AaveV3Escrow {
         if (got > 0) IERC20OZ(STABLE).safeTransfer(to, got);
     }
 
-    /// Repay `amt` stable (already transferred in by the venue). Returns ASSETS actually spent (balance delta).
     function repayStable(uint256 amt) external onlyVenue returns (uint256 spent) {
         uint256 bef = IERC20Min(STABLE).balanceOf(address(this));
         POOL.repay(STABLE, amt, VARIABLE_RATE, address(this));
         spent = bef - IERC20Min(STABLE).balanceOf(address(this));
     }
 
-    /// Withdraw `amt` collateral straight to `to` (venue → MANAGER). V3's withdraw sends to `to` and returns the amount.
     function withdrawColl(uint256 amt, address to) external onlyVenue returns (uint256 got) {
         got = POOL.withdraw(COLLATERAL, amt, to);
     }
 }
 
-/// @title  AaveV3Venue — pooled Aave V3 borrow venue as an `ILevVenue`
-/// @notice The WBTC lev venue, sibling of `MorphoEscrowVenue` (same `ILevVenue`, so the
-///         managers stay venue-agnostic). Collateral (WBTC/vBTC/weETH) supplied, `stable()` (USDC) borrowed on Aave
-///         V3 — the DEEPEST WBTC/USDC book (data-verified 2026-07: ~$14–19B TVL, deepest liquidity, vs Morpho's
-///         thin ~$14M-avail isolated market), so the SPA picks it for sizeable positions. ISOLATION: §POOL-VENUE —
-///         ONE `poolEscrow` holds the whole book, so a liquidation hits every LP pro-rata and isolation from the
-///         QU!D basket is what the escrow still buys. See the §POOL-VENUE note on `poolEscrow` below.
-///
-///         POSITION READS use the ProtocolDataProvider's per-asset `getUserReserveData` (Amp.sol's PROVEN source):
-///         `currentVariableDebt` / `currentATokenBalance` are the exact block-fresh underlying-unit amounts — no
-///         raw vToken/aToken balanceOf, no hardcoded reservesList index, one asset per call (cheap for rangeBTC).
-///
-///         Custody (per ILevVenue): MANAGER sends collateral/stable to the venue before supply/repay; the venue
-///         routes them through the LP's escrow and forwards borrowed stable / withdrawn collateral back to MANAGER.
 contract AaveV3Venue is LevVenueBase {
-    using SafeERC20 for IERC20OZ;   // NOT inherited from the base (Solidity >=0.7)
+    using SafeERC20 for IERC20OZ;
 
     IAaveV3Pool         public immutable POOL;
-    IAaveV3DataProvider public immutable DATA;         // ProtocolDataProvider (per-asset current-balance reads)
+    IAaveV3DataProvider public immutable DATA;
     address             public immutable COLLATERAL;
-    uint256             public immutable LIQ_THRESHOLD_BPS; // collateral reserve liquidation threshold (Aave gov param)
+    uint256             public immutable LIQ_THRESHOLD_BPS;
 
-    // §POOL-VENUE (2026-08-24) — ONE ESCROW FOR THE VENUE, NOT ONE PER LP. Aave V3 keys a position by
-    // the CALLER, so an escrow IS a position; `mapping(address => AaveV3Escrow) escrowOf` therefore
-    // WAS the per-LP isolation, exactly as `onBehalf = lp` was on Morpho. Same trade, same reasons:
-    // the delever loop could not aggregate across N escrows, so swap size was capped by how many
-    // repays fit in a block. Isolation is now protocol-enforced (`cascadeDelever` + the derived
-    // no-trade band, `LevBase._bandBps`), not venue-enforced.
-    // ⭐ THE UNIT MODEL FITS AAVE BETTER THAN MORPHO, WHICH IS WORTH SAYING: aTokens REBASE and the
-    // variable-debt balance ACCRUES, so BOTH sides of the pool grow on their own. Units mean every
-    // LP's slice grows with them through one conversion — there is no per-LP accrual bookkeeping to
-    // write, and none to get wrong.
-    AaveV3Escrow public poolEscrow;                  // the ONE Aave account this venue owns
-    // §POOL-UNITS — same four variables as the Morpho venue, so they live on the shared base.
+    AaveV3Escrow public poolEscrow;
 
-    /// @param pool Aave V3 Pool. @param dataProvider Aave V3 ProtocolDataProvider (per-asset position reads).
-    /// @param coll collateral underlying. @param stable the borrowed stable (== stable()). @param manager sole caller.
-    /// @param liqThreshBps collateral reserve liquidation threshold (bps).
     constructor(address pool, address dataProvider, address coll, address stable, address manager, uint256 liqThreshBps)
         LevVenueBase(manager, stable)
     {
@@ -667,15 +322,14 @@ contract AaveV3Venue is LevVenueBase {
         LIQ_THRESHOLD_BPS = liqThreshBps;
     }
 
-    // ── ILevVenue ────────────────────────────────────────────────────────────────
     function supply(address lp, uint256 collAmount) external onlyManager nonReentrant returns (uint256) {
         if (collAmount == 0) return 0;
         AaveV3Escrow e = poolEscrow;
         if (address(e) == address(0)) { e = new AaveV3Escrow(POOL, COLLATERAL, STABLE); poolEscrow = e; }
         uint256 before = _poolReserve(false);
-        IERC20Min(COLLATERAL).transfer(address(e), collAmount); // MANAGER already sent it to the venue
+        IERC20Min(COLLATERAL).transfer(address(e), collAmount);
         e.supplyColl(collAmount);
-        uint256 mint = _mintUnits(collAmount, totalCollUnits, before);          // §POOL-DONATION
+        uint256 mint = _mintUnits(collAmount, totalCollUnits, before);
         collUnits[lp] += mint; totalCollUnits += mint;
         return collAmount;
     }
@@ -685,7 +339,7 @@ contract AaveV3Venue is LevVenueBase {
         if (address(e) == address(0) || stableAmount == 0) return 0;
         uint256 before = _poolReserve(true);
         uint256 got = e.borrowStable(stableAmount, MANAGER);
-        uint256 mint = _mintUnits(got, totalDebtUnits, before);                 // §POOL-DONATION
+        uint256 mint = _mintUnits(got, totalDebtUnits, before);
         debtUnits[lp] += mint; totalDebtUnits += mint;
         return got;
     }
@@ -694,20 +348,18 @@ contract AaveV3Venue is LevVenueBase {
         AaveV3Escrow e = poolEscrow;
         if (address(e) == address(0) || stableAmount == 0) return 0;
         uint256 d = debtOf(lp);
-        uint256 r = stableAmount > d ? d : stableAmount;   // never over-repay (clamp to THIS LP's slice)
+        uint256 r = stableAmount > d ? d : stableAmount;
         if (r == 0) return 0;
         uint256 before = _poolReserve(true);
-        IERC20OZ(STABLE).safeTransfer(address(e), r);          // stable already transferred in by MANAGER
+        IERC20OZ(STABLE).safeTransfer(address(e), r);
         uint256 spent = e.repayStable(r);
-        // Burn the units this LP's repayment represents, so sum(units) stays == total.
-        uint256 burn = _burnUnits(spent, totalDebtUnits, before);        // §POOL-UNITS: same conversion as the mint
+
+        uint256 burn = _burnUnits(spent, totalDebtUnits, before);
         if (burn > debtUnits[lp]) burn = debtUnits[lp];
         debtUnits[lp] -= burn; totalDebtUnits -= burn;
         return spent;
     }
 
-    /// @notice §POOL-VENUE — aggregate repay. No per-LP write: `debtOf` reads through the pool, so a
-    ///         pooled repay lowers every LP's debt pro-rata by construction. Mirror of Morpho's.
     function repayPool(uint256 stableAmount) external onlyManager nonReentrant returns (uint256) {
         AaveV3Escrow e = poolEscrow;
         if (address(e) == address(0) || stableAmount == 0) return 0;
@@ -718,8 +370,6 @@ contract AaveV3Venue is LevVenueBase {
         return e.repayStable(r);
     }
 
-    /// @notice §POOL-VENUE — aggregate collateral withdraw. ⚠️ MUST follow a matching `repayPool`;
-    ///         alone it raises the pool's LTV toward a threshold Aave no longer enforces per-LP.
     function withdrawPool(uint256 collAmount) external onlyManager nonReentrant returns (uint256) {
         AaveV3Escrow e = poolEscrow;
         if (address(e) == address(0) || collAmount == 0) return 0;
@@ -735,36 +385,28 @@ contract AaveV3Venue is LevVenueBase {
         AaveV3Escrow e = poolEscrow;
         if (address(e) == address(0) || collAmount == 0) return 0;
         uint256 bal = collateralOf(lp);
-        uint256 w = collAmount > bal ? bal : collAmount;    // capped at THIS LP's slice of the pool
+        uint256 w = collAmount > bal ? bal : collAmount;
         if (w == 0) return 0;
         {   uint256 pc = _poolReserve(false);
-            uint256 burn = _burnUnits(w, totalCollUnits, pc);            // §POOL-UNITS: same conversion as the mint
+            uint256 burn = _burnUnits(w, totalCollUnits, pc);
             if (burn > collUnits[lp]) burn = collUnits[lp];
             collUnits[lp] -= burn; totalCollUnits -= burn;
         }
         return e.withdrawColl(w, MANAGER);
     }
 
-    /// @notice Amount OWED — ProtocolDataProvider's `currentVariableDebt` (Amp's proven source; exact block-fresh
-    ///         underlying-unit debt, one asset, no vToken.balanceOf / no hardcoded index).
     function debtOf(address lp) public view returns (uint256) {
         return _slice(debtUnits[lp], totalDebtUnits, _poolReserve(true));
     }
 
-    /// @notice Collateral supplied — ProtocolDataProvider's `currentATokenBalance` (block-fresh underlying units).
     function collateralOf(address lp) public view returns (uint256) {
         return _slice(collUnits[lp], totalCollUnits, _poolReserve(false));
     }
 
-    /// @dev ONE conversion for both sides — units → the LP's slice of a pooled balance.
     function _slice(uint256 u, uint256 tot, uint256 poolBal) private pure returns (uint256) {
-        return _unitSlice(u, tot, poolBal);   // §POOL-DONATION — one offset, defined once on the base
+        return _unitSlice(u, tot, poolBal);
     }
 
-    /// @dev ONE escrow-resolution body. Both reads MUST agree on which escrow they are
-    ///      describing — a debt read against one escrow and a collateral read against
-    ///      another would produce a plausible LTV for a position that does not exist.
-    ///      `wantDebt` picks BOTH the asset and the slot, so they cannot be mismatched.
     function _poolReserve(bool wantDebt) private view returns (uint256) {
         AaveV3Escrow e = poolEscrow;
         if (address(e) == address(0)) return 0;
@@ -773,41 +415,21 @@ contract AaveV3Venue is LevVenueBase {
         return wantDebt ? variableDebt : aTokenBal;
     }
 
-    /// @inheritdoc ILevVenue
-    /// @dev Aave publishes the cap in WHOLE TOKENS and uses `0` for UNCAPPED — both are easy to get
-    ///      backwards, and getting the second one backwards makes an uncapped reserve look FULL.
     function supplyHeadroom() external view returns (uint256) {
         (, uint256 supplyCap) = DATA.getReserveCaps(COLLATERAL);
-        if (supplyCap == 0) return type(uint256).max;              // Aave's convention: 0 == no cap
+        if (supplyCap == 0) return type(uint256).max;
         uint256 capWei = supplyCap * (10 ** IERC20Min(COLLATERAL).decimals());
         (,, uint256 totalAToken,,,,,,,,,) = DATA.getReserveData(COLLATERAL);
         return capWei > totalAToken ? capWei - totalAToken : 0;
     }
 
-    /// @inheritdoc ILevVenue
-    /// @dev THE ENTIRE MULTI-DEBT STORY ON THE AAVE SIDE IS THIS FUNCTION. The escrow is ONE Aave
-    ///      account, and Aave already values every debt it carries against the collateral backing
-    ///      them — so a venue borrowing GHO *and* USDT *and* DAI reports its health here with no
-    ///      basket accounting of ours in between, and reports it in the very numbers Aave will
-    ///      liquidate on. `liqThresholdBps` is LIVE (position-weighted, measured 7800-7937 on real
-    ///      accounts), which is strictly better than the constructor constant beside it.
-    ///      ⚠️ Aave's base unit is 8-dec; the ×1e10 is the lift to 18, and it is the only unit
-    ///      conversion on this path.
     function position() public view override returns (VenuePosition memory p) {
         AaveV3Escrow e = poolEscrow;
-        if (address(e) == address(0)) return p;         // no escrow yet: a genuinely empty position
+        if (address(e) == address(0)) return p;
         (uint256 c, uint256 d,, uint256 lt,,) = POOL.getUserAccountData(address(e));
         p = VenuePosition({collateral: c * 1e10, debt: d * 1e10, liqThresholdBps: lt});
     }
 
-    /// @inheritdoc ILevVenue
-    /// @dev §CHEAPEST-DOLLAR. Delegates to Aave's OWN `calculateInterestRates` — see `CalcRatesParams`
-    ///      for why a reconstruction was rejected. VERIFIED 2026-08-30 that this parameterisation
-    ///      reproduces Aave's live rate EXACTLY at `extraBorrow == 0` on BOTH a flat market (GHO,
-    ///      3.75%) and a sloped one (USDT, 4.08%) — and the sloped one is the assertion that has
-    ///      teeth, since a flat rate hides any error in the balance inputs.
-    ///      ⚠️ `virtualUnderlyingBalance` is READ, not derived: `totalAToken - totalDebt` looks like
-    ///      the same quantity and is not, and using it put the result 2.6e-6 off Aave's own number.
     function borrowRateRay(uint256 extraBorrow) external view returns (uint256) {
         (,,, uint256 totalStableDebt, uint256 totalVariableDebt,,,,,,,) = DATA.getReserveData(STABLE);
         (,,,, uint256 reserveFactor,,,,,) = DATA.getReserveConfigurationData(STABLE);

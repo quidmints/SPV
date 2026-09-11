@@ -18,10 +18,6 @@ contract SPVGateway is ISPVGateway, Initializable {
     using TargetsHelper for bytes32;
     using EndianConverter for bytes32;
 
-    /// @notice §AUDIT-SPV-RETARGET — the checkpoint height is not a multiple of
-    ///         `DIFFICULTY_ADJUSTMENT_INTERVAL`, so the first retarget would read an epoch-start
-    ///         block below the checkpoint and brick the chain. Declared HERE and not in
-    ///         `ISPVGateway`: that interface is vendored, and this constraint is ours.
     error UnalignedCheckpointHeight(uint256 height);
 
     uint8 public constant MEDIAN_PAST_BLOCKS = 11;
@@ -45,70 +41,12 @@ contract SPVGateway is ISPVGateway, Initializable {
         }
     }
 
-    /// @notice Start the header chain from a DEPLOYER-CHOSEN CHECKPOINT.
-    ///
-    ///         ⚠️ THIS IS A REAL TRUST ASSUMPTION AND IT USED TO BE OBSCURED. A companion
-    ///         `__SPVGateway_init_genesis()` hardcoding Bitcoin block 0 sat here until
-    ///         2026-08-08, called by NOTHING — production goes through this function
-    ///         (`script/DeployLib.sol:253`, from `cfg.spvCheckpointHeader`) and so does every
-    ///         test. ⚠️ The coordinate used to read `DeployLib.sol:160`, which is wrong TWICE:
-    ///         `DeployLib.sol` lives under `script/`, not `src/imports/`, so a reader greps
-    ///         `src` and concludes the caller is gone.
-    ///         Both carried `initializer`, so once this ran the genesis one could never fire:
-    ///         unreachable by construction. Its presence implied the gateway syncs from
-    ///         genesis. **It does not.** Everything FORWARD of the checkpoint is trustless by
-    ///         proof-of-work.
-    ///
-    ///         ⚠️ AND THE CHECKPOINT ASSUMPTION IS NARROWER THAN "trust the deployer" — a
-    ///         first draft of this note said that and overstated it. **PoW is unforgeable, so a
-    ///         bad checkpoint cannot be FABRICATED: it would have to be a genuine Bitcoin
-    ///         header that is merely off the main chain (an orphan, or another network).**
-    ///         Honest subsequent headers would not extend an orphan, and anyone can check the
-    ///         checkpoint against any Bitcoin node in seconds. So the assumption is "this block
-    ///         is on Bitcoin's main chain" — PUBLICLY VERIFIABLE, not a matter of taking the
-    ///         deployer's word. Syncing from genesis would remove even that, at ~900k headers
-    ///         of gas; the standard alternative is ZK historical proofs
-    ///         (distributed-lab's `HistoricalSPVGateway`), which we deliberately do not vendor.
-    ///         🔴 **AND THE DEPTH IS UNGUARDED — THIS IS THE REAL RISK, NOT THE TRUST.**
-    ///         `_initialize` accepts `(header, height, cumulativeWork)` with NO validation.
-    ///         Pin a block that is too shallow — the tip, say — and a ROUTINE 1-2 block reorg
-    ///         orphans it. Every later `addBlockHeader` then fails the `prevBlockHash` link,
-    ///         because the honest chain's block at that height has a different hash, and
-    ///         `initializer` means it can never be re-initialised. **A normal Bitcoin event
-    ///         would permanently brick the gateway and the whole BTC path with it.** The
-    ///         checkpoint must be BURIED (6 conventionally, 100 for comfort), and
-    ///         `cumulativeWork_` must be correct or every later reorg comparison is skewed.
-    ///         Neither is enforced here nor in `DeployLib`. Booked as E135.
     function __SPVGateway_init(
         bytes calldata blockHeaderRaw_,
         uint64 blockHeight_,
         uint256 cumulativeWork_
     ) external initializer {
-        // 🔴 §AUDIT-SPV-RETARGET — THE CHECKPOINT MUST BE AN EPOCH START, AND THE FAILURE IF IT IS
-        // NOT IS *DELAYED*, WHICH IS WHY NOTHING CAUGHT IT. `_retargetIfEpochBoundary` fires at
-        // every `h % 2016 == 0`, and `_getEpochPassedTime(h)` reads
-        // `getBlockHash(h - DIFFICULTY_ADJUSTMENT_INTERVAL)` — the header 2016 blocks BACK. Init at
-        // an unaligned height H and the first retarget block above it is H' = ceil(H/2016)·2016,
-        // whose epoch start H' - 2016 lies STRICTLY BELOW H: a height this gateway has never seen.
-        // `getBlockHash` returns `bytes32(0)`, `_getBlockHeaderTime` reads an empty `BlockData`,
-        // and the new target is computed from a zero timestamp — so every header at and after the
-        // first retarget is rejected on `InvalidTarget`, permanently. `initializer` means it can
-        // never be re-run. **The gateway syncs happily for up to 2016 blocks (~2 weeks) and then
-        // bricks the whole BTC path, with no way back.**
-        // ⚠️ THE EXISTING SUITE CANNOT SEE THIS: every gateway in the tree inits at height 0
-        // (regtest/synthetic genesis) or at signet 304416 = 2016·151 — both already aligned, and
-        // aligned by luck of the fixture rather than by any rule. `SPVGatewayInitAlignment.t.sol`
-        // is the test that asserts the rule instead of the fixtures' habit.
-        // ⚠️ SIBLING, NOT DUPLICATE, OF THE BURIAL CHECK. `DeployLib:289` requires the checkpoint
-        // be BURIED (followers supplied); that is about the checkpoint being CANONICAL. This is
-        // about it being USABLE by the retarget arithmetic. A buried unaligned checkpoint passes
-        // that one and still bricks here, so the check belongs on the gateway — where every
-        // caller, including a test or a future deployer that never goes through `DeployLib`, must
-        // pass it — rather than beside it.
-        // ▶️ ALIGNMENT IS THE CHEAPER OF THE TWO FIXES NAMED IN THE FINDING. The other is to seed
-        //    the epoch-start block alongside the checkpoint, which needs a second header, a second
-        //    PoW check and a storage write for a block that is otherwise never referenced. Picking
-        //    an epoch boundary costs a deployer nothing: they are choosing a buried block anyway.
+
         require(
             blockHeight_ % TargetsHelper.DIFFICULTY_ADJUSTMENT_INTERVAL == 0,
             UnalignedCheckpointHeight(blockHeight_)
@@ -129,7 +67,6 @@ contract SPVGateway is ISPVGateway, Initializable {
         }
     }
 
-    /// @inheritdoc ISPVGateway
     function addBlockHeaderBatch(
         bytes[] calldata blockHeaderRawArray_
     ) external broadcastMainchainUpdateEvent {
@@ -161,7 +98,6 @@ contract SPVGateway is ISPVGateway, Initializable {
         }
     }
 
-    /// @inheritdoc ISPVGateway
     function addBlockHeader(
         bytes calldata blockHeaderRaw_
     ) external broadcastMainchainUpdateEvent {
@@ -190,7 +126,6 @@ contract SPVGateway is ISPVGateway, Initializable {
             _nextCumulativeWork(blockHeader_.prevBlockHash, currentTarget_));
     }
 
-    /// @inheritdoc ISPVGateway
     function checkTxInclusion(
         bytes32[] calldata merkleProof_,
         bytes32 blockHash_,
@@ -204,13 +139,6 @@ contract SPVGateway is ISPVGateway, Initializable {
             return false;
         }
 
-        // AUDIT (SPV-H1): reject empty proofs. With `merkleProof_.length == 0`,
-        // `TxMerkleProof.verify` degenerates to `txId_ == merkleRoot`, which only
-        // holds for a single-transaction (coinbase-only) block. Every tx this
-        // gateway vouches for — channel funding and channel close — is a spend,
-        // never a block's sole/coinbase tx, so a zero-length proof is always a
-        // forgery attempt (claim an arbitrary txid equals a root in a block the
-        // submitter shaped). A real inclusion proof for these is length ≥ 1.
         if (merkleProof_.length == 0) {
             return false;
         }
@@ -220,17 +148,14 @@ contract SPVGateway is ISPVGateway, Initializable {
         return TxMerkleProof.verify(merkleProof_, leRoot_, txId_, txIndex_);
     }
 
-    /// @inheritdoc ISPVGateway
     function getMainchainHead() public view returns (bytes32) {
         return _getSPVGatewayStorage().mainchainHead;
     }
 
-    /// @inheritdoc ISPVGateway
     function getMainchainHeight() public view returns (uint64) {
         return getBlockHeight(_getSPVGatewayStorage().mainchainHead);
     }
 
-    /// @inheritdoc ISPVGateway
     function getBlockInfo(bytes32 blockHash_) external view returns (BlockInfo memory blockInfo_) {
         if (!blockExists(blockHash_)) {
             return blockInfo_;
@@ -245,7 +170,6 @@ contract SPVGateway is ISPVGateway, Initializable {
         });
     }
 
-    /// @inheritdoc ISPVGateway
     function getBlockHeader(
         bytes32 blockHash_
     ) public view returns (BlockHeader.HeaderData memory) {
@@ -262,7 +186,6 @@ contract SPVGateway is ISPVGateway, Initializable {
             });
     }
 
-    /// @inheritdoc ISPVGateway
     function getBlockStatus(bytes32 blockHash_) public view returns (bool, uint64) {
         if (!isInMainchain(blockHash_)) {
             return (false, 0);
@@ -271,33 +194,26 @@ contract SPVGateway is ISPVGateway, Initializable {
         return (true, getMainchainHeight() - getBlockHeight(blockHash_));
     }
 
-    /// @inheritdoc ISPVGateway
     function getBlockMerkleRoot(bytes32 blockHash_) public view returns (bytes32) {
         return _getSPVGatewayStorage().blocksData[blockHash_].merkleRoot;
     }
 
-    /// @inheritdoc ISPVGateway
     function getBlockHeight(bytes32 blockHash_) public view returns (uint64) {
         return _getSPVGatewayStorage().blocksData[blockHash_].blockHeight;
     }
 
-    /// @inheritdoc ISPVGateway
     function getBlockHash(uint64 blockHeight_) public view returns (bytes32) {
         return _getSPVGatewayStorage().blocksHeightToBlockHash[blockHeight_];
     }
 
-    /// @inheritdoc ISPVGateway
     function getBlockTarget(bytes32 blockHash_) public view returns (bytes32) {
         return TargetsHelper.bitsToTarget(_getSPVGatewayStorage().blocksData[blockHash_].bits);
     }
 
-
-    /// @inheritdoc ISPVGateway
     function blockExists(bytes32 blockHash_) public view returns (bool) {
         return _getBlockHeaderTime(blockHash_) > 0;
     }
 
-    /// @inheritdoc ISPVGateway
     function isInMainchain(bytes32 blockHash_) public view returns (bool) {
         return getBlockHash(getBlockHeight(blockHash_)) == blockHash_;
     }
@@ -308,8 +224,7 @@ contract SPVGateway is ISPVGateway, Initializable {
         uint64 blockHeight_,
         uint256 cumulativeWork_
     ) internal onlyInitializing {
-        // Seed the checkpoint block with its ABSOLUTE cumulative work; every later
-        // block accrues parent + own work per-block (see _nextCumulativeWork).
+
         _addBlock(blockHeader_, blockHash_, blockHeight_, cumulativeWork_);
 
         emit MainchainHeadUpdated(blockHeight_, blockHash_);
@@ -339,9 +254,6 @@ contract SPVGateway is ISPVGateway, Initializable {
         emit BlockHeaderAdded(blockHeight_, blockHash_);
     }
 
-    /// Cumulative work of a block extending `prevBlockHash_`, mined at `blockTarget_`:
-    /// the parent's stored cumulative work + this block's work. (The checkpoint block
-    /// in `_initialize` is seeded with its absolute cumulative work instead.)
     function _nextCumulativeWork(
         bytes32 prevBlockHash_,
         bytes32 blockTarget_
@@ -350,27 +262,6 @@ contract SPVGateway is ISPVGateway, Initializable {
             + blockTarget_.countBlockWork();
     }
 
-    /// 🔴 **§AUDIT-REORG-DOS — THE FORK-SWITCH WALK-BACK IS O(depth) IN ONE ATOMIC TX, AND THE
-    ///    DEPTH IS THE ATTACKER'S / THE NETWORK'S TO CHOOSE.** The `do…while` below re-points
-    ///    `blocksHeightToBlockHash` one height at a time until it meets the height the two chains
-    ///    already agree on: an SSTORE plus two SLOADs per block of divergence, all inside the
-    ///    single `addBlockHeader` call that first OVERTAKES the current head on cumulative work.
-    ///    Past roughly 1–3k blocks of divergence that call exceeds the block gas limit, and it
-    ///    does so DETERMINISTICALLY — the same tx will OOG on every retry, so the heavier chain
-    ///    can never be adopted.
-    /// ⚠️ **THE CONSEQUENCE IS NOT "THE SWITCH IS SLOW", IT IS THAT THE GATEWAY KEEPS ANSWERING
-    ///    FROM AN ORPHANED CHAIN.** `checkTxInclusion` reads `blocksHeightToBlockHash`, which
-    ///    still describes the abandoned branch, and nothing in this contract can say so. The
-    ///    headers of the honest chain are still accepted and stored; only the HEAD refuses to move.
-    /// ⛔ **A `MAX_REORG_DEPTH` REVERT IS NOT THE FIX AND IS DELIBERATELY ABSENT.** It converts an
-    ///    out-of-gas into a named revert and leaves the outcome identical — the heavier chain is
-    ///    still not adopted — so it buys a better error message on the tightest bytecode budget in
-    ///    the tree while adding a second bound on one failure (standing rules 3 and 17). The fix
-    ///    that changes the OUTCOME is a RESUMABLE switch: record the pending fork head and let the
-    ///    re-pointing be driven to completion across several transactions. That needs new storage
-    ///    and a new entrypoint, so it is a change to make deliberately, not a clamp to bolt on.
-    ///    Until then the exposure is bounded by Bitcoin itself: a >1k-block reorg is an event the
-    ///    whole BTC path would have to be re-anchored after in any case.
     function _updateMainchainHead(
         BlockHeader.HeaderData memory blockHeader_,
         bytes32 blockHash_,
@@ -409,10 +300,6 @@ contract SPVGateway is ISPVGateway, Initializable {
         }
     }
 
-    /// At an epoch boundary, recompute the difficulty target from the epoch's elapsed
-    /// time (Bitcoin's 2016-block retarget); unchanged mid-epoch. Cumulative work is
-    /// now tracked PER-BLOCK in `_addBlock`/`_nextCumulativeWork`, so this no longer
-    /// touches any global accumulator (which mis-counted fork-choice across boundaries).
     function _retargetIfEpochBoundary(
         bytes32 currentTarget_,
         uint64 blockHeight_
