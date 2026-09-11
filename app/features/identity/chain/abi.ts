@@ -101,7 +101,7 @@ export const AUX_ABI = [
   // per-stable deposit amounts + yield weights (uint[13]: stables + aggregate slots),
   // basket avg yield, and the redemption depeg loss. DO NOT use uint[14]/3-tuple — the
   // contract returns uint[13] + a 4th `depegLoss`; a wrong arity misaligns the decode.
-  'function get_deposits() returns (uint[15] amounts, uint[15] yieldW, uint avgYield, uint depegLoss)',
+  'function get_deposits() returns (uint[16] amounts, uint[16] yieldW, uint avgYield, uint depegLoss)',
   'function avgYield() view returns (uint)',
   'function riskFactor(address token) view returns (uint)',
   // Stable↔stable swap (e.g. USDC→DAI) routed through the basket vaults.

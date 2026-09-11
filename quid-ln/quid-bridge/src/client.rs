@@ -210,6 +210,31 @@ impl<R: JsonRpc, S: TxSigner> JsonRpcEvmClient<R, S> {
         self.signer.address()
     }
 
+    /// 🔴 §SINGLE-WRITER-RAIL-B — **is THIS daemon the MAIN hop?** Rail B (the on-chain swap-out
+    /// delivery watcher) must have exactly ONE writer across the whole fleet.
+    ///
+    /// **Why this exists (§AUDIT-SWAPOUT-CONCURRENT, re-rated 🔴 REACHABLE 2026-09-11):** MAIN and
+    /// FALLBACK each enumerate their OWN `chain_monitor.list_monitors()` and splice out of their OWN
+    /// channels, so two healthy daemons servicing one `swapId` pay the swapper **twice on Bitcoin**.
+    /// `swapInUsed[swapId]` lets only one `deliverSwapOutOnchain` land — **after both splices are
+    /// already broadcast** — and the losing channel is left unretirable holding phantom backing.
+    /// ⛔ **NO ADVERSARY IS REQUIRED. Two honest daemons, both polling.** SGX does not help: the
+    /// enclave behaves correctly and the money still leaves twice.
+    ///
+    /// ⚠️ **AGREEMENT-CLASSED ON PURPOSE.** `MAIN_HOP` is `immutable`, so this is read ONCE at boot —
+    /// which is exactly why a single lying endpoint must not decide it. A forged `true` turns the
+    /// fallback into a second writer (the race); a forged `false` silently disables rail B on the
+    /// real main. Both are why the caller must treat an error as fatal at boot rather than as `false`.
+    pub fn is_main_hop(&self) -> anyhow::Result<bool> {
+        let ret = eth_call_raw_agreed(&self.rpc, self.cfg.btc_channels, "MAIN_HOP()", None)?;
+        let word = ret
+            .get(ret.len().saturating_sub(32)..)
+            .ok_or_else(|| anyhow::anyhow!("MAIN_HOP(): short return"))?;
+        let mut a = [0u8; 20];
+        a.copy_from_slice(&word[12..32]);
+        Ok(Address::from(a) == self.signer.address())
+    }
+
     /// Clone the shared transport handle — for the daemon's read-only watcher loops
     /// that `eth_call` views alongside this client's writes (same quorum endpoints).
     pub fn rpc_handle(&self) -> R

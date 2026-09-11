@@ -365,16 +365,36 @@ pub async fn run(
         store.clone(),
     ));
     // On-chain swap-out (rail B) delivery driver: the hop delivers USD→BTC to a swapper's
-    // Bitcoin address via swapper-directed splice-outs of the VAULT's channels. It runs
-    // whenever a vault does — and since §NO-SELF-PROVISIONED-LPS the vault boots
-    // unconditionally, so this is simply ON. `QUID_SWAPOUT_ONCHAIN` used to gate it "until a
-    // real bitcoind e2e" (`driver_e2e::swap_out_onchain_delivery_on_real_evm`); that ran green
-    // on 2026-09-11 and the flag went the way `QUID_FLEET_COHOSTS_VAULT` did (owner: no
-    // awkward variables). The watcher and the `/swap-in/onchain` registration endpoint below
-    // still share ONE registry (the endpoint inserts, the watcher services + removes) and one
-    // condition — a version that mounted the endpoint without the watcher would accept
-    // deposit registrations nothing ever services, real BTC into a silent black hole.
-    let onchain_enabled = vault.is_some();
+    // Bitcoin address via swapper-directed splice-outs of the VAULT's channels.
+    //
+    // 🔴 §SINGLE-WRITER-RAIL-B (owner, 2026-09-11) — **EXACTLY ONE DAEMON IN THE FLEET MAY RUN THIS.**
+    // `§AUDIT-SWAPOUT-CONCURRENT` was re-rated 🔴 REACHABLE: MAIN and FALLBACK each enumerate their
+    // OWN `chain_monitor.list_monitors()` and splice out of their OWN channels, so two healthy
+    // daemons servicing one `swapId` pay the swapper **twice on Bitcoin**. `swapInUsed[swapId]` lets
+    // only one `deliverSwapOutOnchain` land — AFTER both splices are broadcast — and the losing
+    // channel is left unretirable holding phantom backing.
+    // ⛔ **NO ADVERSARY REQUIRED: two honest daemons, both polling.** The enclave is irrelevant here;
+    // it behaves correctly and the money still leaves twice. This is why the gate is IDENTITY, not a
+    // lock: a cross-process lease bolted on afterwards would be a clamp (rule 17), while
+    // "only MAIN writes" makes the second writer unconstructible.
+    // ▶️ The fallback's job is to take over a DEAD main, so it spawns this only once main is proven
+    // dead — that hand-off is NOT built yet (`§SINGLE-WRITER-RAIL-B` remainder); until it is, a dead
+    // main means rail B stops, which is the safe direction: deliveries stall, nothing double-pays.
+    //
+    // ⚠️ HISTORY, because the gate that used to be here died by accident and this must not repeat:
+    // `onchain_rail_enabled(env_flag, has_vault)` required the operator to ask for it AND a vault to
+    // exist. §NO-SELF-PROVISIONED-LPS made `has_vault` always-true, and the whole two-conjunct gate
+    // was deleted with it — **removing a real off-switch because ONE of its conjuncts went constant.**
+    // Its own docblock named the silent failure: the same condition mounts `/swap-in/onchain`, so a
+    // version gating only the watcher would keep ACCEPTING deposit registrations nothing services —
+    // real BTC into a black hole. The endpoint and the watcher therefore still share ONE condition.
+    let is_main_hop = evm
+        .is_main_hop()
+        .context("MAIN_HOP(): cannot determine this daemon's hop identity")?;
+    if !is_main_hop {
+        info!("rail B DISABLED on this daemon: not MAIN_HOP (§SINGLE-WRITER-RAIL-B)");
+    }
+    let onchain_enabled = vault.is_some() && is_main_hop;
     let swap_in_registry = crate::swap_in_onchain::SwapInRegistry::new(store.clone());
     if let Some(swapout_vault) = swapout_vault {
         info!("on-chain watcher: eyes on the chain — rail-B deliveries + swap-in deposits, all in its lane");

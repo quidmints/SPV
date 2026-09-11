@@ -83,11 +83,19 @@ pub fn keys_hash(lp_pubkey: &[u8; 33], hop_pubkey: &[u8; 33]) -> [u8; 32] {
 // string is what the SELECTOR is computed from, so leaving it at `(bytes32,bytes)` encodes a call to
 // a function that no longer exists — and `check-client-abis.py` is the only thing that catches it,
 // because both halves compile.
+// 🔴 **AND IT HAPPENED AGAIN ON 2026-09-11, TO THE PERSON WHO HAD JUST READ THIS PARAGRAPH.**
+// §LPETH-THIRD-FIELD added `lpIdentityPubkey` to `OpenParams` — struct, `tokens()`, Solidity, the
+// two TypeScript ABIs — and left ALL FIVE of these strings at the 7-member tuple. `cargo check` was
+// clean, `forge build` was clean, and every channel call the hop makes would have carried a selector
+// for a function that no longer exists. **`check-client-abis.py` caught it; nothing else could.**
+// ⇒ **RUN `python3 tools/check-client-abis.py` IN THE SAME BREATH AS ANY `OpenParams` CHANGE.**
+// The warning above was not enough because it reads as being about `OpenAuth`; it is about every
+// tuple in this block, and the failure mode is silent on both sides of the language boundary.
 pub const SIG_OPEN_CHANNEL: &str =
-    "openChannel((bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],\
+    "openChannel((bytes32,uint64,uint256,bytes,bytes,bytes,uint256,bytes32),bytes,bytes32[],\
 (bytes32,bytes,bytes),(uint64[],bytes[],uint64,uint256,bytes)[])";
 pub const SIG_SPLICE: &str =
-    "splice(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),bytes,bytes32[],\
+    "splice(bytes32,(bytes32,uint64,uint256,bytes,bytes,bytes,uint256,bytes32),bytes,bytes32[],\
 (uint64[],bytes[],uint64,uint256,bytes)[])";
 // (§B8-SLOP-FOLD) The close tx and its inclusion proof are ONE argument on both of these —
 // `Types.TxProof(bytes rawTx, bytes32 blockHash, bytes32[] merkleProof, uint txIndex)`. The FIELD
@@ -96,15 +104,15 @@ pub const SIG_SPLICE: &str =
 // SELECTOR, which is why these strings must move in the same commit as the Solidity.
 // The Rust `encode_*` functions below still take the four values separately and pack them here.
 pub const SIG_RECORD_CLOSE: &str =
-    "recordClose(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),\
+    "recordClose(bytes32,(bytes32,uint64,uint256,bytes,bytes,bytes,uint256,bytes32),\
 (bytes,bytes32,bytes32[],uint256))";
 pub const SIG_RECORD_FORCE_CLOSE_PERMISSIONLESS: &str =
     "recordForceClosePermissionless(bytes32,(bytes,bytes32,bytes32[],uint256))";
 pub const SIG_DELIVER_SWAP_OUT_ONCHAIN: &str =
-    "deliverSwapOutOnchain(bytes32,bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),\
+    "deliverSwapOutOnchain(bytes32,bytes32,(bytes32,uint64,uint256,bytes,bytes,bytes,uint256,bytes32),\
 bytes,bytes32[],bytes,(uint64[],bytes[],uint64,uint256,bytes)[])";
 pub const SIG_EMIT_DEAD_MAN_EXIT: &str =
-    "emitDeadManExit(bytes32,(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32),\
+    "emitDeadManExit(bytes32,(bytes32,uint64,uint256,bytes,bytes,bytes,uint256,bytes32),\
 (uint64[],bytes[],uint64,uint256,bytes))";
 pub const SIG_REQUEST_SWAP_OUT_ONCHAIN: &str =
     "requestSwapOutOnchain(address,uint256,uint256,bytes32)";
@@ -600,7 +608,7 @@ impl ExitArming {
 }
 
 impl OpenParams {
-    /// The ABI token tuple `(bytes32,uint64,uint256,bytes,bytes,uint256,bytes32)`
+    /// The ABI token tuple `(bytes32,uint64,uint256,bytes,bytes,bytes,uint256,bytes32)`
     /// in `Types.OpenParams` field order (taproot `fundingTaproot` is the last).
     fn tokens(&self) -> Vec<Tok> {
         vec![
