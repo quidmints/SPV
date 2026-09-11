@@ -1118,8 +1118,7 @@ contract Aux is // Auxiliary
             emit BTCShortfallDropped(sender, shortfall);
             return;
         }
-        unchecked { btcHopRequestId++; }
-        emit BTCHopRequest(btcHopRequestId, recipient, shortfall);
+        emit BTCHopRequest(recipient, shortfall);
     }
 
     /// @notice §BTC-2.6 — a recognised BTC shortfall that could NOT be turned into a hop request
@@ -1142,8 +1141,13 @@ contract Aux is // Auxiliary
     ///   in **whatever the pool holds**, WBTC included. A native-vs-WBTC composition gap is therefore
     ///   NOT a shortfall by itself. What remains is a swapper who wants native only — and that is a
     ///   QUOTE-TIME constraint, not a post-hoc remediation. See §BTC-2.6 in `SPRINT.md`.
-    event BTCHopRequest(uint256 indexed requestId, bytes32 indexed recipient, uint256 amount);
-    uint256 public btcHopRequestId;
+    /// ⭐ §RULE-23 — **THE `requestId` FIELD AND ITS COUNTER ARE DELETED. A LOG IS ALREADY UNIQUELY
+    ///    IDENTIFIED BY `(txHash, logIndex)`, so `btcHopRequestId` was a STORAGE SLOT, a public getter
+    ///    and an SSTORE ON EVERY SHORTFALL bought to re-state something the log position already
+    ///    says.** Nothing read it: its only three references were the declaration, the `++` and this
+    ///    `emit`, and `grep` found **zero** consumers in `spa/`, `app/` or `quid-ln/`.
+    /// 📌 Filtering is unaffected — `recipient` stays `indexed`.
+    event BTCHopRequest(bytes32 indexed recipient, uint256 amount);
 
     /// @notice §INTENT-FUNDING-LEG — SPEND `owner`'s BASKET CLAIM WITHOUT PAYING THEM OUT.
     ///         The debit a filled out-of-range intent was missing. `redeem` burns QU!D and hands the

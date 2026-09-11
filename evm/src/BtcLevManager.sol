@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {AlreadyOpen, NotFlash, Types} from "./imports/Types.sol";
-import {IVaultExposeB, IVBtcToken, ILevVenue, IERC20Min, IMorphoBase as IMorphoFlash} from "./imports/Interfaces.sol";
+import {ILevVenue, IERC20Min, IMorphoBase as IMorphoFlash} from "./imports/Interfaces.sol";
 import {BtcLib} from "./imports/BtcLib.sol";
 import {LevBase} from "./imports/LevBase.sol";
 import {LevMath} from "./imports/LevMath.sol";
@@ -13,8 +13,6 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 contract BtcLevManager is LevBase {
     using SafeERC20 for IERC20OZ;
     address public immutable WBTC;
-
-    address public immutable VAULT;
 
     mapping(address => bool) public allowedVenue;
 
@@ -27,48 +25,37 @@ contract BtcLevManager is LevBase {
             address v = venues[i];
             if (v == address(0)) revert BadAuth();
 
-            if (LevMath.vetVenue(v, WBTC, address(COLL), WBTC)) revert BadAuth();
+            if (LevMath.vetVenue(v, WBTC, WBTC, WBTC)) revert BadAuth();
             allowedVenue[v] = true; emit VenueAllowed(v, true);
         }
     }
 
     event Borrowed(address indexed lp, uint stableOut);
-    event Supplied(address indexed lp, uint vbtcIn);
-    event Withdrawn(address indexed lp, uint vbtcOut);
+    event Supplied(address indexed lp, uint wbtcIn);
+    event Withdrawn(address indexed lp, uint wbtcOut);
     event Repaid(address indexed lp, uint stableIn);
 
     error BadAuth();
 
     error WbtcSliceNotDeliverable();
 
-    constructor(address vbtc, address aux, address wbtc, address gov, address quid)
-        LevBase(aux, wbtc, gov, quid, vbtc, address(0), 50_000) {
-        VAULT = IVBtcToken(vbtc).VAULT(); WBTC = wbtc;
-    }
+    constructor(address aux, address wbtc, address gov, address quid)
+        LevBase(aux, wbtc, gov, quid, wbtc, address(0), 50_000) { WBTC = wbtc; }
 
     function protectFromQuid(address lp, uint256 minStableOut) external nonReentrant returns (uint256) {
         return _protectFromQuidBody(lp, minStableOut);
     }
 
-    function openBtcLev(uint initialVbtc, ILevVenue venue) external nonReentrant {
+    function openBtcLev(uint initialWbtc, ILevVenue venue) external nonReentrant {
         if (pos[msg.sender].open) revert AlreadyOpen();
 
         LevMath.requireOpenable(allowedVenue[address(venue)], address(AUX), address(venue));
-        if (initialVbtc < MIN_OPEN) revert BadTarget();
+        if (initialWbtc < MIN_OPEN) revert BadTarget();
 
-        uint entryPx = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
+        _openPos(venue, AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW), initialWbtc);
 
-        uint entryEquity = initialVbtc;
-
-        _openPos(venue, entryPx, entryEquity);
-
-        if (ILevVenue(address(venue)).COLLATERAL() == address(COLL)) {
-            IVaultExposeB(VAULT).exposeBtcToLev(msg.sender, initialVbtc);
-            COLL.transfer(address(venue), initialVbtc);
-        } else {
-            IERC20Min(WBTC).transferFrom(msg.sender, address(venue), initialVbtc);
-        }
-        venue.supply(msg.sender, initialVbtc);
+        IERC20Min(WBTC).transferFrom(msg.sender, address(venue), initialWbtc);
+        venue.supply(msg.sender, initialWbtc);
         emit Opened(msg.sender, address(venue), TARGET_LTV_CAP_BPS);
     }
 
@@ -79,14 +66,14 @@ contract BtcLevManager is LevBase {
         _syncRange(msg.sender);
     }
 
-    function leverSupply(uint vbtc) external nonReentrant {
-        BtcLib.leverSupply(pos, address(COLL), msg.sender, vbtc);
+    function leverSupply(uint sats) external nonReentrant {
+        BtcLib.leverSupply(pos, WBTC, msg.sender, sats);
         _syncRange(msg.sender);
     }
 
-    function deleverWithdraw(uint vbtc) external nonReentrant returns (uint out) {
+    function deleverWithdraw(uint sats) external nonReentrant returns (uint out) {
         _reanchorIfReseated(msg.sender);
-        out = BtcLib.deleverWithdraw(pos, address(COLL), msg.sender, vbtc);
+        out = BtcLib.deleverWithdraw(pos, WBTC, msg.sender, sats);
         _syncRange(msg.sender);
     }
 
@@ -97,10 +84,6 @@ contract BtcLevManager is LevBase {
 
     function rebalanceWbtc(address lp, uint minOut, uint256 dex, uint256 dex2, bytes calldata route)
         external nonReentrant { _rebalance(lp, minOut, dex, dex2, route); }
-
-    function _requireRebalancable(Types.Pos memory p) internal view override {
-        if (ILevVenue(address(p.venue)).COLLATERAL() != WBTC) revert BadTarget();
-    }
 
     function _leverUp(ILevVenue venue, address lp, address stable, uint deltaUsd, uint minOut, uint256 dex, uint256 dex2, bytes calldata route)
         internal override { _leverUpBuyWbtc(venue, lp, stable, deltaUsd, minOut, dex, dex2, route); }
@@ -145,10 +128,10 @@ contract BtcLevManager is LevBase {
     }
 
     function swapOutDelever(address lp, uint stableUsd, uint freeSats)
-        external nonReentrant returns (uint usedUsd, uint freedSats) {
+        external nonReentrant returns (uint usedUsd) {
         if (msg.sender != RANGE) revert BadAuth();
         Types.Pos memory p = pos[lp];
-        if (!p.open) return (0, 0);
+        if (!p.open) return 0;
 
         uint amt = LevMath._fromUsd(address(AUX),p.venue.stable(), stableUsd);
         uint debt = p.venue.debtOf(lp);
@@ -158,17 +141,7 @@ contract BtcLevManager is LevBase {
             uint repaid = p.venue.repay(lp, amt);
             usedUsd = LevMath._toUsd18(address(AUX),p.venue.stable(), repaid);
         }
-        freedSats = freeSats;
-        uint coll = p.venue.collateralOf(lp);
-        if (freedSats > coll) freedSats = coll;
-        if (freedSats > 0) {
-
-            if (p.venue.COLLATERAL() != address(COLL)) revert WbtcSliceNotDeliverable();
-            uint got = p.venue.withdraw(lp, freedSats);
-            if (got != freedSats) freedSats = got;
-
-            if (freedSats > 0) IVaultExposeB(VAULT).unexposeBtcFromLev(lp, freedSats);
-        }
+        if (freeSats > 0 && p.venue.collateralOf(lp) > 0) revert WbtcSliceNotDeliverable();
     }
 
     function closeBtcLev() external nonReentrant {
@@ -183,14 +156,8 @@ contract BtcLevManager is LevBase {
         delete pos[lp];
         _untrackOpen(lp);
 
-        if (p.venue.COLLATERAL() == address(COLL)) {
-
-            if (back > 0) IVaultExposeB(VAULT).unexposeBtcFromLev(lp, back);
-        } else {
-
-            if (back > 0) IERC20Min(WBTC).transfer(lp, back);
-            _syncRange(lp);
-        }
+        if (back > 0) IERC20Min(WBTC).transfer(lp, back);
+        _syncRange(lp);
         emit Closed(lp, back);
     }
 

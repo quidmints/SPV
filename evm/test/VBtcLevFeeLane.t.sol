@@ -2,10 +2,7 @@
 pragma solidity 0.8.30;
 
 import {AllesFixture, MockSPV} from "./Alles.t.sol";
-import {IMorphoStaticTyping as IMorphoTest, MarketParams, Id} from "../src/imports/Interfaces.sol";
-import {IOracle as IMorphoOraclePrice} from "../src/imports/Interfaces.sol";
-import {LevBase} from "../src/imports/LevBase.sol";
-import {ExitFixture} from "./btc/ExitFixture.sol";
+import {IMorphoStaticTyping as IMorphoTest, MarketParams} from "../src/imports/Interfaces.sol";
 import {BTCChannels} from "../src/BTCChannels.sol";
 import {BtcLevManager} from "../src/BtcLevManager.sol";
 import {ILevVenue, ILevPooled} from "../src/imports/Interfaces.sol";
@@ -19,7 +16,6 @@ import {MorphoEscrowVenue} from "../src/imports/LevVenueBase.sol";
 import {AaveV3Venue} from "../src/imports/LevVenueBase.sol";
 import {LevMath} from "../src/imports/LevMath.sol";
 import {RealRateBtcMorphoOracle} from "../src/imports/LevBase.sol";
-import {QuidLib} from "../src/imports/QuidLib.sol";
 
 interface IERC20V {
     function transfer(address, uint) external returns (bool);
@@ -31,34 +27,21 @@ interface IERC20V {
 interface IAuxTwapV { function getTWAPforAsset(address asset, uint32 period) external view returns (uint); }
 interface IAaveV3AddrProviderT { function getPoolDataProvider() external view returns (address); }
 
-// RealRateBtcMorphoOracle now lives in src/imports/LevBase.sol (imported
-// above) — DeployL1_s deploys them inline for the real vBTC/short markets; this test fork-proves
-// them. A "crash" overrides the ONE getTWAPforAsset(WBTC) read they and the manager share
-// (vm.mockCall), so one BTC drawdown moves every leg consistently — no per-oracle mock.
-
-/// @notice UNIT-level behaviour coverage for the BTC IL-protect fee lane — the BTC counterpart of
-///         LevCascade's `test_LevFeeLane_EarnsFees_UnwindOnly_SeizureBurnsClean` +
-///         `test_NetEquity_BackingRecognized_SeizureLeavesPooledUsdIntact`, over the BTC range.
+/// @notice The BTC channel seam (splice / rekey / shutdown-key payout) plus the BTC leverage book,
+///         fork-proved against the REAL Aave v3 {WBTC collateral, USDC debt} venue that `DeployL1_s`
+///         wires — the only BTC lev venue there is.
 ///
-///         The exercised path is `Vault.syncLev` → `QuidLib.syncLevBtc` → `levAddBtc`/`levBurnBtc`
-///         (the BTC counterpart of `Quid.syncLev`/`_levAdd`/`_levBurn`), driven by
-///         `BtcLevManager.netEquity(lp)`, plus the `totalNetEquity()` backing read.
+///         🔴 BTC LEVERAGE COLLATERAL IS WBTC THE LP BRINGS, AND NOTHING ELSE (owner ruling,
+///         2026-09-07). Channel BTC is never posted as collateral: `vBTC.balanceOf` is a PROJECTION of
+///         `Vault.sharesOf` with no ledger behind it, and an escrow venue must physically custody what
+///         it supplies. `BtcLevManager.init` vets every venue as WBTC-collateral
+///         (`test_BtcLevVenueGate_InitRejectsNonWbtcCollateral` is the regression), so a position's
+///         collateral both enters and leaves through the caller.
 ///
-///         BTC-vs-ETH ADAPTATIONS (faithful, documented):
-///           • Collateral is vBTC (8-dec, the Vault's own ERC-20 face minted `onlyBtcChannels`), not
-///             weETH. The mock venue above holds vBTC collateral / USDC debt.
-///           • BTC range depth is CHANNEL-LOCKED (no permissionless `deposit`/`withdraw` like Quid),
-///             so the fee-lane LP also holds a channel: its `LP.pooled` = channel funding + the lev
-///             slice, and fees accrue pro-rata to `LP.pooled` — so the lev equity IS fee-earning range
-///             depth, the same mechanism as a channel deposit.
-///           • The "unwind-only" guard on the BTC side is the `funded = inrange - lev` cap inside
-///             `Vault._resize` (a channel close/splice-out can only shrink the true channel
-///             funding, never the virtual lev depth). This is the exact BTC analogue of the ETH
-///             `levPooled` cap on `_withdraw`; part (b) exercises it with a real splice-out.
-///           • BTC leverage is KEEPER-DRIVEN ASYNC (no synchronous `openLev`/`rebalance` loop — BTC
-///             acquisition crosses Bitcoin confirmation), so net-equity is proven at ZERO leverage
-///             (net-equity == collateral); the "levered-but-equity-intact" self-financing sub-step
-///             from the ETH test has no synchronous analogue and is out of scope for a unit test.
+///         BTC-vs-ETH ADAPTATION: BTC leverage is KEEPER-DRIVEN ASYNC (BTC acquisition crosses Bitcoin
+///         confirmation), so the valuation/protect proofs below open at ZERO leverage and source debt
+///         through the venue's own `onlyManager` leg; `testReal_WbtcLev_FoldUp_Then_FlashDelever` is
+///         the one that drives the synchronous fold-up / flash-de-lever end to end.
 contract VBtcLevFeeLane is AllesFixture {
 
     /// §E329 — this file tests the BTC range, so its `CORE` is the BTC instance. See
@@ -75,16 +58,11 @@ contract VBtcLevFeeLane is AllesFixture {
     address constant MORPHO       = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
     address constant ADAPTIVE_IRM = 0x870aC11D48B15DB9a138Cf899d20F13F79Ba00BC;
 
-    BtcLevManager     lm;
-    MorphoEscrowVenue venue;
-    address mOracle;
-    MarketParams mp;
-
-    // #106/#81/#74 WBTC-fallback route: a SECOND manager over a {USDC loan, WBTC collateral} market — the LP
-    // brings EXTERNAL WBTC (not channel-vBTC), and the keeper's atomic `rebalanceWbtc` folds up / flash-de-levers.
+    // #106/#81/#74 — the LP brings EXTERNAL WBTC, and the keeper's atomic `rebalanceWbtc` folds up /
+    // flash-de-levers the position on-chain.
     BtcLevManager     lmW;
     AaveV3Venue       wvenue;
-    // AAVE v3 mainnet (deepest WBTC/USDC book) — the production WBTC-fallback venue (DeployL1_s uses these too).
+    // AAVE v3 mainnet (deepest WBTC/USDC book) — the production BTC lev venue (DeployL1_s uses these too).
     address constant AAVE_V3_POOL = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2;
     address constant AAVE_V3_ADDR = 0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e;
 
@@ -603,131 +581,34 @@ contract VBtcLevFeeLane is AllesFixture {
         _shrinkExpectOk(ch, cid, ftx, lpPubkey, _p2tr(shutdownKey));
     }
 
-    function _assertSolvent(string memory tag) internal {
-        (uint committedSum, uint totalLiquid) = AUX.checkBacking();
-        assertGe(totalLiquid, committedSum, tag);
-    }
-
     // ─────────────────────────── lev wiring ───────────────────────────
 
-    /// Deploy + pin a BtcLevManager over a REAL Morpho Blue vBTC/USDC market (vBTC == the Vault's own 8-dec
-    /// ERC-20 face, collateral; USDC debt; a REAL-source vBTC/USD oracle). Seeds USDC borrow liquidity. No mock
-    /// venue — the BTC twin of LevCascade's real-Morpho setup.
-    function _setupBtcLev() internal {
-        lm = new BtcLevManager(address(BTC.VBTC()), address(AUX), address(WBTC), address(this), address(QUID));
-        RealRateBtcMorphoOracle oracle = new RealRateBtcMorphoOracle(address(AUX), address(WBTC));
-        mOracle = address(oracle);
-        mp = MarketParams({loanToken: address(USDC), collateralToken: address(BTC.VBTC()),  // §J.2: the vBTC TOKEN, not the Vault
-            oracle: address(oracle), irm: ADAPTIVE_IRM, lltv: 0.86e18});   // Morpho-enabled LLTV (0.8 is not whitelisted)
-        IMorphoTest morpho = IMorphoTest(MORPHO);
-        morpho.createMarket(mp);
-        deal(address(USDC), address(this), 5_000_000 * USDC_PRECISION);
-        IERC20V(address(USDC)).approve(MORPHO, 5_000_000 * USDC_PRECISION);
-        morpho.supply(mp, 5_000_000 * USDC_PRECISION, 0, address(this), "");
-        venue = new MorphoEscrowVenue(MORPHO, mp, address(lm));
-        address[] memory vs = new address[](1); vs[0] = address(venue);
-        lm.init(address(BTC), MORPHO, vs);   // atomic pin-once: hook + Morpho flash provider + venue allowlist, FROZEN
-        BTC.setLevManager(address(lm));        // pin the BTC leveraged book into rangeBTC + syncLev
+    /// Open a BTC-lev position for `lp`: the caller brings EXTERNAL WBTC, which `openBtcLev` pulls
+    /// straight into the venue. Zero leverage ⇒ net-equity == collateral.
+    function _openWbtcLev(address lp, uint sats) internal {
+        deal(address(WBTC), lp, sats);
+        vm.startPrank(lp);
+        IERC20V(address(WBTC)).approve(address(lmW), sats);
+        lmW.openBtcLev(sats, wvenue);
+        vm.stopPrank();
     }
 
-    /// Give `lp`'s position REAL Morpho debt of `usdc6` USDC. Borrowed DIRECTLY on `lp`'s own isolated Morpho
-    /// account (onBehalf==receiver==lp ⇒ no authorization needed) against the vBTC the open supplied — real
-    /// Morpho debt that `venue.debtOf`/`netEquityBtc`/`getCurrentLtvBps` read. (The manager's `leverBorrow`
-    /// keeper step is IL-clamped — it borrows nothing at flat price — so for a static valuation/liquidation
-    /// proof the debt is sourced on Morpho directly; the clamped keeper flow is covered by the Rust e2e.)
-    /// §POOL-VENUE — DEBT IS CREATED THROUGH THE VENUE NOW, NOT BY THE LP DIRECTLY.
-    /// This was `vm.prank(lp); MORPHO.borrow(mp, usdc6, 0, lp, lp)` — the LP borrowing on its OWN
-    /// behalf, which only worked while each LP OWNED its Morpho position. With one pooled position the
-    /// LP holds no collateral of its own and Morpho correctly answers `insufficient collateral`.
-    /// ⚠️ THIS IS NOT A WORKAROUND FOR A BROKEN CHANGE — it is the capability change itself, made
-    /// visible: an LP can no longer reach its venue position directly, and every interaction must route
-    /// through the manager. The helper now uses that real path (`onlyManager`, reached by pranking the
-    /// manager) instead of one that no longer exists.
-    function _borrowMorpho(address lp, uint usdc6) internal {
-        vm.prank(address(lm)); venue.borrow(lp, usdc6);
-        // ⚠️ AND HAND THE STABLE ON TO THE LP, BECAUSE THE VENUE PAYS THE **MANAGER**. The original
-        // helper was `MORPHO.borrow(mp, usdc6, 0, lp, lp)` — receiver `lp`. `venue.borrow` ends with
-        // `IERC20Min(STABLE).transfer(MANAGER, got)`, so without this line the borrowed USDC sits on
-        // the manager and the fixture's end-state differs from the one every assertion downstream was
-        // written against. A faithful translation has to reproduce WHERE THE MONEY ENDED UP, not just
-        // that a borrow happened.
-        vm.prank(address(lm)); IERC20V(address(USDC)).transfer(lp, usdc6);
+    /// Give `lp`'s position REAL Aave debt of `usdc6` through the venue's own `onlyManager` leg — the
+    /// keeper's `rebalanceWbtc` borrows nothing at a flat price (IL-clamped), and these tests are about
+    /// the valuation/repay legs, not about how the debt got there. The venue pays the MANAGER, so the
+    /// stable is handed on to `lp`: a fixture has to reproduce WHERE THE MONEY ENDED UP.
+    function _borrowWbtcVenue(address lp, uint usdc6) internal {
+        vm.prank(address(lmW)); wvenue.borrow(lp, usdc6);
+        vm.prank(address(lmW)); IERC20V(address(USDC)).transfer(lp, usdc6);
     }
 
-    /// REAL Morpho seizure of `lp` (must have real debt): crash the vBTC oracle (one getTWAPforAsset(WBTC)
-    /// override moves the Morpho price AND the manager LTV consistently) to ~92% LTV, then liquidate by
-    /// `numer/denom` of the debt by SHARES (never seizedAssets — over-repays a small debt, underflows Morpho).
-    function _seizeRealBtc(address lp, uint numer, uint denom) internal {
-        uint px = AUX.getTWAPforAsset(address(WBTC), 1800);
-        uint vdebtUsd = lm.debtUsd(lp);                                   // USD 1e18
-        uint collValueUsd = IMorphoOraclePrice(mOracle).price() * venue.collateralOf(lp) / 1e36 * 1e12; // →USD18
-        // crash px so debt/collValue ≈ 0.92 (liquidatable per lltv 0.8, not deep bad debt): px' = px·debt/(coll·0.92)
-        uint crashed = px * vdebtUsd * 100 / (collValueUsd * 92);
-        vm.mockCall(address(AUX), abi.encodeWithSelector(IAuxTwapV.getTWAPforAsset.selector, address(WBTC), uint32(1800)),
-            abi.encode(crashed));
-        // §POOL-VENUE — THE SEIZED BORROWER IS THE VENUE, BECAUSE THAT IS WHO HOLDS THE POSITION NOW.
-        // This read `position(MARKET_ID, lp)` and liquidated `lp`. There is no per-LP Morpho position
-        // to seize any more, so naming `lp` would liquidate an empty account and assert nothing.
-        // 🔴 AND THE GUARANTEE THIS TEST CHECKS IS GENUINELY WEAKER NOW. It used to prove a seizure
-        // hits ONE LP and "never another LP and never the QU!D basket". Pooled, a seizure hits the
-        // pool and therefore EVERY LP pro-rata. The test still proves a REAL Morpho liquidation is
-        // survived cleanly; it can no longer prove containment, because containment is no longer a
-        // property of the venue. It is now protocol-enforced by `cascadeDelever` + the LTV hysteresis.
-        (, uint128 borrowShares,) = IMorphoTest(MORPHO).position(venue.MARKET_ID(), address(venue));
-        deal(address(USDC), address(this), 5_000_000 * USDC_PRECISION);
-        IERC20V(address(USDC)).approve(MORPHO, type(uint).max);
-        IMorphoTest(MORPHO).liquidate(mp, address(venue), 0, uint256(borrowShares) * numer / denom, "");
-        vm.clearMockedCalls();
-    }
-
-    /// Open a ZERO-leverage BTC-lev position for `lp` by exposing `vbtcSats` of its OWN free channel range BTC
-    /// (SAME-BTC model: `lp` must already hold ≥ `vbtcSats` free range via a prior `_open`). openBtcLev reclassifies
-    /// funded→lev and mints the vBTC face straight to the manager — no separate mint/approve roundtrip.
-    /// net-equity == collateral (no debt).
-    /// Every LP that has ever opened a lev position here — `levPooled` is a mapping with no running
-    /// total, so the invariant below sums the set the test actually created.
-    address[] internal _levLps;
-    mapping(address => bool) internal _levLpSeen;
-
-    function _openLev(address lp, uint vbtcSats) internal {
-        if (!_levLpSeen[lp]) { _levLpSeen[lp] = true; _levLps.push(lp); }
-        vm.prank(lp);
-        lm.openBtcLev(vbtcSats, venue);       // cap 50% (unused at zero leverage)
-        _assertVBtcSupplyMatchesLevMarker();
-    }
-
-    /// @notice THE SUPPLY/MARKER INVARIANT — asserted after EVERY lev open, so no test can exercise
-    ///         leverage without checking it.
-    ///
-    ///         `exposeBtcToLev` writes the SAME sats into THREE places: `LP.pooled` (UNCHANGED —
-    ///         single-count), `levPooled[lp]` (a SUBSET MARKER, so free depth = `pooled - levPooled`),
-    ///         and `VBtc.balanceOf[manager]` (the token). Three VIEWS of ONE economic claim — correct by
-    ///         design, but three INDEPENDENTLY-MUTATED storage locations that nothing keeps in lockstep.
-    ///
-    ///         ⚠️ IF THE MARKER AND THE SUPPLY EVER DIVERGE, THE DIVERGENCE *IS* A DOUBLE-SPEND: range
-    ///         depth counted as FREE while its token is still outstanding, i.e. the same sats claimable
-    ///         twice. Nothing asserted this anywhere until now.
-    ///
-    ///         `levPooled` is a mapping with no running total, so this sums the LPs a test can create.
-    ///         It is also the PRECONDITION for §A.19b's aggregate rule
-    ///         (`Σ outstanding vBTC <= Σ free channel capacity`) — that rule is meaningless unless supply
-    ///         and marker agree first.
-    function _assertVBtcSupplyMatchesLevMarker() internal {
-        uint markerSum;
-        for (uint i; i < _levLps.length; ++i) markerSum += BTC.levPooled(_levLps[i]);
-        assertEq(markerSum, BTC.VBTC().totalSupply(),
-            "INVARIANT: sum(levPooled) must equal VBtc.totalSupply() -- divergence is a double-spend");
-    }
-
-    // ─────────────────────── #106/#81/#74 WBTC-fallback route setup ───────────────────────
-
-    /// Deploy + pin a SECOND BtcLevManager over the REAL Aave v3 {WBTC collateral, USDC debt} book — the
-    /// PRODUCTION WBTC-fallback venue (DeployL1_s wires the SAME addresses). Per-LP escrow (no LP Morpho
-    /// authorization, no market to seed — Aave v3's live USDC liquidity backs the borrow). The de-lever FLASH
-    /// provider is still Morpho (bm.init flash=MORPHO) ⇒ cross-protocol: flash USDC from Morpho, repay/withdraw
-    /// on Aave. This is the exact venue the keeper's atomic `rebalanceWbtc` drives on-chain.
+    /// Deploy + pin a BtcLevManager over the REAL Aave v3 {WBTC collateral, USDC debt} book — the
+    /// PRODUCTION venue (DeployL1_s wires the SAME addresses; no market to seed, Aave v3's live USDC
+    /// liquidity backs the borrow). The de-lever FLASH provider is Morpho (init flash=MORPHO) ⇒
+    /// cross-protocol: flash USDC from Morpho, repay/withdraw on Aave. This is the exact venue the
+    /// keeper's atomic `rebalanceWbtc` drives on-chain.
     function _setupBtcLevWbtc() internal {
-        lmW = new BtcLevManager(address(BTC.VBTC()), address(AUX), address(WBTC), address(this), address(QUID));
+        lmW = new BtcLevManager(address(AUX), address(WBTC), address(this), address(QUID));
         address dataProvider = IAaveV3AddrProviderT(AAVE_V3_ADDR).getPoolDataProvider();
         wvenue = new AaveV3Venue(AAVE_V3_POOL, dataProvider, address(WBTC), address(USDC), address(lmW), 7800);
         address[] memory vs = new address[](1); vs[0] = address(wvenue);
@@ -752,7 +633,7 @@ contract VBtcLevFeeLane is AllesFixture {
         address lp = makeAddr("wbtcLp");
         uint coll = 1e8; // 1 WBTC (8-dec)
 
-        // LP brings EXTERNAL WBTC and opens (WBTC branch: transferFrom lp→venue, venue.supply → LP's Morpho escrow).
+        // LP brings EXTERNAL WBTC and opens: transferFrom lp→venue, then venue.supply into the Aave escrow.
         deal(address(WBTC), lp, coll);
         vm.startPrank(lp);
         IERC20V(address(WBTC)).approve(address(lmW), coll);
@@ -782,27 +663,17 @@ contract VBtcLevFeeLane is AllesFixture {
         vm.clearMockedCalls();
     }
 
-    /// @notice 🔴 KNOWN POSITIVE FOR §WBTC-MODE-CANNOT-CLOSE. **THIS TEST FAILS ON THE CODE THAT SHIPPED
-    ///   BEFORE THE FIX** — that is the whole point of it, and no existing suite covered this path.
-    ///   `closeBtcLev` withdrew the collateral to the manager and then called `unexposeBtcFromLev`, whose
-    ///   first statement is `VBTC.burnFrom(manager, sats)`. `AaveV3Venue.withdraw` ends
-    ///   `e.withdrawColl(w, MANAGER)`, so after a WBTC-mode close the manager holds WBTC and the burn asks
-    ///   for vBTC it does not have ⇒ **`InsufficientBalance()`**, measured by un-fixing the source and
-    ///   re-running this test. Since `DeployL1_s` no longer creates the vBTC market
-    ///   (§NO-VBTC-MORPHO-MARKET), WBTC-mode is the ONLY position that can exist, so this was every BTC
-    ///   lev close in production.
-    /// ⇒ The exit now branches on the collateral token exactly as `openBtcLev` branches the entry: the
-    ///   CALLER brought this WBTC in, so the caller gets it back.
+    /// @notice §WBTC-MODE-CANNOT-CLOSE — the retirement money path, which had NO coverage before this.
+    ///   `AaveV3Venue.withdraw` ends `e.withdrawColl(w, MANAGER)`, so the close hands the manager WBTC and
+    ///   the manager hands it to the caller: collateral leaves by the door it came in.
     /// ⛔ THIS IS NOT THE LP PRODUCT PATH, and the fixture must not be read as evidence that it is. An LP
     ///   deposits Lightning BTC and never WBTC (owner, 2026-09-07), so `makeAddr("wbtcCloseLp")` here is
-    ///   just *someone holding WBTC* — which `openBtcLev`'s permissionless WBTC branch does admit. The
-    ///   test proves the close works for a position that can exist; §BTC-IL-PROTECT-IS-INERT is why no
-    ///   real LP has one.
+    ///   just *someone holding WBTC* — which `openBtcLev` admits permissionlessly. The test proves the
+    ///   close works for a position that can exist; §BTC-IL-PROTECT-IS-INERT is why no real LP has one.
     function testReal_WbtcLev_CloseReturnsTheLpsOwnWbtc() public {
         _setupBtcLevWbtc();
-        // PIN THE MANAGER AS PRODUCTION DOES (`DeployL1_s`: `ETH.setLevManager(address(bm))`). Without it
-        // `unexposeBtcFromLev` stops at its own `NotLevManagerBtc` gate, and the failure below would be the
-        // FIXTURE's wiring rather than the defect — a different revert reached for a different reason.
+        // PIN THE MANAGER AS PRODUCTION DOES (`DeployL1_s`: `ETH.setLevManager(address(bm))`), so the
+        // `_syncRange` legs on either side of the close run against a wired range rather than no-oping.
         BTC.setLevManager(address(lmW));
         address lp = makeAddr("wbtcCloseLp");
         uint coll = 1e8;                                     // 1 WBTC (8-dec)
@@ -810,7 +681,7 @@ contract VBtcLevFeeLane is AllesFixture {
         deal(address(WBTC), lp, coll);
         vm.startPrank(lp);
         IERC20V(address(WBTC)).approve(address(lmW), coll);
-        lmW.openBtcLev(coll, wvenue);                        // WBTC branch: transferFrom lp → venue
+        lmW.openBtcLev(coll, wvenue);                        // transferFrom lp → venue
         vm.stopPrank();
         // PREMISE — the LP really parted with the WBTC, or "it came back" is a reading of nothing.
         assertEq(IERC20V(address(WBTC)).balanceOf(lp), 0, "PREMISE: the open must take the LP's WBTC");
@@ -821,20 +692,18 @@ contract VBtcLevFeeLane is AllesFixture {
         lmW.closeBtcLev();
 
         assertApproxEqAbs(IERC20V(address(WBTC)).balanceOf(lp), coll, 1e4,
-            "the LP must get its OWN WBTC back: this is the assertion that reverted before the fix");
+            "the LP must get its OWN WBTC back");
         assertEq(wvenue.collateralOf(lp), 0, "position fully withdrawn from the venue");
     }
 
-    /// @notice The OTHER half of the same defect, and it must stay a REVERT rather than become a silent
-    ///   truncation. `swapOutDelever` frees a CHANNEL-PROVEN delivered slice; a WBTC-mode position never
-    ///   exposed channel BTC, and its levered backing cannot be delivered as BTC without a conversion that
-    ///   is not built (§WBTC-MODE-CANNOT-CLOSE §2). Before the fix this fell through to `VBTC.burnFrom` and
-    ///   reverted with `InsufficientBalance()`, which reads as a vBTC accounting bug rather than an unbuilt leg.
+    /// @notice §WBTC-MODE-CANNOT-CLOSE §2 — the delivery-side refusal, and it must stay a REVERT rather
+    ///   than become a silent truncation. `swapOutDelever`'s `freeSats` leg frees BTC the range can DELIVER;
+    ///   a position collateralised in WBTC cannot deliver its backing as BTC without a conversion that is
+    ///   not built, so the manager says so loudly. The repay leg (`stableUsd`) is unaffected and still runs.
     function testReal_WbtcLev_SwapOutDeleverRefusesTheSliceLoudly() public {
         _setupBtcLevWbtc();
-        // PIN THE MANAGER AS PRODUCTION DOES (`DeployL1_s`: `ETH.setLevManager(address(bm))`). Without it
-        // `unexposeBtcFromLev` stops at its own `NotLevManagerBtc` gate, and the failure below would be the
-        // FIXTURE's wiring rather than the defect — a different revert reached for a different reason.
+        // PIN THE MANAGER AS PRODUCTION DOES (`DeployL1_s`: `ETH.setLevManager(address(bm))`), so the
+        // refusal below is the manager's, not the fixture's wiring answering a different question.
         BTC.setLevManager(address(lmW));
         address lp = makeAddr("wbtcSliceLp");
         uint coll = 1e8;
@@ -855,869 +724,144 @@ contract VBtcLevFeeLane is AllesFixture {
         lmW.swapOutDelever(lp, 0, 5e7);
     }
 
-    /// The permissionless entrypoint must REJECT a native-vBTC (non-WBTC) venue — `rebalanceWbtc` would supply
-    /// WBTC into a vBTC venue (collateral mismatch corrupting the position). The WBTC-venue gate (BadTarget)
-    /// is the guard; here we point the WBTC manager's call at the vBTC position and expect the revert.
-    function testReal_WbtcRebalance_RejectsNativeVbtcVenue() public {
-        BTCChannels ch = _deployChannels();
-        _setupBtcLev();                               // native vBTC venue on `lm`
-        (,, address lp,) = _open(ch, 88, 3e8);        // 3 BTC channel = free range to expose
-        _openLev(lp, 2e8);                            // native vBTC position
-        vm.expectRevert(LevBase.BadTarget.selector);
-        lm.rebalanceWbtc(lp, 0, DEX_WBTC_USDC, 0, "");                       // vBTC venue ⇒ BadTarget (WBTC-mode only)
-    }
-
     /// @notice REGRESSION for the 1e10 BTC scale bug (Vyper audit C-1/C-2/C-3): with REAL debt, the BTC
     ///   valuations must scale like the rest of the codebase (px = USD18/1e18-raw, WBTC-lifted ×1e10 ⇒ /1e18).
     ///   The former /1e8 (collateral, E0) & /1e10 (debt) made net-equity treat the debt as ≈0 (phantom
-    ///   rangeBTC backing) and getCurrentLtvBps read ≈0 (venue-safety blind). Every prior BTC test used a
-    ///   ZERO-debt position, which early-returns before the debt/price path — masking all three. Here: 2 BTC
-    ///   collateral, ~50% LTV of real debt ⇒ net-equity MUST be ~1 BTC and LTV MUST be ~50%.
+    ///   rangeBTC backing) and getCurrentLtvBps read ≈0 (venue-safety blind). A ZERO-debt position
+    ///   early-returns before the debt/price path and masks all three, so this one carries real debt:
+    ///   2 BTC collateral, ~50% LTV ⇒ net-equity MUST be ~1 BTC and LTV MUST be ~50%.
     function test_BtcLev_WithDebt_ScaleCorrect() public {
-        BTCChannels ch = _deployChannels();
-        _setupBtcLev();
-        (,, address lp,) = _open(ch, 42, 3e8);                    // 3 BTC channel = free range to expose from
-        _openLev(lp, 2e8);                                         // expose 2 BTC as vBTC collateral, zero debt
+        _setupBtcLevWbtc();
+        address lp = makeAddr("scaleLp");
+        _openWbtcLev(lp, 2e8);                                     // 2 WBTC collateral, zero debt
         uint px = AUX.getTWAPforAsset(address(WBTC), 1800);        // USD18 per 1e18-raw (WBTC-lifted)
-        uint collUsd = 2e8 * px / 1e18;                           // USD18 value of 2 BTC
-        uint debtUsdc = (collUsd / 2) / 1e12;                     // ~50% LTV, USDC 6-dec
-        _borrowMorpho(lp, debtUsdc);                              // REAL Morpho debt on the LP's isolated account
+        uint collUsd = 2e8 * px / 1e18;                            // USD18 value of 2 BTC
+        _borrowWbtcVenue(lp, (collUsd / 2) / 1e12);                // ~50% LTV, USDC 6-dec
         // C-2: the venue LTV is the true ~50%, NOT ~0 (before the fix collValueUsd was 1e10 too big).
-        assertApproxEqAbs(lm.getCurrentLtvBps(lp), 5000, 400, "getCurrentLtvBps ~50%, not ~0 (C-2)");
+        assertApproxEqAbs(lmW.getCurrentLtvBps(lp), 5000, 400, "getCurrentLtvBps ~50%, not ~0 (C-2)");
         // C-1: net-equity = collateral − debt = ~1 BTC, NOT ~2 BTC (before the fix the debt leg was ~0).
-        assertApproxEqAbs(lm.netEquity(lp), 1e8, 6e6, "netEquityBtc ~1 BTC = coll-debt, not ~2 (C-1)");
-    }
-
-    /// @notice (#43) PERMISSIONLESS `repayFor` reduces the LP's ISOLATED Morpho debt -- the on-chain primitive
-    ///   the QUID-protect keeper calls after redeeming the LP's mature QUID (redeem→stable→repayFor). No MANAGER
-    ///   auth (a random caller repays here), caller-funded, clamped to debt.
-    function test_RepayFor_PermissionlessReducesLpDebt() public {
-        BTCChannels ch = _deployChannels();
-        _setupBtcLev();
-        (,, address lp,) = _open(ch, 42, 3e8);
-        _openLev(lp, 2e8);
-        uint px = AUX.getTWAPforAsset(address(WBTC), 1800);
-        uint debtUsdc = ((2e8 * px / 1e18) / 2) / 1e12;             // ~50% LTV of real Morpho debt (USDC 6-dec)
-        _borrowMorpho(lp, debtUsdc);
-        uint debt0 = venue.debtOf(lp);
-        assertGt(debt0, 0, "LP has real Morpho debt");
-        // A random address (NOT the MANAGER) repays HALF on the LP's behalf -- proves it's permissionless + safe.
-        address helper = address(0xCAFE);
-        uint pay = debtUsdc / 2;
-        deal(address(USDC), helper, pay);
-        vm.startPrank(helper);
-        USDC.approve(address(venue), pay);
-        uint repaid = venue.repayFor(lp, pay);
-        vm.stopPrank();
-        assertApproxEqAbs(repaid, pay, 2, "repayFor repaid the requested amount");
-        assertApproxEqAbs(venue.debtOf(lp), debt0 - pay, debt0 / 50, "repayFor reduced the LP's isolated debt");
+        assertApproxEqAbs(lmW.netEquity(lp), 1e8, 6e6, "netEquityBtc ~1 BTC = coll-debt, not ~2 (C-1)");
     }
 
     /// @notice #43 BTC counterpart of LevCascade.test_ProtectFromQuid_HostileOperatorNetsZero — the previously-STUBBED
     ///   path (BtcLevManager had no protect entrypoint; the keeper bailed). A BTC-levered LP's OWN opted-in QUID is
-    ///   redeemed to repay its OWN real-Morpho debt near liquidation, via the SAME asset-agnostic `LevMath.protectExec`
+    ///   redeemed to repay its OWN real Aave debt near liquidation, via the SAME asset-agnostic `LevMath.protectExec`
     ///   the ETH side uses — proving the BtcLevManager wrapper wires it correctly and a hostile caller nets ZERO.
     function testReal_BtcProtectFromQuid_HostileOperatorNetsZero() public {
-        BTCChannels ch = _deployChannels();
-        _setupBtcLev();
-        (,, address lp,) = _open(ch, 51, 3e8);                       // 3 BTC channel = free range to expose
-        _openLev(lp, 2e8);                                           // BTC-lev on 2 BTC (zero leverage)
+        _setupBtcLevWbtc();
+        address lp = makeAddr("protectLp");
+        _openWbtcLev(lp, 2e8);                                       // 2 WBTC, zero debt
         uint px0 = AUX.getTWAPforAsset(address(WBTC), 1800);
-        _borrowMorpho(lp, ((2e8 * px0 / 1e18) / 2) / 1e12);          // ~50% LTV real Morpho USDC debt
-        assertGt(venue.debtOf(lp), 0, "LP has real BTC-lev Morpho debt");
+        _borrowWbtcVenue(lp, ((2e8 * px0 / 1e18) / 2) / 1e12);       // ~50% LTV real Aave USDC debt
+        assertGt(wvenue.debtOf(lp), 0, "LP has real BTC-lev debt");
 
         // The LP mints + OPTS IN its OWN QUID (the one-time delegated `approve`), mirroring the ETH proof.
         deal(address(USDC), lp, 300_000 * USDC_PRECISION);
         vm.startPrank(lp);
         USDC.approve(address(AUX), type(uint).max);
         QUID.mint(lp, 200_000 * USDC_PRECISION, address(USDC), 0);
-        QUID.approve(address(lm), type(uint).max);
+        QUID.approve(address(lmW), type(uint).max);
         vm.stopPrank();
 
         // Mature the QUID vintage (redeem is mature-only); keep every oracle read fresh across the warp.
         uint ethPx = AUX.getTWAPforAsset(address(WETH), 1800);
         vm.warp(block.timestamp + 35 days); vm.roll(block.number + 1);
         _setEthFeed(ethPx / 1e10);
-        vm.mockCall(address(AUX), abi.encodeWithSelector(IAuxTwapV.getTWAPforAsset.selector, address(WBTC), uint32(1800)),
-            abi.encode(px0));
+        _mockPx(px0);
         vm.mockCall(address(AUX), abi.encodeWithSignature("getDepegSeverityBps(address)", address(USDC)), abi.encode(uint(0)));
         vm.mockCall(address(AUX), abi.encodeWithSignature("getDepegSeverityBps(address)", address(DAI)), abi.encode(uint(0)));
         // Near-liq TRIGGER: tighten ONLY the venue liq threshold to just above the live LTV (as the ETH proof does;
         // the entire redeem→repay→refund money path stays 100% REAL — only the risk param deciding *when* is staged).
-        vm.mockCall(address(venue), abi.encodeWithSelector(venue.liqThresholdBps.selector),
-            abi.encode(lm.getCurrentLtvBps(lp) + 1000));
+        vm.mockCall(address(wvenue), abi.encodeWithSelector(wvenue.liqThresholdBps.selector),
+            abi.encode(lmW.getCurrentLtvBps(lp) + 1000));
 
         // ADVERSARIAL + HAPPY: an arbitrary hostile caller protects the opted-in LP. Value moves ONLY toward the LP.
         address hostile = address(0xBADBEEF);
         uint hQuid0 = QUID.balanceOf(hostile); uint hUsdc0 = USDC.balanceOf(hostile);
-        uint lpDebt0 = venue.debtOf(lp); uint lpQuid0 = QUID.balanceOf(lp);
+        uint lpDebt0 = wvenue.debtOf(lp); uint lpQuid0 = QUID.balanceOf(lp);
         vm.prank(hostile);
-        uint repaid = lm.protectFromQuid(lp, 0);
+        uint repaid = lmW.protectFromQuid(lp, 0);
         assertGt(repaid, 0, "protect repaid the LP's BTC-lev debt via its own QUID");
-        assertLt(venue.debtOf(lp), lpDebt0, "the LP's OWN debt fell");
+        assertLt(wvenue.debtOf(lp), lpDebt0, "the LP's OWN debt fell");
         assertLt(QUID.balanceOf(lp), lpQuid0, "the LP's own QUID funded its own protection");
         assertEq(QUID.balanceOf(hostile), hQuid0, "hostile caller gained NO QUID");
         assertEq(USDC.balanceOf(hostile), hUsdc0, "hostile caller gained NO stable");
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // (a) fee accrual  (b) unwind-only  (c) seizure burns clean — one LP through all
-    // three, mirroring LevCascade.test_LevFeeLane_EarnsFees_UnwindOnly_SeizureBurnsClean.
-    // ═══════════════════════════════════════════════════════════════════════════
-    function test_LevFeeLaneBTC_EarnsFees_UnwindOnly_SeizureBurnsClean() public {
-        BTCChannels ch = _deployChannels();
-        _setupBtcLev();
-
-        // The fee-lane LP holds a channel (its range depth AND the splice-out surface for (b)).
-        (bytes32 cid, bytes32 ftx, address lpEth, bytes memory lpPk) = _open(ch, 1, 2e7); // 0.2 BTC
-        { (uint pooledChannel,,,) = BTC.autoManaged(lpEth);
-          assertGt(pooledChannel, 0, "channel registered the LP into the BTC range"); }
-
-        // Seed a zero-leverage lev position by EXPOSING part of the LP's own channel range BTC (funded→lev).
-        _openLev(lpEth, 2_000_000); // expose 0.02 BTC of the 0.2 BTC channel as vBTC collateral
-        assertEq(lm.netEquity(lpEth), 2_000_000, "net-equity == collateral (zero leverage)");
-        assertGt(BTC.levPooled(lpEth), 0, "open reclassified channel BTC funded-to-lev (levered slice)");
-
-        { uint puPreSlice = CORE.POOLED_USD();
-          uint pbPreSlice = CORE.POOLED();
-          BTC.syncLev(lpEth);                               // mark the levered slice to net-equity
-          // SAME-BTC: the slice is the LP's OWN channel BTC (already ranged), so a zero-leverage sync neither
-          // grows POOLED nor re-pairs new USD — it stays FLAT (no double-count). It only SHRINKS later,
-          // when a leverage loss/seizure reduces net-equity below the exposed base (asserted in (c)).
-          assertGt(BTC.levPooled(lpEth), 0, "the levered slice is tracked in the range");
-          assertEq(CORE.POOLED(), pbPreSlice, "POOLED FLAT: base already ranged, no separate lev depth");
-          assertApproxEqAbs(CORE.POOLED_USD(), puPreSlice, 1, "POOLED_USD FLAT: reclassify, not new pairing"); }
-
-        // (a) drive BTC-pool swaps -> range fees; the levered LP is part of the fee-earning depth.
-        {   _setRecipient(address(ch), abi.encode(uint(0xB7C)), User03); // native USD->BTC path recipient
-            vm.startPrank(User03);
-            USDC.approve(address(AUX), type(uint).max);
-            vm.stopPrank();
-            uint qd0      = QUID.balanceOf(lpEth);
-            // (E145) the BTC leg compounds into `pooled`; there is no owed ledger to read.
-            // Same driver as the proven testBtcLp_collectFees_NoClose: real (non-caught)
-            // USDC->WBTC pool swaps generate BTC-range trading fees. Sizes kept modest so the
-            // incoming USD stays under BtcShareCap (the lev slice already consumes headroom).
-            for (uint i; i < 6; i++) {
-                vm.prank(User03);
-                AUX.swap(address(USDC), address(WBTC), true, 300 * USDC_PRECISION, 0, true);
-                vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
-            }
-            vm.prank(lpEth);
-            BTC.collectFees();                              // USD-leg -> QUID; BTC-leg -> btcFeesOwedSats
-            uint usdLeg = QUID.balanceOf(lpEth) - qd0;
-            uint btcLeg = 0;   // (E145) retired: the leg compounds into pooled as it is earned
-            // (E145-n) ⚠️ THIS USED TO BE `assertGt(usdLeg + btcLeg, 0)` — A SUM THE USD LEG
-            //    ALONE SATISFIES, so it passed identically whether the BTC leg was live or
-            //    permanently zero. MEASURED 2026-08-09: `usdLeg` ≈ 7.6e17, **`btcLeg == 0` and
-            //    `feesPerShare == 0`** — the BTC leg does NOT accrue here, and the sum hid it.
-            //    Asserting the legs SEPARATELY so the test states what is actually true and a
-            //    future change that makes the BTC leg live shows up as a failure, not silence.
-            assertGt(usdLeg, 0, "(a) levered LP accrues the USD-leg range fee on its equity");
-            // ⚠️ REASONING CORRECTED (E145-p). This said the BTC leg "does NOT accrue" because
-            //    BTC inflows are channels-only. **That was wrong.** `creditSwapIn` sells BTC
-            //    into the pool as the PROTOCOL (`onlyBTCChannels`, BTC→USD), bypassing the
-            //    user-path guard — and `testBtcLp_swapInAccruesTheBtcLegFee` MEASURES it:
-            //    `feesPerShare` 0 → 1.045e13, `btcFeesOwedSats` 0 → 209 sats.
-            //    The leg is zero HERE only because THIS lane drives no swap-in. That is a
-            //    property of the scenario, not of the protocol — do not read it as either.
-            assertEq(btcLeg, 0, "(a) no swap-in in this lane, so no BTC-leg fee is earned here");
-        }
-
-        // (b) UNWIND-ONLY: a normal channel splice-out (LP withdrawal, exactUsd==0) can only shrink
-        //     the true channel funding; the `funded = inrange - lev` cap leaves the levered slice.
-        {   uint levBeforeWithdraw = BTC.levPooled(lpEth);
-            (uint pooledBeforeWithdraw,,,) = BTC.autoManaged(lpEth);
-            _spliceOut(ch, cid, ftx, 1, lpPk, 15e6);           // shrink channel 0.2 -> 0.15 BTC (withdraw 0.05)
-            assertEq(BTC.levPooled(lpEth), levBeforeWithdraw, "(b) LP withdraw (splice-out) leaves the levered slice untouched");
-            (uint pooledAfterWithdraw,,,) = BTC.autoManaged(lpEth);
-            assertLt(pooledAfterWithdraw, pooledBeforeWithdraw, "(b) the withdrawal DID shrink the channel funding (not a no-op)");
-            assertGe(pooledAfterWithdraw, BTC.levPooled(lpEth), "(b) LP.pooled never shrank into the lev depth");
-        }
-
-        // (c) SEIZE -> net-equity 0 -> syncLev burns the slice clean. Isolate the burn around the
-        //     seizure syncLev: comparing to the pre-slice baseline would conflate it with the (a)
-        //     swaps' legitimate, backed USD inflow into POOLED_USD. So assert the burn STRICTLY
-        //     un-pairs POOLED_USD, and that the basket stays solvent (D >= S + L — the real
-        //     "not over-committed" invariant).
-        // Give the position REAL Morpho debt, reflect it in the slice, then a REAL Morpho liquidation → net-equity
-        // drops further → syncLev SHRINKS the levered slice toward the liquidated net-equity (un-pairing its USD
-        // from POOLED_USD). (Partial Morpho liquidation de-risks toward health, so the slice shrinks vs the
-        // mock's clean full-clear.)
-        uint collUsdC = 2_000_000 * AUX.getTWAPforAsset(address(WBTC), 1800) / 1e18;
-        _borrowMorpho(lpEth, (collUsdC / 2) / 1e12);          // ~50% LTV of real Morpho debt
-        BTC.syncLev(lpEth);                                // reflect the debt: slice tracks the levered net-equity
-        uint levBeforeSeize = BTC.levPooled(lpEth);
-        assertGt(levBeforeSeize, 0, "(c) precondition: a levered slice exists to shrink");
-        _seizeRealBtc(lpEth, 1, 2);                           // REAL Morpho liquidation (repay half the debt)
-        uint puBeforeBurn = CORE.POOLED_USD();
-        BTC.syncLev(lpEth);
-        assertLt(BTC.levPooled(lpEth), levBeforeSeize, "(c) seizure: levered slice SHRANK toward the liquidated net-equity");
-        assertLt(CORE.POOLED_USD(), puBeforeBurn, "(c) the burn un-paired lev-slice USD from POOLED_USD");
-        _assertSolvent("(c) solvent after seizure burn (not over-committed)");
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // Net-equity → rangeBTC backing recognized; a venue seizure removes it cleanly
-    // while POOLED_USD stays intact. Mirrors LevCascade.test_NetEquity_...
-    // ═══════════════════════════════════════════════════════════════════════════
-    function test_NetEquityBTC_BackingRecognized_SeizureLeavesPooledUsdIntact() public {
-        BTCChannels ch = _deployChannels();
-        _setupBtcLev();
-
-        // A channel gives the BTC range real depth + a non-zero POOLED_USD to prove "intact".
-        (,, address lpEth,) = _open(ch, 2, 3e7); // 0.3 BTC
-        uint pooledUsd0 = CORE.POOLED_USD();
-        assertEq(BTC.totalNetEquity(), 0, "no lev book yet => zero net-equity backing");
-
-        // Open at zero leverage => net-equity == collateral (8-dec sats). Opening does NOT touch the
-        // range (no syncLev), so POOLED_USD is untouched — but the backing term is recognized.
-        _openLev(lpEth, 5_000_000); // expose 0.05 BTC of the 0.3 BTC channel
-        assertEq(lm.netEquity(lpEth), 5_000_000, "net-equity == principal (zero leverage)");
-        assertEq(lm.totalNetEquity(), 5_000_000, "book total == principal");
-        assertEq(BTC.totalNetEquity(), 5_000_000, "BTC lev book total == principal at zero leverage");
-        assertEq(CORE.POOLED_USD(), pooledUsd0, "open: basket POOLED_USD untouched (no range pairing)");
-        _assertSolvent("open: solvent with lev backing");
-
-        // Give the position REAL Morpho debt (the lever step, sourced on Morpho), then a REAL Morpho liquidation
-        // removes net-equity backing while the basket's POOLED_USD stays intact — the loss is ISOLATED to the
-        // LP's Morpho account, never socialized. (A partial Morpho liquidation de-risks toward health, so
-        // net-equity SHRINKS rather than vanishing — the mock's clean full-clear was an idealization.)
-        uint collUsd = 5_000_000 * AUX.getTWAPforAsset(address(WBTC), 1800) / 1e18;
-        _borrowMorpho(lpEth, (collUsd / 2) / 1e12);            // ~50% LTV of real Morpho debt
-        uint neqBefore = lm.netEquity(lpEth);
-        assertLt(neqBefore, 5_000_000, "debt reduces net-equity below the collateral");
-        assertEq(BTC.totalNetEquity(), neqBefore, "BTC lev book total tracks live net-equity once levered");
-        _seizeRealBtc(lpEth, 1, 2);                            // REAL Morpho liquidation (repay half the debt)
-        assertLt(lm.netEquity(lpEth), neqBefore, "seized: net-equity backing REDUCED by the real liquidation");
-        assertEq(BTC.totalNetEquity(), lm.netEquity(lpEth), "seized: rangeBTC tracks the reduced live net-equity");
-        assertEq(CORE.POOLED_USD(), pooledUsd0, "seized: basket POOLED_USD FULLY INTACT (no socialization)");
-        _assertSolvent("seized: solvent, no socialization");
-    }
-
-    /// @notice #67 (LEVERED-DELIVERABILITY-SPEC) — the `deliverableDollars` VIEW, the sizing primitive the
-    ///   redemption-scoped de-lever (step 4) builds on. The levered net-equity is NOT surplus-paired (surplus is
-    ///   reserved for the borrow cost + QU!D redemption); it is REDEMPTION backing, de-leverable only by a
-    ///   redemption. This locks the capacity view on live real-Morpho vBTC/USDC state: REAL, conservatively
-    ///   bounded (min of net-equity and the LLTV-margin edge), within the book aggregate, grows with net-equity,
-    ///   and syncing the position never breaks D>=S+L (checkBacking).
-    function test_LevDeliverabilityBTC_DeliverableDollarsView() public {
-        BTCChannels ch = _deployChannels();
-        _setupBtcLev();
-        (,, address lpEth,) = _open(ch, 2, 3e7);          // 0.3 BTC channel
-        _openLev(lpEth, 5_000_000);                        // expose 0.05 BTC as vBTC collateral
-        uint collUsd0 = lm.collValueUsd(venue.collateralOf(lpEth));
-        _borrowMorpho(lpEth, (collUsd0 / 2) / 1e12);       // ~50% LTV of REAL Morpho debt ⇒ net-equity < collateral
-
-        // The de-lever-capacity view is real + conservatively bounded (min of net-equity and the margin edge).
-        uint deliv = lm.deliverableDollars(lpEth);
-        assertGt(deliv, 0, "levered position exposes real margin-bounded de-lever capacity");
-        assertLe(deliv, lm.collValueUsd(venue.collateralOf(lpEth)), "deliverable <= collateral (conservative)");
-        assertLe(deliv, lm.totalDeliverableDollars(), "per-LP deliverable is within the book aggregate");
-
-        BTC.syncLev(lpEth);
-        _assertSolvent("solvent with lev backing (net-equity is redemption backing, not surplus-paired)");
-
-        // BTC price UP 20% ⇒ net-equity GROWS ⇒ de-lever capacity grows; sync stays solvent (never fabricates backing).
-        uint px = AUX.getTWAPforAsset(address(WBTC), 1800);
-        vm.mockCall(address(AUX), abi.encodeWithSelector(IAuxTwapV.getTWAPforAsset.selector, address(WBTC), uint32(1800)),
-            abi.encode(px * 120 / 100));
-        assertGt(lm.deliverableDollars(lpEth), deliv, "de-lever capacity grows with net-equity (price up)");
-        BTC.syncLev(lpEth);
-        _assertSolvent("price-up: solvent");
-        vm.clearMockedCalls();
-    }
-
-    // ───────────────────────── #54 delivery-side de-lever (partial-burn vBTC deliverability) ─────────────────────────
-
-    /// Build + submit the swapper-directed splice-out that settles an on-chain swap-out from `lp`'s channel: a
-    /// 2-output tx (new SMALLER 2-of-2 + the swapper's payout), fee-free so shrink == delivered == `sats`.
-    function _deliverLevSwapOut(BTCChannels ch, bytes32 channelId, bytes32 fundingTxId, uint seed,
-        bytes memory lpPubkey, bytes32 swapId, uint sats, bytes memory swapperScript) internal {
-        // (E162) A delivery is a splice — same pinned pair as the channel.
-        ( , bytes memory hopKey_, ) = ownedChannelKeys(_label(seed));
-        (uint old, , , , , , )= ch.channels(channelId);
-        uint newAmount = old - sats;
-        bytes memory spliceTx;
-        {
-            bytes memory p2wsh = buildTaprootFundingSpk(lpPubkey, hopKey_);
-            spliceTx = abi.encodePacked(
-                hex"02000000", hex"01",
-                fundingTxId, hex"00000000", hex"00", hex"ffffffff",
-                hex"02",
-                _le(newAmount, 8), bytes1(uint8(p2wsh.length)), p2wsh,
-                _le(sats, 8), bytes1(uint8(swapperScript.length)), swapperScript,
-                hex"00000000");
-        }
-        Types.OpenParams memory p = Types.OpenParams({
-            fundingBlockHash:   bytes32(uint(0x5417CE + seed)),
-            fundingBlockHeight: 800001,
-            fundingTxIndex:     0,
-            lpPubkey:           lpPubkey,
-            hopPubkey:          hopKey_,
-            amountSats:         newAmount,
-            fundingTaproot:     _taprootQ(lpPubkey, hopKey_), lpIdentityPubkey: lpPubkey });
-        // (§E233-ladder) A delivery rotates the funding outpoint, so it carries its own ladder.
-        // ⚠️ IN ITS OWN FRAME — inlining the `armingSet(...)` call here overflowed the legacy stack
-        // at `payoutKeyOnly(abi.encode(seed))`, and the house fix in this repo is a frame, never
-        // `via_ir`. Called before the prank: it shells out over FFI and would consume it.
-        Types.ExitArming[] memory dex = _deliveryLadder(seed, spliceTx, newAmount);
-        vm.prank(makeAddr("hop"));
-        ch.deliverSwapOutOnchain(
-            swapId, channelId, p, spliceTx, new bytes32[](0), swapperScript, dex);
-    }
-
-    /// (§E233-ladder) The delivery's fresh ladder, in its OWN frame (legacy stack, no `via_ir`).
-    /// TWO outputs on a delivery splice — the continuing funding, then the swapper's — so the new
-    /// funding is vout 0.
-    function _deliveryLadder(uint seed, bytes memory spliceTx, uint newAmount)
-        private returns (Types.ExitArming[] memory)
-    {
-        return armingSet(
-            _label(seed), sha256(abi.encodePacked(sha256(spliceTx))), 0, newAmount,
-            abi.encodePacked(hex"5120", payoutKeyOnly(abi.encode(seed))),
-            EXIT_DEADLINE + 3, 1_000);
-    }
-
-    struct LevDelivery {
-        BTCChannels ch; bytes32 channelId; bytes32 fundingTxId; address lp; bytes lpPubkey;
-        uint funded; uint debt; uint coll; uint netEq; uint ltv; uint lev; uint qd;   // pre-delivery snapshot
-        uint sats; uint owedUsd; uint pending;                                        // swap-out request
-    }
-
-    function _levDelivSwapId() internal pure returns (bytes32) { return keccak256("delever54-swapout"); }
-    /// (E185) The delivery script must be the swapper's REGISTERED destination — the request
-    /// no longer takes one, it derives it from `btcRecipientOf`, so an invented key would fail
-    /// the delivery-side hash match.
-    function _levDelivScript(address ch_) internal returns (bytes memory) {
-        return _swapperScript(ch_, makeAddr("swapper54"));
-    }
-
-    /// Pre-delivery snapshot: funded range, venue debt/collateral, net-equity, LTV, levered slice, LP QUID.
-    function _snapLevPosition(LevDelivery memory d) internal {
-        (uint pooled,,,) = BTC.autoManaged(d.lp);
-        d.funded = pooled - BTC.levPooled(d.lp);
-        d.debt   = venue.debtOf(d.lp);
-        d.coll   = venue.collateralOf(d.lp);
-        d.netEq  = lm.netEquity(d.lp);
-        d.ltv    = lm.getCurrentLtvBps(d.lp);
-        d.lev    = BTC.levPooled(d.lp);
-        d.qd     = QUID.balanceOf(d.lp);
-    }
-
-    /// Swap-out buys ~0.05 BTC (much more than the ~1e6-sat free range), so the delivery must tap the levered slice.
-    function _requestLevSwapOut(LevDelivery memory d) internal {
-        address swapper = makeAddr("swapper54");
-        // (E185) Register the destination first — `requestSwapOutOnchain` derives it from
-        // `btcRecipientOf` rather than accepting an unproven script, so an unregistered
-        // swapper is refused before any USD is pulled.
-        _setRecipient(address(d.ch), abi.encode(uint(0x54D)), swapper);
-        deal(address(USDC), swapper, 50_000 * USDC_PRECISION);
-        vm.startPrank(swapper);
-        USDC.approve(address(AUX), type(uint).max);
-        d.sats = d.ch.requestSwapOutOnchain(address(USDC), 5_000 * USDC_PRECISION, 0, _levDelivSwapId());
-        vm.stopPrank();
-        (,,,, uint96 owedU,) = d.ch.pendingOnchainSwapOut(_levDelivSwapId());
-        d.owedUsd = uint(owedU);
-        d.pending = BTC.CORE().pendingSwapOutUsd();
-    }
-
-    /// @notice #54 (the active build): a native swap-out delivery whose sats draw PAST the LP's FREE channel range
-    ///   into its LEVERED slice de-levers that LP with the delivery's OWN proceeds - value-neutral, LTV-improving,
-    ///   single-pay. Setup: a 3-BTC channel with almost all of it exposed as vBTC collateral (funded ~= 1e6 sats)
-    ///   and real ~50% Morpho debt. A swap-out buys ~0.05 BTC (>> funded), so the settle must tap the levered slice.
-    ///   Asserts the whole money-path: debt + collateral both fall by ~want*px (equal value), net-equity preserved,
-    ///   LTV improves, levPooled un-encumbered by ~want, QUI minted ONLY for the funded proceeds share (the
-    ///   de-levered slice was paid via debt-reduction, not a second QUI mint), the obligation fully clears, and the
-    ///   basket stays solvent. Real vBTC/USDC Morpho market - no mocks.
-    /// @notice ⭐ §UNCLAMPED-AMTNATIVE — DOES `drawPooledUsdBtc` TAKE MORE OUT OF POOLED_USD THAN
-    ///         THE DELIVERY ACTUALLY RETIRED? Measured, not argued.
-    /// 🔴 THE HYPOTHESIS. `LevBase.swapOutDeleverAmt` does NOT clamp to live debt — its body has
-    ///    ZERO references to debt, despite the call site having claimed *"amtNative clamped to LIVE
-    ///    debt"* (corrected in 50fab6e4). `deLeverUsd6` is derived from that unclamped figure and
-    ///    `drawPooledUsdBtc(deLeverUsd6)` runs BEFORE a repay that IS bounded by debt downstream
-    ///    (`LevVenueBase.repayPool` clamps `r = min(stableAmount, totalDebt)`). So when the levered
-    ///    slice's PROCEEDS SHARE exceeds what it OWES, the draw should exceed the retirement.
-    /// ⇒ LOW LTV BY CONSTRUCTION. The sibling borrows `collValueUsd / 2` (~50%), where the effect
-    ///   cannot appear. A copy at the same LTV would measure nothing and report green.
-    /// ⚠️ AND IT MEASURES THE SELF-HEAL CLAIM SEPARATELY. `Vault.sol` says the debt-buffer's stale
-    ///    POOLED_USD is reconciled by the keeper's async `syncLev`, so an over-draw may be
-    ///    transient. Both are recorded: the gap immediately after delivery, and the gap after
-    ///    `syncLev`. A defect that self-heals and one that does not are different findings.
-    // ⛔ STORAGE, NOT LOCALS. Holding the before/after snapshots as locals overflows this test's
-    //    frame -- `Stack too deep`, the same legacy-stack limit the src side lives under. Storage
-    //    scratch costs no stack and the values are read-once per arm.
-    uint private _vsBefore; uint private _cBefore; uint private _lBefore;
-
-    /// @dev Both sides of the solvency invariant at one instant, for the refill-funding question:
-    ///      does `takeToSettle`'s SOFT backing check leave the pool worse off than it found it?
-    ///      `takeToSettle` passes `softBacking = true` -> `tryCheckBacking()`, which repacks but
-    ///      DOES NOT REVERT, on the stated ground that "its mid-drain instant is offset by an in-tx
-    ///      debt-repay". This measures whether that offset actually lands.
-    function _backingSnap(string memory tag) internal returns (uint committed, uint liquid) {
-        (uint[16] memory dd,,, uint dpg) = AUX.get_deposits();
-        liquid    = dd[15] > dpg ? dd[15] - dpg : 0;
-        committed = CORE.committedUsd18();
-        emit log_named_string("---- backing @", tag);
-        emit log_named_uint("     venue stable      ", IERC20V(venue.stable()).balanceOf(address(venue)));
-        emit log_named_uint("     committed (18d)  ", committed);
-        emit log_named_uint("     liquid    (18d)  ", liquid);
-        emit log_named_uint("     headroom  (18d)  ", liquid > committed ? liquid - committed : 0);
-        emit log_named_uint("     OVER      (18d)  ", committed > liquid ? committed - liquid : 0);
-    }
-
-    function testReal_MEASURE_DeliveryDrawVsDebtRetired_LowLtv() public {
-        LevDelivery memory d;
-        d.ch = _deployChannels();
-        _setupBtcLev();
-        (d.channelId, d.fundingTxId, d.lp, d.lpPubkey) = _open(d.ch, 54, 3e8);
-        _openLev(d.lp, 299_000_000);
-        // ⇒ ~10% LTV, not the sibling's ~50%: debt SMALL relative to the levered slice.
-        _borrowMorpho(d.lp, (lm.collValueUsd(venue.collateralOf(d.lp)) / 10) / 1e12);
-        // ⛔ SEED THE BASKET, OR THIS MEASUREMENT CANNOT RUN — AND THE REASON IS NOT A DEFECT.
-        //    `committed = basketUsd - levDebt` (`Core._rangeEquityUsd18`), so an UNLEVERED position
-        //    claims the basket IN FULL while a levered one claims less: the venue funds the levered
-        //    slice. At 10% LTV this 2.99 BTC position committed 157,000,005,155e12 against a
-        //    152,803,503,717e12 basket and `syncLev`'s mint tripped `require(committedUsd18() <=
-        //    haircutTvl, "backing")` -- BY 4,196,501,437,638,568,657,048, i.e. almost exactly the
-        //    retired debt. The gate was RIGHT; the fixture was sized past its own basket.
-        //    ⇒ Seed enough backing that low LTV fits, so the arm measures the DELIVERY rather than
-        //      re-measuring the solvency bound. Do not "fix" this by raising the LTV: low LTV is the
-        //      condition under test, and the sibling at ~50% already covers the other case.
-        {
-            address seeder = makeAddr("basketSeeder");
-            deal(address(USDC), seeder, 400_000 * USDC_PRECISION);
-            vm.startPrank(seeder);
-            USDC.approve(address(AUX), type(uint).max);
-            QUID.mint(seeder, 300_000 * USDC_PRECISION, address(USDC), 0);
-            vm.stopPrank();
-        }
-        BTC.syncLev(d.lp);
-        _snapLevPosition(d);
-        assertGt(d.debt, 0, "position must carry real Morpho debt or there is nothing to over-draw against");
-
-        _requestLevSwapOut(d);
-        assertGt(d.sats, d.funded, "swap-out must reach PAST the free range into the levered slice");
-
-        uint pooledBefore = CORE.POOLED_USD();
-        uint debtBefore   = venue.debtOf(d.lp);
-        emit log_named_uint("LTV bps (low by construction)", lm.getCurrentLtvBps(d.lp));
-        emit log_named_uint("POOLED_USD before   (usd6) ", pooledBefore);
-        emit log_named_uint("venue debt before   (usd6) ", debtBefore);
-
-        vm.prank(d.lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
-        (_cBefore, _lBefore) = _backingSnap("BEFORE delivery");
-        _vsBefore = IERC20V(venue.stable()).balanceOf(address(venue));
-        _deliverLevSwapOut(d.ch, d.channelId, d.fundingTxId, 54, d.lpPubkey, _levDelivSwapId(), d.sats,
-                           _levDelivScript(address(d.ch)));
-        _backingSnap("AFTER delivery (pre-syncLev)");
-        // 🔴 THE DISCRIMINATOR. Basket liquid fell ~$4,198.23 against ~$4,196.61 of debt retired.
-        //    d(venue stable) > 0  ⇒ STRANDED: stable arrived and exceeded the debt, `repayPool`'s
-        //                           min(amount, totalDebt) clamp left the remainder sitting there.
-        //    d(venue stable) == 0 ⇒ TRANSIT COST: the venue got only what it repaid; the gap is a
-        //                           take fee / depeg haircut and never reached the venue at all.
-        emit log_named_int("     d(venue stable)     ",
-            int(IERC20V(venue.stable()).balanceOf(address(venue))) - int(_vsBefore));
-        // 🔴 THE QUESTION: the refill DRAINS basket stable to repay the venue. If the in-tx repay
-        //    does not offset the drain, headroom shrinks and the dollars taken were dollars a
-        //    redeemer could have needed. Report the DELTA of each side, not just the levels.
-
-
-        uint pooledMid = CORE.POOLED_USD();
-        uint debtMid   = venue.debtOf(d.lp);
-        uint drawn     = pooledBefore > pooledMid ? pooledBefore - pooledMid : 0;
-        uint retired   = debtBefore  > debtMid    ? debtBefore  - debtMid    : 0;
-        emit log_named_uint("POOLED_USD after dlv(usd6) ", pooledMid);
-        emit log_named_uint("venue debt after dlv(usd6) ", debtMid);
-        emit log_named_uint("  DRAWN  (usd6)            ", drawn);
-        emit log_named_uint("  RETIRED(usd6, USDC native)", retired);
-
-        // Both sides of the gate that reverts (`Core.sol:1262`). The revert STRING alone cannot
-        // separate "committed grew" from "TVL is smaller"; these four numbers can.
-        {
-            (uint[16] memory dd,,, uint dpg) = AUX.get_deposits();
-            uint haircut = dd[15] > dpg ? dd[15] - dpg : 0;
-            emit log_named_uint("  TVL _d[15] (18d)          ", dd[15]);
-            emit log_named_uint("  depegLoss (18d)           ", dpg);
-            emit log_named_uint("  haircutTvl (18d)          ", haircut);
-            emit log_named_uint("  committedUsd18 (BOTH rng) ", CORE.committedUsd18());
-            emit log_named_uint("  headroom (haircut-commit) ", haircut > CORE.committedUsd18() ? haircut - CORE.committedUsd18() : 0);
-            emit log_named_uint("  OVER by (commit-haircut)  ", CORE.committedUsd18() > haircut ? CORE.committedUsd18() - haircut : 0);
-        }
-        // The async reconcile the Vault comment promises.
-        BTC.syncLev(d.lp);
-        emit log_named_uint("POOLED_USD post-sync(usd6) ", CORE.POOLED_USD());
-        emit log_named_uint("venue debt post-sync(usd6) ", venue.debtOf(d.lp));
-
-        // ⛔ NO INEQUALITY ASSERTED, DELIBERATELY. `drawn` and `retired` DO share a scale here --
-        //    the venue stable is USDC, so its native units ARE 6-dec, same as POOLED_USD -- but the
-        //    two are not the same QUANTITY: `drawn` is total POOLED_USD movement, which includes
-        //    `BtcLib.sol:85`'s ordinary `drawPooledUsdBtc(exactUsd)` for the non-levered proceeds.
-        //    Asserting a relation between them would attribute the whole movement to the delever
-        //    leg. The LTV control, not an assertion here, is what isolates it.
-        assertGt(pooledBefore, 0, "POOLED_USD was zero - nothing was measured");
-        assertGt(d.sats, 0, "no delivery - nothing was measured");
-    }
-
-    /// @notice ⭐ §PRO-RATA-FALLBACK — WHAT HAPPENS WHEN THE VENUE'S OWN STABLE VAULT IS PAUSED?
-    /// 🔴 THE EXPOSURE. `_sourceRepayFree` clamps the take to `_heldUsd18(aux, stable)` and the
-    ///    comment says that is to "stay on the cherry-pick leg" -- so a SHORT vault cannot push it
-    ///    onto pro-rata. A PAUSED vault can: `_takePreferred` wraps `aux.withdrawSelf` in
-    ///    try/catch, a revert yields `sent = 0`, and the whole `needed` falls through to the
-    ///    PRO-RATA leg, which delivers OTHER stables -- ones the venue CANNOT REPAY WITH.
-    /// ⇒ The 1:1 measured on the happy path (liquidity consumed == debt retired, gap $0.00000133)
-    ///   has no reason to hold here: the basket pays out stables that cannot retire this venue's
-    ///   debt. This measures whether it breaks, and by how much.
-    /// ⚠️ MEASUREMENT ONLY. Whether the right answer is "revert instead of pro-rata" or "pro-rata is
-    ///    fine because `got` measures the OUTCOME" is a design call; this establishes the numbers.
-    function testReal_MEASURE_ProRataFallback_VenueStableVaultPaused() public {
-        LevDelivery memory d;
-        d.ch = _deployChannels();
-        _setupBtcLev();
-        (d.channelId, d.fundingTxId, d.lp, d.lpPubkey) = _open(d.ch, 54, 3e8);
-        _openLev(d.lp, 299_000_000);
-        _borrowMorpho(d.lp, (lm.collValueUsd(venue.collateralOf(d.lp)) / 10) / 1e12);
-        {
-            address seeder = makeAddr("basketSeeder2");
-            deal(address(USDC), seeder, 400_000 * USDC_PRECISION);
-            vm.startPrank(seeder);
-            USDC.approve(address(AUX), type(uint).max);
-            QUID.mint(seeder, 300_000 * USDC_PRECISION, address(USDC), 0);
-            vm.stopPrank();
-        }
-        BTC.syncLev(d.lp);
-        _snapLevPosition(d);
-        _requestLevSwapOut(d);
-        vm.prank(d.lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
-
-        // ⛔ PAUSE THE VENUE STABLE'S VAULTS. `FeeLib.multiVaultWithdrawBody` reaches them via
-        //    `IERC4626(vs[0]).redeem(...)`, so reverting `redeem` AND `withdraw` is what a paused
-        //    venue looks like from Aux's side -- held > 0, but nothing can come out.
-        address vStable = venue.stable();
-        address[] memory vs = AUX.getVaults(vStable);
-        emit log_named_address("venue stable            ", vStable);
-        emit log_named_uint("its vault count         ", vs.length);
-        for (uint i; i < vs.length; ++i) {
-            vm.mockCallRevert(vs[i], abi.encodeWithSignature("redeem(uint256,address,address)"), "PAUSED");
-            vm.mockCallRevert(vs[i], abi.encodeWithSignature("withdraw(uint256,address,address)"), "PAUSED");
-            emit log_named_address("  paused vault          ", vs[i]);
-        }
-
-        _backingSnap("BEFORE delivery (vault PAUSED)");
-        _vsBefore = IERC20V(vStable).balanceOf(address(venue));
-        uint debtBefore = venue.debtOf(d.lp);
-        try this.extDeliver(d) {
-            emit log("delivery SUCCEEDED with the venue stable vault paused");
-        } catch (bytes memory e) {
-            emit log_named_bytes("delivery REVERTED       ", e);
-        }
-        _backingSnap("AFTER delivery (vault PAUSED)");
-        emit log_named_int("     d(venue stable)     ",
-            int(IERC20V(vStable).balanceOf(address(venue))) - int(_vsBefore));
-        // 🔴 WHERE DID THE $1,377.97 GO? If the pro-rata leg sent OTHER stables to the venue, they
-        //    are sitting there in a denomination `repayPool` cannot use -- stranded, not spent.
-        //    Walk every basket stable and report the venue's balance of each.
-        {
-            address[] memory sts = AUX.getStables();
-            for (uint i; i < sts.length; ++i) {
-                uint b = IERC20V(sts[i]).balanceOf(address(venue));
-                if (b > 0) { emit log_named_address("  VENUE HOLDS stable   ", sts[i]);
-                             emit log_named_uint("    amount (native)    ", b); }
-            }
-        }
-        emit log_named_uint("     debt before  (usd6) ", debtBefore);
-        emit log_named_uint("     debt after   (usd6) ", venue.debtOf(d.lp));
-        assertGt(debtBefore, 0, "no debt - nothing was measured");
-    }
-
-    /// External wrapper so the delivery can be try/caught: a paused vault may legitimately revert
-    /// the settle (DeleverStableUnavailable), and that is a RESULT, not a test failure.
-    function extDeliver(LevDelivery memory d) external {
-        require(msg.sender == address(this), "self");
-        _deliverLevSwapOut(d.ch, d.channelId, d.fundingTxId, 54, d.lpPubkey, _levDelivSwapId(), d.sats,
-                           _levDelivScript(address(d.ch)));
-    }
-
-    function testReal_MEASURE_DeliveryDrawVsDebtRetired_MidLtv_CONTROL() public {
-        LevDelivery memory d;
-        d.ch = _deployChannels();
-        _setupBtcLev();
-        (d.channelId, d.fundingTxId, d.lp, d.lpPubkey) = _open(d.ch, 54, 3e8);
-        _openLev(d.lp, 299_000_000);
-        // ⇒ THE CONTROL, at the SIBLING's ~50% LTV. Identical instrumentation, one variable changed.
-        _borrowMorpho(d.lp, (lm.collValueUsd(venue.collateralOf(d.lp)) / 2) / 1e12);
-        BTC.syncLev(d.lp);
-        _snapLevPosition(d);
-        assertGt(d.debt, 0, "position must carry real Morpho debt or there is nothing to over-draw against");
-
-        _requestLevSwapOut(d);
-        assertGt(d.sats, d.funded, "swap-out must reach PAST the free range into the levered slice");
-
-        uint pooledBefore = CORE.POOLED_USD();
-        uint debtBefore   = venue.debtOf(d.lp);
-        emit log_named_uint("LTV bps (CONTROL, mid)      ", lm.getCurrentLtvBps(d.lp));
-        emit log_named_uint("POOLED_USD before   (usd6) ", pooledBefore);
-        emit log_named_uint("venue debt before   (usd6) ", debtBefore);
-
-        vm.prank(d.lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
-        (_cBefore, _lBefore) = _backingSnap("BEFORE delivery");
-        _vsBefore = IERC20V(venue.stable()).balanceOf(address(venue));
-        _deliverLevSwapOut(d.ch, d.channelId, d.fundingTxId, 54, d.lpPubkey, _levDelivSwapId(), d.sats,
-                           _levDelivScript(address(d.ch)));
-        _backingSnap("AFTER delivery (pre-syncLev)");
-        // 🔴 THE DISCRIMINATOR. Basket liquid fell ~$4,198.23 against ~$4,196.61 of debt retired.
-        //    d(venue stable) > 0  ⇒ STRANDED: stable arrived and exceeded the debt, `repayPool`'s
-        //                           min(amount, totalDebt) clamp left the remainder sitting there.
-        //    d(venue stable) == 0 ⇒ TRANSIT COST: the venue got only what it repaid; the gap is a
-        //                           take fee / depeg haircut and never reached the venue at all.
-        emit log_named_int("     d(venue stable)     ",
-            int(IERC20V(venue.stable()).balanceOf(address(venue))) - int(_vsBefore));
-        // 🔴 THE QUESTION: the refill DRAINS basket stable to repay the venue. If the in-tx repay
-        //    does not offset the drain, headroom shrinks and the dollars taken were dollars a
-        //    redeemer could have needed. Report the DELTA of each side, not just the levels.
-
-
-        uint pooledMid = CORE.POOLED_USD();
-        uint debtMid   = venue.debtOf(d.lp);
-        uint drawn     = pooledBefore > pooledMid ? pooledBefore - pooledMid : 0;
-        uint retired   = debtBefore  > debtMid    ? debtBefore  - debtMid    : 0;
-        emit log_named_uint("POOLED_USD after dlv(usd6) ", pooledMid);
-        emit log_named_uint("venue debt after dlv(usd6) ", debtMid);
-        emit log_named_uint("  DRAWN  (usd6)            ", drawn);
-        emit log_named_uint("  RETIRED(usd6, USDC native)", retired);
-
-        // Both sides of the gate that reverts (`Core.sol:1262`). The revert STRING alone cannot
-        // separate "committed grew" from "TVL is smaller"; these four numbers can.
-        {
-            (uint[16] memory dd,,, uint dpg) = AUX.get_deposits();
-            uint haircut = dd[15] > dpg ? dd[15] - dpg : 0;
-            emit log_named_uint("  TVL _d[15] (18d)          ", dd[15]);
-            emit log_named_uint("  depegLoss (18d)           ", dpg);
-            emit log_named_uint("  haircutTvl (18d)          ", haircut);
-            emit log_named_uint("  committedUsd18 (BOTH rng) ", CORE.committedUsd18());
-            emit log_named_uint("  headroom (haircut-commit) ", haircut > CORE.committedUsd18() ? haircut - CORE.committedUsd18() : 0);
-            emit log_named_uint("  OVER by (commit-haircut)  ", CORE.committedUsd18() > haircut ? CORE.committedUsd18() - haircut : 0);
-        }
-        // The async reconcile the Vault comment promises.
-        BTC.syncLev(d.lp);
-        emit log_named_uint("POOLED_USD post-sync(usd6) ", CORE.POOLED_USD());
-        emit log_named_uint("venue debt post-sync(usd6) ", venue.debtOf(d.lp));
-
-        // ⛔ NO INEQUALITY ASSERTED, DELIBERATELY. `drawn` and `retired` DO share a scale here --
-        //    the venue stable is USDC, so its native units ARE 6-dec, same as POOLED_USD -- but the
-        //    two are not the same QUANTITY: `drawn` is total POOLED_USD movement, which includes
-        //    `BtcLib.sol:85`'s ordinary `drawPooledUsdBtc(exactUsd)` for the non-levered proceeds.
-        //    Asserting a relation between them would attribute the whole movement to the delever
-        //    leg. The LTV control, not an assertion here, is what isolates it.
-        assertGt(pooledBefore, 0, "POOLED_USD was zero - nothing was measured");
-        assertGt(d.sats, 0, "no delivery - nothing was measured");
-    }
-
-    function testReal_DeliverSideDelever_SwapOutTapsLeveredSlice() public {
-        LevDelivery memory d;
-        d.ch = _deployChannels();
-        _setupBtcLev();
-        (d.channelId, d.fundingTxId, d.lp, d.lpPubkey) = _open(d.ch, 54, 3e8);       // 3 BTC channel
-        _openLev(d.lp, 299_000_000);                                                 // expose 2.99 BTC ⇒ funded ~= 1e6
-        _borrowMorpho(d.lp, (lm.collValueUsd(venue.collateralOf(d.lp)) / 2) / 1e12); // ~50% LTV real Morpho debt
-        BTC.syncLev(d.lp);
-        _snapLevPosition(d);
-        assertGt(d.debt, 0, "position carries real Morpho debt");
-        assertLt(d.funded, 2e6, "free channel range is (near-)exhausted below the levered slice");
-
-        _requestLevSwapOut(d);
-        assertGt(d.sats, d.funded, "swap-out draws PAST the free channel range into the levered slice (#54 fires)");
-        assertLt(d.sats, 3e8, "delivery fits within the channel");
-        // §BURN-RELEASE-CONFLICT residue — this test reverts `"backing"`, i.e.
-        // `require(committedUsd18() <= haircutTvl)` in `Core._poolUsdInRange`'s MINT arm. Print both
-        // sides of that inequality for BOTH ranges: `burnInRange` is SHARED (it takes `core`), so the
-        // BTC range gets the same basketLeg release the ETH range does — which means a surviving
-        // ratchet here is a COMMIT WITHOUT A MATCHING BURN, not a missing release.
-        {
-            (uint[16] memory dd,,, uint dpg) = AUX.get_deposits();
-            emit log_named_uint("TVL _d[15] (18d)        ", dd[15]);
-            emit log_named_uint("depegLoss (18d)         ", dpg);
-            // ⚠️ **THE LABELS WERE WRONG, BUT NOT FOR THE REASON I FIRST WROTE — AND THE REPO HAD
-            //    ALREADY WARNED ABOUT EXACTLY THIS MISREADING.** `CORE` and `BTC.CORE()` print the
-            //    same address, which is the §WRONG-RANGE signature (the class recorded at
-            //    `Alles.t.sol:1404` as costing 246 failures) — and I booked it as one. It is NOT.
-            //    `:61` is `setUp() public override { super.setUp(); CORE = BTC.CORE(); }`: this
-            //    suite DELIBERATELY re-points `CORE` at the BTC instance because it is a BTC-side
-            //    suite. §BACKING-HEADROOM-3PCT already recorded the same false alarm and its rule —
-            //    *"BEFORE CALLING IDENTICAL RANGE FIGURES A §WRONG-RANGE BUG, CHECK WHETHER THE
-            //    SUITE REBOUND `CORE` IN `setUp`. A `super.setUp()` override is invisible at the
-            //    call site."* Deployment is right too (`DeployLib:136-137` build two cores).
-            //    ⇒ What WAS wrong is narrower and still worth fixing: `committedUsd18()` is a TOTAL
-            //    over both ranges (`RangeBacking.total()`), so labelling two reads of it "ETH" and
-            //    "BTC" claims a per-range split it cannot express. Print the total once under its
-            //    real name, and the per-range figures from the cores that actually differ.
-            emit log_named_uint("committedUsd18 (BOTH)   ", CORE.committedUsd18());
-            emit log_named_uint("this range POOLED_USD   ", CORE.POOLED_USD());
-            emit log_named_address("CORE                    ", address(CORE));
-            emit log_named_address("BTC.CORE()              ", address(BTC.CORE()));
-            emit log_named_address("ETH.CORE()              ", address(ETH.CORE()));
-            emit log_named_uint("ETH rangeEquityUsd18    ", ETH.CORE().rangeEquityUsd18());
-            emit log_named_uint("BTC rangeEquityUsd18    ", BTC.CORE().rangeEquityUsd18());
-            emit log_named_uint("ETH basketUsd (6d)      ", ETH.CORE().basketUsd());
-            emit log_named_uint("BTC basketUsd (6d)      ", BTC.CORE().basketUsd());
-        }
-
-        // The vBTC withdraw inside swapOutDelever needs the LP to authorize the venue as its Morpho manager.
-        vm.prank(d.lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
-        _deliverLevSwapOut(d.ch, d.channelId, d.fundingTxId, 54, d.lpPubkey, _levDelivSwapId(), d.sats, _levDelivScript(address(d.ch)));
-        // Keeper reconcile: the delivery repaid debt in-tx but syncLev is nonReentrant (can't run inside the
-        // delivery lock), so the debt-buffer's POOLED_USD is resized to the smaller debt here — exactly the async
-        // reconcile the lev keeper performs. Until it runs, committed is only OVERSTATED (a stricter gate).
-        BTC.syncLev(d.lp);
-        _assertDeleverOnDelivery(d);
-    }
-
-    function _assertDeleverOnDelivery(LevDelivery memory d) internal {
-        uint want = d.sats - d.funded;                       // the levered sats the delivery de-levered
-        // (a) de-levered: BOTH debt and collateral fall (equal oracle value removed).
-        assertLt(venue.debtOf(d.lp), d.debt, "debt reduced - the delivery's proceeds repaid it");
-        assertLt(venue.collateralOf(d.lp), d.coll, "collateral reduced - vBTC burned to deliver the levered slice");
-        assertApproxEqAbs(d.coll - venue.collateralOf(d.lp), want, want / 50, "freed ~= the delivered levered sats");
-        // (b) VALUE-NEUTRAL: the leverage position's net-equity is preserved (-BTC -debt of equal value).
-        assertApproxEqRel(lm.netEquity(d.lp), d.netEq, 0.03e18, "net-equity preserved (value-neutral de-lever)");
-        // (c) LTV IMPROVES (removing near-1.0-ratio value from a ~0.5-LTV position lowers the ratio).
-        assertLe(lm.getCurrentLtvBps(d.lp), d.ltv, "LTV improved");
-        // (d) NO phantom range depth behind the delivered vBTC: after the keeper sync the levered slice never
-        //     exceeds the LP's live net-equity (levPooled pairs net-equity only up to basket surplus — it may be
-        //     LESS at surplus==0, the "stranded volatile" state, but never MORE, which would double-count the
-        //     BTC just delivered to the swapper). The freed sats show up as the collateral drop asserted in (a).
-        assertLe(BTC.levPooled(d.lp), lm.netEquity(d.lp) + 1e3, "levered range depth <= net-equity (no phantom)");
-        // (e) SINGLE-PAY: QUI minted only for the FUNDED proceeds share - the de-levered slice was paid via
-        //     debt-reduction, NOT a second QUI mint.
-        uint qdMinted = QUID.balanceOf(d.lp) - d.qd;
-        assertLt(qdMinted, d.owedUsd * 1e12, "QUI < full proceeds (de-levered slice not double-paid as QUI)");
-        assertApproxEqRel(qdMinted, (d.owedUsd * 1e12) * d.funded / d.sats, 0.05e18, "QUI ~= funded-share of proceeds");
-        // (f) the obligation is FULLY cleared (debt-share drawn in Delever54Lib + funded-share in settleDelivered).
-        assertEq(BTC.CORE().pendingSwapOutUsd(), d.pending - d.owedUsd, "obligation fully cleared on delivery");
-        // (g) the swapper was delivered ONCE and the basket stays solvent.
-        assertTrue(d.ch.swapInUsed(_levDelivSwapId()), "delivery marked (blocks deliver->reverse double-pay)");
-        _assertSolvent("delever-54: basket solvent after value-neutral de-lever");
-    }
-
     // ─────────────────────────── close / de-lever money-path coverage (#64) ───────────────────────────
 
-    /// @notice (#64 gap 1, CRITICAL) `closeBtcLev` had ZERO test callers. Open a BTC-lev position with REAL Morpho
-    ///   debt, repay it through the manager, then fully retire via `closeBtcLev`. Asserts the whole retirement
-    ///   money-path: long-venue debt is 0, the vBTC collateral is withdrawn from Morpho, the levered range slice is
-    ///   UN-FOLDED (`unexposeBtcFromLev` ⇒ levPooled→0, funded restored), the position is deleted + de-tracked,
-    ///   and the basket stays solvent. Reuses the real vBTC/USDC Morpho harness.
-    function testReal_BtcCloseLev_RepaysUnfoldsDeletes() public {
-        BTCChannels ch = _deployChannels();
-        _setupBtcLev();
-        (,, address lp,) = _open(ch, 64, 3e8);                       // 3 BTC channel = free range to expose
-        _openLev(lp, 2e8);                                           // expose 2 BTC as vBTC collateral (zero debt)
-        assertEq(lm.openLevCount(), 1, "position tracked in the open-LP book");
-        assertGt(BTC.levPooled(lp), 0, "open reclassified channel BTC funded-to-lev");
-        (uint pooledOpen,,,) = BTC.autoManaged(lp);
-
-        // Give the position REAL Morpho debt (~50% LTV), directly on the LP's isolated Morpho account.
-        uint px = AUX.getTWAPforAsset(address(WBTC), 1800);
-        uint debtUsdc = ((2e8 * px / 1e18) / 2) / 1e12;              // ~50% LTV, USDC 6-dec
-        _borrowMorpho(lp, debtUsdc);
-        assertGt(venue.debtOf(lp), 0, "LP has real BTC-lev Morpho debt");
-
-        // closeBtcLev REVERTS while debt is open (line 450) — repay it FIRST through the manager's LP-gated leg.
-        uint debtStable = venue.debtOf(lp);
-        deal(address(USDC), lp, debtStable * 2);                     // cover principal + any accrued interest
-        vm.startPrank(lp);
-        USDC.approve(address(lm), type(uint).max);
-        lm.repay(type(uint).max / 1e13);                            // huge USD ⇒ clamps to exact debt ⇒ full repay
-        vm.stopPrank();
-        assertEq(venue.debtOf(lp), 0, "manager repay cleared the LP's Morpho debt");
-
-        // The vBTC withdraw inside closeBtcLev needs the LP to authorize the venue as its Morpho manager.
-        vm.prank(lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
-        uint levBefore = BTC.levPooled(lp);
-        assertEq(levBefore, 2e8, "levered slice == the exposed 2 BTC before close");
-
-        // CLOSE: withdraw all vBTC, delete the position, un-fold the levered slice back to free range depth.
-        vm.prank(lp); lm.closeBtcLev();
-
-        assertEq(venue.collateralOf(lp), 0, "close: all vBTC withdrawn from Morpho");
-        assertEq(BTC.levPooled(lp), 0, "close: unexposeBtcFromLev un-folded the levered slice (lev to funded)");
-        assertEq(lm.netEquity(lp), 0, "close: no live net-equity for a deleted position");
-        (,,,, bool open) = lm.pos(lp);
-        assertTrue(!open, "close: position deleted");
-        assertEq(lm.openLevCount(), 0, "close: LP de-tracked from the open book");
-        (uint pooledClose,,,) = BTC.autoManaged(lp);
-        assertEq(pooledClose, pooledOpen, "close: LP.pooled untouched (range position un-freezes, LP made whole)");
-        _assertSolvent("close: basket solvent after retirement");
-    }
-
-    /// @notice (#64 gap 2, HIGH) manager-level `repay` + `deleverWithdraw` (only the venue's `repayFor` was tested).
-    ///   Opens a BTC-lev position with REAL debt and exercises the LP-gated legs: `repay` reduces the isolated
-    ///   Morpho debt, then `deleverWithdraw` pulls vBTC collateral back out to the LP/keeper — asserting the real
-    ///   debt/collateral state deltas both move correctly.
+    /// @notice (#64 gap 2, HIGH) the manager-level LP-gated legs `repay` + `deleverWithdraw`. Opens a
+    ///   position with REAL Aave debt, repays half through the manager, then withdraws collateral back to
+    ///   the LP — asserting both real debt/collateral deltas. `deleverWithdraw` returns WBTC because WBTC
+    ///   is what the venue custodies; a position's collateral leaves by the door it came in.
     function testReal_BtcRepayAndDeleverWithdraw_LpGated() public {
-        BTCChannels ch = _deployChannels();
-        _setupBtcLev();
-        (,, address lp,) = _open(ch, 65, 3e8);
-        _openLev(lp, 2e8);
-        // withdraw (deleverWithdraw) needs the LP to authorize the venue on Morpho.
-        vm.prank(lp); IMorphoTest(MORPHO).setAuthorization(address(venue), true);
+        _setupBtcLevWbtc();
+        address lp = makeAddr("repayWithdrawLp");
+        _openWbtcLev(lp, 2e8);
 
         uint px = AUX.getTWAPforAsset(address(WBTC), 1800);
-        uint debtUsdc = ((2e8 * px / 1e18) / 2) / 1e12;             // ~50% LTV real Morpho debt
-        _borrowMorpho(lp, debtUsdc);
-        uint debt0 = venue.debtOf(lp);
-        uint coll0 = venue.collateralOf(lp);
-        assertGt(debt0, 0, "LP has real BTC-lev Morpho debt");
-        assertEq(coll0, 2e8, "collateral == the exposed 2 BTC");
+        uint debtUsdc = ((2e8 * px / 1e18) / 2) / 1e12;             // ~50% LTV of real Aave debt
+        _borrowWbtcVenue(lp, debtUsdc);
+        uint debt0 = wvenue.debtOf(lp);
+        uint coll0 = wvenue.collateralOf(lp);
+        assertGt(debt0, 0, "LP has real BTC-lev Aave debt");
+        assertApproxEqAbs(coll0, 2e8, 1e4, "collateral == the 2 WBTC supplied");
 
         // ── manager `repay` (LP-gated): repay HALF the debt through the manager (clamp-before-transfer). ──
         uint payUsdc = debtUsdc / 2;
         deal(address(USDC), lp, payUsdc);
         vm.startPrank(lp);
-        USDC.approve(address(lm), type(uint).max);
-        uint repaid = lm.repay(uint(payUsdc) * 1e12);              // USD 1e18 ⇒ ~payUsdc stable
+        USDC.approve(address(lmW), type(uint).max);
+        uint repaid = lmW.repay(uint(payUsdc) * 1e12);              // USD 1e18 ⇒ ~payUsdc stable
         vm.stopPrank();
         assertApproxEqAbs(repaid, payUsdc, 2, "repay applied ~half the debt");
-        assertApproxEqAbs(venue.debtOf(lp), debt0 - payUsdc, debt0 / 50, "repay reduced the isolated Morpho debt");
+        assertApproxEqAbs(wvenue.debtOf(lp), debt0 - payUsdc, debt0 / 50, "repay reduced the venue debt");
 
-        // ── manager `deleverWithdraw` (LP-gated): the half-repay freed LTV headroom to withdraw vBTC to the LP. ──
-        uint lpVbtc0 = IERC20V(address(BTC.VBTC())).balanceOf(lp);
+        // ── manager `deleverWithdraw` (LP-gated): the half-repay freed LTV headroom to withdraw WBTC. ──
+        uint lpWbtc0 = IERC20V(address(WBTC)).balanceOf(lp);
         uint wantSats = 1e7;                                        // 0.1 BTC — well within the freed headroom
         vm.prank(lp);
-        uint out = lm.deleverWithdraw(wantSats);
-        assertApproxEqAbs(out, wantSats, 2, "deleverWithdraw returned the requested vBTC");
-        assertApproxEqAbs(venue.collateralOf(lp), coll0 - wantSats, 2, "deleverWithdraw reduced the venue collateral");
-        assertEq(IERC20V(address(BTC.VBTC())).balanceOf(lp) - lpVbtc0, out, "the withdrawn vBTC landed with the LP/keeper");
+        uint out = lmW.deleverWithdraw(wantSats);
+        assertApproxEqAbs(out, wantSats, 2, "deleverWithdraw returned the requested sats");
+        assertApproxEqAbs(wvenue.collateralOf(lp), coll0 - wantSats, 1e4, "deleverWithdraw reduced the venue collateral");
+        assertEq(IERC20V(address(WBTC)).balanceOf(lp) - lpWbtc0, out, "the withdrawn WBTC landed with the LP");
     }
 
-    // ─────────────────────────── #36 venue safety gates (REAL Morpho vBTC venue) ───────────────────────────
+    // ─────────────────────────── #36 venue safety gates (REAL venues) ───────────────────────────
 
-    /// @notice (#36a) init must REJECT a real venue whose collateral isn't vBTC (== the Vault): a WBTC-collateral
-    ///   market would inject phantom BTC backing into rangeBTC. GOV can't pin it even though it's a real venue.
-    /// RETARGETED 2026-07-26: WBTC collateral is ALLOWED by policy, so asserting its rejection was
-    /// asserting the opposite of the documented behaviour. `BtcLevManager.init` passes WBTC as `c1` to
-    /// `LevMath.vetVenue` and its own comment states it: "vBTC sats OR WBTC — SAME oracle price, so
-    /// valuation is identical … c1=WBTC => WBTC venue allowed". The real guard is against collateral
-    /// the manager cannot VALUE as 8-dec BTC (LevMath:280, `coll != c0 && coll != c1`), which is what
-    /// would silently misvalue into phantom BTC backing. WETH is such a collateral.
-    function test_BtcLevVenueGate_InitRejectsUnvaluableCollateral() public {
-        _setupBtcLev();   // establishes mOracle + the good (vBTC) reference stack
-        BtcLevManager lm2 = new BtcLevManager(address(BTC.VBTC()), address(AUX), address(WBTC), address(this), address(QUID));
-        MarketParams memory badMp = MarketParams({
-            loanToken: address(USDC), collateralToken: address(WETH),   // neither vBTC nor WBTC => unvaluable as BTC
-            oracle: mOracle, irm: ADAPTIVE_IRM, lltv: 0.86e18});
-        MorphoEscrowVenue bad = new MorphoEscrowVenue(MORPHO, badMp, address(lm2));
+    /// @notice (#36a) `init` must REJECT any venue whose collateral is not WBTC. The manager values
+    ///   collateral as 8-dec BTC at the ONE `getTWAPforAsset(WBTC)` read, so any other token silently
+    ///   misvalues into phantom BTC backing for rangeBTC — `LevMath.vetVenue`'s `coll != c0 && coll != c1`
+    ///   is the guard and `BtcLevManager.init` passes WBTC for both.
+    /// ⛔ THE SECOND HALF IS THE OWNER RULING (2026-09-07), NOT A DUPLICATE OF THE FIRST: a venue whose
+    ///   collateral is the vBTC token must be rejected too. Lightning-custodied BTC as collateral to borrow
+    ///   dollars to buy more Lightning BTC is a toxic loop, and vBTC is a PROJECTION of Vault shares that no
+    ///   escrow can physically custody. Deleting this assertion is how that market comes back.
+    function test_BtcLevVenueGate_InitRejectsNonWbtcCollateral() public {
+        BtcLevManager lm2 = new BtcLevManager(address(AUX), address(WBTC), address(this), address(QUID));
+        address oracle = address(new RealRateBtcMorphoOracle(address(AUX), address(WBTC)));
+        address[] memory vs = new address[](1);
+
+        vs[0] = address(new MorphoEscrowVenue(MORPHO, MarketParams({
+            loanToken: address(USDC), collateralToken: address(WETH),
+            oracle: oracle, irm: ADAPTIVE_IRM, lltv: 0.86e18}), address(lm2)));
         vm.expectRevert(LevMath.BadCollateral.selector);
-        address[] memory vsBad = new address[](1); vsBad[0] = address(bad);
-        lm2.init(address(BTC), MORPHO, vsBad);
+        lm2.init(address(BTC), MORPHO, vs);
+
+        vs[0] = address(new MorphoEscrowVenue(MORPHO, MarketParams({
+            loanToken: address(USDC), collateralToken: address(BTC.VBTC()),
+            oracle: oracle, irm: ADAPTIVE_IRM, lltv: 0.86e18}), address(lm2)));
+        vm.expectRevert(LevMath.BadCollateral.selector);
+        lm2.init(address(BTC), MORPHO, vs);
     }
 
     /// @notice (#36b) openBtcLev must REJECT a NEW position onto an incident-flagged venue (GOV setVaultHealth).
     function test_BtcLevVenueGate_OpenRejectsBlockedVenue() public {
-        _setupBtcLev();
-        AUX.setVaultHealth(address(venue), true);   // real incident flag (AUX owner == this test)
+        _setupBtcLevWbtc();
+        AUX.setVaultHealth(address(wvenue), true);   // real incident flag (AUX owner == this test)
         vm.prank(address(0xB0B));
         vm.expectRevert(LevMath.VenueBlocked.selector);
-        lm.openBtcLev(1e8, venue);                    // reverts at the health gate, before the MIN_OPEN/expose steps
+        lmW.openBtcLev(1e8, wvenue);                 // reverts at the health gate, before MIN_OPEN/transfer
     }
 }
 
@@ -1796,6 +940,31 @@ contract EthLevDeleverLegs is AllesFixture {
     function _borrowEth(address lp, uint usdc6) internal {
         vm.prank(address(elm)); evenue.borrow(lp, usdc6);
         vm.prank(address(elm)); IERC20V(address(USDC)).transfer(lp, usdc6);
+    }
+
+    /// @notice (#43) PERMISSIONLESS `repayFor` reduces the LP's share of the venue debt — the on-chain
+    ///   primitive the QUID-protect keeper calls after redeeming the LP's mature QUID
+    ///   (redeem→stable→repayFor). No MANAGER auth (a random caller repays here), caller-funded, clamped
+    ///   to the LP's debt. It lives on `MorphoEscrowVenue`, so it is proved here rather than on the BTC
+    ///   leg, whose only venue is `AaveV3Venue`.
+    function test_RepayFor_PermissionlessReducesLpDebt() public {
+        _setupEthLev();
+        _openEth(LP_A, 5 ether);
+        uint debtUsdc = 6_000 * USDC_PRECISION;
+        _borrowEth(LP_A, debtUsdc);
+        uint debt0 = evenue.debtOf(LP_A);
+        assertGt(debt0, 0, "LP has real Morpho debt");
+
+        // A random address (NOT the MANAGER) repays HALF on the LP's behalf -- proves it's permissionless + safe.
+        address helper = address(0xCAFE);
+        uint pay = debtUsdc / 2;
+        deal(address(USDC), helper, pay);
+        vm.startPrank(helper);
+        USDC.approve(address(evenue), pay);
+        uint repaid = evenue.repayFor(LP_A, pay);
+        vm.stopPrank();
+        assertApproxEqAbs(repaid, pay, 2, "repayFor repaid the requested amount");
+        assertApproxEqAbs(evenue.debtOf(LP_A), debt0 - pay, debt0 / 50, "repayFor reduced the LP's debt");
     }
 
     // ─────────────────────────────────── F12 + F13 ───────────────────────────────────

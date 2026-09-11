@@ -29,7 +29,6 @@ import {MorphoEscrowVenue, MarketParams} from "../src/imports/LevVenueBase.sol";
 import {ISwap} from "../src/imports/Interfaces.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {AaveV3Venue} from "../src/imports/LevVenueBase.sol";
-// RealRateBtcMorphoOracle import removed with the vBTC market (owner ruling 2026-09-07).  // InverseRateMorphoOracle removed with the short subsystem (2026-07-24)
 
 interface IAaveV3AddrProvider { function getPoolDataProvider() external view returns (address); }
 
@@ -365,7 +364,7 @@ contract Deploy is Script {
         _wireBasketFeedsAndVenues();
 
         // ─── IL-protect leverage overlay (opt-in, SAME script) ────────────
-        // The ONE deploy script also stands up the ETH (weETH) + BTC (vBTC) leverage
+        // The ONE deploy script also stands up the ETH (weETH) + BTC (WBTC) leverage
         // managers + escrow venues and pins every link, when DEPLOY_LEV=1. Runs
         // BEFORE finalize so all GOV/owner pins land inside this broadcast. Skipped
         // (no lev-infra env required) for a core/fork deploy.
@@ -455,18 +454,17 @@ contract Deploy is Script {
     ///     ETH (weETH collateral): LevManager (folded SOR + ether.fi mint/redeem legs) → Morpho escrow
     ///       venues → `pinVenues` (frozen) → `setFlashProvider` (Morpho, zero-fee de-lever) →
     ///       `setQuidSyncHook` (Quid) → `Vault.setLevManager` (backing: rangeETH counts the book).
-    ///     BTC (vBTC collateral == the Vault): BtcLevManager → Aave V3 WBTC escrow venue →
-    ///       `pinVenue` (singular, frozen) → `setSyncHook`(Vault.syncLevBTC) → `Vault.setLevManager`
-    ///       (backing: rangeBTC counts the book). No swapper / no flash — BTC acquisition is external+async.
+    ///     BTC (WBTC collateral): BtcLevManager → Aave V3 WBTC escrow venue → `init` (RANGE +
+    ///       Morpho flash provider + the one-venue allowlist, frozen in ONE call) → `Vault.setLevManager`
+    ///       (backing: rangeBTC counts the book). Fold-up / de-lever ride the keeper-supplied SOR route.
     ///   Skipped when `DEPLOY_LEV` is unset, so a core / fork-e2e deploy needs no lev-infra env. External-infra
     ///   addresses come from env; the in-script tokens (weETH via the ETH venue, WBTC/USDC/AUX/V4) are reused.
     ///   GOV (`YB_GOV`, default = deployer) must be the broadcaster so the pin-once calls land, then has no
     ///   ongoing power (allowlist + hooks frozen). ENV (only when DEPLOY_LEV=1) — EVERY external address has a
     ///   LIVE mainnet default (the constants above), so a bare `DEPLOY_LEV=1` deploys the whole overlay;
     ///   overrides: MORPHO, MORPHO_ORACLE/IRM/LLTV (weETH long), MORPHO_WETH_ORACLE/IRM/LLTV (plain-WETH long),
-    ///   optional YB_GOV. (The BTC-lev env pair vars and LEV_BTC_VENUE went with
-    ///   borrowing venues, 2026-08-13.)
-    ///   (MORPHO_VBTC_* are gone with the vBTC market — owner ruling 2026-09-07.) — unset ⇒ a
+    ///   optional YB_GOV. The BTC leg takes no env at all: one Aave v3 WBTC venue, debt asset
+    ///   `AAVE_V3_WBTC_DEBT` (default USDC), liq threshold `AAVE_V3_WBTC_LT_BPS`.
     ///   (Down-side short venues REMOVED 2026-07-24 — up-side-only;
     ///   the short subsystem was an LVR leak, see docs §J.4. A directional-short product, if shipped, is a normal
     ///   position on an inverse venue added to the allowlist, per §K — not the removed hedge.)
@@ -546,8 +544,8 @@ contract Deploy is Script {
         // `ethVenue` pointer. Pinning the wrong one compiles and silently reads leverage as disabled.
         Quid(payable(AUX.ethVenue())).setLevManager(address(lm));
 
-        // ── BTC lev: vBTC-collateral (vBTC == the Vault). External+async acquisition ⇒ no swapper/flash ──
-        BtcLevManager bm = new BtcLevManager(address(ETH.VBTC()), address(AUX), address(WBTC), gov, address(QUID));
+        // ── BTC lev: WBTC collateral. External+async acquisition ⇒ no swapper/flash ──
+        BtcLevManager bm = new BtcLevManager(address(AUX), address(WBTC), gov, address(QUID));
         // ⛔ NO MORPHO MARKET FOR OUR LIGHTNING BITCOIN — STANDING OWNER RULING (2026-09-07),
         //    not a deployment convenience. Using Lightning-custodied BTC as collateral to borrow
         //    dollars, then selling those dollars for more Lightning BTC, is a toxic loop: the
@@ -558,10 +556,10 @@ contract Deploy is Script {
         //
         // NO VENUE SELECTION EITHER: the env switch that chose a BTC lev venue had one arm and was
         // friction pretending to be configuration. Aave V3 WBTC below is now the ONLY BTC lev venue.
-        // WBTC-FALLBACK venue (#106/#81/#74): a REAL Aave v3 {collateral: WBTC, debt: <stable>} escrow — the
+        // WBTC venue (#106/#81/#74): a REAL Aave v3 {collateral: WBTC, debt: <stable>} escrow — the
         // deepest WBTC book, so the SPA routes sizeable positions here. The keeper's atomic `rebalanceWbtc` folds
-        // up / flash-repay-first de-levers it fully on-chain (no channel-vBTC, no acquirer). Allowlisted ALONGSIDE
-        // the native vBTC venue — `openBtcLev` branches on the venue's COLLATERAL() (WBTC ⇒ LP brings external WBTC).
+        // up / flash-repay-first de-levers it fully on-chain (no acquirer). `BtcLevManager.init` vets every venue
+        // as WBTC-collateral, and `openBtcLev` takes the WBTC from the caller — the LP brings external WBTC.
         //
         // 🔴 THE DEBT ASSET IS A DEPLOY-SITE CHOICE, NOT A CONTRACT LIMIT. It was hardcoded to USDC while the ETH
         // leg was deliberately moved OFF USDC for depth ("dont even borrow usdc, too thin" — owner). Borrowable
@@ -598,7 +596,7 @@ contract Deploy is Script {
 
         LEVM = lm; BTCLEVM = bm;                           // recorded into deployments/l1.json
         console.log("LevManager (ETH weETH):", address(lm));
-        console.log("BtcLevManager (vBTC):", address(bm));
+        console.log("BtcLevManager (WBTC):", address(bm));
     }
 
     /// @dev Create the Morpho market if unlisted, then a MorphoEscrowVenue bound to `mgr`. Own frame keeps the

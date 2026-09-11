@@ -324,9 +324,10 @@ Each was carried as open, some in red, some for weeks.
    ⭐ **AND THE MINT DEFECT IS DELETED, NOT PENDING — I NAMED WORK THAT NO LONGER EXISTS.**
    `Vault.sol:302 exposeBtcToLev` **mints nothing**: it gates on `LEV_MANAGER` and calls
    `BtcLib.vbtcExposeBody`, whose whole body is a bounds check plus `levPooled[lp] += sats`.
-   **`mintTo`/`burnFrom` no longer exist on the token** (`VBtc.sol:23`: *"the MINT/BURN pair is GONE"*),
-   and `unexposeBtcFromLev` has no burn. ⚠️ Stale prose survives in `BtcLevManager.sol:240/392/419/454`,
-   which still describe `VBTC.burnFrom`.
+   **`mintTo`/`burnFrom` no longer exist on the token**, and `unexposeBtcFromLev` had no burn.
+   ✅ **AND THE WHOLE MECHANISM IS NOW DELETED** (2026-09-11, §VBTC-COLLATERAL-DELETED): `exposeBtcToLev`,
+   `unexposeBtcFromLev`, `vbtcExposeBody`, `vbtcUnexposeBody` and `IVaultExposeB` grep to **zero** in
+   `evm/src`; the stale prose went with the comment strip (`561a36f7`) and the bodies.
    ⇒ Remaining work is the 7540 fold itself. **Lane L5.** ⛔ Re-derive scope from code — it cites three
    symbols that never existed.
 
@@ -562,7 +563,7 @@ the two consequences for this file:
 
 | | answer | evidence |
 |---|---|---|
-| **LN BTC as collateral?** | ✅ **NO, and there is nothing to change.** Every venue the deploy builds posts **weETH** (ETH: Morpho/RLUSD, Morpho/PYUSD, AaveV3/USDT) or **WBTC** (BTC: AaveV3/USDC) | `DeployL1_s.sol:591` — `vsB` has ONE entry, *"WBTC only"*; `BtcLevManager.sol:102` **enforces** `COLLATERAL() != WBTC ⇒ revert BadTarget()`. The WBTC is **bought** (`leverUpBuyWbtc` → `_hop1B`/`_hop2B`), not drawn from custody. A vBTC collateral market greps to **zero** (§NO-VBTC-MORPHO-MARKET, `3440c742`) |
+| **LN BTC as collateral?** | ✅ **NO, and there is nothing to change.** Every venue the deploy builds posts **weETH** (ETH: Morpho/RLUSD, Morpho/PYUSD, AaveV3/USDT) or **WBTC** (BTC: AaveV3/USDC) | `DeployL1_s.sol:591` — `vsB` has ONE entry, *"WBTC only"*; `BtcLevManager.init` **enforces** it at the allowlist — `LevMath.vetVenue(v, WBTC, WBTC, WBTC)`, so a non-WBTC venue reverts `BadCollateral()` and can never be pinned. The WBTC is **bought** (`leverUpBuyWbtc` → `_hop1B`/`_hop2B`), not drawn from custody. A vBTC collateral market greps to **zero** (§NO-VBTC-MORPHO-MARKET, `3440c742`) |
 | **Basket stables as collateral?** | ✅ **NO — they are the DEBT**, and the escrow makes it unconstructible | every borrow runs in a per-venue `AaveV3Escrow` (`LevVenueBase.sol:264-306`) that approves only `coll`+`stable` and marks only `COLLATERAL`. The basket's supplies are at a **different address**, so they are not in the borrowing account |
 | **Only Aave v4?** | ⏸️ **buildable — and it caps the entire lever book at ~\$369k until Aave raises a cap** | measured 2026-08-30 by POSTING, not by reading depth: weETH cap **4,000**, already at **3,832.5** ⇒ **167 weETH ≈ \$461k** headroom vs v3's ~\$295M. A 100 weETH supply **reverts** `0xde3fc6ae(0xfa0)` |
 
@@ -4939,8 +4940,11 @@ can be opened and levered and cannot be closed or settled through the Vault's wi
 the vBTC market made the untested fallback the ONLY path. **A removal can be individually correct and
 still promote a latent gap into the critical path; the blast-radius question is not "what did I
 delete" but "what is now the only thing left".**
-▶️ **THE FIX IS A BRANCH AT BOTH EXITS, MIRRORING THE ONE `openBtcLev` ALREADY HAS** — not a change
-to `unexposeBtcFromLev`, which is correct for what it does. NOT WRITTEN.
+✅ **FIXED 2026-09-11, BY DELETION RATHER THAN BY A SECOND BRANCH** (§VBTC-COLLATERAL-DELETED, owner:
+*"morpho collateral will not come back"*). There is no branch at either exit because there is no vBTC
+arm left to branch to: `openBtcLev` is one `transferFrom(msg.sender, venue, …)`, `closeBtcLev` hands the
+WBTC back to the caller, and `swapOutDelever`'s freed slice reverts `WbtcSliceNotDeliverable()`
+unconditionally — §2's delivery leg is still unbuilt, and now says so in one line instead of two.
 
 ### 2. THE DESIGN GAP THE OWNER NAMED — auto-sell at withdrawal is NOT built
 ⛔ **There is no path that sells the collateral into what the LP asks for at withdrawal.** 1inch is
@@ -4970,14 +4974,56 @@ test docblock are corrected in place rather than left to teach it.
 
 ▶️ **THE STATE THIS LEAVES, STATED PLAINLY BECAUSE IT IS NOT VISIBLE FROM ANY ONE FILE:**
 · `DeployL1_s` deploys exactly one BTC venue, `AaveV3Venue{coll: WBTC, debt: USDC}` (`:552`, `vsB[0]`).
-· `openBtcLev`'s vBTC branch needs an allowlisted vBTC venue. **There is none** — the Morpho vBTC
-  market is not created (§NO-VBTC-MORPHO-MARKET).
-· So the only openable position is the WBTC branch, which is a bare
+· `openBtcLev` has no vBTC branch any more (§VBTC-COLLATERAL-DELETED) and `init` refuses to allowlist a
+  vBTC-collateral venue at all, so the Morpho vBTC market cannot come back through the allowlist.
+· The only openable position is therefore a bare
   `IERC20Min(WBTC).transferFrom(msg.sender, venue, …)` — **permissionless, and an LP has no WBTC to
   bring.** It is reachable by anyone holding WBTC; it is not reachable by the product's users.
 ⇒ **BTC IL-PROTECT IS INERT FOR ITS ACTUAL USERS UNTIL §ANY-DOLLAR-BORROW LANDS.** ⛔ Not a defect
 and not to be "fixed" by re-adding the vBTC Morpho market — the owner has named the replacement.
 ✅ The close fix STAYS: a position that can be opened must be closable, whoever opened it.
+
+## §VBTC-COLLATERAL-DELETED-2026-09-11 — ✅ the vBTC-as-Morpho-collateral path is gone from the tree
+
+**Owner, 2026-09-11, verbatim:** *"we cant have any no ops. keeo removing code."* and *"morpho
+collateral will not come back. we will be able to use our bitcoin as collateral on any spoke later but
+that isnt activated on day 1. only eventually when gov activates it."* ⇒ §ANY-DOLLAR-BORROW is the
+comeback, on the Aave v4 hub, gov-activated. **It is a different mechanism, so this one is not parked —
+it is deleted, and git holds it.**
+
+🔴 **IT WAS NOT MERELY UNREACHABLE, IT WAS BROKEN, AND THAT IS HOW IT WAS FOUND.** `VBtc.balanceOf` is a
+PROJECTION (`IVBtcRange(VAULT).sharesOf(user)`) with no ledger, so `COLL.transfer(venue, sats)` routed
+into `Vault.transferShares(manager, …)`, the manager has no `pooled`, and it reverted
+`InsufficientChannelBtc()`. **An escrow venue must physically custody its collateral and a projection
+cannot be custodied** — 13 tests in `VBtcLevFeeLane.t.sol` failed on exactly this.
+
+▶️ **DELETED** (`BtcLevManager`, `Vault`, `BtcLib`, `Interfaces`): the `COLLATERAL() == address(COLL)`
+arm of `openBtcLev`, the matching arms in `closeBtcLev` and `swapOutDelever`, `BtcLevManager.VAULT` and
+its `vbtc` constructor argument, `Vault.exposeBtcToLev` / `unexposeBtcFromLev` / `NotLevManagerBtc`,
+`BtcLib.vbtcExposeBody` / `vbtcUnexposeBody` / its `InsufficientChannelBtc`, and the `IVaultExposeB` +
+`IVBtcToken` interfaces. `init` now vets venues as `vetVenue(v, WBTC, WBTC, WBTC)`, which made
+`BtcLevManager._requireRebalancable` unreachable — deleted too. `COLL == WBTC` on the BTC manager now.
+
+📌 **TWO THINGS FOUND WHILE DOING THIS, BOOKED RATHER THAN SWEPT IN (rule 12):**
+· `BtcLevManager.swapOutDelever`'s SURVIVING return `usedUsd` has **no consumer anywhere**. Both call
+  sites (`SwapLib._sourceRepayFree:721` and `:740`) are statement calls that discard it, no test reads
+  it, and the function is `onlyRANGE` so an off-chain `eth_call` cannot reach it either. Deleting it
+  also deletes a `LevMath._toUsd18` — **two external calls (`loanPxUsd18` + `decimals`) on a money
+  path**. Not done here because that is a gas/behaviour change needing a test run to price, and this
+  lane's `freedSats` removal was a pure no-op removal (the value was already a compile-time zero).
+· `MorphoEscrowVenue.repayFor` has **zero non-test callers** in `evm/src`, the Rust crates and the
+  clients. Its docblock calls it *"the on-chain primitive the QUID-protect keeper calls"*, but
+  `protectFromQuid` → `LevMath.protectExec` repays through `ILevVenue(venue).repay`, not `repayFor`.
+  Either the keeper leg was never built or the function is superseded — **decide before the next
+  size squeeze**, and note it is `external`, so it costs dispatch table AND bytecode.
+
+⚠️ **`levPooled` IS NOT DEAD AND MUST NOT BE DELETED — `exposeBtcToLev` WAS NEVER ITS ONLY WRITER.**
+Measured after the deletion, the writers of the BTC range's `levPooled` are `RangeLib.levAddNet`
+(`+= netTok`) and `RangeLib.levBurnAll` (`-= netRem`), both reached from `BtcLib.syncLev` ⇐
+`Vault._syncLev` ⇐ `Vault.syncLev` / `Vault._resize`, plus `BtcLib.resizeBtcLpTail` (`= 0` on a full
+close). The slice is sized from `ILevEquity(mgr).netEquity(lp)`, so a WBTC-mode position with a pinned
+`LEV_MANAGER` still writes it. Everything gated on it (`SwapLib.plainNet`, the `transferShares` cap,
+the deliverability reads) stays live.
 
 ## §ANY-DOLLAR-BORROW — ⏸️ DEFERRED BY THE OWNER, DO NOT START
 

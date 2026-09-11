@@ -15,7 +15,6 @@ import {IAux} from "./Interfaces.sol";
 library BtcLib {
 
     error ZeroTwap();
-    error InsufficientChannelBtc();
 
     function settleBtcLp(
         Types.Deposit storage LP,
@@ -213,25 +212,6 @@ library BtcLib {
         d.addedNet += feeCompounded;
     }
 
-    function vbtcExposeBody(
-        mapping(address => Types.Deposit) storage autoManaged,
-        mapping(address => uint) storage levPooled,
-        address lp, uint sats
-    ) public {
-        uint pooled = autoManaged[lp].pooled;
-        uint free = SwapLib.plainNet(pooled, levPooled[lp]);
-        if (sats == 0 || sats > free) revert InsufficientChannelBtc();
-        levPooled[lp] += sats;
-    }
-
-    function vbtcUnexposeBody(
-        mapping(address => uint) storage levPooled,
-        address lp, uint sats
-    ) public {
-        uint lev = levPooled[lp];
-        levPooled[lp] = sats >= lev ? 0 : lev - sats;
-    }
-
     function transferSharesBody(
         mapping(address => Types.Deposit) storage autoManaged,
         mapping(address => uint) storage levBuf,
@@ -269,8 +249,8 @@ library BtcLib {
     }
 
     event Borrowed(address indexed lp, uint stableOut);
-    event Supplied(address indexed lp, uint vbtcIn);
-    event Withdrawn(address indexed lp, uint vbtcOut);
+    event Supplied(address indexed lp, uint wbtcIn);
+    event Withdrawn(address indexed lp, uint wbtcOut);
     event Repaid(address indexed lp, uint stableIn);
 
     function leverBorrow(
