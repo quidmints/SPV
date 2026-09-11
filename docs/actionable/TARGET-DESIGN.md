@@ -464,6 +464,52 @@ coherent and the real defect is that `_fillDelta` uses a VALUE ledger as an INVE
 way one of the two readings is wrong, and the two sites disagree.** ▶️ Settle which by asking what
 `drawPooledUsdBtc`'s `POOLED_USD -= usd6` means — it spends it like inventory.
 
+### 🔴🔴 BREAK 6: **THE USD DEBIT IS CLAMPED TWICE, INDEPENDENTLY, AND THE SHORTFALL IS DISCARDED**
+`Core._poolUsdInRange`, the debit branch:
+```solidity
+POOLED_USD -= Math.min(usdAmount, POOLED_USD);      // debits at most what we hold
+uint b = basketUsd;
+uint out_ = b < usdAmount ? b : usdAmount;          // clamped AGAIN, SEPARATELY
+basketUsd = b - out_;
+```
+⇒ **the caller believes `usdAmount` left the range; the ledgers record whatever they happened to
+hold.** If `usdAmount = 100` and `POOLED_USD = 60`, sixty is debited and **forty is silently
+forgotten** — the range then looks forty richer than it is.
+🔑 **AND THE TWO CLAMPS ARE INDEPENDENT, which is the part that is worse than a single truncation:**
+`POOLED_USD` is bounded by itself and `basketUsd` by itself, so one can absorb the full amount while
+the other truncates. **The two ledgers can diverge from each other as well as from the caller's intent.**
+
+⚠️ **REACHABILITY, stated at the confidence I have:** on the SWAP path it cannot bind — `_fillDelta`
+already clamps `out` to `held = POOLED_USD`. But `modLP` (`:151`) and `settleOor` (`:157`) reach
+`_handleDelta` with a **caller-supplied `usdDelta` that no inventory bound has touched**. ⛔ I have not
+proven either caller can exceed `POOLED_USD`, so this is *"unbounded by construction at that site"*,
+not *"exploitable today"*.
+📌 **Either way it is a finding, and rule 18④ is why:** what is the worst input that still satisfies
+this guard? **If the clamp can never bind it is decorative and should assert instead; if it can bind it
+is a silent loss.** A guard cannot be both live and never-firing — and today nobody knows which it is.
+⭐ **This is §PARTIAL-TAKE's defect in mirror image, found the same day.** There the range was debited
+in FULL while the recipient received less. Here the range is debited LESS than the amount claimed.
+**Both are clamps that convert a divergence into silence**, and that is now the third instance of the
+class (`take`'s discarded return, `anchorPrice18`'s `(0, true)`, and this).
+
+### 🔴 AND A RETRACTION: **BREAK 5's DISMISSAL WAS WRONG. THE FEE INFLATION *DOES* REACH THE BACKING CHECK**
+One section above I wrote: *"I expected this to tighten `checkBacking`… It does not. `_rangeEquityUsd18`
+keys off `basketUsd`, and `recordFee` never touches `basketUsd`."* **That was checked one level too
+shallow.**
+`Core.absorbPaidUsd` (`:254`), live and called from `Quid.sol:328`:
+```solidity
+uint pooled = POOLED_USD;
+basketUsd = pooled > lpOwned6 ? pooled - lpOwned6 : 0;   // basketUsd is OVERWRITTEN *FROM* POOLED_USD
+```
+⇒ **`basketUsd` is not independent of `POOLED_USD` — it is periodically re-derived from it.** So the
+volatile-leg fee inflation in `POOLED_USD` propagates into `basketUsd` at the next `absorbPaidUsd`, and
+`basketUsd` is exactly what feeds `_rangeEquityUsd18` → `_reportEquity` → `committedTotal`.
+**The inflation reaches the backing figure. It just takes one hop.**
+📌 **RECORDED AS A RETRACTION RATHER THAN EDITED AWAY**, because the failure is the instructive part:
+*"recordFee never touches basketUsd"* was **true and irrelevant** — I checked who WRITES the variable
+and not who DERIVES it. **Grep the assignments, not just the mentions**, and this repo has a rule for
+it: *when two identities separate, grep the ASSIGNMENTS.*
+
 ### ⚠️ AND A NOTE ON WHAT I HAVE NOT BROKEN, so the absence is not read as endorsement
 I have not been able to break: §7c's argument that a pro-rata claim cannot be short (it is arithmetic);
 §12's finding that collateral is weETH/WBTC only (read from the deploy); §NO-GAMEABLE-BOUND's two
