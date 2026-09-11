@@ -1765,9 +1765,17 @@ consuming repo has retired. Neither file knows about the other. Do NOT keep `VBt
 and do NOT delete it on those grounds either — **the surviving question is the OTHER blocker its header
 names: an open Morpho/Euler market, where ⛔ **THIS RATIONALE IS WRONG — OWNER, 2026-09-11: *"that was not the reason for deletion."*** It is left
 here only so the next reader does not re-derive from it, as I did: I reasoned from this sentence toward
-re-instating the vBTC market and had to be stopped. **The real reason §NO-VBTC-MORPHO-MARKET deleted the
-market is NOT RECORDED ANYWHERE IN THIS TREE — do not invent one, and do not restore the market on the
-strength of this paragraph.** ⇒ ask the owner. 📌 **And the related claim is also false: there is no vBTC
+re-instating the vBTC market and had to be stopped. ✅ **THE REAL REASON IS FOUND, AND IT IS IN `3440c742`'s OWN COMMIT MESSAGE:** *"Owner: IL-protect by
+borrowing dollars against our Lightning BTC to buy more Lightning BTC is **toxic**. The vBTC Morpho
+market is not created at all."* ⇒ **the MECHANISM was rejected, not a missing piece of it** — a far
+stronger objection, and it still holds. ⛔ **Do not restore the market without the owner overriding that
+ruling explicitly.** ⭐ **The sharpened reason, which also explains why the identical structure is fine
+on ETH: WETH collateral is seized atomically in the liquidating tx, while sats in a Lightning channel
+CANNOT BE SEIZED AT ALL on Bitcoin's timeline — so the lender eats the gap.** The problem is not that a
+seizer cannot SELL; it is that the seizure cannot HAPPEN. Full option set and the two live choices are
+`TARGET-DESIGN.md` §BTC-IL-IS-NOT-CONSTRUCTIBLE. 📌 **And the lookup that found it in one command was
+`git log -S "vBTC" -- evm/script/`** — the primary source was a commit message all along, which is where
+a deletion rationale lives in this repo, not in this file. 📌 **And the related claim is also false: there is no vBTC
 redemption. Owner: *"there is no redeem really just swapout."*** `VBtc.redeemVBtc` validates a `p2trKey`,
 never passes it to `Vault.redeemVBtc(address,uint)` (which takes no script and merely resizes), and then
 names it as the payout destination in a `Redeemed` event — **a phantom exit with an event that asserts
