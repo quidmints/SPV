@@ -18193,57 +18193,19 @@ thread documented twice, arriving in MY OWN row: the work landed, and the row st
 
 ---
 
-## 🔴 §E291-ids — **THE LEDGER HAS NO ALLOCATION STEP — AND THIS ROW PROVED IT BY COLLIDING**
+## 🔴 §E291-ids — **STILL TRUE: NO ALLOCATION STEP, AND THE ROW PROVED IT BY COLLIDING**
 
-⛔ **SUFFIXED, AND THE REASON IS THE ROW'S OWN THESIS.** I claimed `§E291` by grepping for the highest
-id and adding one. **Another thread claimed it in the same window** — `§E291` at `:6768` is *"evidence
-rescued from an abandoned commit: three on-pool EMAs agree to 7.2 bps"*, unrelated to this. ⇒ **The row
-about id collisions collided, by exactly the mechanism it describes.** Mine takes the suffix (newer in
-the file, and one edits one's own row before someone else's).
+*"I claimed `§E291` by grepping for the highest id and adding one. Another thread claimed it in the
+same window."* ⇒ **the row about id collisions collided, by the mechanism it describes.**
 
-⛔ **AND MY COUNT WAS WRONG — I RAN THE GREP WITHOUT THE CONTROL.** It said *"16 of 114 row headers"*.
-That pattern was `^#{1,3}`, which counts **`###` sub-headings and any heading that merely CITES an id**
-as though each were a row. **Measured properly — level-2 headers only, `^## ` — it is 2 duplicated ids
-out of 57 rows**, and one of those two (`§E258`) is one finding written up in two places
-(`0-BUILD` and `0-CRITICAL-B`), not two findings sharing a name. **The other was this row.**
-⇒ **I over-stated the problem ~8× and did it the same way I have been faulting others for all day:
-reported a grep's output without asking whether it would look the same if I were wrong.**
-
-⭐ **THE FINDING SURVIVES THE CORRECTION, WHICH IS WHY THE ROW STAYS.** Today `§E286` and `§E287` each
-genuinely carried **three distinct rows**, `§E278` and `§E283` two, and this row made a fifth
-collision — five in one day is not a measurement artifact. **The rate is the problem; my number for
-the stock was not.**
-Today alone: **`§E287` × 3 distinct rows** (the survival mechanism, the refuted `q²` proposal, the
-`init` manager pair), **`§E286` × 3** (the cap/integral finding, the floor argument, the UniV3 venue
-row), **`§E278` × 2**, **`§E283` × 2**.
-
-§E124 already recorded this class — *"two threads independently numbered from E96, so 28 ids are
-duplicated and every cross-reference in both blocks is ambiguous"* — and prescribed the repair
-(**suffix the newer row, never renumber**). **The repair works and is being applied. What is missing
-is the thing that would stop it recurring: there is no step at which an id is CLAIMED.** Every thread
-greps for the highest `§E` and adds one, and three threads grepping within the same minute all get the
-same answer.
-
-⇒ **THE FIX IS ONE LINE OF PROCESS, NOT A CLEANUP:** *the commit that first uses an id must be the
-commit that writes its header into `SPRINT.md`* — claim and use in the same commit, so a second thread
-grepping after it sees the id taken. That is rule 12's shape (*book it in the same turn*) applied to
-the identifier rather than to the finding.
-⚠️ **DO NOT RENUMBER THE EXISTING 16.** §E124 is explicit and the reason is unchanged: renumbering
-breaks every citation already written elsewhere, including in commit messages, which cannot be edited.
-📌 **AND AN INDEX MULTIPLIES THE DAMAGE** (§SKEW-LEARNINGS trap 8): a consolidated pointer list
-inherits every ambiguous id it cites, and it is READ INSTEAD OF the rows — so an ambiguous citation
-there sends the next thread to the wrong evidence with no signal that it happened.
-
-### 📌 WHY THIS IS BOOKED NOW RATHER THAN NOTED
-Two of my own rows (`§E286-floor`, `§E287-qsquared`) spent part of today marked ⭐/🔴 while carrying
-designs §E288 had refuted, because **a rebase silently dropped the withdrawal edits and I verified the
-push rather than the content.** An ambiguous id makes exactly that failure harder to see: the reader
-who follows `§E287` may land on any of three rows, one of which recommends a refuted design.
-⇒ **Ambiguity and staleness compound. The id is the address of the evidence; when it resolves two
-ways, every other verification discipline in this file loses its anchor.**
-
----
-
+✅ **Unchanged and unfixed** — `§E###` ids are still claimed by grep, and grep is not a lock. Same
+structural cause as §E322 (one file, many writers, no coordination primitive), expressed in the
+NAMESPACE rather than in the bytes.
+⚠️ **Its self-correction is the part to keep:** the first count (*"16 of 114 row headers"*) used
+`^#{1,3}`, which counts `###` sub-headings and any heading that merely CITES an id. **The row that
+found a counting error made one.**
+📌 Cheap fix whenever wanted: ids need not be sequential. A collision is possible only because the next
+id is **derivable**; a random or timestamped suffix removes the race without needing a lock.
 ## 🟡 §E293 — **THE DISAMBIGUATION STANDS. Three settled, and the fourth is now Part III decision 5.**
 
 Four objects share the word "1inch", and conflating them *"has already produced wrong conclusions
@@ -21083,7 +21045,18 @@ before you push, and finish the refactor in the direction the landed half alread
 half-landed signature change is not a merge conflict; it is a compile error waiting for whoever pulls.
 ---
 
-## ✅ §E319-FOLDKEY — **FOLD KEY: THE NINE FOLDED FILES AND THEIR HOSTS. `check-doc-symbols.py` LISTS THEM AS MISSING AND THEY ARE NOT TOMBSTONES.**
+## ✅ §E319-FOLDKEY — **KEEP. It named this session's costliest pattern before any of its instances.**
+
+> *"A reader who checks one of these against the tree finds nothing and concludes the concern is
+> obsolete, **which is the exact misreading the citation existed to prevent.**"*
+
+⭐ **THAT MISREADING IS THE SESSION'S MOST EXPENSIVE PATTERN, AND THIS ROW STATED IT FIRST.** The same
+shape produced all three of 2026-09-11's worst errors: the symbol-count filter (*"7 of 10 symbols gone
+⇒ omittable"*, refuted by the owner); the topic-density purge (*"a topic match is not a subject
+match"*); and `proRataShortfall` deleted a third time because its file-mates were dead.
+⇒ **Absence of a symbol is not absence of a subject.** Read this row before any sweep keyed on whether
+a cited symbol resolves. The nine FOLDS below are the concrete case: file gone, code live in a host.
+
 
 `tools/check-doc-symbols.py` reports 68 cited-but-absent `.sol` files. CLAUDE.md says to classify each
 row as **RENAME** or **TOMBSTONE** before touching anything. Nine of those rows are neither: they are
@@ -21405,79 +21378,22 @@ works here — grep the CASTS, not the declarations.
 
 ---
 
-## 🔴 §E322 — **A PUSH-RETRY LOOP FINISHED ANOTHER THREAD'S IN-FLIGHT REBASE. IT RESOLVED CORRECTLY BY LUCK, NOT BY DESIGN.**
+## ✅ §E322 — **ITS PRACTICE IS NOW MECHANISED, AND THE SAME DAY PROVED WHY IT HAD TO BE**
 
-Booked because the outcome was clean and the mechanism is not, which is the combination that gets a
-practice repeated until it costs something.
+> *"A push-retry loop finished another thread's in-flight rebase. **It resolved correctly by luck, not
+> by design.**"* The loop stripped conflict markers automatically, justified because `SPRINT.md`
+> conflicts *"are almost always two threads APPENDING different sections to the end of one file."*
 
-**THE LOOP.** To land a commit against a branch several threads push to, I used:
-`git fetch; git rebase origin/main || { strip conflict markers from every UU file; git add; git rebase --continue; }; git push`
-— with the marker-stripping justified by the fact that `SPRINT.md` conflicts here are almost always
-two threads APPENDING different sections to the end of one file, where "keep both sides" is right.
-
-**WHAT ACTUALLY HAPPENED (times from the `HEAD` reflog).** At **17:41:27** another thread ran
-`pull --rebase -q origin main`. That detaches `HEAD` onto `origin/main` and, on conflict, leaves
-`docs/actionable/SPRINT.md` at `UU`. At **17:42:00** my loop ran. My `git rebase origin/main` failed —
-**not because MY rebase conflicted, but because THEIRS was already in progress** — and the fallback
-fired anyway: it stripped the markers from **their** conflicted file, staged it, and ran
-`rebase --continue`, which replayed **their** `C26` commit. The reflog records it plainly:
-`rebase (continue): C26: book two facts that lived only in commit messages`, a commit I did not write.
-
-**THE OUTCOME WAS FINE, AND VERIFIED RATHER THAN ASSUMED:** `C26` is on `origin/main` as `6901c7fe`
-with all 22 insertions, both their section and `§E321` are present, zero conflict markers remain, and
-the file matches `origin` byte for byte.
-
-⛔ **BUT IT WAS RIGHT ONLY BECAUSE BOTH SIDES WERE ADDITIVE APPENDS TO ONE MARKDOWN FILE.** Against a
-semantic conflict — two threads editing the same function, the same row, the same signature — that
-fallback produces a **silently wrong merge inside an operation the author never started and cannot
-see**. The failure would surface as a correct-looking commit with someone else's name on it, which is
-the hardest kind to trace back.
-⇒ **THE FIX, AND IT IS ONE LINE: A RETRY LOOP MUST REFUSE TO ACT WHEN AN OPERATION IS ALREADY IN
-FLIGHT.** Before any `rebase --continue`, check for `.git/rebase-merge`, `.git/rebase-apply`,
-`.git/MERGE_HEAD` and `.git/CHERRY_PICK_HEAD`; if one exists and you did not create it, **stop and
-leave it alone** — the state belongs to another thread, and the correct move is to wait, not to tidy.
-⚠️ **AND THE STRUCTURAL LESSON, WHICH THIS FILE ALREADY KNOWS IN ANOTHER FORM: DO THE WORK IN A
-WORKTREE.** A rebase-and-push loop in the SHARED checkout can reach into a neighbour's operation. The
-same loop in `git worktree add --detach` cannot, because the in-progress state lives in that
-worktree's own admin directory. This is the same conclusion as the rules 11/15 resolution at the head
-of `CLAUDE.md`, arriving from a third direction — **the shared checkout is the hazard, every time.**
-📌 An observer flagged the detached `HEAD` and the `UU` marker and deliberately left both alone.
-**That instinct was correct** and is the behaviour to keep: an unexplained in-flight git state in a
-shared tree is someone else's, until the reflog says otherwise.
-
-### C27. ✅ ALL SEVEN `tools/*.py` GATES GREEN — two were RED on `main` and both were real
-
-Run at close. **Five were already green; two failed, and neither was noise.**
-
-**C27-a. 🔴 `check-signer-allowlist` — an UNCLASSIFIED selector, which the enclave REFUSES by default.**
-`pendingClaimSats(bytes32)`, built at `quid-ln/quid-bridge/src/channel_driver.rs:254` (§LAZY-OPEN claim
-retry), was in neither `HOP_SIGNED_FN_SIGS` nor `READ_ONLY`. **Classified READ_ONLY, and the evidence is
-conclusive rather than a judgement call:** `BTCChannels.sol:385` declares `mapping(bytes32 => uint)
-public pendingClaimSats`, so this is **solc's auto-generated view getter — there is no state-changing
-function of that name to sign**; the bridge reads it through `eth_call_raw` in `read_pending_claim`,
-whose own comment says the figure *"only ever gates whether we submit a retry"*. ⇒ 40 signatures, 14
-hop-signed, 26 read-only, **clean**.
-
-**C27-b. 🔴 `check-pnl-agnostic` — SIX ratchet entries with ZERO write sites.** The check refuses to pass
-over a vanished symbol, correctly, and its instruction is *"update the baseline deliberately; do not
-drop the entry."* Both halves resolved with evidence:
-- `skewPremiumETH` / `skewPremiumBTC` → **`skewPremium`. A RENAME.** `Core.sol:346` declares it,
-  `:358` writes `skewPremium += premiumUsd`. **The ETH/BTC suffix moved from the NAME to the
-  INSTANCE** (Core is deployed twice) — the standing one-name-two-instances pattern — so one entry
-  now covers both books. ⚠️ This is exactly the case `CLAUDE.md` warns about: **a zero-hit grep on a
-  suffixed name is evidence of a RENAME, never of a removal.**
-- `_flowETH` / `_flowBTC` / `_premETH` / `_premBTC` → **NO SUCCESSOR.** No `flow*`/`prem*` accumulator
-  takes `+=`/`-=` anywhere in `evm/src`. The quantity is computed and **discarded**, which is precisely
-  what **§E320-SSRN** books (*"we compute the sign on every swap and throw it away"*). Removed from the
-  ratchet because the symbol is gone — **not because the gate was inconvenient. If a flow accumulator
-  is ever added back it MUST be re-listed**, and the reasoning is recorded in the script itself.
-
-⇒ **`check-contract-sizes` OK (tightest `Quid`, 472 bytes spare) · `check-client-abis` 0 drifted (the
-`openChannelDigest` ORPHAN reported earlier is now resolved) · `check-doc-symbols`, `check-fuzz-targets`,
-`check-skew-agnostic` clean.**
-
----
-
+⭐ **THE HAZARD IS STRUCTURAL AND UNCHANGED:** `docs/actionable/SPRINT.md` and `CLAUDE.md` are
+**symlinked from every worktree into the main checkout and marked skip-worktree**, so every lane edits
+ONE file. *"Almost always"* is doing the load-bearing work in that justification.
+✅ **MECHANISED 2026-09-11.** Edits now go through a read-**hash**-write helper that ABORTS if the bytes
+changed between read and write, rather than resolving a conflict after the fact. An optimistic-
+concurrency check cannot "resolve correctly by luck": it either wrote against the bytes it read, or it
+refused.
+🔴 **NEEDED WITHIN HOURS** — the bitcoin thread landed three commits into this file during one
+reconciliation pass. A naive read-all/write-all would have dropped them silently: this row's failure
+mode from the other direction, **overwriting a commit rather than finishing a rebase.**
 ## §E323-FOLDFACTS — **TWO FOLD FACTS THAT LIVED ONLY IN A COMMIT MESSAGE, AND ONE OF THEM IS A REPEAT LOSS**
 
 Found by grepping `SPRINT.md` for the substance of `d3262881`'s body and getting **zero hits** — the
