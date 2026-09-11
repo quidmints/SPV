@@ -2237,9 +2237,16 @@ JURISDICTION-SCOPED, not a contradiction of this.
   ⚠️ **Do not restate it in `QUEUE.md`.** The SPV rows (§E170/§E171-r/§E174/§E187/§E188) now keep
   only the protocol-side facts and point at §3b; two copies of a spec drift, and the one that drifts
   is always the copy in the repo that cannot build the thing.
-- `docs/informational/` **contradicts the contracts in ~10 verified places** (the range is ±0.2%, not
-  ±2%; the short leg, `baseRate`, CRE, and the swap-in bonus are gone; the stable count moved).
-  Never quote it without checking the code.
+- ⛔ **`docs/informational/` IS DELETED (2026-09-11) — consolidated into `docs/FAQ.md`** (owner: *"one of
+  the goals was to consolidate all those docs into one faq"*). It had contradicted the contracts in ~10
+  verified places, and **three of its nine files carried their own OVERRULED banners.** Five were deleted
+  as stale-or-disproven; four were folded into FAQ answers (vault health vs depeg, the single ETH venue,
+  the line on discretion, the netting thesis, the Parisian-knock-out definition).
+  ⚠️ **FAQ.md IS NOW THE OUTWARD-FACING DOC AND IT INHERITS THE HAZARD, NOT IMMUNITY FROM IT.** Measured
+  the day it absorbed them: FAQ's own skew answer still explained the **deleted** Avellaneda-Stoikov
+  kernel — `Γ·σ²·q̄`, the variance registers, `recordSkewPremium` — with confident `file:line` citations,
+  and had **zero** mentions of the flat 420 ppm that replaced it. **Consolidating does not destale; check
+  FAQ against the code exactly as hard as you would have checked that folder.**
 - `SPRINT.md` `§BUILD-QUEUE-FOLD` is a folded **append-only archive**: its evidence (traces,
   `file:line`, measurements) is authoritative, its **status markers are not**. Current status lives in
   `docs/actionable/SPRINT.md` itself and is updated in place. Some of its citations point at `/home/rico`

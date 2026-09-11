@@ -98,5 +98,8 @@ reads until the relationship is derived on this system's balance sheet. **That g
 ⇒ **Next MEASUREMENT, not next commit.**
 
 ## 6. Where the prose version lives
-`docs/informational/SKEW-AND-REFILL.md` — the same picture without symbols or line numbers, for reading
+⛔ `docs/informational/SKEW-AND-REFILL.md` is DELETED (2026-09-11). It described the scarcity kernel and an
+expected-flow reserve target as LIVE, and both are gone — `wellSkew`/`sellSkew` return a flat 420 ppm. Its
+central claim, *"restoration happens by ordinary entry"*, is the one the model explicitly rejected: §PLP-T
+calls organic counter-flow *"not a mechanism — a hope"*, and §6 replaces it with a PAID dated claim
 rather than for acting.

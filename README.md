@@ -30,7 +30,7 @@ reconstructs on-chain — the contract does secp256k1 elliptic-curve arithmetic 
 | `indexer/` | A small self-hosted indexer for protocol events. |
 | `regtest/` | A reproducible Bitcoin regtest node and the shell drivers for the end-to-end channel, swap-in and swap-out flows. |
 | `deploy/` | Provisioning: `deploy-l1.sh`, `run-hop.sh`, the `*.env.example` templates, and `PRODUCTION-LAUNCH.md`. |
-| `sims/`, `analysis/` | Economic simulation (JS) and the price-data/IL series behind the numbers in `docs/informational/`. |
+| `sims/`, `analysis/` | Economic simulation (JS) and the price-data/IL series behind the economic numbers. |
 | `tools/` | Repository gates and analysis helpers. |
 | `docs/` | See "Where the documentation lives". |
 
@@ -117,14 +117,15 @@ canonical for status.
 | What is still open? | `docs/actionable/TODO.md` |
 | What crosses a chain boundary? | `docs/actionable/CHAIN-COUPLING.md` |
 | What is QU!D, for a reader not in the code? | `docs/FAQ.md` |
-| How does the economics work? | `docs/informational/` |
+| How does the economics work? | `docs/FAQ.md` |
 | How do I deploy, or run the hop and LP daemons? | `deploy/PRODUCTION-LAUNCH.md`, `deploy/README.md` |
 | What must the front end enforce? | `spa/FRONTEND-TODO.md` |
 
-⚠️ `docs/informational/` is prose written to persuade and it contradicts the contracts in several
-places — never quote it without checking the code. In particular every θ, K and LVR figure in that
-folder was computed on a range geometry that has since changed: the ±0.2% band it assumes is now
-±2%, which moves K from ~125e18 to ~12.56e18.
+📌 `docs/informational/` was DELETED on 2026-09-11 and consolidated into `docs/FAQ.md`. It was prose
+written to persuade, contradicted the contracts in several verified places, and three of its nine files
+carried their own OVERRULED banners. Five were deleted outright; four were folded into FAQ answers.
+⚠️ **The θ/K/LVR figures that folder carried are gone with it, and that is deliberate** — every one was
+computed on a range geometry that had since changed, so they described a pool that no longer existed.
 
 ⚠️ `docs/FAQ.md` has not been reconciled against the current contracts. It still describes Uniswap
 v4, per-venue deposit codes, Euler, eleven stablecoins, a `setTargetLtv` entrypoint, a Safe-governed

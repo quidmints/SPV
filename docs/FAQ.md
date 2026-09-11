@@ -10,7 +10,9 @@ statement of the same system and is the reference for anyone reading the code. E
 carries a source. Anything marked **OPEN** is genuinely unresolved and most of it needs counsel rather
 than engineering.
 
-⚠️ **`docs/informational/` is prose written to persuade and is not reconciled against the contracts.**
+📌 **`docs/informational/` NO LONGER EXISTS — this file is the consolidation of it** (owner, 2026-09-11:
+*"one of the goals was to consolidate all those docs into one faq"*). Nine documents went: five deleted as
+self-declared OVERRULED or as describing deleted mechanisms, four folded into the answers below.
 Every θ, K and LVR figure in that folder was computed on a range geometry that has since changed by
 10× — it assumes a ±0.2% band and the band is now ±2% — so none of those numbers is quoted here.
 
@@ -418,7 +420,7 @@ discretion argument to make. One destination has none of those. What you get for
 restaked the whole time it is deposited, while the same coins are the range's depth — venue yield on
 the whole stack, and the range's earnings on the slice that is quoting.
 
-⚠️ `docs/informational/ETH-VENUES.md` still describes the multi-venue design and its deposit codes.
+📌 The single-venue answer is now *"What happens to my Ethereum, exactly"* below; `ETH-VENUES.md` is deleted.
 It is stale; the code above is the system.
 
 ## Where does the range live, if there is no pool?
@@ -686,7 +688,7 @@ for that bet is the scarcity premium the range itself retains.
 about 12.56 where the retired ±0.2% band put it at about 125 (`evm/src/imports/SwapLib.sol:870-874`).
 The band's width is the *only* lever on K that exists anywhere in the tree; there is no coefficient to
 tune. That 10× move is also why **no θ, K or LVR figure is quoted in this document**: the material in
-`docs/informational/` was written against differing assumptions about the band and has not been
+`docs/informational/` (now deleted) was written against differing assumptions about the band and was never
 reconciled against the deployed width, so any number taken from it needs re-deriving before it is
 repeated.
 
@@ -783,8 +785,116 @@ own QU!D — the redeem path burns the caller's own matured balance (`Basket.tur
 retargets the payout without changing whose tokens are burned.
 
 A third term, a Liquity-style decaying directional toll, was documented and then removed, because QU!D
-has no peg-arbitrage loop for it to price. See `docs/informational/FEES-OUTFLOWS-TWAP.md`, which carries
-the retraction.
+has no peg-arbitrage loop for it to price. Measured 2026-09-11: `FeeLib` charges **nothing** on an
+outflow — `applyFeeAndHaircut` applies no fee and the word `concentration` has zero occurrences in it.
+The only live charge on a redemption is the depeg haircut, which prices a loss that already happened
+rather than braking the drain that concentrates the next one. **Whether an outflow charge should exist
+at all is an open product decision**, booked as `C2b` in `docs/actionable/SPRINT.md`.
+
+## What may the protocol decide, and what is it never allowed to decide?
+
+There is one line, and it is drawn at whose money is at stake.
+
+> **Discretion over whether and when to hedge our own balance sheet — permitted.** That is the pool's
+> own risk, and it is already priced.
+> **Discretion over when a customer is paid — not permitted.** That is their money, and deferring it
+> converts depositors into involuntary unsecured creditors of a directional bet they cannot see.
+
+The temptation has a respectable name — *wait for a better price* — and the second version of it is an
+unpriced option that depositors wrote and were never paid for. ⚠️ **And deferral does not merely look
+inelegant there; it breaks the invariant silently**, which is why the line is a rule rather than a
+preference.
+
+**If the pool cannot realise the mark, the mark is wrong, and the fix belongs in the mark.** The worked
+example is already in the code: parked SOL is credited at a haircut because the unpark round trip
+genuinely costs about 40 bps. That is a pricing answer, not a timing answer. Any time the honest move
+looks like *hold and hope*, the real defect is upstream in what the position is being valued at.
+
+## What is the actual edge? "We trade better" is a claim someone has to keep funding.
+
+**Netting, not skill — and it is structural rather than a forecast.**
+
+The pool is short the **net** per ticker, never the gross. Alice long 100 against Bob short 100 leaves it
+flat: instantly, at zero cost, on a weekend, with no venue open. No individual trader can net across a
+book they do not have. And on the netted portion the pool **has no liquidation price at all**, which is
+the entire reason it can wait where a levered trader cannot.
+
+That claim needs no forecast, survives being wrong about direction, and can be explained to a depositor.
+*"We trade better than individual traders"* is a skill claim that has to keep being true, funded by
+people who never opted into it. ⛔ **Only the first is defensible, so only the first is the thesis.**
+
+⚠️ **One boundary has to stay where it is.** Liquidation levels here are on-chain and deterministic, so
+anyone can compute them from public state. Acting ahead of a liquidation the whole world can see is
+market-making; acting on non-public knowledge of when customers must transact is front-running. **The
+distinction survives only while the levels stay computable from published state — so no private trigger
+may ever be introduced.**
+
+## What is the perpetuals instrument, stated precisely?
+
+> **A perpetual, double-barrier, PARISIAN knock-out with gradual knock-out, written by the pool and paid
+> for as a hazard rate.**
+
+Every word is checkable in the code. **Perpetual** — there is no maturity anywhere; `T` never appears,
+and the premium is charged as a running rate rather than converted from a term price. **Double-barrier**
+— upper and lower sit at the pledge plus and minus a collar. **Parisian** — the breach clock starts on
+first breach, accumulates elapsed time, and **resets to zero if the price comes back inside the band**;
+consecutive-time-beyond-barrier with reset is precisely the Parisian condition, where cumulative-without-
+reset would be Parasian. **Gradual knock-out** — not one extinction event but a capped fraction per
+window across a week of windows. **Hazard rate** — carry plus hazard times expected loss given breach,
+in units of 1/time natively, so there is no maturity to invent and no premium-to-rate fudge.
+
+⚠️ **Calling it a "perpetual two-sided knock-out" is true and insufficient.** A plain knock-out dies *at*
+the barrier. This one requires the barrier to be held through a grace period, forgives an excursion that
+returns, and then dies *slowly*. Those three properties are the entire difference between what was priced
+and what was written.
+
+## A basket vault stops paying out. Does our backing drop?
+
+Only if money was actually lost — and the distinction is the whole design.
+
+**Vault health is a different question from a depeg.** The depeg watcher asks *is this token worth less
+than a dollar?* Vault health asks *can this vault still return our stablecoins?* Conflating them is how
+a safety mechanism becomes a liability, so the answer separates three cases that look identical from
+outside.
+
+**Insolvency — money is gone.** A Morpho market the vault lent into takes bad debt and the vault writes
+it down, so `convertToAssets` drops. **Our backing already falls automatically**, because the basket
+reads `convertToAssets` directly. Applying a haircut on top would double-count the same loss. The right
+action is to stop feeding a losing vault and get out, not to re-quote.
+
+**Illiquidity — the money is there and locked.** Utilisation runs near 100%, so `maxWithdraw` is small,
+but every dollar is still recoverable later. We evacuate the withdrawable part, block new deposits, and
+value the position at `maxWithdraw` — what it can actually deliver, rather than par. **The locked
+remainder is not a loss and is deliberately not haircut.**
+
+**Unrealised impairment — the vault's own report overstates what is recoverable.** This is the only case
+where a re-quote would be warranted, and it is the one case that **cannot be derived on chain.**
+`totalAssets` and `convertToAssets` are the vault's self-report, and on un-written-down bad debt they
+read stale-*high* — which is precisely the thing you would need to detect. Real solvency lives in
+per-market collateral health, oracle liveness, and bad debt that only crystallises on liquidation, none
+of which a single on-chain scalar exposes. **So the watcher does not guess.** It runs liquidity-only:
+illiquidity triggers an evacuation, never a re-quote on a guess, and realised losses land through
+`convertToAssets` as they happen.
+
+**It is permissionless and it can only tighten.** `Aux.pokeVaultHealth(vault)` reads nothing but ERC-4626
+ground truth (`convertToAssets(balanceOf)` against `maxWithdraw`) and anyone may call it, so a captured
+key cannot withhold the rescue. It can never unblock a vault it did not itself flag and never re-quotes
+value; an unfakeable read plus a 30-minute cross-poke dwell makes a grief call impossible. A blocked
+vault re-admits only once it is genuinely liquid again, so a transient blip cannot move its status.
+**There is no graded haircut lever** — an owner-only one existed, was always zero in production, and was
+removed with the off-chain reporter, because both were trust surfaces buying nothing.
+
+## What happens to my Ethereum, exactly, and is my exit walled off from everyone else's?
+
+Every ETH deposit becomes **weETH**, earning the full ether.fi staking rate. **There is no venue
+choice**: `Quid.deposit` takes no venue argument, `QuidLib._supplyEtherFi` is the single destination, and
+a placement of zero reverts rather than silently redirecting somewhere else.
+
+Exits run a ladder, and the important part is that they are **not** walled per depositor. The ETH leg is
+served from the aggregate position, and a slice that cannot be served liquidly is **deferred rather than
+charged to the LP who happens to be exiting**. The offramp tries the Curve weETH/WETH pool first and
+falls back to a multi-day, no-fee withdrawal NFT minted to the withdrawer. ⚠️ That ordering matters and
+is easy to get backwards: **Curve is first and the NFT is the fallback**, not the reverse.
 
 ## How does the Bitcoin side work without a custodian?
 
