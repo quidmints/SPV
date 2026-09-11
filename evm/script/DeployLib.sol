@@ -136,8 +136,8 @@ library DeployLib {
             // directly: BTC locks capital through ~1hr of confirmations and pays an on-chain
             // splice fee; ETH settles in ~one block with neither. VOL_DECIMALS is read from the
             // asset token itself, so it cannot be mistyped here.
-            core          = new Core(cfg.weth, SwapLib.ethRisk());
-            Core btcCore  = new Core(cfg.wbtc, SwapLib.btcRisk());
+            core          = new Core(cfg.weth);
+            Core btcCore  = new Core(cfg.wbtc);
             a.btcCore = address(btcCore);
             // §E222 — NO OBSERVATION SOURCE IS PINNED. A single Curve 3-coin pool was pinned here and is
             // REMOVED ON THE OWNER'S INSTRUCTION (2026-08-21, said three times).

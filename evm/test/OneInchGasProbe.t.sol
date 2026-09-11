@@ -8,6 +8,15 @@ import {IOffchainOracle} from "../src/imports/Interfaces.sol";
 /// @notice The ring needs a price source INDEPENDENT of Chainlink, because Chainlink is already the
 ///         ANCHOR `twapResolve` checks the reading against — source it from Chainlink too and the
 ///         deviation test compares Chainlink with Chainlink and can never fire (§E222).
+/// 🔴 **AND THAT IS THE DEPLOYED STATE, 2026-09-10 — SO THIS TEST NOW RECORDS AN UNMET REQUIREMENT.**
+///         `setObservationSource` has ZERO non-test callers and no deploy script calls it, so
+///         `Core._observeIfSourced` takes its `src == address(0)` arm and feeds the ring FROM THE
+///         CHAINLINK ANCHOR. The deviation guard therefore compares a Chainlink-derived TWAP against
+///         fresh Chainlink: it can fire on STALENESS and cannot fire on MANIPULATION.
+///         ⚠️ The σ² justification that used to share this paragraph is GONE (§NO-GAMEABLE-BOUND
+///         deleted the variance estimator), which makes the deviation guard the requirement's ONLY
+///         remaining consumer — the reason to keep this file rather than retire it with σ².
+///         See `docs/actionable/TARGET-DESIGN.md` §6c.
 ///         1inch is the ideal candidate on every axis except one: it aggregates **14 registered DEX
 ///         oracles**, is verifiably NOT Chainlink republished (the two DISAGREE by ~0.08% on ETH/USD,
 ///         which is the proof), and returns a plain rate needing no `TickMath`.

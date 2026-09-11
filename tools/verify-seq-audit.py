@@ -39,10 +39,15 @@ GONE_SOL = [
     "isValidSignatureNow", "setHopRegistry", "_requireAttested", "hopRegistry",
     "dust6", "_dustOf", "pushObservation", "registerFallback", "fallbackAuthority",
     "selfManaged", "oorBook", "repackNFT", "feeSettleSats", "outOfRange",
+    "refillNeeded", "proRataShortfall", "skewWad", "applyTheta", "derivedThetaWad",
+    "realizedVarianceWad", "anchorVarianceWad", "ringVariance", "flowEwmaUsd", "redeemEwmaUsd",
+    "cascadeDelever", "rebalanceMany", "openLevCount", "openLpAt", "netFlowUsd",
 ]
 LIVE_SOL = [
     "settleSwapInProven", "registerChannelClaim", "_settleSellIntent", "termsCommitment",
-    "borrowRateRay", "lpEthOf", "refillNeeded", "skewPremiumCum", "isTwoOfTwoOutputKey",
+    # §FLAT-FEE (2026-09-10) — `refillNeeded` MOVED FROM LIVE_SOL TO GONE_SOL below: the refill
+    # cluster is deleted, so a LIVE claim on it would now fail for want of a declaration.
+    "borrowRateRay", "lpEthOf", "skewPremiumCum", "isTwoOfTwoOutputKey",
     "_requireRecipientPoP", "recordDeadManExit", "_armLadder",
 ]
 GONE_RS = ["registerDelegation", "encode_register_delegation"]
@@ -54,8 +59,12 @@ ABSENT_PATHS = [
     "docs/actionable/QUEUE.md",
 ]
 PRESENT_PATHS = [
+    # §FLAT-FEE (2026-09-10) — `PremiumIsCarryNotIncome.t.sol` was here and is DELETED. It tested the
+    # theta numerator (premium as carry, not income); theta and the premium EWMA are both gone, so
+    # the claim is retired rather than re-pointed. Left as a comment because the gate's whole value
+    # is that a path claim fails loudly when the file moves.
     "evm/test/utils/ForkPin.sol", "evm/test/RefillKeeper.t.sol",
-    "evm/test/PremiumIsCarryNotIncome.t.sol", "evm/src/Shares.sol",
+    "evm/src/Shares.sol",
     "evm/test/btc/DeadManExitVerify.t.sol", "quid-ln/quid-hop/src/liveness.rs",
 ]
 

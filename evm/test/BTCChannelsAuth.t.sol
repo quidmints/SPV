@@ -83,11 +83,11 @@ contract BTCChannelsAuthTest is Test, ExitFixture {
     /// digest hashes exactly this encoding — has gone stale and would sign the wrong
     /// bytes.
     bytes32 constant RUST_OPENPARAMS_STRUCT_HASH =
-        0xe5055c9a1fe82c0decd8413a97eb6579ded9e16299921d8cdf96d12078c52b2b;
+        0x08bad85fcc440e5166e2d139922fe3f500ee90766996d0c70636a17480bff95e;
 
     /// GROUND TRUTH for the Rust evm_codec ABI mirror
     /// (quid-hop open_params_abi_matches_solidity): keccak256(abi.encode(p)) for a fixed
-    /// 7-field taproot OpenParams, pinning the Rust encoder byte-exact to Solidity's
+    /// 8-field taproot OpenParams, pinning the Rust encoder byte-exact to Solidity's
     /// abi.encode. Field values below are the SAME fixture the Rust test builds.
     ///
     /// ⚠️ `lpPubkey` HERE IS DELIBERATELY NOT A CURVE POINT, AND MUST NOT BE "FIXED".
@@ -114,7 +114,7 @@ contract BTCChannelsAuthTest is Test, ExitFixture {
             fundingTaproot:     bytes32(hex"2222222222222222222222222222222222222222222222222222222222222222"), lpIdentityPubkey: hex"020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20" });
         bytes32 h = keccak256(abi.encode(p));
 
-        // PREMISE: the pinned hash must actually COVER all seven fields. A hash match is
+        // PREMISE: the pinned hash must actually COVER all EIGHT fields. A hash match is
         // only a byte-exactness proof if every field feeds it — if one were dropped from
         // the encoding (or added to the struct but left out of `abi.encode`'s reach), a
         // matching hash would be a partial-coverage coincidence and the Rust encoder
@@ -128,6 +128,7 @@ contract BTCChannelsAuthTest is Test, ExitFixture {
         _assertFieldIsCovered(p, h, 4); // hopPubkey
         _assertFieldIsCovered(p, h, 5); // amountSats
         _assertFieldIsCovered(p, h, 6); // fundingTaproot
+        _assertFieldIsCovered(p, h, 7); // lpIdentityPubkey (§LPETH-THIRD-FIELD)
 
         // SAFETY: Solidity and Rust must produce the identical struct hash.
         assertEq(h, RUST_OPENPARAMS_STRUCT_HASH,
@@ -150,7 +151,13 @@ contract BTCChannelsAuthTest is Test, ExitFixture {
         else if (field == 3) t.lpPubkey           = hex"02a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
         else if (field == 4) t.hopPubkey          = hex"03b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b3";
         else if (field == 5) t.amountSats         = p.amountSats + 1;
-        else                 t.fundingTaproot     = bytes32(uint256(p.fundingTaproot) ^ 1);
+        else if (field == 6) t.fundingTaproot     = bytes32(uint256(p.fundingTaproot) ^ 1);
+        // §LPETH-THIRD-FIELD. The tamper is `hopPubkey` rather than a random string ON PURPOSE:
+        // that is the ONE substitution `openChannel`'s membership guard (`BTCChannels.sol:263`)
+        // lets through, so it is the value a drifting encoder could plausibly put here. If this
+        // field ever fell out of the encoding, the hop could pick which half becomes `lpEth` and
+        // the Rust side would sign an lpAuth digest that did not commit to the choice.
+        else                 t.lpIdentityPubkey   = p.hopPubkey;
         require(keccak256(abi.encode(t)) != h, "PREMISE: a field is NOT covered by the pinned struct hash");
     }
 

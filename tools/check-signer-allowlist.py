@@ -72,8 +72,10 @@ READ_ONLY = {
     "managerFreshnessSeq(address)",
     # lev keeper position/venue reads
     "pos(address)",
-    "openLpAt(uint256)",
-    "openLevCount()",
+    # 🔴 §POOLED-EXTRACTION (2026-09-10) — `openLpAt(uint256)` / `openLevCount()` stood here and are
+    #    DELETED. §POOL-VENUE removed the on-chain enrolment book, and both keepers now enumerate the
+    #    open set from `Opened`/`Closed` logs (`lev_keeper::open_lps_from_logs`) — an eth_getLogs
+    #    call, not a signed tx, so nothing replaces them on this list.
     "liqThresholdBps()",
     "ilTargetLtvBps(address)",
     "ilLtvBps(address)",

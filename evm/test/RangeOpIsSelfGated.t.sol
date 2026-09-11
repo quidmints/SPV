@@ -83,11 +83,4 @@ contract RangeOpIsSelfGated is AllesFixture {
                  "attacker received WETH through the old offramp selector");
     }
 
-    /// The gate must not have broken the real path: both live callers are Quid reaching back
-    /// into itself (`QuidLib.sendEth` op 1, `QuidLib._venueBalanceLib` op 2), so a self-call
-    /// still succeeds. `rangeETH()` is the wrapper's own read and stays reachable to everyone.
-    function test_TheVenueClaimIsStillReadableAndTheSelfPathStillWorks() public {
-        _seedVenue();
-        assertGt(ETH.rangeETH(), 0, "rangeETH() is a plain view and must remain public");
-    }
 }

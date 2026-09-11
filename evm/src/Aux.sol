@@ -344,8 +344,8 @@ contract Aux is
     }
 
     function quoteSwapOut(address asset, uint drainUsd6)
-        external returns (uint skewWad, uint redeemable) {
-        skewWad = wellSkew(asset, drainUsd6);
+        external returns (uint feeWad, uint redeemable) {
+        feeWad = wellSkew(asset, drainUsd6);
         redeemable = BasketLib.redeemableBody(address(BTC_CORE));
     }
 

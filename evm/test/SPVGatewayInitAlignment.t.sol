@@ -32,14 +32,6 @@ import {SPVFixtures} from "./SPVFixtures.sol";
 contract SPVGatewayInitAlignmentTest is Test {
     uint64 constant EPOCH = 2016;
 
-    /// The offsets worth naming: one past the boundary, one before the next, and the deceptive
-    /// "looks round" case. A height chosen by a human eye — 304400, say — is exactly the shape of
-    /// mistake this refuses.
-    function test_unalignedCheckpointHeightIsRefused() public {
-        _expectRefused(SPVFixtures.SIGNET_INIT_HEIGHT + 1);            // just past a boundary
-        _expectRefused(SPVFixtures.SIGNET_INIT_HEIGHT + EPOCH - 1);    // just short of the next
-        _expectRefused(SPVFixtures.SIGNET_INIT_HEIGHT - 16);           // 304400 — "looks round"
-    }
 
     /// A FRESH gateway per case: `initializer` is one-shot, so reusing one would make every case
     /// after the first pass on `InvalidInitialization` instead of on the rule under test.

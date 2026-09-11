@@ -355,45 +355,9 @@ library SwapLib {
 
     }
 
-    uint internal constant GAMMA_WAD = FLOW_HALFLIFE * WAD / 365 days;
-
-    uint internal constant KAPPA_WAD = 1e18;
-
-    uint internal constant UNKNOWN_VARIANCE_SKEW = 3e16;
-
-    uint internal constant SKEW_UNFILLABLE = 1e18;
-
-    uint internal constant DEPLETION_RATE_WAD = 2.1e14;
-
     uint public constant MIN_SWAP_SKEW_WAD = 4.2e14;
 
     uint internal constant RANGE_DELTA = 200;
-
-    uint internal constant CONF_FRAC_WAD = 114_000_000_000_000;
-    uint internal constant SPLICE_FLOOR  = 2e15;
-
-    uint internal constant ETH_CONF_FRAC_WAD = 380_000_000_000;
-
-    struct Risk { uint confFracWad; uint spliceFloor; }
-
-    function btcRisk() internal pure returns (Risk memory) { return Risk(CONF_FRAC_WAD, SPLICE_FLOOR); }
-    function ethRisk() internal pure returns (Risk memory) { return Risk(ETH_CONF_FRAC_WAD, 0); }
-
-    function _risk(address core) private view returns (Risk memory rk) {
-        (rk.confFracWad, rk.spliceFloor) = ICore(core).riskParams();
-    }
-
-    function _depletion(uint inv0, uint inv1) private pure returns (uint) {
-        if (inv0 == 0 || inv1 >= inv0) return 0;
-        return SoladyMath.mulDiv(DEPLETION_RATE_WAD, inv0 - inv1, inv0);
-    }
-
-    function _maxWellSkew(uint sigmaSqWad, Risk memory rk) internal pure returns (uint) {
-
-        uint confFrac = rk.confFracWad;
-
-        return SoladyMath.fullMulDiv(sigmaSqWad, confFrac, 8e18) + rk.spliceFloor;
-    }
 
     struct OorIntent {
         address owner;
@@ -455,164 +419,16 @@ library SwapLib {
     error IntentNotCrossed();
     error IntentUnfillable();
 
-    function skewWad(uint poolVolUsd, uint flowUsd, uint sigmaSqWad, Risk memory rk, uint drainUsd6)
-        internal pure returns (uint skew)
+    function wellSkew(address, uint, uint)
+        public pure returns (uint)
     {
-
-        uint target = flowUsd;
-
-        uint inv0 = poolVolUsd;
-        uint inv1 = drainUsd6 >= inv0 ? 0 : inv0 - drainUsd6;
-
-        if (target == 0) return _maxWellSkew(sigmaSqWad, rk) + _depletion(inv0, inv1);
-
-        if (inv1 >= target) return _maxWellSkew(sigmaSqWad, rk) + _depletion(inv0, inv1);
-
-        if (sigmaSqWad == 0) return UNKNOWN_VARIANCE_SKEW;
-        uint q1 = (target - inv1) * 1e18 / target;
-        uint q0 = inv0 >= target ? 0 : (target - inv0) * 1e18 / target;
-
-        uint kMinusQ1 = KAPPA_WAD - q1;
-        uint qBar;
-        if (kMinusQ1 == 0) {
-
-            qBar = type(uint).max;
-        } else if (q1 == q0) {
-
-            qBar = SoladyMath.fullMulDiv(
-                SoladyMath.fullMulDiv(KAPPA_WAD, q0, 1e18), 1e18, KAPPA_WAD - q0);
-        } else {
-            uint d = q1 - q0;
-
-            uint lnTerm = uint(SoladyMath.lnWad(int(
-                SoladyMath.fullMulDiv(KAPPA_WAD - q0, 1e18, kMinusQ1))));
-            lnTerm = SoladyMath.fullMulDiv(KAPPA_WAD, lnTerm, 1e18);
-            qBar = lnTerm > d
-                ? SoladyMath.fullMulDiv(
-                    SoladyMath.fullMulDiv(KAPPA_WAD, lnTerm - d, 1e18), 1e18, d)
-                : 0;
-        }
-
-        if (qBar == type(uint).max) return type(uint).max;
-        skew = SoladyMath.fullMulDiv(SoladyMath.fullMulDiv(GAMMA_WAD, sigmaSqWad, 1e18), qBar, 1e18);
-
-        skew += _maxWellSkew(sigmaSqWad, rk);
-
-        skew += _depletion(inv0, inv1);
+        return MIN_SWAP_SKEW_WAD;
     }
 
-    function _skewBasis(address core, uint base, uint addedTok)
-        private view returns (uint poolVolUsd)
+    function sellSkew(address, uint, uint)
+        internal pure returns (uint)
     {
-        poolVolUsd = SoladyMath.fullMulDiv(
-            (ICore(core).POOLED()) + addedTok,
-            base, 1e30);
-    }
-
-    function _boundToFullHaircut(uint skew) private pure returns (uint) {
-        return skew > SKEW_UNFILLABLE ? SKEW_UNFILLABLE : skew;
-    }
-
-    function _amplify(address core, uint preAmp, uint splice) private view returns (uint) {
-
-        preAmp = _boundToFullHaircut(preAmp);
-        uint out = preAmp > splice
-            ? SoladyMath.fullMulDiv(preAmp - splice, _sharedScarcityWad(core), 1e18) + splice
-            : preAmp;
-
-        return _boundToFullHaircut(out);
-    }
-
-    function _composePrice(address core, uint kernel, uint sigmaSqWad)
-        private view returns (uint) {
-
-        kernel = _boundToFullHaircut(kernel);
-
-        Risk memory rk = _risk(core);
-
-        return _amplify(core, kernel + _maxWellSkew(sigmaSqWad, rk), rk.spliceFloor);
-    }
-
-    function _sharedScarcityWad(address core) private view returns (uint) {
-        uint both = ICore(core).committedUsd18();
-        if (both == 0) return 1e18;
-
-        uint mine = ICore(core).rangeEquityUsd18();
-        uint other = both > mine ? both - mine : 0;
-        return 1e18 + SoladyMath.fullMulDiv(other, 1e18, both);
-    }
-
-    function _fillableDrain(uint inv0, uint target, uint sigmaSqWad, uint wanted)
-        private pure returns (uint) {
-
-        if (sigmaSqWad == 0 || target == 0) return wanted;
-        uint gs = SoladyMath.fullMulDiv(GAMMA_WAD, sigmaSqWad, 1e18);
-        if (gs == 0) return wanted;
-        uint r = SoladyMath.fullMulDiv(SKEW_UNFILLABLE, 1e18, gs);
-        uint invFloor = SoladyMath.fullMulDiv(target, 1e18, 1e18 + r);
-
-        if (inv0 <= invFloor) return wanted;
-        uint maxDrain = inv0 - invFloor;
-        return wanted > maxDrain ? maxDrain : wanted;
-    }
-
-    function wellSkew(address core, uint base, uint drainUsd6)
-        public view returns (uint)
-    {
-
-        Risk memory rk = _risk(core);
-        uint poolVolUsd = _skewBasis(core, base, 0);
-
-        uint target = ICore(core).skewTargetUsd();
-        uint sigmaSq = ICore(core).realizedVarianceWad();
-        uint raw = skewWad(
-            poolVolUsd, target, sigmaSq, rk,
-            _fillableDrain(poolVolUsd, target, sigmaSq, drainUsd6));
-
-        return SoladyMath.max(_amplify(core, raw, rk.spliceFloor), MIN_SWAP_SKEW_WAD);
-    }
-
-    function sellSkew(address core, uint base, uint addedTok)
-        internal view returns (uint)
-    {
-
-        uint flow = ICore(core).skewTargetUsd();
-        uint target = flow;
-        if (target == 0) return MIN_SWAP_SKEW_WAD;
-
-        uint inv;
-        {
-            uint poolVolUsd = _skewBasis(core, base, addedTok);
-            inv = poolVolUsd;
-        }
-
-        uint over = inv > target ? inv - target : 0;
-        if (over == 0) return MIN_SWAP_SKEW_WAD;
-
-        if (flow == 0) {
-            if (ICore(core).skewPremiumCum() > 0) revert NoShedPath();
-        }
-
-        uint qBar;
-        {
-            uint q1 = SoladyMath.fullMulDiv(over, 1e18, target);
-            if (q1 > 1e18) q1 = 1e18;
-
-            uint addedUsd = SoladyMath.fullMulDiv(addedTok, base, 1e30);
-            uint invBefore = inv > addedUsd ? inv - addedUsd : 0;
-            uint q0 = invBefore > target ? SoladyMath.fullMulDiv(invBefore - target, 1e18, target) : 0;
-            if (q0 > 1e18) q0 = 1e18;
-            qBar = (q0 + q1) / 2;
-        }
-        uint sigmaSqWad = ICore(core).realizedVarianceWad();
-
-        uint skew = sigmaSqWad == 0
-            ? UNKNOWN_VARIANCE_SKEW
-            : SoladyMath.fullMulDiv(
-                SoladyMath.fullMulDiv(GAMMA_WAD, sigmaSqWad, 1e18), qBar, 1e18);
-
-        return SoladyMath.max(_composePrice(core, skew, sigmaSqWad), MIN_SWAP_SKEW_WAD);
-
+        return MIN_SWAP_SKEW_WAD;
     }
 
     function creditSwapOutBody(address swapper, address token, uint usdAmount, uint minSats,
@@ -818,13 +634,13 @@ library SwapLib {
         }
     }
 
-    function applyTheta(uint thetaEff, uint rangeAvail, uint pooled, uint available)
-        internal pure returns (uint)
+    function proRataShortfall(uint shortfallUsd6, uint exitShares, uint totalShares)
+        internal pure returns (uint bornUsd6)
     {
-        if (thetaEff >= 1e18) return available;
-        uint thetaCap   = SoladyMath.fullMulDiv(rangeAvail, thetaEff, 1e18);
-        uint thetaAvail = thetaCap > pooled ? thetaCap - pooled : 0;
-        return available > thetaAvail ? thetaAvail : available;
+        if (totalShares == 0 || exitShares == 0 || shortfallUsd6 == 0) return 0;
+
+        if (exitShares >= totalShares) return shortfallUsd6;
+        bornUsd6 = SoladyMath.mulDiv(shortfallUsd6, exitShares, totalShares);
     }
 
     function plainNet(uint pooled, uint lev) internal pure returns (uint) {
@@ -844,14 +660,14 @@ library SwapLib {
     }
 
     function addLiqBody(address core, address aux, uint want, uint price,
-        uint thetaWad, uint backing) public returns (uint usdOut, uint outDelta)
+        uint backing) public returns (uint usdOut, uint outDelta)
     {
         (uint[16] memory deposits,,,) = IAux(aux).get_deposits();
         (uint deltaTok, uint targetUSD, uint surplus) =
             sizeBySurplus(deposits[15], ICore(core).committedUsd18(), want, price);
         if (surplus == 0) return (0, 0);
 
-        uint capped = clampByBacking(thetaWad, backing, ICore(core).POOLED(), deltaTok);
+        uint capped = clampByBacking(backing, ICore(core).POOLED(), deltaTok);
 
         if (capped < deltaTok) { deltaTok = capped; targetUSD = usdForTok(deltaTok, price); }
         usdOut = targetUSD / 1e12;
@@ -859,11 +675,10 @@ library SwapLib {
         outDelta = deltaTok;
     }
 
-    function clampByBacking(uint thetaEff, uint backing, uint pooled, uint want)
+    function clampByBacking(uint backing, uint pooled, uint want)
         internal pure returns (uint)
     {
         uint available = backing > pooled ? backing - pooled : 0;
-        available = applyTheta(thetaEff, backing, pooled, available);
         return want < available ? want : available;
     }
 

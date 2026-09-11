@@ -78,66 +78,11 @@ library QuidLib {
         }
     }
 
-    function kLvrWad(address core, uint loPrice, uint upPrice) public view returns (uint) {
-        (uint priceWad,) = ICore(core).poolStats();
-        return kLvrAt(priceWad, loPrice, upPrice);
-    }
-
-    function kLvrAt(uint priceWad, uint loPrice, uint upPrice) internal pure returns (uint) {
-        if (loPrice >= upPrice) return 0;
-        uint p = priceWad < loPrice ? loPrice : (priceWad > upPrice ? upPrice : priceWad);
-        uint r1 = FixedPointMathLib.sqrt(SoladyMath.fullMulDiv(p, 1e36, upPrice));
-        uint r2 = FixedPointMathLib.sqrt(SoladyMath.fullMulDiv(loPrice, 1e36, p));
-        uint denom = 2e18;
-        if (r1 + r2 >= denom) return 0;
-        denom -= (r1 + r2);
-        return SoladyMath.fullMulDiv(1e18, 1e18, 4 * denom);
-    }
-
-    function realizedAlphaWad(address core, uint loPrice, uint upPrice) public view returns (uint) {
-        (uint priceWad,) = ICore(core).poolStats();
-        if (loPrice >= upPrice) return 0;
-        uint p = priceWad < loPrice ? loPrice : (priceWad > upPrice ? upPrice : priceWad);
-        uint r1 = FixedPointMathLib.sqrt(SoladyMath.fullMulDiv(p, 1e36, upPrice));
-        uint r2 = FixedPointMathLib.sqrt(SoladyMath.fullMulDiv(loPrice, 1e36, p));
-        if (r1 >= 1e18 || r1 + r2 >= 2e18) return 0;
-        return SoladyMath.fullMulDiv(1e18 - r1, 1e18, 2e18 - r1 - r2);
-    }
-
-    uint internal constant PREMIUM_ANNUALIZE = 127;
-
-    function _rangeFeeYieldWad(address core) internal view returns (uint) {
-        uint prem6 = ICore(core).premiumEwmaUsd();
-        if (prem6 == 0) return 0;
-        uint pooled6 = ICore(core).POOLED_USD();
-        if (pooled6 == 0) return 0;
-        return SoladyMath.fullMulDiv(prem6 * PREMIUM_ANNUALIZE, 1e18, pooled6);
-    }
-
-    function derivedThetaWad(address core, uint loPrice, uint upPrice) public view returns (uint) {
-        uint sigmaSq = ICore(core).realizedVarianceWad();
-        if (sigmaSq == 0) return 1e18;
-        uint kWad = kLvrWad(core, loPrice, upPrice);
-        if (kWad == 0) return 1e18;
-        uint work = SoladyMath.fullMulDiv(kWad, sigmaSq, 1e18);
-        if (work == 0) return 1e18;
-
-        uint rangeFeeYield = _rangeFeeYieldWad(core);
-        if (rangeFeeYield == 0) return 1e18;
-        return SoladyMath.fullMulDiv(rangeFeeYield, 1e18, work);
-    }
-
     function addLiq(address core, address aux, uint wantTok, uint price, uint grossBuffer)
         public returns (uint usdOut, uint outDelta) {
 
         return SwapLib.addLiqBody(core, aux, wantTok, price,
-            _liveTheta(),
             IAux(aux).rangeETH() + grossBuffer);
-    }
-
-    function _liveTheta() private view returns (uint) {
-        try ICore(address(this)).derivedThetaWad() returns (uint t) { return t == 0 ? 1e18 : t; }
-        catch { return 1e18; }
     }
 
     struct RebalIn {

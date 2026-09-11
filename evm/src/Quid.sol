@@ -497,28 +497,12 @@ contract Quid is Shares,
         return QuidLib._venueBalanceLib(address(this), address(AUX));
     }
 
-    function kLvrWad() external view returns (uint) {
-        return QuidLib.kLvrWad(address(CORE), _lo(), _hi());
-    }
-
-    function realizedAlphaWad() public view returns (uint) {
-        return QuidLib.realizedAlphaWad(address(CORE), _lo(), _hi());
-    }
-
     function soldFractionWad(uint syncKeyPx) public view returns (uint) {
         return SwapLib.soldFractionWad(syncKeyPx, _corePrice(), _lo(), _hi());
     }
 
     function rangePrice() external view returns (uint priceWad) {
         return _corePrice();
-    }
-
-    function derivedThetaWad() public view returns (uint) {
-        return QuidLib.derivedThetaWad(address(CORE), _lo(), _hi());
-    }
-
-    function realizedVarianceWad() public view returns (uint) {
-        return CORE.realizedVarianceWad();
     }
 
     function addLiq(
@@ -597,8 +581,6 @@ contract Quid is Shares,
         uint after6 = _corePooledUsd6();
         uint freed6 = usd6 > after6 ? usd6 - after6 : 0;
         usdFreed = freed6 * 1e12;
-
-        if (freed6 != 0) CORE.bumpRedeemFlow(freed6);
     }
 
     function creditSkewPremium(uint premium6) external onlyUs {

@@ -15,14 +15,8 @@ abstract contract LevBase {
 
     uint256 internal constant GAS_REBALANCE = 1_250_000;
 
-    function _bandBps(uint256 collUsdWad, ILevVenue venue) internal view returns (uint256) {
-        uint256 lltv;
-
-        try venue.liqThresholdBps() returns (uint256 t) { lltv = t; } catch { return 0; }
-
-        uint256 capVenueBasis = (TARGET_LTV_CAP_BPS * 10_000) / (10_000 + TARGET_LTV_CAP_BPS);
-        uint256 headroom = lltv > capVenueBasis ? lltv - capVenueBasis : 0;
-        return LevMath.bandBpsFor(address(AUX), RANGE, TWAP_WINDOW, GAS_REBALANCE, collUsdWad, headroom);
+    function _bandBps(uint256, ILevVenue) internal pure returns (uint256) {
+        return 300;
     }
 
     function debtDeltaToTarget(address lp) public view returns (bool levUp, uint256 amountUsd) {
@@ -76,9 +70,6 @@ abstract contract LevBase {
     }
 
     mapping(address => Types.Pos) public pos;
-
-    address[] internal _openLps;
-    mapping(address => uint256) internal _lpIdx;
 
     address public RANGE;
 
@@ -137,13 +128,12 @@ abstract contract LevBase {
         else if (poolVenue != address(venue)) revert VenueNotPooled();
 
         if (!isPoolVenue[address(venue)]) { isPoolVenue[address(venue)] = true; poolVenues.push(address(venue)); }
-        RangeLib.openPos(pos, _openLps, _lpIdx, msg.sender,
+        RangeLib.openPos(pos, msg.sender,
             Types.Pos({venue: venue, ilBasisPx: uint128(entryPx),
                        entryEquity: uint128(entryEquity), syncKeyPx: _rangePrice(), open: true}));
     }
 
     function _untrackOpen(address lp) internal {
-        RangeLib.untrackOpen(_openLps, _lpIdx, lp);
     }
 
     function swapOutDeleverAmt(address lp, uint256 maxUsd18)
@@ -259,10 +249,6 @@ abstract contract LevBase {
     function deliverableDollars(address lp) public view returns (uint256) {
         return _deliverableDollarsAt(lp);
     }
-
-    function openLevCount() external view returns (uint256) { return _openLps.length; }
-
-    function openLpAt(uint256 i) external view returns (address) { return _openLps[i]; }
 
     function totalDebtUsd() external view returns (uint256 usd18) {
         uint256 n = poolVenues.length;

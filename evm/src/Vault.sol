@@ -178,14 +178,6 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         totalBuffer = totalBuffer + d.bufAdded - d.bufBurned;
     }
 
-    function derivedThetaWad() external view returns (uint) {
-        return QuidLib.derivedThetaWad(address(CORE), _lo(), _hi());
-    }
-
-    function kLvrWad() external view returns (uint) {
-        return QuidLib.kLvrWad(address(CORE), _lo(), _hi());
-    }
-
     function _btcCfg() internal view returns (Types.RangeCfg memory) {
         return Types.RangeCfg({ core: address(CORE), aux: address(AUX), asset: address(AUX.WBTC()) });
     }

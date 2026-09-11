@@ -515,9 +515,13 @@ export default function InfoTab({ address }: { address?: string | null }) {
                      conclusion (you're not skewed against; the market-making cost
                      is small); the model/jargon lives in a collapsed <details>. ── */}
               {(() => {
-                // Inventory cost priced at K·σ² (K_LVR=0.71, IL-CERT estimate — live K is
-                // regime-dependent ≈1.8–8.4, so this is a conservative floor) — NOT an
-                // assumed A-S risk-aversion γ. Same σ² structure, grounded coefficient.
+                // 🔴 2026-09-11 — WHAT THIS BLOCK IS, RESTATED, BECAUSE ITS PROVENANCE CHANGED.
+                // It used to say the inventory cost was "priced at K·σ² … NOT an assumed A-S
+                // risk-aversion γ. Same σ² structure, grounded coefficient." K is no longer
+                // grounded in anything on-chain: `kLvrWad`, `derivedThetaWad` and the whole A-S
+                // kernel are DELETED (§NO-GAMEABLE-BOUND — every input was state a counterparty
+                // could starve). So this is now UNAMBIGUOUSLY a model of what a CONVENTIONAL DESK
+                // would quote, shown for contrast. QU!D's own charge is the flat constant below.
                 const sigma = market.eth.sigmaAnnual, mid = market.eth.price || 0
                 const sens = avellanedaStoikov(mid, sigma, 0.1, K_LVR, 1 / 365)          // per-10% sensitivity
                 const live = inv != null ? avellanedaStoikov(mid, sigma, inv, K_LVR, 1 / 365) : null
@@ -527,15 +531,15 @@ export default function InfoTab({ address }: { address?: string | null }) {
                     <div className="text-xs font-medium text-emerald-300/90">No one here is quoting against you</div>
                     <p className="text-[11px] opacity-70">
                       On most venues a desk constantly shifts its prices <em>against</em> your order to offload its own
-                      inventory — that hidden skew is how it earns from your flow. QU!D can’t do that: it quotes a
-                      <strong> symmetric range</strong>, so you pay one <strong>flat cost of 0.042%</strong> (420 ppm,
-                      the same in both directions) — the same whether your trade helps or hurts the pool.
+                      inventory — that hidden skew is how it earns from your flow. QU!D can’t do that: it settles at
+                      the oracle and charges one <strong>flat fee of 0.042%</strong> (420 ppm) — the same whether your
+                      trade helps or hurts the pool, and the same at every size.
                     </p>
                     {live != null && Math.abs(inv as number) > 0.005 ? (
                       <p className="text-[11px] opacity-70">
                         Right now the in-range book is <strong>{Math.abs((inv as number) * 100).toFixed(0)}% overweight {longEth ? 'ETH' : 'USD'}</strong>.
                         A desk would lean its center <strong>{longEth ? 'down' : 'up'} ~{fmt(Math.abs(live.skewBps), 1)} bps</strong> to
-                        {longEth ? ' offload ETH' : ' buy ETH back'} at your expense. QU!D holds symmetric — it never skews against you; the only cost you bear is the small symmetric price lag.
+                        {longEth ? ' offload ETH' : ' buy ETH back'} at your expense. QU!D does not: the fee is the same 0.042% whatever the book is holding.
                       </p>
                     ) : (
                       <p className="text-[11px] opacity-70">
@@ -545,17 +549,19 @@ export default function InfoTab({ address }: { address?: string | null }) {
                       </p>
                     )}
                     <p className="text-[11px] opacity-70">
-                      And your day-to-day market-making cost is small: the inventory cost this model prices is
-                      only ~{fmt(sens.halfSpreadBps, 0)} bps over a day{avgYield != null ? <> — comfortably inside your ~{fmt(avgYield, 1)}% yield</> : ''}. (Your larger risk is directional impermanent loss in a sustained move, not this skew.)
+                      For scale: the inventory cost a conventional desk's model would price here is
+                      ~{fmt(sens.halfSpreadBps, 0)} bps over a day{avgYield != null ? <> — against your ~{fmt(avgYield, 1)}% yield</> : ''}, and QU!D charges a flat 4.2 bps regardless. (Your larger risk is directional impermanent loss in a sustained move, not this skew.)
                     </p>
                     <details className="text-[10px] opacity-45">
                       <summary className="cursor-pointer hover:opacity-70">show the market-making math (Avellaneda–Stoikov)</summary>
                       <p className="mt-1 leading-relaxed">
                         A concentrated range is a limit-order book, so it has an optimal center r = mid − q·K·σ²(T−t) and
                         width δ. At QU!D’s short rebalance horizon the skew is ~{fmt(Math.abs(sens.skewBps), 1)} bps per
-                        10% inventory — negligible, which is why a symmetric range is near-optimal. The inventory cost is
-                        priced at <strong>K=0.71</strong> (IL-CERT estimate; live K is regime-dependent ≈1.8–8.4, repack-on-exit ±2%
-                        with the 30-min-TWAP guard — not an assumed risk-aversion γ). The (2/K)·ln(1+K/κ) profit term
+                        10% inventory — negligible, which is why a flat fee is near-optimal here. The coefficient is
+                        <strong>K=0.71</strong> (IL-CERT estimate; live K is regime-dependent ≈1.8–8.4, ±2% range with the
+                        30-min-TWAP guard). ⚠️ K is an ANALYTIC reference, not a protocol parameter — QU!D once computed
+                        an inventory-aware charge and removed it, because every input to it was market state that the
+                        trader being charged could manipulate. The (2/K)·ln(1+K/κ) profit term
                         needs an order-arrival rate κ of informed takers; the internal TWAP-priced pools have none, so it
                         has no counterparty here. 1-day horizon — analytics only, the protocol quotes symmetric.
                       </p>

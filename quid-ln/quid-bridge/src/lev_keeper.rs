@@ -50,7 +50,7 @@
 //!      settles, so it never exits half-levered.
 //!   2. **ANY LP withdraws from the range** (levered or not) → `rangeETH` drops → every OTHER levered LP's
 //!      IL target (`1 − √(entry/now)`) and LTV shift; re-evaluate the whole open set and
-//!      `rebalance`/`cascadeDelever` the ones pushed out of range. A big unlevered exit is exactly the
+//!      `rebalance` the ones pushed out of range. A big unlevered exit is exactly the
 //!      "correlated" event the cascade was built for.
 //!   3. **Price move** (Chainlink/range-TWAP update) → the IL target moved → rebalance toward it (subject to
 //!      the lazy/dwell policy below — never chase noise).
@@ -155,7 +155,7 @@ pub struct PositionView {
 }
 
 /// What the keeper decides to do this tick. The loop maps each to a LevManager call:
-/// `DeLever{urgent}` → `deleverOne` (or `cascadeDelever` for a batch); `ReLever` →
+/// `DeLever{urgent}` → `rebalance` (permissionless, carries the down-leg); `ReLever` →
 /// `rebalance` (up-leg); `Hold` → nothing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeeperAction {
@@ -263,12 +263,6 @@ pub trait LevKeeperEvm {
     async fn open_positions(&self) -> anyhow::Result<Vec<LpAddr>>;
     async fn position_view(&self, lp: LpAddr) -> anyhow::Result<PositionView>;
     async fn rebalance(&self, lp: LpAddr) -> anyhow::Result<()>;
-    /// §E357 — `routes[i]` is LP `i`'s volatile-leg router calldata, built OFF-CHAIN.
-    /// ⚠️ An empty route is refused on chain, so a caller with none must not send the batch.
-    async fn cascade_delever(&self, lps: &[LpAddr], routes: &[Vec<u8>]) -> anyhow::Result<()>;
-    /// BATCH IL-target rebalance: hold every out-of-range LP in ONE tx (`rebalanceMany`). On-chain
-    /// fault-tolerant + syncs each LP's range slice internally, so no per-LP sync follow-up is needed.
-    async fn rebalance_many(&self, lps: &[LpAddr], routes: &[Vec<u8>]) -> anyhow::Result<()>;
     /// Reconcile `lp`'s LEVERED range slice to its live net-equity (`Quid.syncLev`). Called after ANY
     /// position change (rebalance/de-lever) so the fee lane (`levPooled`) tracks the equity promptly instead
     /// of waiting for the next external poke. Permissionless on-chain, so a failure is non-fatal — the slice
@@ -370,8 +364,8 @@ pub(crate) fn out_of_range(v: &PositionView, cfg: &LevKeeperConfig) -> bool {
 }
 
 /// ONE pass — split out for deterministic testing (no sleep, explicit `now`). Reads every open position,
-/// applies the dwell + `decide`, rebalances the lazy ones individually and BATCHES the urgent de-levers
-/// into a single `cascadeDelever` (riskiest-first is the venue/keeper's ordering concern).
+/// applies the dwell + `decide`, and rebalances position by position — urgent first. §POOLED-EXTRACTION
+/// deleted the on-chain batches, so there is no `cascadeDelever` to flush into.
 pub async fn tick<E: LevKeeperEvm>(
     evm: &E, cfg: &LevKeeperConfig, dwell: &mut DwellTracker, now_secs: u64, dwell_secs: u64,
 ) -> anyhow::Result<()> {
@@ -405,32 +399,33 @@ pub async fn tick<E: LevKeeperEvm>(
             tracing::warn!(?lp, error = %e, "syncLev after protect failed; slice lags till next tick");
         }
     }
-    // FLUSH URGENTS FIRST, unconditionally — the no-liquidation guarantee can't queue behind non-urgent work.
-    if !urgent.is_empty() {
-        // §C2.1 — **THE GAP THIS COMMENT DESCRIBED IS CLOSED, AND NOT BY BUILDING WHAT IT ASKED
-        // FOR.** It read: *"ROUTES ARE NOT SOURCED YET. `oneinch.rs::fetch_swap` needs a key; the
-        // keyless path is client-side discovery over multicall and is not built"* — so this batch
-        // was N guaranteed `NoVolatileRoute` reverts and the urgent track could never fire. Route
-        // discovery was never buildable: 1inch calldata embeds its own `amount` and every amount is
-        // computed on-chain, so a fetched route is stale before it lands. `cascade_delever` now
-        // sends a POOL WORD per LP, which has no amount in it and needs no API and no key.
-        // §SESS-73 — `&[]` here means "the impl plans them"; it no longer means "no route".
-        if let Err(e) = evm.cascade_delever(&urgent, &[]).await {
-            tracing::warn!(error = %e, "cascade_delever failed; the un-saved positions fall to the venue backstop");
+    // FLUSH URGENTS FIRST, unconditionally — the no-liquidation guarantee can't queue behind
+    // non-urgent work.
+    // 🔴 §POOLED-EXTRACTION — **THE BATCH IS GONE AND THE URGENT TRACK IS NOW N PER-LP TXS.**
+    //    `cascadeDelever` and `rebalanceMany` were deleted on-chain with the per-LP book, so this
+    //    sent two selectors that no longer exist: every urgent tx would have reverted with no
+    //    matching function. `rebalance(address,uint256,uint256,uint256,bytes)` is the surviving
+    //    PERMISSIONLESS entrypoint and it carries the down-leg, so it serves both tracks.
+    // ⏸️ **AND THE POOL-LEVEL CRASH RESPONSE IS NOT KEEPER-CALLABLE YET, WHICH IS BOOKED, NOT
+    //    HIDDEN.** `LevManager.deleverToVault` repays POOL debt in one call — the right shape for a
+    //    correlated crash under one pooled position — but it is `RANGE`-gated (`msg.sender != RANGE
+    //    && != address(this) -> NotGov()`), so only a redeem/swap-out settle can reach it. Until the
+    //    pooled delta target exists (TARGET-DESIGN §5b) the keeper holds the book position by
+    //    position, which is correct but O(N) txs rather than O(1).
+    for lp in &urgent {
+        if let Err(e) = evm.rebalance(*lp).await {
+            tracing::warn!(?lp, error = %e, "urgent rebalance failed; this position falls to the venue backstop");
+            continue;
         }
-        for lp in &urgent {
-            if let Err(e) = evm.sync_lev(*lp).await {
-                tracing::warn!(?lp, error = %e, "syncLev after cascade failed; slice lags till next tick");
-            }
+        if let Err(e) = evm.sync_lev(*lp).await {
+            tracing::warn!(?lp, error = %e, "syncLev after urgent rebalance failed; slice lags till next tick");
         }
     }
-    // Then the non-urgent IL-target rebalances — the fleet holds the whole book at target in ONE `rebalanceMany`
-    // tx, instead of N per-LP txs. On-chain it's fault-tolerant (a reverting LP is skipped) and syncs each
-    // LP's range slice internally, so no per-LP syncLev follow-up is needed here.
-    if !rebal.is_empty() {
-        let rebal_routes: Vec<Vec<u8>> = Vec::new();
-        if let Err(e) = evm.rebalance_many(&rebal, &rebal_routes).await {
-            tracing::warn!(error = %e, "rebalance_many failed; retrying next interval");
+    // Then the non-urgent IL-target rebalances. `_rebalance` syncs the LP's range slice internally,
+    // so no per-LP syncLev follow-up is needed on this track.
+    for lp in &rebal {
+        if let Err(e) = evm.rebalance(*lp).await {
+            tracing::warn!(?lp, error = %e, "rebalance failed; retrying next interval");
         }
     }
     Ok(())
@@ -468,7 +463,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 /// Concrete [`LevKeeperEvm`] over the daemon's signing EVM client: reads `LevManager` views via `eth_read`,
-/// writes `rebalance`/`cascadeDelever`/`syncLev` via `send_tx`. The client is blocking JSON-RPC, so each call
+/// writes `rebalance`/`syncLev` via `send_tx`. The client is blocking JSON-RPC, so each call
 /// is wrapped in `spawn_blocking` (a 5-min poll makes that cost irrelevant). Runtime-provable only against a
 /// deployed chain; the calldata encoding is unit-tested below.
 pub struct DaemonLevKeeper<R: JsonRpc, S: TxSigner> {
@@ -489,21 +484,54 @@ pub struct DaemonLevKeeper<R: JsonRpc, S: TxSigner> {
 /// Chunk size for the `Quid.Deposit` log scan (L-4: a single huge range trips provider caps).
 const LP_LOG_SPAN: u64 = 10_000;
 
+/// 🔴 §POOLED-EXTRACTION — **THE OPEN-POSITION SET, ENUMERATED FROM LOGS.** Both keepers read
+/// `openLevCount()` + `openLpAt(i)`. §POOL-VENUE removed `_openLps` (one pooled position needs no
+/// enrolment array), so those calls now hit contracts that declare neither: every tick would have
+/// failed at its first read, and the failure would have looked like an RPC fault rather than a
+/// deleted ABI.
+/// ⭐ `Opened`/`Closed` ARE THE BOOK. Both are declared on `LevBase`, so this serves the ETH and the
+/// BTC manager unchanged; the array was a second copy of what the log already said, and it is the
+/// copy that cost storage and an O(N) walk.
+/// ⚠️ SAME-BLOCK OPEN-THEN-CLOSE RESOLVES AS CLOSED. That direction is the safe one: a skipped
+/// closed LP costs nothing, while carrying a stale one costs a `position_view` that reads zeros and
+/// decides `Hold` — noise either way, so bias toward the smaller set.
+pub(crate) fn open_lps_from_logs<R: JsonRpc>(rpc: &R, addr: &str, from: u64)
+    -> anyhow::Result<Vec<LpAddr>>
+{
+    let tip = crate::eth_logs::eth_tip(rpc)?;
+    let topic = |sig: &[u8]| format!("0x{}",
+        alloy_primitives::hex::encode(alloy_primitives::keccak256(sig)));
+    // `lp` is the FIRST indexed arg on both events, so it is `topics[1]` in each.
+    let mut last: std::collections::HashMap<LpAddr, (u64, bool)> = Default::default();
+    for (sig, is_open) in [
+        (&b"Opened(address,address,uint256)"[..], true),
+        (&b"Closed(address,uint256)"[..], false),
+    ] {
+        for log in &crate::eth_logs::get_logs_chunked(rpc, addr, &topic(sig), from, tip, LP_LOG_SPAN)? {
+            if let Some((topics, _, block)) = crate::eth_logs::log_fields(log) {
+                if topics.len() < 2 { continue; }
+                let mut lp = [0u8; 20];
+                lp.copy_from_slice(&topics[1][12..32]);
+                match last.get(&lp) {
+                    // A CLOSE wins a same-block tie; a later OPEN needs a strictly greater block.
+                    Some(&(b, _)) if is_open && block <= b => {}
+                    Some(&(b, _)) if !is_open && block < b => {}
+                    _ => { last.insert(lp, (block, is_open)); }
+                }
+            }
+        }
+    }
+    Ok(last.into_iter().filter(|(_, (_, open))| *open).map(|(lp, _)| lp).collect())
+}
+
 // ABI-word helpers (`addr_word`, `u64_word`, `selector4`, `word_to_lpaddr`) now live
 // in `crate::abi`; imported above and shared with `lev_keeper_btc`.
 
-impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLevKeeper<R, S> {
+impl<R: JsonRpc + Clone + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLevKeeper<R, S> {
     async fn open_positions(&self) -> anyhow::Result<Vec<LpAddr>> {
-        let (evm, lm) = (self.evm.clone(), self.lev_manager);
-        tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<LpAddr>> {
-            let n: u64 = word_to_uint(&evm.eth_read(lm, "openLevCount()", None)?, "openLevCount")?;
-            let mut out = Vec::with_capacity(n as usize);
-            for i in 0..n {
-                out.push(word_to_lpaddr(&evm.eth_read(lm, "openLpAt(uint256)", Some(&u64_word(i)))?)?);
-            }
-            Ok(out)
-        })
-        .await?
+        let (evm, lm, from) = (self.evm.clone(), self.lev_manager, self.lp_scan_from);
+        tokio::task::spawn_blocking(move || open_lps_from_logs(&evm.rpc_handle(), &lm.to_string(), from))
+            .await?
     }
 
     async fn position_view(&self, lp: LpAddr) -> anyhow::Result<PositionView> {
@@ -615,60 +643,6 @@ impl<R: JsonRpc + Send + Sync + 'static, S: TxSigner> LevKeeperEvm for DaemonLev
         .await?
     }
 
-    async fn cascade_delever(&self, lps: &[LpAddr], routes: &[Vec<u8>]) -> anyhow::Result<()> {
-        // §SESS-19/§SESS-21 — the CLOSE leg carries `routes` all the way to `_deleverFlash`, so the
-        // batch is widened to match. The hub word is planned PER-LP, because a batch spans venues and
-        // one book-wide word would be wrong for most of it.
-        let (evm, lm, gas, lps, routes) =
-            (self.evm.clone(), self.lev_manager, self.gas_limit, lps.to_vec(), routes.to_vec());
-        tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-            let plans: Vec<Plan> = lps.iter().map(|&lp| plan_for_lp(&evm, lm, lp, WETH_ADDR)).collect();
-            // §SESS-73 — a route PER LP, from the same plan the words came from, so the two cannot
-            // disagree about the venue. An empty one (a >3-hop plan has no encoding) simply leaves
-            // that LP on the pool-word arm, which is the correct degrade rather than a truncation.
-            // §SESS-73 — a CALLER-SUPPLIED route still wins; we only fill in what nobody supplied.
-            // The parameter was previously dead (every caller passed empty), and silently ignoring it
-            // now would be worse than leaving it dead: it would look like an override and not be one.
-            let routes: Vec<Vec<u8>> = if routes.is_empty() {
-                plans.iter().map(|p| p.route_bytes()).collect()
-            } else { routes };
-            let dexes: Vec<[u8; 32]> = plans.iter().map(|p| p.dex).collect();
-            let dex2s: Vec<[u8; 32]> = plans.iter().map(|p| p.dex2).collect();
-            evm.send_tx(lm, encode_batch5(CD_SIG, &lps, &dexes, &dex2s, &routes), batch_gas(gas, lps.len()))?;
-            Ok(())
-        })
-        .await?
-    }
-
-    /// Hold the whole book at its IL target in ONE tx. Gas scales with the batch (each LP is a flash-repay
-    /// or lever-up), capped below the block limit; the on-chain loop is fault-tolerant + syncs each LP internally.
-    async fn rebalance_many(&self, lps: &[LpAddr], routes: &[Vec<u8>]) -> anyhow::Result<()> {
-        // §S15/§SESS-47 — `dex2s` is planned PER-LP and sent non-empty. That matters twice over:
-        //    a zero hub word sends a non-USDC venue down the contract's own `_hubHop` table arm, and
-        //    on that arm `_stableToWethSor` bypasses `routedSwap` entirely — so an empty `dex2s`
-        //    would disable the `bytes route` arm as well. (USDC is the exception by nature: it IS the
-        //    hub, so `dex2 == 0` is correct for it and still reaches `route`.)
-        let (evm, lm, gas, lps, routes) =
-            (self.evm.clone(), self.lev_manager, self.gas_limit, lps.to_vec(), routes.to_vec());
-        tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-            let plans: Vec<Plan> = lps.iter().map(|&lp| plan_for_lp(&evm, lm, lp, WETH_ADDR)).collect();
-            // §SESS-73 — a route PER LP, from the same plan the words came from, so the two cannot
-            // disagree about the venue. An empty one (a >3-hop plan has no encoding) simply leaves
-            // that LP on the pool-word arm, which is the correct degrade rather than a truncation.
-            // §SESS-73 — a CALLER-SUPPLIED route still wins; we only fill in what nobody supplied.
-            // The parameter was previously dead (every caller passed empty), and silently ignoring it
-            // now would be worse than leaving it dead: it would look like an override and not be one.
-            let routes: Vec<Vec<u8>> = if routes.is_empty() {
-                plans.iter().map(|p| p.route_bytes()).collect()
-            } else { routes };
-            let dexes: Vec<[u8; 32]> = plans.iter().map(|p| p.dex).collect();
-            let dex2s: Vec<[u8; 32]> = plans.iter().map(|p| p.dex2).collect();
-            evm.send_tx(lm, encode_batch5(RM_SIG, &lps, &dexes, &dex2s, &routes), batch_gas(gas, lps.len()))?;
-            Ok(())
-        })
-        .await?
-    }
-
     async fn sync_lev(&self, lp: LpAddr) -> anyhow::Result<()> {
         let (evm, range, gas) = (self.evm.clone(), self.range, self.gas_limit);
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
@@ -764,14 +738,6 @@ impl<R: JsonRpc + Clone + Send + Sync + 'static, S: TxSigner> CompoundEvm for Da
         .await?
     }
 
-}
-
-/// ABI-encode `cascadeDelever(address[] lps, uint256[] minOuts)` with `minOuts` all 0 (the contract's oracle
-/// floor protects each swap). Two dynamic arrays: head = the two offsets, then each array (length + elements).
-/// Per-tx gas for a batch = per-LP `gas` × count, capped below the block limit so a large book can't build an
-/// unmineable tx (very large books should be chunked at the call site).
-fn batch_gas(per_lp: u64, n: usize) -> u64 {
-    ((per_lp as u128) * (n.max(1) as u128)).min(28_000_000) as u64
 }
 
 /// §C2.1 — **THE POOL WORD THE KEEPER SENDS.** 1inch AggregationRouterV6 `Address` encoding:
@@ -888,8 +854,8 @@ pub fn score_bps(q: &VenueQuote, horizon_days: u32) -> Option<u128> {
 /// unit-test helper — so `score_bps` had never seen a live route cost. That producer gap was real.
 /// 🔴 **BUT FILLING IT CREATED A CONSUMER GAP, AND THE CONSUMER CANNOT EXIST HERE.** Nothing called
 ///    `quote_venues`, and nothing called `pick_cheapest` or `score_bps` either — because **this keeper
-///    never OPENS a position.** It rebalances, cascade-delevers, compounds and protects; the sends it
-///    makes are `rebalanceMany`, `cascadeDelever`, `compound`, `protectFromQuid`. Venue choice — and
+///    never OPENS a position.** It rebalances, compounds and protects; the sends it makes are
+///    `rebalance`, `compound`, `protectFromQuid`. Venue choice — and
 ///    therefore which dollar is borrowed — happens at OPEN, which is LP-initiated on-chain.
 /// ⇒ **ROW 2'S BLOCKER WAS NEVER THE `immutable` AND NEVER THE MISSING PRODUCER.** The row blamed
 ///   `LevVenueBase.STABLE` being immutable; §SESS-110 showed that is worse than wrong — `STABLE`
@@ -1709,61 +1675,6 @@ fn hex_lit_pool() -> [u8; 20] {
 }
 
 
-/// §S15 — the FIVE-array `rebalanceMany(address[],uint256[],uint256[],uint256[],bytes[])`.
-///
-/// ⭐ **ONE ENCODER, TWO SELECTORS — WHICH IS WHY IT TAKES `sig`.** `cascadeDelever` has the SAME
-/// five-array shape, and since §SESS-19/§SESS-21 `deleverOne` carries `dex2`/`route` through to
-/// `_deleverFlash` rather than dropping them, so the extra arrays are consumed on both paths.
-///
-/// ⚠️ **`dex2s` and `routes` may each be EMPTY, which is the contract's compat shape** (`length 0`
-///    ⇒ every LP takes the legacy single-hop hub route). Any OTHER length must equal `lps.len()`,
-///    or `rebalanceMany` reverts `LenMismatch()` — a short array would silently give some LPs a
-///    route and others the legacy hop, which is why the contract checks rather than clamps.
-/// The two batch selectors, named once so the allowlist, the encoders and the tests cannot drift.
-const RM_SIG: &str = "rebalanceMany(address[],uint256[],uint256[],uint256[],bytes[])";
-const CD_SIG: &str = "cascadeDelever(address[],uint256[],uint256[],uint256[],bytes[])";
-
-fn encode_batch5(sig: &str, lps: &[LpAddr], dexes: &[[u8; 32]],
-                 dex2s: &[[u8; 32]], routes: &[Vec<u8>]) -> Vec<u8> {
-    debug_assert!(dex2s.is_empty()  || dex2s.len()  == lps.len(), "dex2s must be per-LP or empty");
-    debug_assert!(routes.is_empty() || routes.len() == lps.len(), "routes must be per-LP or empty");
-    let n = lps.len() as u64;
-    let n2 = dex2s.len() as u64;
-    let nr = routes.len() as u64;
-    let mut d = selector4(sig);
-
-    // Five head words, then each dynamic array laid out in order.
-    let lps_at   = 0xa0u64;
-    let mins_at  = lps_at   + 32 * (1 + n);
-    let dexes_at = mins_at  + 32 * (1 + n);
-    let dex2_at  = dexes_at + 32 * (1 + n);
-    let routes_at = dex2_at + 32 * (1 + n2);
-    for off in [lps_at, mins_at, dexes_at, dex2_at, routes_at] { d.extend_from_slice(&u64_word(off)); }
-
-    d.extend_from_slice(&u64_word(n));
-    for lp in lps { d.extend_from_slice(&addr_word(*lp)); }
-    d.extend_from_slice(&u64_word(n));
-    for _ in 0..n { d.extend_from_slice(&u64_word(0)); }   // minOuts: the on-chain TWAP floor bounds each swap
-    d.extend_from_slice(&u64_word(n));
-    for i in 0..n as usize { d.extend_from_slice(&dexes.get(i).copied().unwrap_or([0u8; 32])); }
-    d.extend_from_slice(&u64_word(n2));
-    for w in dex2s { d.extend_from_slice(w); }
-
-    // `bytes[]`: a length word, then n RELATIVE offsets, then each element as (len, padded data).
-    d.extend_from_slice(&u64_word(nr));
-    let mut rel = 32 * nr;                                  // past the offset table
-    let mut tail: Vec<u8> = Vec::new();
-    for r in routes {
-        d.extend_from_slice(&u64_word(rel));
-        let pad = (32 - (r.len() % 32)) % 32;
-        tail.extend_from_slice(&u64_word(r.len() as u64));
-        tail.extend_from_slice(r);
-        tail.extend(std::iter::repeat(0u8).take(pad));
-        rel += 32 + r.len() as u64 + pad as u64;
-    }
-    d.extend_from_slice(&tail);
-    d
-}
 
 #[cfg(test)]
 mod tests {
@@ -1774,68 +1685,7 @@ mod tests {
     /// rather than merely length-checked. A wrong relative offset does not panic here — it produces
     /// calldata the contract decodes into a DIFFERENT route, which on-chain becomes a failed leg and
     /// a `RebalanceFailed` event, i.e. an encoder bug wearing a venue bug's clothes.
-    #[test]
-    fn encode_rebalance_many_lays_out_bytes_array_correctly() {
-        let lps = vec![LpAddr::from([0x11u8; 20]), LpAddr::from([0x22u8; 20])];
-        let dexes = vec![[0xAAu8; 32], [0xBBu8; 32]];
-        let dex2s = vec![[0xCCu8; 32], [0xDDu8; 32]];
-        // Deliberately NOT multiples of 32: padding is where hand-rolled encoders go wrong.
-        let routes = vec![vec![0xDEu8; 4], vec![0xEFu8; 33]];
-        let d = encode_batch5(RM_SIG, &lps, &dexes, &dex2s, &routes);
-
-        let word = |i: usize| -> u64 {
-            let b = &d[4 + i * 32..4 + (i + 1) * 32];
-            u64::from_be_bytes(b[24..32].try_into().unwrap())
-        };
-        // Head: five offsets. lps(2) mins(2) dexes(2) dex2s(2) each cost 32*(1+2)=96.
-        assert_eq!(word(0), 0xa0);
-        assert_eq!(word(1), 0xa0 + 96);
-        assert_eq!(word(2), 0xa0 + 192);
-        assert_eq!(word(3), 0xa0 + 288);
-        let routes_at = word(4) as usize;
-        assert_eq!(routes_at, 0xa0 + 384);
-
-        // The routes block: len, then two RELATIVE offsets, then the elements.
-        let at = |off: usize| -> u64 {
-            let b = &d[4 + off..4 + off + 32];
-            u64::from_be_bytes(b[24..32].try_into().unwrap())
-        };
-        assert_eq!(at(routes_at), 2, "routes length");
-        let o0 = at(routes_at + 32) as usize;
-        let o1 = at(routes_at + 64) as usize;
-        assert_eq!(o0, 64, "first element starts past the 2-entry offset table");
-        // element 0 = 32 (len) + 4 bytes padded to 32 => 64 bytes total.
-        assert_eq!(o1, 64 + 64, "second offset must clear element 0 INCLUDING its padding");
-
-        let base = routes_at + 32;                       // offsets are relative to here
-        assert_eq!(at(base + o0), 4,  "element 0 declares its true length");
-        assert_eq!(at(base + o1), 33, "element 1 declares its true length");
-        assert_eq!(&d[4 + base + o0 + 32..4 + base + o0 + 36], &[0xDEu8; 4][..]);
-        assert_eq!(&d[4 + base + o1 + 32..4 + base + o1 + 65], &[0xEFu8; 33][..]);
-        // 33 bytes pads to 64, so the whole payload ends on a word boundary.
-        assert_eq!((d.len() - 4) % 32, 0, "calldata is not word-aligned");
-    }
-
     /// The compat shape the contract accepts: empty `dex2s`/`routes` ⇒ legacy single-hop for all.
-    #[test]
-    fn encode_rebalance_many_accepts_the_empty_compat_shape() {
-        let lps = vec![LpAddr::from([0x11u8; 20])];
-        let d = encode_batch5(RM_SIG, &lps, &[[0xAAu8; 32]], &[], &[]);
-        let word = |i: usize| -> u64 {
-            let b = &d[4 + i * 32..4 + (i + 1) * 32];
-            u64::from_be_bytes(b[24..32].try_into().unwrap())
-        };
-        assert_eq!(word(3), 0xa0 + 64 * 3, "dex2s offset with n=1");
-        let r = word(4) as usize;
-        let at = |off: usize| -> u64 {
-            let b = &d[4 + off..4 + off + 32];
-            u64::from_be_bytes(b[24..32].try_into().unwrap())
-        };
-        assert_eq!(at(word(3) as usize), 0, "dex2s must encode as a ZERO-length array");
-        assert_eq!(at(r), 0, "routes must encode as a ZERO-length array");
-        assert_eq!(4 + r + 32, d.len(), "nothing may trail an empty routes array");
-    }
-
     fn vq(v: u8, ray: u128, bps: u32, fundable: bool) -> VenueQuote {
         VenueQuote { venue: [v; 20], borrow_rate_ray: ray, route_cost_bps: bps, fundable }
     }
@@ -2234,24 +2084,6 @@ mod tests {
             "the planner ignored a BETTER two-hop through USDT: chosen {chosen} < via-hub {via_hub}");
     }
 
-    /// §SESS-21 — the SAME encoder now serves `cascadeDelever`, so its selector gets its own pin.
-    /// A shared encoder is only safe if both call sites are asserted; otherwise one drifts silently.
-    #[test]
-    fn encode_batch5_pins_the_cascade_delever_selector() {
-        let d = encode_batch5(CD_SIG, &[LpAddr::from([2u8; 20])], &[[0u8; 32]], &[], &[]);
-        assert_eq!(&d[..4], &keccak256(CD_SIG.as_bytes())[..4]);
-        assert_ne!(&d[..4], &keccak256(RM_SIG.as_bytes())[..4],
-            "the two batch selectors must not collide - one encoder, two distinct heads");
-    }
-
-    /// The selector MUST be the five-array one, or the validating signer refuses every batch.
-    #[test]
-    fn encode_rebalance_many_uses_the_allowlisted_selector() {
-        let d = encode_batch5(RM_SIG, &[LpAddr::from([1u8; 20])], &[[0u8; 32]], &[], &[]);
-        assert_eq!(&d[..4],
-            &keccak256(RM_SIG.as_bytes())[..4]);
-    }
-
     /// §POOL-VENUE — **THE POOL IS IN DANGER WHILE THIS LP LOOKS FINE, AND THE KEEPER MUST STILL ACT.**
     /// This is the case the old per-LP-only gate held straight through, and it is the whole reason
     /// `pool_ltv_bps` exists: the venue runs ONE Morpho position, so Morpho's health check reads the
@@ -2447,14 +2279,6 @@ mod tests {
         }
         async fn rebalance(&self, lp: LpAddr) -> anyhow::Result<()> {
             self.rebalanced.borrow_mut().push(lp);
-            Ok(())
-        }
-        async fn cascade_delever(&self, lps: &[LpAddr], _routes: &[Vec<u8>]) -> anyhow::Result<()> {
-            self.cascaded.borrow_mut().extend_from_slice(lps);
-            Ok(())
-        }
-        async fn rebalance_many(&self, lps: &[LpAddr], _routes: &[Vec<u8>]) -> anyhow::Result<()> {
-            self.rebalanced.borrow_mut().extend_from_slice(lps);   // same sink as rebalance ⇒ existing assertions hold
             Ok(())
         }
         async fn sync_lev(&self, lp: LpAddr) -> anyhow::Result<()> {

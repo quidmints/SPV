@@ -80,32 +80,16 @@ library RangeLib {
             bufAdded = levAddBuf(c, LP, levBufferUsd, levBuf, lp, p.gross - netEq, price, p);
     }
 
-    function untrackOpen(
-        address[] storage openLps,
-        mapping(address => uint256) storage lpIdx,
-        address lp
-    ) external {
-        uint256 idx = lpIdx[lp];
-        if (idx == 0) return;
-        uint256 last = openLps.length;
-        if (idx != last) { address moved = openLps[last - 1]; openLps[idx - 1] = moved; lpIdx[moved] = idx; }
-        openLps.pop();
-        lpIdx[lp] = 0;
-    }
-
     event ReanchoredToRange(address indexed lp, uint syncKeyPx, uint256 entryEquity);
 
     function openPos(
         mapping(address => Types.Pos) storage pos,
-        address[] storage openLps,
-        mapping(address => uint256) storage lpIdx,
         address lp,
         Types.Pos memory p
     ) external {
 
         pos[lp] = p;
 
-        if (lpIdx[lp] == 0) { openLps.push(lp); lpIdx[lp] = openLps.length; }
     }
 
     function reanchorIfReseated(

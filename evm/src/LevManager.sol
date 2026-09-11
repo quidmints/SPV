@@ -17,9 +17,9 @@ contract LevManager is LevBase {
     event RebalanceFailed(address indexed lp, uint256 ltvBps);
 
     error NotGov();
+    error Auth();
     error Slippage();
     error LenMismatch();
-    error Auth();
 
     error NoRepay();
 
@@ -96,41 +96,6 @@ contract LevManager is LevBase {
         _rebalance(lp, minOut, dex, dex2, route);
     }
 
-    function rebalanceMany(address[] calldata lps, uint256[] calldata minOuts, uint256[] calldata dexes,
-                           uint256[] calldata dex2s, bytes[] calldata routes) external nonReentrant {
-        _batch(lps, minOuts, dexes, dex2s, routes, true);
-    }
-
-    function _batch(address[] calldata lps, uint256[] calldata minOuts, uint256[] calldata dexes,
-                    uint256[] calldata dex2s, bytes[] calldata routes, bool up)
-        private
-    {
-        if (lps.length != minOuts.length || lps.length != dexes.length) revert LenMismatch();
-
-        if ((dex2s.length != 0 && dex2s.length != lps.length)
-         || (routes.length != 0 && routes.length != lps.length)) revert LenMismatch();
-
-        _activeKeeper = msg.sender;
-        for (uint256 i; i < lps.length; i++) {
-            address lp = lps[i];
-            if (!pos[lp].open) continue;
-            uint256 d2  = dex2s.length  == 0 ? 0 : dex2s[i];
-            bytes memory r = routes.length == 0 ? bytes("") : routes[i];
-            if (up) {
-                try this.rebalanceOne(lp, minOuts[i], dexes[i], d2, r) {}
-                catch { emit RebalanceFailed(lp, getCurrentLtvBps(lp)); }
-            } else {
-                try this.deleverOne(lp, minOuts[i], dexes[i], d2, r) {}
-                catch { emit DeleverFailed(lp, getCurrentLtvBps(lp)); }
-            }
-        }
-    }
-
-    function rebalanceOne(address lp, uint256 minOut, uint256 dex, uint256 dex2, bytes calldata route) external {
-        if (msg.sender != address(this) && msg.sender != lp) revert Auth();
-        _rebalance(lp, minOut, dex, dex2, route);
-    }
-
     function _leverUp(ILevVenue venue, address lp, address stable, uint256 deltaUsd, uint256 minOut, uint256 dex, uint256 dex2, bytes calldata route)
         internal override { _leverUpBuy(venue, lp, stable, deltaUsd, minOut, dex, dex2, route); }
 
@@ -142,7 +107,8 @@ contract LevManager is LevBase {
     }
 
     function _deleverOne(address lp, uint256 minOut, uint256 dex, uint256 dex2, bytes memory route) internal {
-        if (msg.sender != address(this) && msg.sender != lp) revert Auth();
+
+        if (msg.sender != lp) revert Auth();
         Types.Pos memory p = pos[lp];
         if (!p.open) return;
         uint256 repayUsd = deleverRepayUsd(lp);
@@ -154,11 +120,6 @@ contract LevManager is LevBase {
         emit Rebalanced(lp, false, 0, getCurrentLtvBps(lp));
 
         _syncRange(lp);
-    }
-
-    function cascadeDelever(address[] calldata lps, uint256[] calldata minOuts, uint256[] calldata dexes,
-                            uint256[] calldata dex2s, bytes[] calldata routes) external nonReentrant {
-        _batch(lps, minOuts, dexes, dex2s, routes, false);
     }
 
     function closeLev(uint256 minOut, uint256 dex) external nonReentrant {
@@ -215,30 +176,27 @@ contract LevManager is LevBase {
             maxSlippageBps: uint16(MAX_SLIPPAGE_BPS), dex: 0, dex2: 0, route: "" });
     }
 
-    function deleverToVault(address lp, uint256 extractUsd, address vault, uint256 minOut)
+    function deleverToVault(uint256 extractUsd, address vault, uint256 minOut)
         external returns (uint256 freed)
     {
         if (msg.sender != RANGE && msg.sender != address(this)) revert NotGov();
-        Types.Pos memory p = pos[lp];
-        if (!p.open || extractUsd == 0 || flashProvider == address(0)) return 0;
-        uint256 cap = deliverableDollars(lp);
-
+        ILevVenue venue = ILevVenue(poolVenue);
+        if (address(venue) == address(0) || extractUsd == 0 || flashProvider == address(0)) return 0;
+        uint256 cap = this.totalDeliverableDollars();
         if (extractUsd > cap) extractUsd = cap;
         if (extractUsd == 0) return 0;
-
+        address stable = venue.stable();
         uint256 repayStable = LevMath.sizeRepayStable(
-            p.venue, lp, extractUsd, debtUsd(lp), _px(), _coll(), address(AUX));
+            venue, extractUsd,
+            LevMath._toUsd18(address(AUX), stable, ILevPooled(address(venue)).totalDebt()),
+            _px(), _coll(), address(AUX));
         if (repayStable == 0) return 0;
-
-        address stable = p.venue.stable();
-
         IMorphoFlash(flashProvider).flashLoan(stable, repayStable,
-            abi.encode(uint8(2), lp, address(p.venue),
+            abi.encode(uint8(2), address(0), address(venue),
             stable, extractUsd, vault, minOut));
 
         freed = LevMath._toUsd18(address(AUX), stable, _lastFreed); _lastFreed = 0;
 
-        _syncRange(lp);
     }
 
     function swapOutDeliverUnlevered(address lp, uint256 wethWanted, address recipient, uint256 minWethOut)
@@ -279,9 +237,7 @@ contract LevManager is LevBase {
         uint256 cap = this.totalDeliverableDollars();
         uint256 want = usdWanted > cap ? cap : usdWanted;
         if (want == 0) return 0;
-
-        if (_openLps.length == 0) return 0;
-        try this.deleverToVault(_openLps[0], want, sink, minOut) returns (uint256 f) { freed = f; }
+        try this.deleverToVault(want, sink, minOut) returns (uint256 f) { freed = f; }
         catch {  }
     }
 
@@ -295,15 +251,17 @@ contract LevManager is LevBase {
     }
 
     function _extractSettle(uint256 assets, bytes calldata data) internal {
-        (, address lp, address venueAddr, address stable, uint256 extractUsd, address vault, uint256 minOut2) =
+        (, , address venueAddr, address stable, uint256 extractUsd, address vault, uint256 minOut2) =
             abi.decode(data, (uint8, address, address, address, uint256, address, uint256));
         (gasReserve, _lastFreed) = LevMath.extractToVaultBody(
-            assets, lp, venueAddr, stable, extractUsd, address(this), minOut2,
+            assets, venueAddr, stable, extractUsd, address(this), minOut2,
             _extractCfg());
         extractUsd = LevMath._fromUsd(address(AUX), stable, extractUsd);
         if (_lastFreed > extractUsd) {
 
-            IERC20OZ(stable).safeTransfer(lp, _lastFreed - extractUsd);
+            uint256 buf = _lastFreed - extractUsd;
+            IERC20OZ(stable).safeTransfer(venueAddr, buf);
+            ILevPooled(venueAddr).repayPool(buf);
             _lastFreed = extractUsd;
         }
         if (_lastFreed > 0) IERC20OZ(stable).safeTransfer(vault, _lastFreed);

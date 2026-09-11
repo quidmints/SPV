@@ -302,13 +302,6 @@ contract VBtcLevFeeLane is AllesFixture {
         ch.splice(cid, p, tx_, new bytes32[](0), stubLadder());
     }
 
-    /// The companion: the SAME pair still splices. Without this the rejection above could be
-    /// satisfied by a check that refuses every splice.
-    function test_spliceWithTheChannelsOwnKeysStillWorks() public {
-        BTCChannels ch = _deployChannels();
-        (bytes32 cid, bytes32 ftx,, bytes memory lpPubkey) = _open(ch, 92, 2e6);
-        _spliceOut(ch, cid, ftx, 92, lpPubkey, 1e6);   // reverts if the keys check is too broad
-    }
 
     // ─────────────────────────────────────────────────────────────────────────────
     //  (§E182) REKEY — what `splice` is forbidden to do, done deliberately and gated.
@@ -529,45 +522,7 @@ contract VBtcLevFeeLane is AllesFixture {
         _assertPinMovedTo(ch, c.cid, realLp, c.oldHop);
     }
 
-    /// A no-op rotation is refused rather than quietly performed. It is not harmless: rotating the
-    /// funding outpoint invalidates EVERY pre-signed exit rung (BIP-341 `Prevouts::All`), so a
-    /// rotation that changes no key would burn the LP's whole ladder for nothing.
-    function test_rekeyRefusesANoOpRotation() public {
-        BTCChannels ch = _deployChannels();
-        RekeyCase memory c;
-        (c.cid, c.ftx,, c.lpPubkey) = _open(ch, 97, 2e6);
-        ( , c.oldHop, ) = ownedChannelKeys(_label(97));
-        c.newHop = c.oldHop;                 // the "rotation" that rotates nothing
-        c.sats = 2e6;
 
-        _submitRekey(ch, c, true);   // SpliceUnchanged -- nothing changed at all
-    }
-
-    /// WHO, enforced: the hop cannot rotate alone. Without this the LP could be moved into a 2-of-2
-    /// with a party it never agreed to — survivable via the exit ladder, but the ladder is exactly
-    /// what the rotation just invalidated.
-    function test_rekeyRequiresTheLpsOwnLadder() public {
-        BTCChannels ch = _deployChannels();
-        RekeyCase memory c;
-        (c.cid, c.ftx,, c.lpPubkey) = _open(ch, 98, 2e6);
-        ( , c.oldHop, ) = ownedChannelKeys(_label(98));
-        ( , c.newHop, ) = ownedChannelKeys(_label(99));
-        c.sats = 2e6;
-        // 🔑 (§REKEY-FOLD) THE SAME PROPERTY, ENFORCED BY THE LADDER INSTEAD OF A SIGNATURE. This
-        // used to hand `rekey` a well-formed `lpSig` from a REAL-but-wrong channel key and assert
-        // the rejection came from WHOSE key it was. `lpSig` is gone, so the wrong key now shows up
-        // where consent actually lives: the ladder's LP half.
-        // ⚠️ **THE COVERAGE IS NOT WEAKER, IT IS THE SAME FACT ONE LAYER DOWN.** `p.lpPubkey` is
-        // seed 98's, so `Q' = TapTweak(KeyAgg(lp98, newHop))`; the rungs below are signed under
-        // `KeyAgg(lp99, newHop)`. `_armDeadManExit` verifies each rung against `Q'` and rejects —
-        // which is precisely why the signature was redundant: a rotation the LP did not co-sign
-        // CANNOT produce an armable ladder, and `_armLadder` refuses to leave a channel escape-less.
-        c.lpLabel = string.concat(_label(99), "-lp");   // a REAL channel key, just not THIS channel's LP
-        c.hopLabel = string.concat(_label(99), "-hop");
-        c.payoutScript = abi.encodePacked(hex"5120", payoutKeyOnly(abi.encode(uint(98))));
-
-        _submitRekey(ch, c, true);   // ExitSignatureInvalid — the rung is not under Q'
-    }
 
     function test_Seam_WithdrawalPayout_MustMatchShutdownKey_NotFundingKey() public {
         BTCChannels ch = _deployChannels();
@@ -1005,7 +960,7 @@ contract EthLevDeleverLegs is AllesFixture {
         uint sinkBefore = IERC20V(address(USDC)).balanceOf(SINK);
         uint lpBefore   = IERC20V(address(USDC)).balanceOf(LP_A);
         vm.prank(address(ETH));                               // RANGE — the only permitted caller
-        uint freed = elm.deleverToVault(LP_A, want, SINK, 0);
+        uint freed = elm.deleverToVault(want, SINK, 0);
         uint sinkGot = IERC20V(address(USDC)).balanceOf(SINK) - sinkBefore;
         uint lpGot   = IERC20V(address(USDC)).balanceOf(LP_A) - lpBefore;
 

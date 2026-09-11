@@ -50,116 +50,13 @@ contract Core {
 
     uint public pendingSwapOutUsd;
 
-    struct Flow { uint128 vol; uint64 ts; }
-    Flow internal _flow;
-
-    uint internal constant FLOW_DECAY   = 999759352855809024;
-    uint internal constant FLOW_MAX_MIN = 525600000;
-
-    Flow internal _prem;
-
-    function _decayed(Flow storage f) internal view returns (uint) {
-        return _decayedBy(f, 1);
-    }
-
-    function _decayedBy(Flow storage f, uint slowN) internal view returns (uint) {
-        if (f.ts == 0) return f.vol;
-        uint mins = (block.timestamp - f.ts) / 60 / slowN;
-        return Math.mulDiv(f.vol, FeeLib.decPow(FLOW_DECAY, mins, FLOW_MAX_MIN), 1e18);
-    }
-
-    function _bumpEwma(Flow storage f, uint usd6) internal {
-        uint v = _decayed(f) + usd6;
-        f.vol = v > type(uint128).max ? type(uint128).max : uint128(v);
-        f.ts  = uint64(block.timestamp);
-    }
-
-    function _bumpFlow(uint usd6) internal {
-        _bumpEwma(_flow, usd6);
-    }
-
-    function bumpRedeemFlow(uint usd6) external onlyUs {
-        if (usd6 != 0) _bumpEwma(_redeemFlow, usd6);
-    }
-
-    function redeemEwmaUsd() public view returns (uint) { return _decayed(_redeemFlow); }
-
-    function skewTargetUsd() public view returns (uint) {
-        return flowEwmaUsd() + redeemEwmaUsd();
-    }
-
-    function flowEwmaUsd() public view returns (uint) {
-        return _decayed(_flow);
-    }
-
-    function premiumEwmaUsd() public view returns (uint) {
-        return _decayed(_prem);
-    }
-
     function levClaimUsd6() public view returns (uint) {
         return _levDebtUsd18() / 1e12;
-    }
-
-    function riskParams() external view returns (uint confFracWad, uint spliceFloor) {
-        return (CONF_FRAC, SPLICE);
     }
 
     function levGrossNative() public view returns (uint) {
         if (address(BTC) == address(0)) return 0;
         return RANGE.levGrossNative();
-    }
-
-    function realizedVarianceWad() external view returns (uint) {
-
-        uint v = Math.mulDiv(OracleLib.ringVariance(observations, obsState, 9),
-                            31536000, 1e18);
-
-        uint a = anchorVarianceWad();
-        return v > a ? v : a;
-    }
-
-    function anchorVarianceWad() public view returns (uint) {
-        uint dt = _varDt.vol;
-        if (dt == 0) return 0;
-        uint v = Math.mulDiv(_varSq.vol, 31536000, dt);
-        return v == 0 ? 1 : v;
-    }
-
-    function _sampleAnchorVariance() internal {
-
-        (uint px,) = SwapLib.twapResolve(
-            AUX.assetPriceFeed(ASSET), 0, VOL_DECIMALS != 18, 0, 1 days);
-        if (px == 0) return;
-        uint prev = _varPx;
-
-        if (prev == 0) {
-            _varPx = px;
-            _bumpVar(0, 0);
-            return;
-        }
-        uint dt = block.timestamp - _varSq.ts;
-
-        if (dt == 0) return;
-
-        if (px == prev) { _bumpVar(0, dt); return; }
-        _varPx = px;
-        uint lo = px < prev ? px : prev;
-        uint r = (px < prev ? prev - px : px - prev) * 1e18 / lo;
-        _bumpVar((r * r) / 1e18, dt);
-    }
-
-    function _bumpVar(uint sqInc, uint dtInc) private {
-        uint ts = _varSq.ts;
-        uint factor = 1e18;
-        if (ts != 0) factor = FeeLib.decPow(FLOW_DECAY, (block.timestamp - ts) / 60, FLOW_MAX_MIN);
-        _decayInto(_varSq, factor, sqInc);
-        _decayInto(_varDt, factor, dtInc);
-    }
-
-    function _decayInto(Flow storage f, uint factor, uint inc) private {
-        uint v = Math.mulDiv(f.vol, factor, 1e18) + inc;
-        f.vol = v > type(uint128).max ? type(uint128).max : uint128(v);
-        f.ts  = uint64(block.timestamp);
     }
 
     uint public skewPremium;
@@ -177,8 +74,6 @@ contract Core {
         RANGE.creditSkewPremium(premiumUsd);
 
         POOLED_USD += premiumUsd;
-
-        _bumpEwma(_prem, premiumUsd);
         emit SkewPremiumRetained(premiumUsd, cum);
     }
 
@@ -187,9 +82,6 @@ contract Core {
     }
 
     uint8 public immutable VOL_DECIMALS;
-
-    uint public immutable CONF_FRAC;
-    uint public immutable SPLICE;
 
     address public ASSET;
 
@@ -210,11 +102,7 @@ contract Core {
 
     function btc() external view returns (address) { return address(BTC); }
 
-    function skewPremiumCum() external view returns (uint) {
-        return skewPremium;
-    }
-
-    function btcThetaBacking() external view returns (uint) {
+    function btcBacking() external view returns (uint) {
         return address(BTC) == address(0) ? 0 : BTC.totalShares() + BTC.totalBuffer();
     }
 
@@ -228,12 +116,10 @@ contract Core {
 
     address immutable DEPLOYER;
 
-    constructor(address asset_, SwapLib.Risk memory risk) {
+    constructor(address asset_) {
         DEPLOYER = msg.sender;
         ASSET        = asset_;
         VOL_DECIMALS = IERC20Min(asset_).decimals();
-        CONF_FRAC    = risk.confFracWad;
-        SPLICE       = risk.spliceFloor;
     }
 
     function setup(address _range, address _aux, address _basket, uint seedPrice)
@@ -297,19 +183,7 @@ contract Core {
 
         _observeIfSourced();
 
-        _sampleAnchorVariance();
-
         _handleDelta(delta, false, recipient, token);
-
-        {
-            int256 usdLeg = delta.usd;
-            uint usd6 = uint(usdLeg < 0 ? -usdLeg : usdLeg);
-            if (usd6 != 0) {
-                _bumpFlow(usd6);
-
-                netFlowUsd += usdLeg;
-            }
-        }
 
         if (!loadBalance) return out;
 
@@ -413,14 +287,6 @@ contract Core {
     address public observationSource;
 
     bytes public OBS_CALLDATA;
-
-    int256 public netFlowUsd;
-
-    Flow internal _redeemFlow;
-
-    Flow internal _varSq;
-    Flow internal _varDt;
-    uint internal _varPx;
 
     function setObservationSource(address src, bytes calldata call_) external {
         require(msg.sender == DEPLOYER, "403");

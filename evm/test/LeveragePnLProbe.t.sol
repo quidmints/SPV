@@ -245,74 +245,7 @@ contract LeveragePnLProbe is AllesFixture {
         emit log_string("=> BOLD accumulates monotonically; earmark would PIN it; BOLD has NO depeg feed.");
     }
 
-    // ───────────────────────────────────────────────────────────────────────────
-    // (2) LVR / value transfer: control (no opens) vs treatment (N opens), valued at
-    //     the SAME final ETH price. Difference = pure leverage externality on the LP.
-    // ───────────────────────────────────────────────────────────────────────────
-    /// @notice THE DISCRIMINATOR for the 0.63% passive-LP leak (owner asked "check which", 2026-08-16).
-    ///         The leak is NOT the range swap — that sells 0.05% ABOVE mid and leaves range value
-    ///         unchanged. It is the REDEMPTION's ETH→QUID conversion, which pays 92.1 cents on the
-    ///         dollar. `_redeemQuote` forms `perShare = min(WAD, solvent·WAD/mature)`, so the whole
-    ///         fork reduces to ONE comparison:
-    ///           solvent >= mature  ⇒ perShare == $1, the haircut is NOT solvency, and the QUID mint
-    ///                                path is the defect.
-    ///           solvent <  mature  ⇒ the basket is GENUINELY SHORT, the 7.90% is CORRECT, and the
-    ///                                defect is the ASYMMETRY: an ETH-paid redeemer escapes what an
-    ///                                otherwise-identical QUID-paid redeemer bears.
-    ///         Measured AFTER the same 20 opens, so it reads the state the failing test redeems from.
-    function test_WhichBranch_IsTheBasketActuallyShort() public {
-        _seed(400 ether);
-        for (uint r = 0; r < 20; r++) { if (_open(3_000e18) == 0) break; }
 
-        (uint solvent,) = AUX.get_metrics(true);
-        uint mature   = QUID.matureSupply();
-        uint immature = QUID.immatureSupply();
-
-        emit log_named_uint("solvent (USD18)   ", solvent);
-        emit log_named_uint("matureSupply      ", mature);
-        emit log_named_uint("immatureSupply    ", immature);
-        emit log_named_uint("perShare x1e18    ", mature == 0 ? 1e18
-            : (solvent * 1e18 / mature > 1e18 ? 1e18 : solvent * 1e18 / mature));
-        if (mature != 0) {
-            emit log_named_uint("solvent/mature bps", solvent * 10_000 / mature);
-            if (solvent >= mature) emit log("BRANCH (b): NOT short -> perShare is par; the 7.90% is a MINT-PATH defect.");
-            else emit log("BRANCH (a): SHORT -> the 7.90% is a CORRECT solvency haircut; the defect is the ASYMMETRY.");
-        }
-        // No assertion on the VALUE — the value IS the answer. Only a premise, so a zeroed
-        // fixture cannot masquerade as a branch verdict.
-        // PREMISE: something must be outstanding, or "is the basket short" has no referent.
-        // NOTE mature == 0 here is not a fixture defect -- it is the ANSWER: nothing has vested,
-        // so `qdShareValue`'s mature==0 guard returns WAD and perShare is PAR by construction.
-        assertGt(mature + immature, 0, "PREMISE: no supply at all, nothing to price a share against");
-        assertGt(solvent, 0, "PREMISE: solvent reads zero, so the comparison is vacuous");
-    }
-
-    /// @notice INSTRUMENT CHECK for the arm-asymmetry fix: value the LP position DIRECTLY,
-    ///         BEFORE any redeem, so no partial-settlement artifact can enter. If control and
-    ///         treatment agree here at unchanged price, the range swap was value-neutral and the
-    ///         0.63% is entirely an artifact of measuring redemption PROCEEDS.
-    function test_Instrument_PositionValueBeforeAnyRedeem() public {
-        _seed(400 ether);
-        uint px0 = AUX.getTWAPforAsset(address(WETH), 1800);
-        uint snap0 = vm.snapshotState();
-
-        for (uint r = 0; r < 20; r++) { if (_open(3_000e18) == 0) break; }
-        uint tShares = ETH.balanceOf(lp);
-        uint tAssets = ETH.convertToAssets(tShares);
-        emit log_named_uint("TREAT shares      ", tShares);
-        emit log_named_uint("TREAT assets(BTC) ", tAssets);
-        emit log_named_uint("TREAT value (USD) ", tAssets * px0 / 1e18);
-
-        vm.revertToState(snap0);
-        uint cShares = ETH.balanceOf(lp);
-        uint cAssets = ETH.convertToAssets(cShares);
-        emit log_named_uint("CTRL  shares      ", cShares);
-        emit log_named_uint("CTRL  assets(BTC) ", cAssets);
-        emit log_named_uint("CTRL  value (USD) ", cAssets * px0 / 1e18);
-
-        assertGt(cShares, 0, "PREMISE: control LP holds no shares");
-        assertGt(tShares, 0, "PREMISE: treatment LP holds no shares");
-    }
 
     function testLeverage_LvrControlVsTreatment() public {
         _seed(400 ether);

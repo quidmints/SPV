@@ -15,8 +15,21 @@
 //   per LP on external ISOLATED Euler/Morpho/Aave/Liquity, target LTV 1-sqrt(entry/now),
 //   zero at or below entry. The prior "not built yet" note was stale. R1 below still
 //   describes the UNPROTECTED path, which is what an LP who declines the overlay gets.]
-//   [ALSO STALE BELOW: K_LVR/CERTIFIED_THETA are keyed to a +/-2% range. The deployed
-//   range is +/-0.2% (SwapLib.RANGE_DELTA = 20).]
+//   [CORRECTED 2026-09-11: that stale note is resolved the other way. It read "K_LVR/
+//   CERTIFIED_THETA are keyed to a +/-2% range; the deployed range is +/-0.2%
+//   (SwapLib.RANGE_DELTA = 20)". The deployed range IS +/-2% -- RANGE_DELTA was widened
+//   20 -> 200 on 2026-09-08 -- so the +/-2% keying was right and the note was wrong.]
+//
+//   🔴 READ THIS BEFORE USING K_LVR OR lvrRate (2026-09-11). ON-CHAIN, K AND THETA ARE
+//   DELETED. `QuidLib.kLvrWad` and `derivedThetaWad` were removed with `applyTheta`
+//   under the protocol's §NO-GAMEABLE-BOUND rule: theta = feeYield/(K*sigma^2) drew all
+//   three of its inputs from OBSERVED FLOW (a premium EWMA, a variance ring, and range
+//   geometry), so a counterparty could move the protocol's depth cap by trading. The
+//   swap charge is now a FLAT 420 ppm (`SwapLib.MIN_SWAP_SKEW_WAD`) and the only
+//   remaining depth bound is the physical `backing - pooled` headroom.
+//   => Everything below is ANALYTIC/EDUCATIONAL. It describes LP economics and what a
+//   conventional market-maker would do. It must NOT be presented to a user as a number
+//   the protocol computes or acts on.
 //
 //   "fees ≈ IL" is FALSE once concentrated — YIELD is the load-bearer, fees are
 //   margin (COVID backtest: LVR ≈ 200%/yr at ±2% vs single-digit fees).
@@ -28,9 +41,15 @@
 
 import type { Regime } from './regime'
 
-export const K_LVR = 0.71            // IL-CERT §3 estimate (±2% range, guard ON). Live measurement: K is regime-dependent ≈1.8–8.4 — treat K·σ² as a conservative FLOOR, not measured truth.
+// ⚠️ ANALYTIC ONLY — the protocol does not compute K. IL-CERT §3 estimate at the ±2% range
+//    (guard ON); live measurement puts K at ≈1.8–8.4 and regime-dependent, so treat K·σ² as a
+//    conservative FLOOR for INTUITION, never as measured truth or as a protocol parameter.
+export const K_LVR = 0.71
 export const LIFETIME_VOL = 0.88     // ETH lifetime annualized vol — the backtest basis (IL-CERT §5)
-export const CERTIFIED_THETA = 0.33  // safe in-range fraction at K≈0.71, ±2% range (mid 0.25–0.40); the higher live K implies a SMALLER safe θ
+// ⚠️ ANALYTIC ONLY, AND NOT THE θ THE UI SHOWS. The UI's "in-range share (θ)" is a MEASURED
+//    ratio (`POOLED / rangeETH`); this is the old Merton-style SAFE fraction, whose on-chain
+//    consumer (`applyTheta`) is deleted. Kept for the backtest narrative only.
+export const CERTIFIED_THETA = 0.33
 
 // LVR rate per unit in-range value, annualized ≈ K·σ².
 export function lvrRate(sigmaAnnual: number): number {
@@ -45,6 +64,12 @@ export function ilPercent(k: number): number {
 
 // ════════════════════════════════════════════════════════════════════════
 //   AVELLANEDA–STOIKOV (2008) — ANALYTICS ONLY (NOT what the protocol does).
+//   🔴 AND THAT PARENTHETICAL IS NOW LOAD-BEARING RATHER THAN CAUTIOUS (2026-09-11): the
+//   protocol briefly DID implement an A–S kernel (Γ·σ²·q̄ with a depletion pole) and it was
+//   DELETED, because every input was state the priced counterparty could starve. Passing
+//   `K_LVR` in as γ below was once defensible as "a grounded coefficient rather than an
+//   assumed risk-aversion"; it is no longer, because K has no on-chain existence. Whatever γ
+//   a caller passes, the output is a statement about a HYPOTHETICAL desk, not about QU!D.
 //   Concentrated liquidity is a discretized limit-order book, so an LP range has
 //   an A-S-optimal CENTER (reservation price) and WIDTH (spread). QU!D quotes a
 //   SYMMETRIC ±2% range; this shows what an inventory-aware market-maker WOULD

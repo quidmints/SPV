@@ -186,7 +186,7 @@ interface ISwap {
     function getTWAPforAsset(address asset, uint32 period) external view returns (uint256 price);
     function resolvedTwap(address asset, uint32 period) external view returns (uint256 price, bool stale);
 
-    function wellSkew(address asset, uint256 drainUsd6) external view returns (uint256 skewWad);
+    function wellSkew(address asset, uint256 drainUsd6) external view returns (uint256 feeWad);
 }
 
 interface IAux is ISwap {
@@ -298,30 +298,22 @@ interface ICore {
 
     function settleOor(address owner, int256 usdDelta, int256 volDelta, bool loadBalance) external;
     function POOLED() external view returns (uint);
-    function btcThetaBacking() external view returns (uint);
+    function btcBacking() external view returns (uint);
     function poolStats() external view returns (uint priceWad, uint liquidity);
 
     function observe(uint32[] calldata secondsAgos) external view returns (uint192[] memory);
-    function premiumEwmaUsd() external view returns (uint);
     function POOLED_USD() external view returns (uint);
 
     function basketUsd() external view returns (uint);
     function pendingSwapOutUsd() external view returns (uint);
     function levClaimUsd6() external view returns (uint);
-    function flowEwmaUsd() external view returns (uint);
-    function redeemEwmaUsd() external view returns (uint);
 
-    function skewTargetUsd() external view returns (uint);
-    function realizedVarianceWad() external view returns (uint);
-    function riskParams() external view returns (uint confFracWad, uint spliceFloor);
     function recordSkewPremium(uint256 premiumUsd, uint256 premiumNative) external;
     function retainedEthPremium() external view returns (uint256);
     function refundUnfilled(address token, uint amount, address to) external;
     function repack(uint anchorPrice) external returns (uint price);
 
     function btc() external view returns (address);
-
-    function skewPremiumCum() external view returns (uint);
 
     function rangeEquityUsd18() external view returns (uint);
     function swap(address recipient, bool inputIsUsd, address token, uint amount, bool loadBalance) external returns (uint);
@@ -349,9 +341,6 @@ interface ICore {
     function USD_FEES() external view returns (uint);
 
     function CORE() external view returns (address);
-    function derivedThetaWad() external view returns (uint);
-
-    function kLvrWad() external view returns (uint);
 
     function unwindForRedeem(uint usdWanted) external returns (uint usdFreed);
     function pendingRewards(address user) external view returns (uint ethReward, uint usdReward);
@@ -407,8 +396,6 @@ interface ILevManagerDeliver {
 }
 
 interface ILevEthDeliver {
-    function openLevCount() external view returns (uint);
-    function openLpAt(uint i) external view returns (address);
     function swapOutDeleverAmt(address lp, uint maxUsd18)
         external view returns (address venue, address stable, uint amtNative);
 

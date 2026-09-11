@@ -6,7 +6,7 @@ import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {WAD, VenueNotAllowed} from "./Types.sol";
 
-import {ICore, IAux, IWeETH, IDepositAdapter, ILevVenue, TWAP_WINDOW_SECS} from "./Interfaces.sol";
+import {ICore, IAux, IWeETH, IDepositAdapter, ILevVenue, ILevPooled, TWAP_WINDOW_SECS} from "./Interfaces.sol";
 import {IERC20Min, IWETH9} from "../imports/Interfaces.sol";
 import {CURVE_BOLD_USDC, CRV_BOLD_IDX, CRV_BOLD_USDC_IDX, BOLD_TOKEN} from "./Interfaces.sol";
 import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, SWAP_SELECTOR, PROTO_UNIV3, PROTO_UNIV2,
@@ -23,39 +23,6 @@ library LevMath {
     function ltvBps(uint256 debt, uint256 collValue) internal pure returns (uint256) {
         if (collValue == 0) return 0;
         return (debt * 10_000) / collValue;
-    }
-
-    function bandBpsFor(
-        address aux,
-        address range,
-        uint32 twapWindow,
-        uint256 gasRebalance,
-        uint256 collUsdWad,
-        uint256 headroomBps
-    ) public view returns (uint256) {
-        if (range == address(0)) return 0;
-        uint256 kWad;
-        try ICore(range).kLvrWad() returns (uint256 k) { kWad = k; } catch { return 0; }
-        if (kWad == 0) return 0;
-
-        uint256 ethUsd = IAux(aux).getTWAPforAsset(IAux(aux).WETH(), twapWindow);
-        uint256 gasUsdWad = (block.basefee * gasRebalance * ethUsd) / 1e18;
-        return noTradeBandBps(gasUsdWad, collUsdWad, kWad, headroomBps);
-    }
-
-    function noTradeBandBps(uint256 gasUsdWad, uint256 collUsdWad, uint256 kLvrWad, uint256 headroomBps)
-        public pure returns (uint256)
-    {
-        if (gasUsdWad == 0 || collUsdWad == 0 || kLvrWad == 0 || headroomBps == 0) return 0;
-
-        uint256 denom = FixedPointMathLib.fullMulDiv(collUsdWad, kLvrWad, WAD);
-        if (denom == 0) return 0;
-        uint256 hCubedWad = FixedPointMathLib.fullMulDiv(gasUsdWad, WAD, denom);
-        uint256 hWad = FixedPointMathLib.cbrtWad(hCubedWad);
-
-        uint256 headWad = (headroomBps * WAD) / 10_000;
-        hWad = (hWad * headWad) / (hWad + headWad);
-        return (hWad * 10_000) / WAD;
     }
 
     function deliverableDollars(uint256 netEquityUsd, uint256 collValueUsd, uint256 curLtvBps, uint256 lltvBps)
@@ -591,17 +558,17 @@ library LevMath {
         pulled = ILevVenue(venueAddr).withdraw(lp, (collUnits * 10_000) / (10_000 - cfg.maxSlippageBps));
     }
 
-    function _pullForExtract(uint256 assets, address lp, address venueAddr, address stable, uint256 extractUsd, ExtractCfg memory cfg)
+    function _pullForExtract(uint256 assets, address venueAddr, address stable, uint256 extractUsd, ExtractCfg memory cfg)
         private returns (uint256 pulled)
     {
-        return _repayAndPull(assets, lp, venueAddr, stable, extractUsd,
+        return _repayAndPullPooled(assets, venueAddr, stable, extractUsd,
             IAux(cfg.aux).getTWAPforAsset(cfg.weth, TWAP_WIN_M), cfg);
     }
 
-    function extractToVaultBody(uint256 assets, address lp, address venueAddr, address stable, uint256 extractUsd, address recipient, uint256 minOut, ExtractCfg memory cfg)
+    function extractToVaultBody(uint256 assets, address venueAddr, address stable, uint256 extractUsd, address recipient, uint256 minOut, ExtractCfg memory cfg)
         public returns (uint256 newGasReserve, uint256 freed)
     {
-        uint256 pulled = _pullForExtract(assets, lp, venueAddr, stable, extractUsd, cfg);
+        uint256 pulled = _pullForExtract(assets, venueAddr, stable, extractUsd, cfg);
 
         return _sellAndPay(pulled, stable, minOut, assets, recipient, cfg);
     }
@@ -728,14 +695,14 @@ library LevMath {
         wethDelivered = collToWethDeliver(got, recipient, floor, cfg);
     }
 
-    function sizeRepayStable(ILevVenue venue, address lp, uint256 extractUsd, uint256 debtUsd18, uint256 pxWeth, address weeth, address aux)
+    function sizeRepayStable(ILevVenue venue, uint256 extractUsd, uint256 debtUsd18, uint256 pxWeth, address weeth, address aux)
         public view returns (uint256 repayStable) {
-        uint256 rawColl = venue.collateralOf(lp);
+        uint256 rawColl = ILevPooled(address(venue)).totalCollateral();
         uint256 collUsd = (IWeETH(weeth).getEETHByWeETH(rawColl) * pxWeth) / 1e18;
         uint256 netEq = collUsd > debtUsd18 ? collUsd - debtUsd18 : 0;
         if (netEq == 0) return 0;
         repayStable = _fromUsd(aux,venue.stable(), (extractUsd * debtUsd18) / netEq);
-        uint256 debt = venue.debtOf(lp);
+        uint256 debt = ILevPooled(address(venue)).totalDebt();
         if (repayStable > debt) repayStable = debt;
     }
 

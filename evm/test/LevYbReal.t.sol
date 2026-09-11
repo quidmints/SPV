@@ -437,7 +437,7 @@ contract LevYbRealProbe is AllesFixture {
         emit log_named_uint("LTV after crash (bps)", rlm.getCurrentLtvBps(LP));
 
         // De-lever through the real adapter: withdraw weETH (real Morpho) → sell (real Uniswap) → repay (real
-        // Morpho). Called by the LP (self-de-risk path; the keeper uses permissionless cascadeDelever).
+        // Morpho). Called by the LP (self-de-risk path; the keeper uses the pooled deleverToVault).
         vm.prank(LP);
         rlm.deleverOne(LP, 0, DEX_WETH_USDC, 0, "");
 
@@ -739,103 +739,8 @@ contract LevYbRealProbe is AllesFixture {
             "the WHOLE interleaved run (the price-free form -- see _conserved)");
     }
 
-    function testReal_Identity_B_Interleaved() public {
-        _setupToRebalanced();
-        _identity("before");
-        _calmVol();
-        _identity("after _calmVol (interleaved)");
-    }
-    function testReal_CalmLeg_A_DrainsOnly() public {
-        _setupToRebalanced();
-        deal(address(USDC), address(this), 20_000 * USDC_PRECISION);
-        USDC.approve(address(AUX), 20_000 * USDC_PRECISION);
-        int256 r0 = _res();
-        for (uint i; i < 8; i++) {
-            try AUX.swap(address(USDC), address(WETH), true, 30 * USDC_PRECISION, 0, true) {} catch {}
-        }
-        emit log_named_int("DRAINS ONLY  residual before", r0);
-        emit log_named_int("DRAINS ONLY  residual after ", _res());
-        emit log_named_int("DRAINS ONLY  DELTA          ", _res() - r0);
-    }
-    function testReal_CalmLeg_B_SellsOnly() public {
-        _setupToRebalanced();
-        vm.deal(address(this), 20 ether);
-        int256 r0 = _res();
-        for (uint i; i < 8; i++) {
-            try AUX.swap{value: 0.015 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch {}
-        }
-        emit log_named_int("SELLS ONLY   residual before", r0);
-        emit log_named_int("SELLS ONLY   residual after ", _res());
-        emit log_named_int("SELLS ONLY   DELTA          ", _res() - r0);
-    }
-    /// ⭐ §CALMVOL-LEG-SPLIT ROUND 3 — **THE LAST UNTESTED COMBINATION, and by elimination it must
-    ///   carry the whole positive offset.** Measured so far: drains −9 wei, sells −450e12, feed 0,
-    ///   sells+warps −6,211,973,167,828,659 — **every isolated arm is ≤ 0**, while `_calmVol`
-    ///   interleaved is **+5,357,529,343,317,595**. Only DRAINS + warps/feed resets remains.
-    /// ⛔ ARM D ALSO REFUTED THE ACCRUAL HYPOTHESIS OUTRIGHT: debt was 559,362,971 BEFORE and AFTER
-    ///   96 minutes of warps. Morpho accrues lazily and nothing here touches it, so time alone moves
-    ///   no debt. Do not re-derive "the residual is interest accrual" — it is measured false.
-    /// 🔎 What is left is the FEED RESET READING A PRICE THE DRAINS MOVED. `_setEthFeed(px/1e10)`
-    ///   copies the pool's TWAP into the oracle; `rangeETH` adds `totalNetEquity = collateral −
-    ///   debt`, and the debt is dollars valued at that oracle. So a drain moves the price, the reset
-    ///   propagates it, `netEquity` re-values, and `rangeETH` moves **with zero custody change** —
-    ///   while `POOLED`, a raw token count, cannot follow. Arm C read 0 because with no trades the
-    ///   TWAP never moved, so the reset was a no-op. This arm supplies the trades.
-    function testReal_CalmLeg_E_DrainsWithWarps() public {
-        _setupToRebalanced();
-        deal(address(USDC), address(this), 20_000 * USDC_PRECISION);
-        USDC.approve(address(AUX), 20_000 * USDC_PRECISION);
-        int256 r0 = _res();
-        uint px0 = AUX.getTWAPforAsset(address(WETH), 1800);
-        for (uint i; i < 8; i++) {
-            vm.warp(block.timestamp + 12 minutes); vm.roll(block.number + 1);
-            uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px != 0) _setEthFeed(px / 1e10);
-            try AUX.swap(address(USDC), address(WETH), true, 30 * USDC_PRECISION, 0, true) {} catch {}
-        }
-        emit log_named_int ("DRAINS+WARP  residual before", r0);
-        emit log_named_int ("DRAINS+WARP  residual after ", _res());
-        emit log_named_int ("DRAINS+WARP  DELTA          ", _res() - r0);
-        emit log_named_uint("DRAINS+WARP  oracle px start", px0);
-        emit log_named_uint("DRAINS+WARP  oracle px end  ", AUX.getTWAPforAsset(address(WETH), 1800));
-        emit log_named_uint("DRAINS+WARP  netEquity      ", rlm.totalNetEquity());
-    }
 
-    /// ⭐ §CALMVOL-LEG-SPLIT ROUND 2 — **NO SINGLE LEG PRODUCES THE OFFSET.** Measured: drains −9 wei,
-    ///   sells −450,000,000,000,000 (NEGATIVE, the premium direction, which independently confirms
-    ///   §PREMIUM-DENOM-ROOT's sign prediction), feed resets EXACTLY 0. They sum to −0.00045 ETH while
-    ///   `_calmVol` produced **+0.005358**. ⇒ the offset is not in any leg; it needs TIME TO PASS
-    ///   BETWEEN SWAPS, which is the one thing the isolated arms above do not do.
-    ///   ⚠️ Leading candidate: debt accrues (Morpho) while `POOLED` is a raw token count that cannot
-    ///   follow, so `totalNetEquity = collateral − debt` falls and `rangeETH` with it. The feed-only
-    ///   arm reads 0 because with NO Morpho interaction the debt is never accrued — lazily, on touch.
-    ///   ⇒ This arm is sells + warps: same swaps as arm B, with the 6-minute gaps restored.
-    function testReal_CalmLeg_D_SellsWithWarps() public {
-        _setupToRebalanced();
-        vm.deal(address(this), 20 ether);
-        int256 r0 = _res();
-        uint d0 = rvenue.debtOf(LP);
-        for (uint i; i < 8; i++) {
-            vm.warp(block.timestamp + 12 minutes); vm.roll(block.number + 1);
-            try AUX.swap{value: 0.015 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch {}
-        }
-        emit log_named_int ("SELLS+WARP   residual before", r0);
-        emit log_named_int ("SELLS+WARP   residual after ", _res());
-        emit log_named_int ("SELLS+WARP   DELTA          ", _res() - r0);
-        emit log_named_uint("SELLS+WARP   debt before    ", d0);
-        emit log_named_uint("SELLS+WARP   debt after     ", rvenue.debtOf(LP));
-    }
 
-    function testReal_CalmLeg_C_FeedResetsOnly() public {
-        _setupToRebalanced();
-        int256 r0 = _res();
-        for (uint i; i < 16; i++) {
-            vm.warp(block.timestamp + 6 minutes); vm.roll(block.number + 1);
-            uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px != 0) _setEthFeed(px / 1e10);
-        }
-        emit log_named_int("FEED ONLY    residual before", r0);
-        emit log_named_int("FEED ONLY    residual after ", _res());
-        emit log_named_int("FEED ONLY    DELTA          ", _res() - r0);
-    }
 
     ///  at notice 🔎 §GATE-0e — **THE CUSTODY INSTRUMENT.** Every identity arm above measures the GAP
     ///   (`POOLED − rangeETH − levBuf`) and none of them shows WHERE the ETH is, so a gap that opens
@@ -946,27 +851,6 @@ contract LevYbRealProbe is AllesFixture {
             "of the drain, which is a venue problem rather than a bookkeeping one");
     }
 
-    ///  at notice 🔬 §LIQ-PENALTY-REFUTED → **WHERE DOES THE CONSTANT OFFSET ENTER?** The fraction sweep
-    ///   returned 4,780,507,795,264,422 IDENTICAL TO THE WEI at 0, 1/4, 1/2 and 3/4 liquidated —
-    ///   including the zero arm. A penalty must scale; this does not, and it is present with no
-    ///   liquidation at all. ⇒ the residual is a FIXED accounting offset introduced during SETUP.
-    ///   This walks the setup one step at a time and prints the residual after each, so the step that
-    ///   introduces it is read off rather than guessed.
-    function testReal_LiqPenalty_4_WhereDoesTheOffsetEnter() public {
-        _setupMorpho();
-        EV.setLevManager(address(rlm));
-        _step("after _setupMorpho");
-        _openLpFlat();
-        _step("after _openLpFlat (5 ETH deposit + 5 weETH openLev)");
-        _rallyRange(_entryPrice(rlm, LP), 0.2e18, 20, 8_000 * USDC_PRECISION);
-        _step("after _rallyRange");
-        rlm.rebalance(LP, 0, DEX_WETH_USDC, 0, "");
-        _step("after rebalance (lever to IL target)");
-        _calmVol();
-        _step("after _calmVol");
-        ETH.syncLev(LP);
-        _step("after syncLev");
-    }
     function _step(string memory label) internal {
         emit log_named_string("STEP", label);
         emit log_named_uint ("   POOLED  ", CORE.POOLED());
@@ -975,11 +859,6 @@ contract LevYbRealProbe is AllesFixture {
         emit log_named_int  ("   RESIDUAL", int256(CORE.POOLED()) - int256(AUX.rangeETH()) - int256(ETH.levBuf(LP)));
     }
 
-    /// ⭐ THE CONTROL. No liquidation at all. A penalty hypothesis REQUIRES this to be <= 0.
-    function testReal_LiqPenalty_0_ControlNoLiquidation() public { _residualAtFraction(0, 1); }
-    function testReal_LiqPenalty_1_Quarter()             public { _residualAtFraction(1, 4); }
-    function testReal_LiqPenalty_2_Half()                public { _residualAtFraction(1, 2); }
-    function testReal_LiqPenalty_3_ThreeQuarters()       public { _residualAtFraction(3, 4); }
 
     function testReal_Morpho_LiquidationLeavesBasketIntact() public {
         _setupMorpho();
@@ -1011,7 +890,7 @@ contract LevYbRealProbe is AllesFixture {
         // Pooled, a seizure hits the pool and therefore EVERY LP pro-rata. What survives — and what
         // the assertions below still bind — is that a REAL Morpho liquidation is survived cleanly and
         // takes NOTHING from the QU!D basket. Containment to one LP is no longer a property of the
-        // venue; it is protocol-enforced upstream by `cascadeDelever` + the LTV hysteresis.
+        // venue; it is protocol-enforced upstream by the pooled `deleverToVault` + the LTV hysteresis.
         MarketParams memory mp = MarketParams({
             loanToken: address(USDC), collateralToken: WEETH, oracle: mOracle, irm: ADAPTIVE_IRM, lltv: 0.86e18});
         deal(address(USDC), address(this), 5_000_000 * USDC_PRECISION);

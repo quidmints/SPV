@@ -142,54 +142,6 @@ library OracleLib {
         return isWbtc ? p * 1e10 : p;
     }
 
-    function ringVariance(Observation[RING] storage obs, ObsState storage st, uint n)
-        external view returns (uint varPerSecWad)
-    {
-        uint card = st.cardinality;
-        if (card < 3 || n < 3) return 0;
-        if (n > card) n = card;
-
-        uint m = n - 2;
-        if (m < 2) return 0;
-        int[] memory ret = new int[](m);
-        int sum;
-        uint32 newest; uint32 oldest;
-        {
-            uint16 idx = st.index;
-            Observation memory hi = obs[idx];
-            newest = hi.blockTimestamp;
-            uint prevRate;
-            for (uint i = 0; i < n - 1; i++) {
-                uint16 lo_i = uint16((uint(idx) + card - 1 - i) % card);
-                Observation memory lo = obs[lo_i];
-                if (!lo.initialized || lo.blockTimestamp >= hi.blockTimestamp) return 0;
-                uint rate = uint(hi.priceCumulative - lo.priceCumulative)
-                          / uint(hi.blockTimestamp - lo.blockTimestamp);
-                if (i != 0) {
-                    if (rate == 0) return 0;
-                    int r = (int(prevRate) - int(rate)) * 1e18 / int(rate);
-                    ret[i - 1] = r;
-                    sum += r;
-                }
-                prevRate = rate;
-                hi = lo;
-                oldest = lo.blockTimestamp;
-            }
-        }
-        if (newest <= oldest) return 0;
-        int mean = sum / int(m);
-        uint acc;
-        for (uint i = 0; i < m; i++) {
-            int d = ret[i] - mean;
-            acc += uint(d * d);
-        }
-        acc /= (m - 1);
-
-        acc += uint(mean * mean);
-
-        varPerSecWad = acc / uint(newest - oldest);
-    }
-
     error NoExternalPrice();
 
     function curvePriceWad(address pool, uint256 k) internal view returns (uint priceWad) {

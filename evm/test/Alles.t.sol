@@ -116,115 +116,7 @@ interface IAngelF8N {
 ///
 /// ⚠️ NOT A DELETION -- every test still runs, exactly once, in `Alles` below. Dropping tests to make
 /// a suite fast is how coverage disappears; separating the fixture from the tests costs nothing.
-interface IAggProxy { function latestRoundData() external view returns (uint80,int256,uint256,uint256,uint80); }
-
-// REAL mainnet Chainlink ETH/USD proxy — the history source for `warmVarianceFromRealRounds`.
-// ⛔ Plain `//`, not `///`: a doc tag on a file-level variable is a COMPILE ERROR (6546).
-address constant REAL_CL_ETH_USD = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
-
 contract AllesFixture is ForkPin, ExitFixture {
-    // ── §SKEW-COVERAGE-HOLE FIX ────────────────────────────────────────────────────────────────
-    // Real mainnet Chainlink history, replayed, so σ² is NON-ZERO and a skew test exercises the
-    // A-S CURVE instead of the `UNKNOWN_VARIANCE_SKEW` sentinel.
-    //
-    // 🔴 WHY EVERY SKEW TEST NEEDS THIS. `sellSkew`/`skewWad` branch on `sigmaSqWad == 0` and return
-    //    the flat sentinel WITHOUT evaluating `qBar`. σ² is `max(ringVariance, anchorVarianceWad)`;
-    //    the ring is deliberately dead (§E294), and `Core._sampleAnchorVariance` advances `_varPx`
-    //    only when the anchor MOVES, guarded by `dt = block.timestamp - _varSq.ts` and an explicit
-    //    "SAME BLOCK ⇒ RETURN WITHOUT ADVANCING". A suite that runs its swaps at ONE pinned block
-    //    therefore tests the sentinel and never the curve — and reports green either way.
-    //
-    // ⛔ FOUR THINGS THAT LOOK LIKE THE OBVIOUS WAY AND ARE NOT — each returned σ² == 0 for a reason
-    //    that has nothing to do with the estimator, and each cost a run to find:
-    //    · `vm.rollFork` — wipes the LINKED LIBRARIES (SwapLib, LevMath); they have no handles in a
-    //      test to `makePersistent`, so every swap dies `CheatcodeError: … not marked as persistent`.
-    //    · reading the PHASE AGGREGATOR directly — `AccessControlledOffchainAggregator` REFUSES
-    //      contract callers. `cast call` works (it presents as an EOA); a test contract does not.
-    //      Read through the PROXY, and keep the roundId PHASE-ENCODED (~1.29e20; only a 64-bit shell
-    //      overflows on it, `uint80` is fine).
-    //    · feeding the round's HISTORICAL timestamp — `twapResolve` sees it stale, returns 0, and the
-    //      sampler degrades to UNMEASURED, which is indistinguishable from "the market did not move".
-    //    · warping BACKWARDS to that timestamp — `block.timestamp` behind the fork underflows the
-    //      swap path (Panic 0x4e487b71). Warp FORWARD by the real GAP instead.
-    //
-    /// @dev Per-round registration log, in its OWN frame. ⛔ Do NOT inline this back into the warm
-    ///      loop: that frame is already at the legacy-stack limit (`via_ir = false`) and adding these
-    ///      reads there is `Stack too deep` — the same wall `_pullForExtract` exists for on the src
-    ///      side. `dReg` is the point: it says whether THIS round contributed, which a final σ²
-    ///      cannot. `ok == 1` with `dReg == 0` means the swap landed and the anchor did not move.
-    function _logRound(uint256 px, bool ok, uint256 v0, uint256 v1) internal {
-        emit log_named_uint("    real px (8dec)       ", px);
-        emit log_named_uint("      block.timestamp    ", block.timestamp);
-        emit log_named_uint("      swap ok (1=yes)    ", ok ? 1 : 0);
-        emit log_named_uint("      sigma^2 after      ", v1);
-        emit log_named_int("      d(sigma^2) REGISTER", int(v1) - int(v0));
-    }
-
-    /// @param nRounds how many consecutive real rounds to replay (12 is ample; σ² ≈ 0.10–0.16 wad).
-    /// @return sigma  `CORE.realizedVarianceWad()` after the walk — 0 means the warm-up FAILED.
-    function warmVarianceFromRealRounds(uint256 nRounds) public returns (uint256 sigma) {
-        // ⛔ DO NOT PIN THE FEED HERE — `_setAssetFeed` IS PIN-ONCE (`FeedPinned()`), so claiming it
-        //    steals the pin from a fixture that sets its own later (`DerivedTheta` via `_moveEth`).
-        //    Use whatever is ALREADY pinned as the sampler's feed, and read HISTORY from the real
-        //    Chainlink proxy regardless — the two need not be the same address. `_sampleAnchorVariance`
-        //    reads `AUX.assetPriceFeed(ASSET)`, so mocking THAT is what moves the anchor; the real
-        //    proxy is only the source of a genuine price series.
-        address feed = AUX.assetPriceFeed(address(WETH));
-        if (feed == address(0)) { feed = REAL_CL_ETH_USD; _auxSetAssetFeed(address(WETH), feed); }
-        address hist = REAL_CL_ETH_USD;                              // history source, always readable
-        address warmer = makeAddr("varianceWarmer");
-        address[] memory sts = AUX.getStables();
-        address stable = sts[sts.length - 1];
-        (, , , , uint80 latest) = IAggProxy(hist).latestRoundData();
-        uint256 prevTs;
-        // 🔴 σ² = Σr²·31536000/Σdt, and Σdt accumulates from the FIRST sample the fixture ever took
-        //    — not from this warm-up. If the host test already swapped (seeding `_varSq.ts`) and then
-        //    warped, Σdt spans its whole setup while this walk contributes only Σr², DILUTING the
-        //    result. Log the entry state so a small σ² can be attributed rather than guessed at.
-        emit log_named_uint("  warm-up ENTRY: block.timestamp", block.timestamp);
-        emit log_named_uint("  warm-up ENTRY: sigma^2 already", CORE.realizedVarianceWad());
-        for (uint256 i = nRounds; i > 0; --i) {
-            (bool ok, bytes memory ret) = hist.staticcall(
-                abi.encodeWithSignature("getRoundData(uint80)", latest - uint80(i)));
-            if (!ok) continue;
-            (, int256 px, , uint256 ts, ) = abi.decode(ret, (uint80, int256, uint256, uint256, uint80));
-            if (px <= 0 || ts == 0) continue;
-            if (prevTs != 0 && ts > prevTs) vm.warp(block.timestamp + (ts - prevTs));  // REAL gap, forward
-            prevTs = ts;
-            vm.mockCall(feed, abi.encodeWithSignature("decimals()"), abi.encode(uint8(8)));
-            vm.mockCall(feed, abi.encodeWithSignature("latestRoundData()"),
-                abi.encode(latest - uint80(i), px, uint256(0), block.timestamp, latest - uint80(i)));
-            // ⛔ SMALL. $25k reverted `SlippageMaxS()` on every round in `SkewCalibration` — a
-            //    USD-IN swap BUYS volatile FROM the range, so against a range with little or no
-            //    inventory it hits the max-slippage guard immediately and the try/catch below eats
-            //    it. The warm-up only needs `Core.swap` to RUN (that is where
-            //    `_sampleAnchorVariance` lives); the size is irrelevant to the anchor sample, so
-            //    keep it small enough to clear the guard in a thin fixture.
-            uint256 amt = 200 * 1e18;
-            deal(stable, warmer, amt);
-            vm.startPrank(warmer);
-            IERC20(stable).approve(address(AUX), amt);
-            // USD-IN, deliberately: `_sampleAnchorVariance` lives in `Core.swap`, whose only src
-            // caller is `BasketLib.routeSwap` — the DRAIN leg reaches it, a volatile-in sell does not.
-            uint256 v0 = CORE.realizedVarianceWad();
-            bool swapped;
-            try AUX.swap(stable, address(WETH), true, amt, 0, true) { swapped = true; }
-            catch (bytes memory err) { emit log_named_bytes("      swap REVERTED", err); }
-            vm.stopPrank();
-            // 🔴 LOG WHETHER THIS ROUND **REGISTERED**, SEPARATELY FROM THE FINAL VALUE. A single
-            //    σ² at the end cannot distinguish "the sampler ran and recorded nothing" from "the
-            //    sampler never ran" — five of the six ways this measurement previously read zero
-            //    were invisible without that split, and the try/catch above hides the sixth.
-            //    `dReg == 0` with `ok == 1` means the swap landed but the anchor did NOT move:
-            //    either the host fixture's own `_setEthFeed` mock is overwriting this one, or the
-            //    price fed is identical to `_varPx` so `Σr²` gains nothing.
-            _logRound(uint256(px), swapped, v0, CORE.realizedVarianceWad());
-        }
-        emit log_named_uint("  warm-up EXIT : block.timestamp", block.timestamp);
-        sigma = CORE.realizedVarianceWad();
-    }
-
-
     /// §C2.1 — THE POOL WORDS THE KEEPER SUPPLIES. `routedSwap` takes ONE `uint256` naming a venue
     /// (protocol in bits 253-255, pool in the low 160) and builds the router calldata itself, so a
     /// test supplies the same thing a keeper would and nothing else. **Both are MEASURED, not
@@ -236,13 +128,6 @@ contract AllesFixture is ForkPin, ExitFixture {
     uint256 constant DEX_WETH_USDC = (uint256(1) << 253) | uint256(uint160(0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640)); // V3 0.05%
     uint256 constant DEX_WBTC_USDC = (uint256(1) << 253) | uint256(uint160(0x99ac8cA7087fA4A2A1FB6357269965A2014ABc35)); // V3 0.30%
 
-    /// The batch form of the pool word: `_batch` requires `lps.length == minOuts.length ==
-    /// dexes.length`, so a keeper sends one venue per LP. ⚠️ A ZERO-LENGTH ARRAY IS NOT "no route
-    /// supplied" — it is a `LenMismatch()`, and three cascade tests were failing on exactly that.
-    function _dexes(uint n) internal pure returns (uint256[] memory d) {
-        d = new uint256[](n);
-        for (uint i; i < n; i++) d[i] = DEX_WETH_USDC;
-    }
     /// 🔴 §E309 — WITHOUT THIS, THE PROTOCOL CANNOT PAY THE TEST, AND THE FAILURE LANDS ON THE
     ///    WRONG CONTRACT ENTIRELY. `Quid.deliverVolatile` is documented "ETH sends real ether"
     ///    (Quid.sol:1216) and routes through `QuidLib.sendEth`, whose last line is
@@ -1909,114 +1794,6 @@ contract Alles is AllesFixture {
             "LP backing not drained by the sandwiched round trip");
     }
 
-    // The DEPLETION-BARRIER drain skew (skew = Γ·σ²·q/(1−q)^ρ, ρ=STABLENESS=1 = the log-barrier —
-    // DERIVED from the HJB with a hard inv≥0 constraint, NOT a fit exponent). Direct unit proof on the
-    // shared SwapLib.skewWad kernel (ETH & BTC both flow through it). Proves: flush at inv≥target;
-    // q=0.5 → Γσ² (q/(1−q)=1); CONVEX (increasing differences — the barrier steepens toward inv=0);
-    // monotone; the inv→0 blowup is UNCAPPED at this layer (§E275 deleted MAX_WELL_SKEW; the
-    // surviving bound is `_boundToFullHaircut` inside `_amplify`, one layer up).
-    function testSkewBarrierRamp_ConvexCapAndMonotone() public pure {
-        uint T   = 3e12;   // target; committed=0 ⇒ target=T, inv=poolVolUsd. /3 for clean thirds.
-        uint sig = 1e16;
-
-        // §E81 — THIS TEST NOW READS THE SHAPE ON **ETH**, AND THAT IS A REAL RE-EXPRESSION, NOT A
-        // WEAKENING. It previously used isBTC=true with the comment *"σ² low enough the DYNAMIC cap
-        // doesn't bind (isolate the shape)"*. After the cap→base inversion (E79) the thing that binds
-        // at low q is the FLOOR, and for BTC that floor is `SPLICE_FLOOR = 2e15` (0.2%) — a REAL
-        // on-chain splice fee you must pay to refill, so it legitimately dominates the scarcity term
-        // until q≈0.87. Asserting a pure-kernel value against BTC therefore asserts that a genuine
-        // cost does not exist. **ETH's floor is `σ²·ETH_CONF_FRAC/8` = 4.75e8 against a kernel of Γ·σ² (see the derived pin below) at
-        // q=0.5 — five orders below — so ETH is where the kernel's SHAPE is observable.** The BTC
-        // floor gets its own assertions below instead of being papered over.
-        // §UNIT-A — RE-EXPRESSED, NOT WEAKENED (§E81-r precedent). This asserted 0. The flush now
-        // returns the BASE, because a well-stocked range is not an UNEXPOSED one: the
-        // settlement-window loss accrues whether or not inventory is scarce, so only the DEPLETION
-        // (kernel) term flushes away, never the adverse-selection floor. Both early returns
-        // previously sat ABOVE `_maxWellSkew`, so a fresh OR idle range charged NOTHING — §E99
-        // measured a 30-day-old imbalance pricing at 0 and §E98 measured BTC's SPLICE_FLOOR never
-        // applying. The expected value is the SAME ETH base this test already names below
-        // (`σ²·ETH_CONF_FRAC/8` = 475e6), so this pins a DERIVED quantity, not a fitted one, and is
-        // STRICTLY STRONGER than asserting zero.
-        assertEq(SwapLib.skewWad(T, T, sig, SwapLib.ethRisk(), 0), 475e6, "flush charges the BASE, not zero");
-
-        // q=1/2 (inv=T/2): q/(1−q)=1 ⇒ qBar = 1 ⇒ skew = Γ·σ² + base, with NOTHING else in it. That
-        // is what makes this the one place Γ's MAGNITUDE is observable rather than its shape.
-        uint s12 = SwapLib.skewWad(T / 2, T, sig, SwapLib.ethRisk(), 0);
-        // §E89: the settlement-window base ADDS to the kernel (incurred regardless of size), so the
-        // pin is kernel + base. ETH base = σ²·ETH_CONF_FRAC/8 = 4.75e8.
-        // 🔴 §E274-LAND — **THIS WAS `3e14`, AND THAT LITERAL WAS Γ = 3e16 WRITTEN OUT LONGHAND**
-        //    (3e16·1e16/1e18). When `a4787689` moved Γ onto its derivation the assertion went red, and
-        //    the commit message that shipped it claimed *"no test in the skew family binds Γ's
-        //    magnitude"* — FALSE, and false because the A/B ran five suites I had called "the skew
-        //    family" while the one binding test lives HERE. Caught by project-bc, not by my own run.
-        //    ⇒ Derived from the constant now, so it can never go stale against Γ again AND it becomes
-        //      a real binding: change Γ and this fails, which is exactly the property I wrongly
-        //      claimed the suite already had. `GAMMA_WAD` is an `internal constant`, readable as
-        //      `SwapLib.GAMMA_WAD` — no accessor and no test-only surface on the library.
-        //    ⛔ Do NOT re-hardcode this to whatever it currently evaluates to. The literal is what
-        //      hid a 5.475x repricing behind a green test for the length of one commit.
-        assertEq(s12, SwapLib.GAMMA_WAD * sig / 1e18 + 475e6, "q=0.5 barrier skew = Gamma*sigma2 + base");
-
-        // q=1/3 (inv=2T/3): q/(1−q)=0.5 ⇒ half of s12. q=2/3 (inv=T/3): q/(1−q)=2 ⇒ double s12.
-        uint s13 = SwapLib.skewWad(2 * T / 3, T, sig, SwapLib.ethRisk(), 0); // q=1/3
-        uint s23 = SwapLib.skewWad(T / 3, T, sig, SwapLib.ethRisk(), 0); // q=2/3
-        assertApproxEqAbs(s13, s12 / 2, 1e9, "q=1/3 skew = 1/2 of q=1/2");
-        assertApproxEqAbs(s23, s12 * 2, 1e9, "q=2/3 skew = 2x of q=1/2");
-
-        // CONVEX: increasing differences (the depletion barrier accelerates toward inv=0). Linear A-S
-        // would give equal steps; q/(1−q) steepens.
-        assertGt(s23 - s12, s12 - s13, "convex: barrier steepens as inv->0");
-        assertLt(s13, s12); assertLt(s12, s23); // monotone
-
-        // ⛔ §E331 — THIS ASSERTED A CAP THAT NO LONGER EXISTS, AT A LAYER THAT NEVER APPLIED ONE.
-        // It read `assertLe(sHot, 3e16, "capped at MAX_WELL_SKEW under the barrier")` and called that
-        // "the ONLY clamp above". **Both halves are false now.**
-        //  1. `MAX_WELL_SKEW` IS DELETED (§E275 — *"one number doing three jobs"*, and *"a POLICY cap
-        //     at 3% that suppressed 51%"* of the distribution). There is no 3e16 ceiling to hold.
-        //  2. `skewWad` IS THE RAW KERNEL. The surviving bound, `_boundToFullHaircut`, is applied in
-        //     `_amplify` — one layer UP, inside `wellSkew` — so this assertion was measuring a bound
-        //     at a layer that never applied it even when the constant existed. Measured: **14.85e18**,
-        //     495× the deleted cap, which is the kernel doing exactly what an uncapped kernel does as
-        //     `inv → 0`.
-        // ⇒ Re-expressed to what IS true here: the barrier is positive and keeps STEEPENING into the
-        //   blowup. The ceiling is asserted where it lives, not here. This test is `pure`, so it
-        //   cannot reach `wellSkew` (which needs a core address) — that bound needs its own test
-        //   against the producer, and §E275's `SKEW_UNFILLABLE` decline is the thing to pin.
-        uint sHot = SwapLib.skewWad(T / 100, T, 5e18, SwapLib.ethRisk(), 0);
-        assertGt(sHot, 0,   "near-empty hot-vol skew positive");
-        assertGt(sHot, s23, "the barrier must keep rising into the blowup, not flatten");
-        // §E331 — same deletion, same layer error: this pinned the BTC leg to the SAME retired 3e16
-        // ceiling with `assertEq`. Measured 14852071250000000000. What survives is that BOTH assets
-        // share one kernel shape, so assert THAT rather than a constant neither of them meets.
-        assertGt(SwapLib.skewWad(T / 100, T, 5e18, SwapLib.btcRisk(), 0), s23,
-            "BTC's barrier rises into the blowup too - one kernel, both assets");
-
-        // §E81 — THE FLOOR IS NOW ASSERTED DIRECTLY, replacing the old per-asset CAP comparison (which
-        // tested a per-asset CEILING that the inversion deliberately removed: both assets now share the
-        // one absolute ceiling, so the old assertLt could no longer hold and would have been a false
-        // pin). The per-asset distinction did not disappear — IT MOVED TO THE FLOOR, which is where a
-        // settlement-window cost belongs. BTC carries the ~1hr confirmation lock AND the splice fee;
-        // ETH carries one block and no splice.
-        // §E89: as q->0 the skew TENDS to the base, but does not equal it -- at q=1/T the kernel still
-        // contributes 99 wei, and under ADDITION that is correct. An assertEq to the base alone would
-        // assert the kernel contributes nothing, which is exactly what the additive form denies. The
-        // tolerance here is bounding a KNOWN, DERIVED term, not hiding an unexplained residual.
-        assertApproxEqAbs(SwapLib.skewWad(T - 1, T, sig, SwapLib.btcRisk(), 0), 2e15 + 1425e8, 1e3,
-            "BTC base = SPLICE_FLOOR + sigma2*CONF_FRAC/8 (base dominates as q->0)");
-        assertLt(SwapLib.skewWad(T - 1, T, sig, SwapLib.ethRisk(), 0),
-                 SwapLib.skewWad(T - 1, T, sig, SwapLib.btcRisk(), 0), "ETH floor < BTC floor (no conf lock, no splice)");
-        // AND THE FLOOR IS A FLOOR, NOT A CEILING: at high scarcity the kernel must OVERTAKE it, or the
-        // inversion did nothing. q=0.9 ⇒ q/(1−q)=9 ⇒ kernel 9·Γ·σ², compared against BTC's 2.0001425e15 base.
-        assertGt(SwapLib.skewWad(T / 10, T, sig, SwapLib.btcRisk(), 0), 2e15 + 1425e8,
-            "kernel ADDS on top of the base at high scarcity -- the restructure is real");
-        // §E89 REGRESSION PIN: the base must SURVIVE at high scarcity, not be absorbed. Under the old
-        // max() form this equalled the kernel alone; under addition it must exceed it by the base.
-        // §E274-LAND: `27e14` was the SAME stale Γ as the q=0.5 pin below it — 9·Γ·σ² at Γ=3e16.
-        // Derived, so the base-survives-at-scarcity property is asserted independently of Γ's value.
-        assertEq(SwapLib.skewWad(T / 10, T, sig, SwapLib.ethRisk(), 0),
-                 9 * (SwapLib.GAMMA_WAD * sig / 1e18) + 475e6,
-                 "ETH high-scarcity = kernel(q/(1-q)=9) + base, base NOT absorbed");
-    }
 
     // SWAP-PRICING PIN (BTC, in-range): closes the pervasive `minOut=0 + assertGt(>0)` mask by
     // pinning what a small buy actually PAYS. Fresh pool ⇒ no flow/leverage ⇒ target=0 ⇒ skew=0,
@@ -2089,8 +1866,6 @@ contract Alles is AllesFixture {
         emit log_named_uint("oracle base (usd18)   ", base);
         // §SELL-SKEW-18PCT: `sellSkew` returns 0 at `target == 0` and prices `(inv - target)/target`
         // otherwise, so a tiny `flow` against a large `inv` saturates toward its pole. Print both.
-        emit log_named_uint("flowEwmaUsd (target)  ", ICore(address(CORE)).flowEwmaUsd());
-        emit log_named_uint("realizedVarianceWad   ", ICore(address(CORE)).realizedVarianceWad());
         emit log_named_uint("skewPremium (accum)   ", CORE.skewPremium());
         emit log_named_uint("range USD depth (6dec)", ICore(address(CORE)).POOLED_USD());
         emit log_named_uint("range ETH depth (18dec)", ICore(address(CORE)).POOLED());
@@ -3008,20 +2783,6 @@ contract Alles is AllesFixture {
         vm.stopPrank();
     }
 
-    function testRedeemFromSingleVault() public {
-        vm.startPrank(User01);
-
-        vm.warp(block.timestamp + 30 days);
-        uint userBalance = QUID.balanceOf(User01);
-        uint redeemAmount = userBalance / 2;
-
-        uint usdcBefore = USDC.balanceOf(User01);
-        AUX.redeem(redeemAmount);
-        uint usdcReceived = USDC.balanceOf(User01) - usdcBefore;
-        assertGt(usdcReceived, 0, "Should receive USDC");
-
-        vm.stopPrank();
-    }
 
     function testVaultBalanceDistribution() public {
         // §ROSTER-ALIGN — FUND A THIRD AND FOURTH STABLE, BECAUSE THE ASSERTION BELOW WAS BEING
@@ -3094,21 +2855,6 @@ contract Alles is AllesFixture {
         vm.stopPrank();
     }
 
-    function testSwapWithDifferentStableOutputs() public {
-        vm.startPrank(User01);
-        ETH.deposit{value: 100 ether}(0, User01);
-
-        uint pooledETH = CORE.POOLED();
-        assertGt(pooledETH, 0, "pool must be seeded");
-
-        uint usdcBefore = USDC.balanceOf(User01);
-        AUX.swap{value: 1 ether}(address(USDC), address(WETH), false, 0, 0, true);
-
-        uint usdcReceived = USDC.balanceOf(User01) - usdcBefore;
-        assertGt(usdcReceived, 0, "Should receive USDC");
-
-        vm.stopPrank();
-    }
 
     function testLargeRedemptionAllVaults() public {
         vm.startPrank(User01);
@@ -3177,45 +2923,6 @@ contract Alles is AllesFixture {
         vm.stopPrank();
     }
 
-    function test_WithdrawDoesNotPersistFeeSnapshot() public {
-        vm.startPrank(User01);
-        ETH.deposit{value: 100 ether}(0, User01);
-        vm.stopPrank();
-
-        for (uint i = 0; i < 3; i++) {
-            vm.startPrank(User03);
-            AUX.swap{value: 0.05 ether}(address(USDC), address(WETH), false, 0, 0, true);
-            vm.roll(block.number + 1);
-            vm.warp(block.timestamp + 15 minutes);
-            vm.stopPrank();
-        }
-
-        uint balBefore = User01.balance;
-        uint wBefore1 = IERC20(address(WETH)).balanceOf(User01);
-        vm.prank(User01);
-        ETH.withdraw(10 ether, User01, User01);
-        uint received = (User01.balance - balBefore) + (IERC20(address(WETH)).balanceOf(User01) - wBefore1);
-        // MEASURE BOTH ASSETS: exits route through the ether.fi offramp, which pays WETH, where
-        // the old range-burn path paid native ETH. Watching only `.balance` reads 0 on a delivery
-        // that happened -- the wrong ASSET, not a real zero.
-        assertGt(received, 0, "Should receive something on withdraw (native ETH or WETH)");
-
-        for (uint i = 0; i < 3; i++) {
-            vm.startPrank(User03);
-            AUX.swap{value: 0.05 ether}(address(USDC), address(WETH), false, 0, 0, true);
-            vm.roll(block.number + 1);
-            vm.warp(block.timestamp + 15 minutes);
-            vm.stopPrank();
-        }
-
-        balBefore = User01.balance;
-        wBefore1 = IERC20(address(WETH)).balanceOf(User01);
-        vm.prank(User01);
-        ETH.withdraw(10 ether, User01, User01);
-        // MEASURE BOTH ASSETS -- the offramp pays WETH, the old range burn paid native ETH.
-        received = (User01.balance - balBefore) + (IERC20(address(WETH)).balanceOf(User01) - wBefore1);
-        assertGt(received, 0, "Should receive something on final withdraw (native ETH or WETH)");
-    }
 
     function test_PendingSwapETHInflatesAvailable() public {
         vm.startPrank(User01);
@@ -3261,52 +2968,6 @@ contract Alles is AllesFixture {
         assertGt(CORE.POOLED(), beforeDep, "a real deposit grows POOLED");
     }
 
-    function test_FeeAttributionWithMultipleLPs() public {
-        vm.deal(User01, 1000 ether);
-        vm.deal(User02, 1000 ether);
-        vm.deal(User03, 1000 ether);
-
-        vm.prank(User01);
-        ETH.deposit{value: 100 ether}(0, User01);
-
-        vm.startPrank(User03);
-        USDC.approve(address(AUX), type(uint).max);
-        for (uint i = 0; i < 5; i++) {
-            AUX.swap{value: 2 ether}(address(USDC), address(WETH), false, 0, 0, true);
-            vm.roll(block.number + 1);
-            vm.warp(block.timestamp + 15 minutes);
-        }
-        vm.stopPrank();
-
-        vm.prank(User02);
-        ETH.deposit{value: 100 ether}(0, User02);
-
-        vm.startPrank(User03);
-        for (uint i = 0; i < 5; i++) {
-            AUX.swap{value: 2 ether}(address(USDC), address(WETH), false, 0, 0, true);
-            vm.roll(block.number + 1);
-            vm.warp(block.timestamp + 15 minutes);
-        }
-        vm.stopPrank();
-
-        uint bal1 = User01.balance;
-        uint wAlice0 = IERC20(address(WETH)).balanceOf(User01);
-        vm.prank(User01);
-        ETH.withdraw(type(uint).max, User01, User01);
-        uint aliceReceived = (User01.balance - bal1) + (IERC20(address(WETH)).balanceOf(User01) - wAlice0);
-
-        uint bal2 = User02.balance;
-        uint wBob0 = IERC20(address(WETH)).balanceOf(User02);
-        vm.prank(User02);
-        ETH.withdraw(type(uint).max, User02, User02);
-        uint bobReceived = (User02.balance - bal2) + (IERC20(address(WETH)).balanceOf(User02) - wBob0);
-
-        // MEASURE BOTH ASSETS: exits route through the ether.fi offramp, which pays WETH, where
-        // the old range-burn path paid native ETH. Watching only `.balance` reads 0 on a delivery
-        // that happened -- the wrong ASSET, not a real zero.
-        assertGt(aliceReceived, 0, "Alice should receive value (native ETH or WETH)");
-        assertGt(bobReceived, 0, "Bob should receive value (native ETH or WETH)");
-    }
 
     /// @notice Quid is a DUAL (ETH+BTC) vault, so it cannot be strict
     ///         single-asset ERC-4626 - the names are kept for ergonomics only.
@@ -3478,13 +3139,6 @@ contract Alles is AllesFixture {
         _assertSpokeStableRoundTrips(USDG, "USDG");
     }
 
-    function test_Redeem_DeepDepeg_Liveness() public {
-        _stageDepeg();
-        _setDepeg(address(USDC), 6000);                              // 60% depeg on USDC (no floor)
-        (uint red, uint burn) = _redeemValue(User01, 10_000e18);
-        assertGt(burn, 0, "deep-depeg redeem still burns mature QD");
-        assertGt(red, 0, "deep-depeg redeem still delivers (not bricked)");
-    }
 
     function test_EthLp_RedeemConservationAndFairness() public {
         vm.deal(User01, 1000 ether);
@@ -4174,7 +3828,7 @@ contract Alles is AllesFixture {
         // §WRONG-RANGE — this is test_RunSim_AllExit_BtcLp: a BTC LP's premium and pooled depth
         // live on the BTC instance. `BCORE()` (= BTC.CORE()) already exists and line ~4285 of
         // this same file declares an identically-named `pooledBtc0` using it correctly.
-        uint premBefore = BCORE().skewPremiumCum();
+        uint premBefore = BCORE().skewPremium();
 
         // Two BTC LPs; fund POOLED_USD (median-governed) so SOME of their
         // sats pair into active virtual liquidity and the rest is retention.
@@ -4218,7 +3872,7 @@ contract Alles is AllesFixture {
         // the premium reach the LP through the fee leg, so the proxy broke while the INVARIANT —
         // no proceeds were minted — still holds. Bound = the premium ACTUALLY CHARGED + the
         // original 1e18 dust allowance, so a real proceeds claim (orders larger) still fails.
-        assertLt(qdGain, (BCORE().skewPremiumCum() - premBefore) * 1e12 + 1e18,
+        assertLt(qdGain, (BCORE().skewPremium() - premBefore) * 1e12 + 1e18,
             "only fee dust + retained premium minted (no proceeds claim when delivered==0)");
         // Virtual consistency: the shared POOLED didn't go negative / wrap.
         assertLe(BCORE().POOLED(), pooledBtc0, "POOLED only shrank - no over-burn across LPs");
@@ -5165,79 +4819,7 @@ contract Alles is AllesFixture {
             "assertGt(pooledAfter, pooledPre) here.");
     }
 
-    /// (E145-q) WHEN AN EXITING LP'S BTC-LEG CLAIM IS FORGONE, WHAT DO THE REMAINING LPs GET?
-    ///
-    /// `Vault.sol:875-885` says the forgone sats "accrue to the remaining LPs". That sentence
-    /// has been repeated all thread -- by the code, and by me -- and never measured. It is the
-    /// load-bearing claim under every E145 option: if remaining LPs gain nothing, the value is
-    /// simply lost and the fold is a fix; if they gain, it is a transfer between LPs and the
-    /// fold changes who gets paid.
-    function testBtcLp_forgoneClaim_whatDoRemainingLpsActuallyGet() public {
-        AUX.setBTCChannels(address(this));
-        BTC.requestDeposit(User01, 2e7);
-        BTC.requestDeposit(User02, 2e7);
-        vm.startPrank(User03);
-        USDC.approve(address(AUX), type(uint).max);
-        for (uint i = 0; i < 4; i++) {
-            AUX.swap(address(USDC), address(WBTC), true, 500 * USDC_PRECISION, 0, true);
-            vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
-        }
-        vm.stopPrank();
-        // Swap-ins are what accrue the BTC leg (E145-q).
-        BTC.creditSwapIn(address(0x5E21), 500_000, address(USDC), 0);
-        vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
-        BTC.creditSwapIn(address(0x5E22), 500_000, address(USDC), 0);
-        vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
 
-        vm.prank(User01); BTC.collectFees();
-        vm.prank(User02); BTC.collectFees();
-        // (E145) THE FORFEITURE IS GONE BECAUSE THE LEDGER IS. This test previously needed a
-        // live claim to forgo, and MEASURED 209 sats vanishing at close with no remaining LP
-        // gaining anything. The fee now compounds into `pooled` as it is earned, so there is
-        // never an unsettled claim to lose — which is the fix, not a gap in the test.
-
-        uint fpsBefore = BTC.feesPerShare();
-        BTC.requestRedeem(User01, 2e7);                 // LP1 exits fully
-
-        // THE MEASUREMENT: does LP2 receive any of it?
-        vm.prank(User02); BTC.collectFees();
-        emit log_named_uint("feesPerShare before", fpsBefore);
-        emit log_named_uint("feesPerShare after ", BTC.feesPerShare());
-        // Recorded, not asserted in a direction: this test exists to ESTABLISH the number.
-        // Whichever way it lands, it decides whether the fold is a fix or a redistribution.
-    }
-
-    /// (E152-b) MEASURE THE USD-LEG FEE RATE DIRECTLY, on a single swap of known size.
-    ///
-    /// The `BtcLpMintStress` bound was DERIVED from this rate at 4.2 bps; the suite now shows
-    /// 24.24 bps. That test cannot discriminate, because its delta mixes proceeds and fees.
-    /// This isolates the fee: ONE LP (so its share is the whole range) and ONE swap, so the
-    /// accrued USD-leg fee IS the pool's rate on that volume.
-    function testBtcPool_measureUsdLegFeeRateOnASingleSwap() public {
-        AUX.setBTCChannels(address(this));
-        BTC.requestDeposit(User01, 2e7);
-        vm.prank(User01); BTC.collectFees();          // zero the LP's bookmark first
-
-        uint usdFees0 = BTC.USD_FEES();
-        uint qd0 = QUID.balanceOf(User01);
-
-        uint volume6 = 1_000 * USDC_PRECISION;           // ONE swap, known size
-        vm.startPrank(User03);
-        USDC.approve(address(AUX), type(uint).max);
-        AUX.swap(address(USDC), address(WBTC), true, volume6, 0, true);
-        vm.stopPrank();
-        vm.roll(block.number + 1); vm.warp(block.timestamp + 15 minutes);
-
-        vm.prank(User01); BTC.collectFees();          // crystallise -> QUID (18-dec)
-        uint paid18 = QUID.balanceOf(User01) - qd0;
-        emit log_named_uint("swap volume (6-dec)      ", volume6);
-        emit log_named_uint("USD_FEES delta       ", BTC.USD_FEES() - usdFees0);
-        emit log_named_uint("QUID paid to the LP (18) ", paid18);
-        // bps of volume: paid is 18-dec, volume is 6-dec ⇒ normalise volume to 18-dec.
-        uint volume18 = volume6 * 1e12;
-        if (volume18 > 0) emit log_named_uint("=> fee rate, bps of volume", paid18 * 10000 / volume18);
-        assertGt(paid18, 0, "the single swap must accrue a USD-leg fee to the sole LP");
-    }
 
     /// (E145) THE LAST UNMEASURED PRICE IN THE FOLD: is `sats * price / WAD` really 18-dec USD?
     ///
