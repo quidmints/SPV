@@ -202,14 +202,42 @@ Each was carried as open, some in red, some for weeks.
    *"parameters are settable, addresses are settable"*; GATE 3.4/3.5 rule **no setters, no owner**.
    `§BTC-4.6g`'s *"one-way k-of-n flag"* **is** an authority. The owner's Bitcoin-derived latch is the
    only resolution present in the whole scope.
-**5. `§BTC-4.6g-bis`** — ⚠️ **SIX sites, not five. The table undercounts, and the code says so.**
-   Verified present and hardcoded: `BitcoinTx.sol:323` (funding `5120||q`), `BTCChannels.sol:772`
-   (`_lpPayoutScript`), `BTCChannels.sol:2057` (`lpToRemoteKey`), `BitcoinTx.sol:829`
-   (`verifySwapInDeposit`), `BTCChannels.sol:2509` (`_requireRecipientPoP`).
-   🔴 **`BitcoinTx.sol:781-792` carries a comment naming itself *"A SIXTH … SITE, ABSENT FROM THE
-   FIVE-SITE TABLE"* — and it is the one site the "pin opaque bytes" remedy CANNOT reach, because it
-   is a sighash preimage.** Any plan built on the five-site table is short by the hardest one.
-**6. `§BTC-4.6n`** — `verifyDeadManExit` verifies an **enumerated** signature scheme.
+**5 + 6. `§BTC-4.6g-bis` / `§BTC-4.6n`** — ⚠️ **RE-MEASURED 2026-09-11. EVERY LINE NUMBER IN THE OLD ROW
+   WAS STALE, ONE NAMED SITE WAS WRONG, AND THE CENSUS MISSED A SPELLING. AND THE REMEDY IT ASSUMES
+   BUYS NOTHING — read that last part first.**
+   ⛔ **THE FOLD IS NOT THE FIX, BECAUSE `BTCChannels` DEPLOYS ONCE.** The old row's implied remedy —
+   route every site through one helper so the output form can be changed in one place — is the right
+   instinct on a mutable contract and **worthless on this one**. There is no "later" in which to make
+   the one-place change (`§BTC-8d`: no upgrade path). ⇒ the only question that matters is **whether the
+   contract, AT DEPLOY, can express every output form it will ever need.** A census is input to that
+   decision, not a work item on its own.
+   **THE MEASURED CENSUS (`grep` for `hex"5120"` AND `bytes1(0x51)` AND helper callers — the old row
+   used only the first spelling, which is why it undercounted):**
+   · **5 INLINE duplicates:** `BTCChannels.sol:228` (`_lpPayoutScript`, spelled
+     `bytes1(0x51), bytes1(0x20)` — the spelling the old census missed), `BTCChannels.sol:519`
+     (`_requireNotSplice`), `BTCChannels.sol:609` (`lpToRemoteKey` on close),
+     `BitcoinTx.sol:430` (`_verifyExitSignature` prevScripts), `BitcoinTx.sol:446`
+     (`verifySwapInDeposit`).
+   · **1 helper:** `BitcoinTx.buildTaprootScriptPubKey` (`:182`).
+   · **3 sites already routed through it, correctly:** `ChannelLib.sol:434`, `:453`, `VBtc.sol:65`.
+   ⛔ **TWO CORRECTIONS TO THE OLD ROW, both found by opening the code:**
+   1. **`BTCChannels._requireRecipientPoP` is NOT a site.** It calls `schnorrVerify` on an x-only key
+      and builds no scriptPubKey at all. It was named in the five-site table and does not belong.
+   2. **`ChannelLib.sol:381` is a FALSE POSITIVE for any `0x51` grep** — that byte is `OP_1` as the
+      CSV operand inside a tapscript leaf (`<32> <xOnly> OP_CHECKSIGVERIFY OP_1 OP_CSV`), not a
+      witness version. **A census by byte value catches it; a census by meaning does not.**
+   🔑 **`BitcoinTx.sol:430` IS STILL THE HARD ONE, AND FOR A SHARPER REASON THAN THE ROW GAVE.** It is
+   a **sighash preimage**: it reconstructs the exact SPK the signature already committed to, so it can
+   never accept "whatever form the payee chose" — it must reproduce what the FUNDING output actually
+   is. ✅ **But that is not a limitation, because funding is always the 2-of-2 MuSig2 key-path
+   aggregate.** The enumeration is correct there forever. **The P2MR exposure is on PAYOUT outputs, not
+   on the funding prevout**, and conflating the two is what made this row look harder than it is.
+   🔴 **SO THE REAL TIER-0 QUESTION, STATED ONCE:** `btcRecipientOf` is a **bare 32-byte x-only key**,
+   so every payout this contract can ever construct is witness-v1 key-path. If P2MR (or anything else)
+   activates, **an LP cannot be paid to it** — not because five sites hardcode a prefix, but because
+   the STORED FIELD cannot represent another form. ⇒ if that matters, the thing to widen at deploy is
+   `btcRecipientOf`, and the five inline sites are a consequence, not the cause. **Folding them changes
+   nothing about what the contract can express.** ⏸️ Owner decision, downstream of `§R-P2MR` (item 4).
 **7.** ~~`7f` `PendingOnchainSwapOut.sats` — narrow the guard to the stored width.~~ ✅ **STRUCK — ALREADY DONE.**
    `BTCChannels.sol:2307` is now `if (sats > type(uint64).max || usd6 > type(uint96).max) revert InvalidParam();`,
    tagged *"EACH GUARD IS THE WIDTH THE FIELD IS STORED AT"*. The `uint96`-guard-over-`uint64`-field
