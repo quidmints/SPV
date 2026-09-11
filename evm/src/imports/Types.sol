@@ -59,6 +59,7 @@ library Types {
         address lpEth;
         uint32  fundingVout;
         uint8   status;
+        uint8   form;
 
         bytes32 keysHash;
 

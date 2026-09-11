@@ -5,6 +5,38 @@ type Id is bytes32;
 
 struct MarketParams { address loanToken; address collateralToken; address oracle; address irm; uint256 lltv; }
 
+/// §PQ-SEAM — the one-shot pluggable Bitcoin script/signature verifier.
+///
+/// Every member takes and returns `bytes` so NO output format or signature scheme is presumed: the
+/// contract deploys once, P2MR and OP_CAT are not final, and a seam that encoded today's guess would
+/// be the same dead end as enumerating the forms inline.
+///
+/// ⛔ **THE SECP PATH IS NOT REPLACED BY THIS AND MUST NEVER BE.** A channel's `form` is fixed at open
+/// and never rewritten, so v1 channels keep using the built-in secp path for their entire life —
+/// close, splice and exit. Switching secp off would strand every LP funded before activation, and on
+/// a contract that deploys once the code cannot be removed either. Legacy-forever, not dead.
+interface IPqVerifier {
+    /// The scriptPubKey a v2 channel's funding output must pay, from the two funding keys.
+    function fundingScript(bytes calldata lpKey, bytes calldata hopKey)
+        external view returns (bytes memory);
+
+    /// The scriptPubKey a v2 payout destination resolves to. MUST revert if `dest` is not
+    /// well-formed under the active scheme — this is what replaces `isValidXOnlyKey`.
+    function payoutScript(bytes32 dest) external view returns (bytes memory);
+
+    /// Does `proof` prove control of `dest` over `digest`? Replaces the BIP-340 possession proof,
+    /// which no post-quantum destination can produce.
+    function verifyPossession(bytes32 dest, bytes32 digest, bytes calldata proof)
+        external view returns (bool);
+
+    /// Is `signedTx` validly signed by the channel's 2-of-2 under the active scheme? Replaces
+    /// `schnorrVerify` over the BIP-341 key-path sighash.
+    function verifyExit(
+        bytes calldata signedTx, bytes calldata lpKey, bytes calldata hopKey,
+        uint64[] calldata prevValues, bytes[] calldata prevScripts
+    ) external view returns (bool);
+}
+
 interface IMorphoBase {
     function createMarket(MarketParams memory marketParams) external;
     function supply(MarketParams memory m, uint256 assets, uint256 shares, address onBehalf, bytes memory data)

@@ -182,7 +182,7 @@ contract BtcSelfManagedTest is AllesFixture {
         assertTrue(gw.isInMainchain(b.closeBlockHash),   "close block on mainchain");
 
         // ── REAL BTCChannels at the predicted address; hopNode = our hop ──
-        BTCChannels ch = new BTCChannels(address(gw), address(BTC), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        BTCChannels ch = new BTCChannels(address(gw), address(BTC), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)), address(0));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         require(address(ch) == predictedCh, "BTCChannels address prediction off");
         AUX.setBTCChannels(address(ch));
@@ -230,7 +230,7 @@ contract BtcSelfManagedTest is AllesFixture {
         }
 
         // The lpAuth signer owns the credited BTC position.
-        (, , address lpEth, , uint8 status, , ) = ch.channels(channelId);
+        (, , address lpEth, , uint8 status, , , ) = ch.channels(channelId);
         assertEq(status, 0, "channel OPEN");
         (uint pooledOpen,,,) = BTC.autoManaged(lpEth);
         assertEq(pooledOpen, b.amountSats, "openChannel credits the BTC pool position");

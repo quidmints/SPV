@@ -51,7 +51,7 @@ contract BtcLpMintStress is AllesFixture {
     /// Deploy a real BTCChannels (mock SPV - the SPV crypto is covered elsewhere)
     /// and pin it as THE channels contract so register/close drive the real Vault.
     function _deployChannels() internal returns (BTCChannels ch) {
-        ch = new BTCChannels(address(new MockSPV()), address(BTC), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)));
+        ch = new BTCChannels(address(new MockSPV()), address(BTC), makeAddr("hop"), makeAddr("hop-fallback"), bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)), address(0));
         _btcChannels = address(ch);   // (E138) PoP digest binds this address
         AUX.setBTCChannels(address(ch));
     }
@@ -624,11 +624,11 @@ contract BtcLpMintStress is AllesFixture {
             _open(ch, 1, 1_000_000); // open 0.01 BTC
         uint pooled0; uint locked0 = ch.totalSatsLocked();
         { (uint p0,,,) = BTC.autoManaged(lpEth); pooled0 = p0;
-          (uint a0, , , , , , )= ch.channels(channelId); assertEq(a0, 1_000_000, "opened 1.0mm"); }
+          (uint a0, , , , , , , )= ch.channels(channelId); assertEq(a0, 1_000_000, "opened 1.0mm"); }
 
         bytes32 newTxId = _splice(ch, channelId, fundingTxId, 1, lpPubkey, 1_600_000); // grow → 1.6mm
 
-        (uint a1, bytes32 ftx1, , , uint8 st1, , )= ch.channels(channelId);
+        (uint a1, bytes32 ftx1, , , uint8 st1, , , )= ch.channels(channelId);
         assertEq(a1, 1_600_000, "channel funded total grew to 1.6mm");
         assertEq(ftx1, newTxId, "live funding outpoint rotated to the splice tx");
         assertEq(st1, 0, "channel still OPEN");
@@ -705,7 +705,7 @@ contract BtcLpMintStress is AllesFixture {
 
         bytes32 newTxId = _spliceOut(ch, channelId, fundingTxId, 7, lpPubkey, 1_000_000); // shrink → 1.0mm
 
-        (uint a1, bytes32 ftx1, , , uint8 st1, , )= ch.channels(channelId);
+        (uint a1, bytes32 ftx1, , , uint8 st1, , , )= ch.channels(channelId);
         assertEq(a1, 1_000_000, "channel funded total shrank to 1.0mm");
         assertEq(ftx1, newTxId, "live funding outpoint rotated to the splice-out tx");
         assertEq(st1, 0, "channel still OPEN after partial withdrawal");
@@ -771,7 +771,7 @@ contract BtcLpMintStress is AllesFixture {
         bytes32 newTxId = _deliverOnchain(ch, s);
 
         {
-            (uint a1, bytes32 ftx1, , , uint8 st1, , )= ch.channels(s.channelId);
+            (uint a1, bytes32 ftx1, , , uint8 st1, , , )= ch.channels(s.channelId);
             assertEq(a1, 2_000_000 - s.sats, "channel shrank by the delivered sats");
             assertEq(ftx1, newTxId, "funding outpoint rotated to the delivery tx");
             assertEq(st1, 0, "channel still OPEN after the delivery");
@@ -813,7 +813,7 @@ contract BtcLpMintStress is AllesFixture {
     /// swap-out: a 2-output tx (new SMALLER 2-of-2 + the swapper's payout), fee-free
     /// here so shrink == delivered == `s.sats`.
     function _deliverOnchain(BTCChannels ch, _OcSwap memory s) internal returns (bytes32 newTxId) {
-        (uint old, , , , , , )= ch.channels(s.channelId);
+        (uint old, , , , , , , )= ch.channels(s.channelId);
         uint newAmount = old - s.sats;
         bytes memory spliceTx;
         {
@@ -908,7 +908,7 @@ contract BtcLpMintStress is AllesFixture {
 
         // A close is now all-native: it mints ZERO additional proceeds.
         uint qdBeforeClose = QUID.balanceOf(lpEth);
-        (uint funded, , , , , , )= ch.channels(cid);
+        (uint funded, , , , , , , )= ch.channels(cid);
         _close(ch, cid, _liveFundingTxId[cid], lpPk, funded);
         assertLt(QUID.balanceOf(lpEth) - qdBeforeClose, 1e18,
             "close mints ~no extra QUI (proceeds already settled at deliver; fees only)");
@@ -946,7 +946,7 @@ contract BtcLpMintStress is AllesFixture {
             "deliver mints ~EXACTLY the swapper's USD (no inflation, + fee dust)");
         assertGe(QUID.balanceOf(lpEth) - qdBeforeDeliver, proceeds * 1e12,
             "LP received AT LEAST its full proceeds");
-        (uint funded, , , , , , )= ch.channels(cid);
+        (uint funded, , , , , , , )= ch.channels(cid);
         assertGt(funded, 0, "channel still has funding to over-claim at close");
 
         // ADVERSARIAL close: finalBalance = 0 claims the WHOLE remaining funding as
@@ -984,7 +984,7 @@ contract BtcLpMintStress is AllesFixture {
 
             // Close is all-native; total LP gain over the cycle is the deliver-time
             // proceeds (+ negligible fees).
-            (uint funded, , , , , , )= ch.channels(cid);
+            (uint funded, , , , , , , )= ch.channels(cid);
             _close(ch, cid, _liveFundingTxId[cid], lpPk, funded);
             cumMinted += QUID.balanceOf(lpEth) - qdBefore;
 
@@ -1145,7 +1145,7 @@ contract BtcLpMintStress is AllesFixture {
         _multiAssert(ch, "shared swap-in", k);
 
         // 6) close A (all-native, mints ~0) — must not move B/C minted balances
-        { (uint funded, , , , , , ) = ch.channels(k[0].id);
+        { (uint funded, , , , , , , ) = ch.channels(k[0].id);
           _close(ch, k[0].id, _liveFundingTxId[k[0].id], k[0].pk, funded); }
         _multiAssert(ch, "A close", k);
 
@@ -1155,7 +1155,7 @@ contract BtcLpMintStress is AllesFixture {
         _multiAssert(ch, "C adversarial close", k);
 
         // 8) close B
-        { (uint funded, , , , , , ) = ch.channels(k[1].id);
+        { (uint funded, , , , , , , ) = ch.channels(k[1].id);
           _close(ch, k[1].id, _liveFundingTxId[k[1].id], k[1].pk, funded); }
         _multiAssert(ch, "B close", k);
 
