@@ -2,7 +2,8 @@
 >
 > **The previous banner's "bidirectional (long above + short below entry)" was itself stale.** The short leg was REMOVED 2026-07-24 (`LevManager.sol:580-584`); the target returns zero at or below entry (`imports/LevMath.sol:109-125`).
 >
-> **Read every number below as off-basis.** All of it is keyed to a ±2% range. `SwapLib.RANGE_DELTA = 20` is **±0.2%** (`imports/SwapLib.sol:831-838`), so the K table in §3, the solvency table in §5 and the θ ≈ 0.25–0.40 target do not describe the deployed range. `IL-FINDINGS-2026-06.md` §4 already measured K at 1.84 guard-ON against the 0.71 claimed here, on the old basis. Treat this file as historical IL/LVR data, not as a live safety argument.
+> 🔴 **CORRECTED 2026-09-11 — THE "OFF-BASIS" BANNER WAS ITSELF OFF-BASIS, AND IT INVERTED ITS OWN CONCLUSION.** It read: *"Read every number below as off-basis. All of it is keyed to a ±2% range. `SwapLib.RANGE_DELTA = 20` is ±0.2%, so the K table in §3, the solvency table in §5 and the θ ≈ 0.25–0.40 target do not describe the deployed range."* **`RANGE_DELTA` was widened 20 → 200 on 2026-09-08, so the deployed range IS ±2% and this file's keying was right all along.** The K table and the solvency table are ON basis.
+> ⚠️ **θ IS NEVERTHELESS GONE** — not off-basis, DELETED. `derivedThetaWad`/`applyTheta`/`kLvrWad` were removed under §NO-GAMEABLE-BOUND (every input came from observed flow, so a counterparty could move the depth cap by trading). So §5's θ target describes a throttle that no longer exists, for a reason that has nothing to do with the range width. `IL-FINDINGS-2026-06.md` §4 already measured K at 1.84 guard-ON against the 0.71 claimed here, on the old basis. Treat this file as historical IL/LVR data, not as a live safety argument.
 >
 > `docs/actionable/LEVERAGE-ENGINE-SPEC.md` does not exist; the contracts are canonical. See memory `spv-informational-docs-diverge-from-code`.
 

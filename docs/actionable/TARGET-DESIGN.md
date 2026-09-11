@@ -276,13 +276,31 @@ those two are the distinction the whole design turns on.
    keeping each venue on the near side of its own kink, and the optimum is interior precisely because
    the curve is convex there.
 
-   **(c) 🔴 THE TWO MORPHO weETH VENUES ARE DECORATIVE AT OUR SIZE, AND THIS WAS NOT KNOWN.**
-   PYUSD **cannot fund $1M**. RLUSD costs +108 bps at $1M, +1,102 bps at $10M, and is unfundable at
-   $25M. Both are in the deployed `vs[]` set (`DeployL1_s:694/:698`) and a naive allocator ranking by
-   BASE rate would pick RLUSD first — it is the cheapest at 3.88% and the worst at any size we would
-   actually borrow. **Ranking on `borrowRateRay(0)` is the exact mistake this accessor exists to
-   prevent**, and nothing in the tree currently ranks on anything else.
-   ⇒ Real ETH-side borrow capacity today is the **Aave USDT venue**, alone.
+   **(c) 🔴 RETRACTED 2026-09-11 — I SAID "THE TWO MORPHO VENUES ARE DECORATIVE, EXCLUDE THEM FROM
+   THE SPLIT". THAT IS WRONG FOR RLUSD, AND THE ERROR HAS A SHAPE WORTH KEEPING.** The ladder started
+   at **$1M** and I drew a conclusion about every size below it that I had never measured. Owner:
+   *"you did not make sense about excluding the morpho venues."* Correct. Re-measured from $5k:
+
+   | marginal APR (bps) | +$5k | +$25k | +$50k | +$100k | +$1M |
+   |---|---|---|---|---|---|
+   | AaveV3 USDC | 429 | 429 | 429 | 429 | 431 |
+   | AaveV3 USDT | 423 | 423 | 423 | 423 | 424 |
+   | **Morpho RLUSD** | **394** | **416** | 443 | 497 | 1,495 |
+   | Morpho PYUSD | ⛔ | ⛔ | ⛔ | ⛔ | ⛔ |
+
+   ⇒ **RLUSD IS THE CHEAPEST VENUE OF THE FOUR FOR THE FIRST ~$30k**, and stays under USDT until the
+   crossover at roughly $30–40k. Excluding it leaves free money on the table — exactly the mistake I
+   warned about, made in the opposite direction.
+   ⭐ **THE RULE IS MARGINAL-RATE EQUALISATION, NOT A SHORTLIST.** An optimal split allocates to every
+   venue until its MARGINAL rate equals the others'. A thin-but-cheap venue then gets a SMALL
+   allocation automatically — neither "rank by base rate and send everything" (my §9 warning, still
+   right) nor "exclude it" (my error). The steep curve is what SIZES RLUSD's tranche; it is not a
+   reason to skip it.
+   📌 **PYUSD IS genuinely empty** — unfundable at $5k, so it contributes zero at any size. That half
+   of the original claim survives; the generalisation to "the two Morpho venues" did not.
+   ⚠️ **AND THE METHOD LESSON, which is the transferable part: a ladder's FLOOR is a measurement
+   boundary, not a starting point.** Everything below the lowest rung is unmeasured, and stating a
+   conclusion there is inference wearing a measurement's clothes.
 4. **Are `haircutTvl` + the tranches a real attachment point**, or bookkeeping?
 
 📌 **Also unresolved and load-bearing:** what `L` actually is per venue, because `(1 − L)` is the
@@ -362,7 +380,7 @@ sheet absorbing the imbalance, is **not wired to the swap path at all.**
 ### 🔴 NOT BUILT — and the first row is the whole design
 | piece | measured state |
 |---|---|
-| **§3 BALANCE-SHEET ABSORPTION** | **`SwapLib` contains ZERO `borrow`/`repay` references outside comments, and `Core.swap` calls only `_fillDelta` → `_observeIfSourced` → `_handleDelta` → `_shortfallLoadBalance`.** A swap does not touch the lever. On an ETH inventory shortfall `RANGE.onShortfall` is *"a deliberate no-op"* and the swap PARTIAL-FILLS. ⇒ today the pool serves what it holds; it does not borrow to serve more, and it does not repay from proceeds. |
+| **§3 ABSORPTION — THE SELL-IN HALF ONLY** 🔴 **CORRECTED 2026-09-11, MY §0b OVERSTATED THIS** | I wrote *"a swap does not touch the lever"* on the strength of grepping `SwapLib` and `Core.swap`. **The DRAIN half is wired, through a path neither grep covers:** `QuidLib.sendEth` → when Quid holds too little WETH → `SwapLib.deleverEthOnDelivery(mgr, aux, px, shortfall, recipient)` → `poolVenue` → source stable → repay pool debt → `withdrawPool` → convert → deliver. So a swap-out that exceeds inventory DOES de-lever to serve itself, and §3's drain row is substantially already built (the dollars are drawn from the basket rather than earmarked from the swap, which is the same balance sheet). **What is genuinely missing is the SELL-IN half: nothing borrows against volatile the pool has just received**, so when dollars run short the swap partial-fills instead of absorbing. |
 | **The sell-in capacity term** (§4) | `sellSkew` is the same flat constant as `wellSkew`. The `(1−L)` residual that motivates it is unpriced. |
 | **`_bandBps` from carry** (§6b·2) | still the literal `300`. Its input is now measured (1.18 bps/day) but nothing consumes it. |
 | **A keeper-callable pooled de-lever** (§6b·1) | `deleverToVault` is RANGE-gated; the keeper holds the book position-by-position via `rebalance(lp)`. |
@@ -374,6 +392,60 @@ A flat fee and oracle settlement are only safe **because** something else carrie
 §3 is that something. Until it is wired, the protocol is a no-slippage oracle venue that partial-fills
 when it runs out — which is a coherent product, and is NOT the design in this document. **Do not read
 the deletions as the design having shipped.**
+
+---
+
+## §10 — 🔨 BUILDING §3's SELL-IN ABSORPTION — THE MINIMAL SHAPE, AND THE ONE FORK IT RUNS INTO
+
+Owner: *"build the §3 absorption … minimum new code … tightest most consolidated waves."* Two
+measurements collapse most of the job to nothing, and then it hits a fork I will not resolve alone.
+
+### ⭐ FINDING 1 — A PROTOCOL-LEVEL BORROW NEEDS **NO NEW VENUE CODE AND NO NEW ACCOUNTING**
+SPRINT booked this as *"the protocol borrow needs NO new accounting. ONE line, at the netting that
+already exists"*, and proposed adding a `protocolDebtUsd` field because `totalDebtUsd` iterated
+`_openLps`. **§POOL-VENUE already made that true without the field:**
+```solidity
+function totalDebtUsd() external view returns (uint256 usd18) {     // LevBase — CURRENT
+    for (v in poolVenues) usd18 += _toUsd18(v.stable(), ILevPooled(v).totalDebt());
+}
+```
+It reads the VENUE's pool debt, not a sum over positions. So a protocol borrow on the same pooled
+position is netted by `_rangeEquityUsd18` → `committedUsd18` **automatically**.
+
+⛔ **BUT IT MUST STILL MINT UNITS, AND THIS IS THE TRAP.** `debtOf(lp)` is
+`_sharesToAssetsUp(_unitSlice(debtUnits[lp], totalDebtUnits, _poolShares()))`. A borrow that raised
+`_poolShares()` without minting units would raise **every LP's `debtOf` pro-rata** — the protocol's
+borrow charged to the LPs, which is the 4,801 bps cross-subsidy arriving through a third door.
+⇒ **Borrow against a SENTINEL KEY.** `venue.supply(address(this), …)` / `venue.borrow(address(this), …)`
+mint units to the MANAGER's own slot: attribution stays exact, LPs are untouched, `repay(address(this), …)`
+retires protocol debt specifically, and `address(this)` can never collide with an LP (`openLev` keys on
+`msg.sender`, and the manager never opens). **Zero new venue functions.**
+
+### ⭐ FINDING 2 — THE WETH→COLLATERAL LEG ALSO ALREADY EXISTS
+`LevMath.stableToColl(ctx, stable, amt, minOut)` → `_stableToWeeth` → `_stableToWethSor` (**identity
+when the loan token is already WETH**) → `_wethToWeeth` (ether.fi mint). So
+`stableToColl(ctx, WETH, wethIn, minColl)` IS the WETH→weETH on-ramp. **Zero new conversion code.**
+
+⇒ The whole primitive is ~12 lines on `LevManager`: pull WETH, `stableToColl`, transfer, `supply`,
+size against the sentinel slot's own LTV, `borrow`, hand the stable back.
+
+### ⏸️ AND THE FORK, WHICH IS AN OWNER RULING — **WHAT DOES A SELL-IN PAY WITH TODAY?**
+§3 says a sell-in should *"supply as collateral, BORROW"*, so that only `L` re-dollarises and `(1−L)`
+does not silently back a dollar claim with volatile. **But the protocol already has an answer to
+"where do the dollars come from", and it is not borrowing — it is MINTING QU!D against the volatile
+received.** That is the thing §3's `(1−L)` worry is about, already shipped.
+
+⇒ So the sell-in borrow is not a bolt-on. It is an **alternative to minting**, and wiring it means
+deciding one of:
+| | what a sell-in does | consequence |
+|---|---|---|
+| **A — keep minting** (today) | volatile enters the basket, QU!D is issued against it | the dollar claim is backed by volatile at the margin; the depeg exposure §3 names is real and unpriced |
+| **B — borrow instead** | supply the volatile, borrow `L`, pay from the borrow | only `L` becomes dollars; `(1−L)` stays equity. Costs carry (**~4.3%/yr**, §6 check 3) on every absorbed sell-in |
+| **C — mint up to a cap, borrow past it** | the cap is the capacity term §4 wants | two mechanisms, one seam — most code, most correct |
+
+**I am not choosing this unilaterally, because B and C change where QU!D comes from.** That is the
+issuance model, not a swap detail. The primitive above is ready for whichever wins; per the repo's own
+standing rule 1 I have NOT landed it unreachable.
 
 ---
 
@@ -396,10 +468,12 @@ changes it. What splitting removes is the CONVEX part, which is the whole $3.1M.
 *"split it to make it small"* as *"split it to make it cheap"* will be disappointed at small size and
 right at large size; the benefit is zero until a leg approaches its own kink.
 
-⛔ **DO NOT INCLUDE THE TWO MORPHO weETH VENUES IN THE SPLIT.** §6 check 3(c): PYUSD cannot fund $1M
-and RLUSD costs +108 bps at $1M. RLUSD also has the LOWEST BASE RATE of the four, so a splitter that
-allocates by base rate sends the first dollar to the worst venue. **Allocate on `borrowRateRay(size)`,
-never on `borrowRateRay(0)`.**
+⛔ **ALLOCATE BY EQUALISING MARGINAL RATES — `borrowRateRay(size)`, never `borrowRateRay(0)`.**
+🔴 An earlier version of this line said *"do not include the two Morpho weETH venues in the split"*.
+**Retracted** — see §6 check 3(c). RLUSD is the CHEAPEST of the four for the first ~$30k (394 bps at
++$5k against USDT's 423), and only becomes the worst past its crossover. Marginal-rate equalisation
+handles both facts with no shortlist: RLUSD gets a small tranche, USDC/USDT get the bulk, and PYUSD
+gets zero because it is unfundable at every size measured.
 
 **WHAT IT NEEDS, so the size of the job is known before it starts:** `borrowRateRay` and
 `supplyHeadroom` are already declared on both venue classes and allowlisted as §MULTI-VENUE orphans;

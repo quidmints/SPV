@@ -15,8 +15,20 @@
 //   per LP on external ISOLATED Euler/Morpho/Aave/Liquity, target LTV 1-sqrt(entry/now),
 //   zero at or below entry. The prior "not built yet" note was stale. R1 below still
 //   describes the UNPROTECTED path, which is what an LP who declines the overlay gets.]
-//   [ALSO STALE BELOW: K_LVR/CERTIFIED_THETA are keyed to a +/-2% band. The deployed
-//   band is +/-0.2% (SwapLib.BAND_DELTA = 20).]
+//   [CORRECTED 2026-09-11 — THIS NOTE WAS ITSELF THE STALE HALF, AND IT NAMED A SYMBOL THAT NO
+//   LONGER EXISTS EITHER. It read "K_LVR/CERTIFIED_THETA are keyed to a +/-2% band; the deployed
+//   band is +/-0.2% (SwapLib.BAND_DELTA = 20)". There is no `BAND_DELTA` (it is `RANGE_DELTA`), and
+//   it is **200 = +/-2%** since 2026-09-08 -- so the +/-2% keying was RIGHT and the correction wrong.]
+//
+//   🔴 AND ON-CHAIN, K AND THETA ARE DELETED (2026-09-11). `kLvrWad` and `derivedThetaWad` went with
+//   `applyTheta` under §NO-GAMEABLE-BOUND: theta = feeYield/(K*sigma^2) drew all three inputs from
+//   OBSERVED FLOW, so the counterparty being priced could move the protocol's depth cap by trading.
+//   The swap charge is a FLAT 420 ppm. Everything below is ANALYTIC/EDUCATIONAL only.
+//
+//   ⚠️ DEAD EXPORTS IN *THIS* TREE, kept only to stay diff-able against `spa/src/lib/quant.ts`:
+//   `K_LVR`, `CERTIFIED_THETA`, `lvrRate` and `avellanedaStoikov` have ZERO importers under `app/`.
+//   The only symbol consumed here is `ilPercent` (`chain/leverage.ts:20`). If the two client trees
+//   are ever consolidated (§ONE-WALLET-APP), this whole block goes rather than being merged.
 //
 //   "fees ≈ IL" is FALSE once concentrated — YIELD is the load-bearer, fees are
 //   margin (COVID backtest: LVR ≈ 200%/yr at ±2% vs single-digit fees).

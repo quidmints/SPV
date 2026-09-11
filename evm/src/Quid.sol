@@ -382,11 +382,14 @@ contract Quid is Shares,
 
     /// (JIT-lock) block of the position's most recent auto-managed deposit; `_withdraw`
     /// refuses a same-block exit so an atomic deposit→swap→withdraw can't snipe a swap fee.
+    /// @notice Block of `lp`'s last deposit — the same-block mint/redeem grind guard.
+    /// 🪦 THREE DANGLING COMMENTS WERE DELETED HERE (2026-09-11). They read *"key is tokenId of ID++
+    ///    for that position"*, *"always grows"* and *"allows several selfManaged positions…"* — all
+    ///    describing the NFT/`selfManaged` position model that no longer exists (`selfManaged` has
+    ///    ZERO code references tree-wide; the OOR book it belonged to is a signature now). The
+    ///    mapping is keyed by ADDRESS, so the first comment was not merely stale, it named the wrong
+    ///    key type for the variable it sat under.
     mapping(address => uint) public lastDepositBlock;
-    // ^ key is tokenId of ID++ for that position
-    // ^ always grows
-
-    // ^ allows several selfManaged positions...
 
     /// @notice The deployer — gates `setLevManager`; the EthVenue pin is gone with the contract (§ETHVENUE-FOLD)
     ///         WETH approval + drives every WETH venue op. `setup` RENOUNCES ownership, so that pin can't use

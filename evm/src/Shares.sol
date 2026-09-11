@@ -12,11 +12,16 @@ import {LevManagerPinned, WrongRangeManager} from "./imports/Types.sol";   // §
 ///         pre-fold tree, the same per-LP state was declared twice, once in `Quid` (ETH) and once
 ///         in `Vault` (BTC), distinguished only by a `BTC` suffix:
 ///
-///           autoManaged ∥ autoManaged · lpShares ∥ lpShares · selfManaged ∥ selfManaged
-///           positions ∥ positions · ID ∥ ID · feesPerShare ∥ feesPerShare
+///           autoManaged ∥ autoManaged · lpShares ∥ lpShares · positions ∥ positions
+///           ID ∥ ID · feesPerShare ∥ feesPerShare
 ///           USD_FEES ∥ USD_FEES · levPooled ∥ levPooled · levBuf ∥ levBuf
 ///           levBufferUsd ∥ levBufferUsd · totalBuffer ∥ totalBuffer
 ///           LEV_MANAGER ∥ LEV_MANAGER
+///
+/// 🪦 `selfManaged ∥ selfManaged` WAS IN THAT LIST AND IS REMOVED FROM IT (2026-09-11): the concept
+///    is not merely deduplicated, it is DELETED — the self-managed/NFT position model went with the
+///    on-chain OOR book, and `selfManaged` has zero code references tree-wide. Listing it as state
+///    this contract unified would send a reader looking for a field that does not exist.
 ///
 ///         The suffix existed ONLY because both copies sat in contracts that each hardcoded their
 ///         asset. That is the `isBTC` argument one level down: a source-level selector

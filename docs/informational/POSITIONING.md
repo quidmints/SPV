@@ -98,9 +98,17 @@ and it means inventory is kept full **by picking off the LPs**.
 
 We refuse it: oracle pricing ⇒ no stale price ⇒ no LVR to harvest. But refusing it has a cost —
 inventory no longer refills itself for free. So the rebalancing has to be **bought** rather than
-extracted, and the skew is the purchase price: paid by the trader who created the exposure, handed
-to the LP who bears it. That is the Avellaneda–Stoikov reservation premium — the price of inventory
-risk.
+extracted, and the swap fee is the purchase price: paid by the trader who created the exposure,
+handed to the LP who bears it.
+
+> 🔴 **DESTALED 2026-09-11.** This paragraph ended *"That is the Avellaneda–Stoikov reservation
+> premium — the price of inventory risk"*, and the sections below priced it as one. **There is no
+> reservation premium.** The charge is a flat **420 ppm**, because every input to the A–S kernel was
+> measured state the priced counterparty could starve — patience (let the 48h flow EWMA decay) and
+> clock-stretching (space slices 4h, σ² falls ~24×). The ARGUMENT above survives unchanged and is
+> what still distinguishes us: rebalancing is BOUGHT at a stated price, not EXTRACTED from LPs by
+> arbitrage. Only the price's shape changed — from inventory-aware to flat, and for a manipulation
+> reason, not a simplicity one.
 
 **This is also why "refill" is not a component.** Representing inventory we already hold is the
 repack's existing pairing step (`QuidLib.addLiq:341-372`, which ends `targetUSD = deltaTok·price`
@@ -201,8 +209,8 @@ Claims in circulation that the code contradicts, so they are not repeated downst
 
 | claim | status | evidence |
 |---|---|---|
-| "a ~2% range via `_updateTicks(sqrtPriceX96, 200)`" | 🔴 wrong on both counts | `RANGE_DELTA = 20` ⇒ ±0.2%, `SwapLib.sol:732`; no such call exists |
+| "a ~2% range via `_updateTicks(sqrtPriceX96, 200)`" | 🟠 **half-corrected 2026-09-11** | the CALL never existed (no ticks, no v4). But the WIDTH is right: `RANGE_DELTA` was widened 20 → 200 on 2026-09-08, so the range IS ±2%. The old correction here claimed ±0.2% and is itself now wrong |
 | "the swap-in bonus is for a JIT actor" | 🔴 instrument removed | `payRefillBonus` deleted 2026-07-22 — `Core.sol:404`, `Vault.sol:432`, `SwapLib.sol:659` |
-| "we froze the fee and built a separate adaptive scalar beside it" | 🟠 historical | the skew now carries a base charged on **all** flow (§UNIT-A), so the skew *is* the fee; `swapFeePpm()` is a disclosure accessor that charges nothing, and the 420 is a v4 pool tier |
-| "solvers quote the exact number a swap executes at" | ✅ **fixed 2026-08-16** | was the instantaneous rate while settlement charges the §E68 integral — a 90%-of-range drain filled **4.12×** worse than quoted. `wellSkew(asset, drainUsd6)` added; `Aux.sol`, `ISwap.sol` |
+| "we froze the fee and built a separate adaptive scalar beside it" | ✅ **resolved by deletion 2026-09-11** | the adaptive scalar is GONE. The charge is a flat **420 ppm** (`MIN_SWAP_SKEW_WAD`) on every swap, both directions, every size. ⚠️ The old note called 420 "a v4 pool tier" — it is now OUR fee, and the coincidence of number is not a provenance |
+| "solvers quote the exact number a swap executes at" | ✅ **true again, and for a better reason (2026-09-11)** | it was FALSE when settlement charged the §E68 integral (a 90%-of-range drain filled **4.12×** worse than quoted), and was fixed by adding a size argument. Under a flat fee there is no path to integrate, so the quote is exact at every size with nothing to reconcile |
 | "range bounds are stored" | ✅ no longer true | `deltaBps`/`pLower`/`pUpper` deleted; composition is width-independent |

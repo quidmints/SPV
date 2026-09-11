@@ -62,7 +62,10 @@ contract CarryAtOurNotionalTest is Test {
     /// `try` on every rung: a venue that cannot fund the rung has NO rate (by design — see
     /// `VenueCannotFund`), and that refusal is itself the answer for that size.
     function _ladder(string memory name, address venue, uint256 unit) internal {
-        uint256[6] memory sizes = [uint256(1e6), 5e6, 10e6, 25e6, 50e6, 100e6];   // $ millions, in millions
+        // 🔴 THE LADDER STARTED AT $1M AND I DREW A CONCLUSION BELOW IT (2026-09-11). "PYUSD cannot
+        //    fund $1M" was measured; "the Morpho venues are decorative" was NOT — nothing here had
+        //    looked under $1M. The low rungs are the correction, and they change the answer.
+        uint256[9] memory sizes = [uint256(0.05e6), 0.1e6, 0.25e6, 0.5e6, 1e6, 5e6, 10e6, 25e6, 100e6];
         emit log_string(string.concat("  --- ", name));
         uint256 r0;
         try ILevRate(venue).borrowRateRay(0) returns (uint256 r) {
@@ -73,11 +76,10 @@ contract CarryAtOurNotionalTest is Test {
             uint256 draw = sizes[i] * unit;
             try ILevRate(venue).borrowRateRay(draw) returns (uint256 r) {
                 emit log_named_uint(
-                    string.concat("    +$", vm.toString(sizes[i] / 1e6), "M -> APR (bps)      "), _bps(r));
-                emit log_named_uint("      our own impact (bps)   ", _bps(r > r0 ? r - r0 : 0));
+                    string.concat("    +$", vm.toString(sizes[i] / 1e4), "k -> MARGINAL APR (bps)"), _bps(r));
             } catch {
                 emit log_named_string(
-                    string.concat("    +$", vm.toString(sizes[i] / 1e6), "M"), "UNFUNDABLE (no rate)");
+                    string.concat("    +$", vm.toString(sizes[i] / 1e4), "k"), "UNFUNDABLE (no rate)");
             }
         }
     }
