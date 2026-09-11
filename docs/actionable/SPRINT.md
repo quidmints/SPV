@@ -19593,7 +19593,17 @@ a green suite asserting the leverage design works, over a book that had never op
 one state that it exercises the oracle path ONLY**, and pair it with a real-rally twin, so the two
 worlds can never again disagree silently.
 
-## ⛔ §E313 — **RESTORE `proRataShortfall`: I DELETED A RULE-17 ROOT FIX FOR A MEASURED ATTACK, ON AN ARGUMENT THAT DID NOT APPLY TO IT**
+## 🔴 §E313 — **`proRataShortfall` HAS NOW BEEN DELETED TWICE AND RESTORED TWICE. Second restore 2026-09-11.**
+
+> 🔴 **IT HAPPENED AGAIN, EXACTLY AS THIS ROW PREDICTED.** On 2026-09-11 `c0b3b98f` deleted
+> `proRataShortfall` a third time — bundled with `refillNeeded` in a refill-predicate sweep, on the
+> reasoning *"the target design has no refill mechanism"*. **That is §E301's argument verbatim, and
+> this row already refuted it.** Restored again, with its three exit-ordering tests, now in their own
+> file `evm/test/ProRataShortfall.t.sol` so nothing can bundle them with a refill sweep a fourth time.
+> ⚠️ **AND IT MATTERS MORE UNDER THE NEW MODEL, NOT LESS:** claims are pro-rata on VALUE while the
+> pool can be short the ASSET (`TARGET-DESIGN` Part I §6b), so a first-out advantage is real — and
+> deferral **sharpens** it, because whoever accepts a dated claim is by construction not first out.
+
 Owner asked whether any of my retractions should not have been made. **This one.** §E301 deleted
 `proRataShortfall` alongside `refillPlacement` as "restoration sizing". **It is not restoration anything.**
 
