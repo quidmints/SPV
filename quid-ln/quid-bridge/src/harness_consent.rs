@@ -25,23 +25,38 @@ use quid_ln::keys_manager::QuidKeysManager;
 use crate::deadman_exit::{build_exit_arming, DEAD_MAN_DELTA_BLOCKS};
 use crate::vault::LpConsent;
 
-/// `BTCChannels.btcRecipientPoPDigest(lpEth, bindHash)` =
-/// `sha256(abi.encode(block.chainid, address(this), lpEth, bindHash))`, where the open passes
-/// `bindHash = keccak256(auth.lpPaymentPoint)`.
+/// `BTCChannels.btcRecipientPoPDigest(who, bindHash)` =
+/// `sha256(abi.encode(block.chainid, address(this), who, bindHash))`.
+pub fn pop_digest_bound(chain_id: u64, btc_channels: Address, who: Address, bind_hash: [u8; 32]) -> [u8; 32] {
+    let mut enc = Vec::with_capacity(128);
+    enc.extend_from_slice(&U256::from(chain_id).to_be_bytes::<32>());
+    enc.extend_from_slice(&[0u8; 12]);
+    enc.extend_from_slice(btc_channels.as_slice());
+    enc.extend_from_slice(&[0u8; 12]);
+    enc.extend_from_slice(who.as_slice());
+    enc.extend_from_slice(&bind_hash);
+    sha256::Hash::hash(&enc).to_byte_array()
+}
+
+/// The open's digest: `bindHash = keccak256(auth.lpPaymentPoint)`.
 pub fn recipient_pop_digest(
     chain_id: u64,
     btc_channels: Address,
     lp_eth: Address,
     lp_payment_point: &[u8],
 ) -> [u8; 32] {
-    let mut enc = Vec::with_capacity(128);
-    enc.extend_from_slice(&U256::from(chain_id).to_be_bytes::<32>());
-    enc.extend_from_slice(&[0u8; 12]);
-    enc.extend_from_slice(btc_channels.as_slice());
-    enc.extend_from_slice(&[0u8; 12]);
-    enc.extend_from_slice(lp_eth.as_slice());
-    enc.extend_from_slice(keccak256(lp_payment_point).as_slice());
-    sha256::Hash::hash(&enc).to_byte_array()
+    pop_digest_bound(chain_id, btc_channels, lp_eth, keccak256(lp_payment_point).0)
+}
+
+/// `setBtcRecipient` calldata for `who` (the tx sender) registering `recipient`'s x-only key —
+/// the digest binds to `bytes32(0)` on this path. A swapper needs this before
+/// `requestSwapOutOnchain`, whose payout script is derived from the registration.
+pub fn set_btc_recipient_call(
+    chain_id: u64, btc_channels: Address, who: Address, recipient: &Keypair,
+) -> (Vec<u8>, [u8; 32]) {
+    let xonly = XOnlyPublicKey::from_keypair(recipient).0.serialize();
+    let digest = pop_digest_bound(chain_id, btc_channels, who, [0u8; 32]);
+    (quid_hop::evm_codec::encode_set_btc_recipient(xonly, recipient_pop(recipient, digest)), xonly)
 }
 
 /// The LP's own Lightning payment basepoint for `ldk_id`, read off the LP node's channel

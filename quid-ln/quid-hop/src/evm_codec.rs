@@ -623,7 +623,7 @@ impl OpenParams {
         ]
     }
 
-    /// `keccak256(abi.encode(p))` over the 7-field taproot `OpenParams`.
+    /// `keccak256(abi.encode(p))` over the 8-field taproot `OpenParams`.
     ///
     /// ⚠️ **TEST-ONLY, AND NOT DEAD — DO NOT DELETE ON THE `dead_code` WARNING.** It backs the
     /// CROSS-LANGUAGE CONFORMANCE assertion in `open_params_abi_matches_solidity` below, which
@@ -949,6 +949,18 @@ pub fn encode_register_channel_claim(channel_id: [u8; 32]) -> Vec<u8> {
 /// ⚠️ `tools/check-client-abis.py` is blind here BY CONSTRUCTION and reported `0 drifted`: it matches
 /// declared SIGNATURES against `evm/out`, and the signature was always right — the drift was in the
 /// TOKEN LIST, which no signature check can see. **Found by a comment pass, not by a gate.**
+/// `setBtcRecipient(bytes32 xOnlyKey, bytes pop)` — a swapper (or LP) registers the x-only key
+/// its BTC is paid to; `pop` is the BIP-340 proof-of-possession over
+/// `btcRecipientPoPDigest(msg.sender, bytes32(0))`. `requestSwapOutOnchain` refuses a caller
+/// without one (`NotPubkeyHash`), because the swapper's payout script is DERIVED as
+/// `0x5120‖btcRecipientOf[msg.sender]`, never supplied.
+pub fn encode_set_btc_recipient(x_only_key: [u8; 32], pop: Vec<u8>) -> Vec<u8> {
+    encode_call(
+        "setBtcRecipient(bytes32,bytes)",
+        &[Tok::FixedBytes32(x_only_key), Tok::Bytes(pop)],
+    )
+}
+
 pub fn encode_request_swap_out_onchain(
     token: Address,
     usd_amount: U256,
@@ -1284,7 +1296,7 @@ mod tests {
 
     // GROUND TRUTH: keccak256(abi.encode(OpenParams)) exactly as Solidity emits it in
     // evm/test/BTCChannelsAuth.t.sol (test_openparams_abi_ground_truth), which pins the same
-    // constant from the other side and tampers each of the seven fields in turn to prove the
+    // constant from the other side and tampers each of the eight fields in turn to prove the
     // hash actually covers all of them. Hash-equality over the whole encoding is the
     // byte-exactness proof for every entrypoint below that passes an OpenParams.
     #[test]
@@ -1320,8 +1332,8 @@ mod tests {
         assert_eq!(
             hex_encode(&p.abi_struct_hash()),
             // Ground truth from Solidity (BTCChannelsAuthTest.test_openparams_abi_ground_truth):
-            // keccak256(abi.encode(p)) over the 7-field taproot OpenParams.
-            "e5055c9a1fe82c0decd8413a97eb6579ded9e16299921d8cdf96d12078c52b2b",
+            // keccak256(abi.encode(p)) over the 8-field taproot OpenParams.
+            "08bad85fcc440e5166e2d139922fe3f500ee90766996d0c70636a17480bff95e",
             "keccak256(abi.encode(OpenParams)) must match Solidity"
         );
     }

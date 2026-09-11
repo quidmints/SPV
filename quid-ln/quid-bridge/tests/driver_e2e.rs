@@ -441,6 +441,12 @@ fn read_channel_amount_sats<R: JsonRpc>(rpc: &R, btc_channels: Address, cid: [u8
 /// the LP's proceeds from POOLED_USD_BTC.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn swap_out_onchain_delivery_on_real_evm() {
+    // Node/LDK logs reach the test output only through a subscriber; `RUST_LOG` selects them.
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,quid_bridge=debug,quid_hop=debug")))
+        .with_test_writer()
+        .try_init();
     let Some(env) = evm_env() else {
         eprintln!("driver_e2e: QUID_* EVM env unset — skipping (run via regtest/driver-e2e.sh)");
         return;
@@ -498,8 +504,21 @@ async fn swap_out_onchain_delivery_on_real_evm() {
 
     // ── 2. SWAPPER commits USD → requestSwapOutOnchain on the REAL Vault. The fill is a
     //    real BTC-curve quote, so `sats` is READ BACK from the recorded obligation. ──
-    let mut swapper_script: Vec<u8> = vec![0x00u8, 0x14]; // P2WPKH
-    swapper_script.extend_from_slice(&[0x5Au8; 20]);
+    // The swapper's payout is DERIVED by the contract as `0x5120‖btcRecipientOf[msg.sender]`
+    // (`requestSwapOutOnchain` reverts `NotPubkeyHash` for a caller with no registration), so
+    // the swapper — the hot key here — registers an x-only key with its PoP first, and the
+    // delivery pays exactly that P2TR script.
+    let swapper_key = bitcoin::secp256k1::Keypair::from_secret_key(
+        &bitcoin::secp256k1::Secp256k1::new(),
+        &bitcoin::secp256k1::SecretKey::from_slice(&[0x5Au8; 32]).unwrap(),
+    );
+    let (reg_cd, swapper_xonly) = quid_bridge::harness_consent::set_btc_recipient_call(
+        env.cfg.chain_id, env.cfg.btc_channels, mk_evm().address(), &swapper_key,
+    );
+    let registered = mk_evm().send_tx(env.cfg.btc_channels, reg_cd, env.cfg.gas_limit).expect("setBtcRecipient send");
+    assert!(registered, "swapper setBtcRecipient landed");
+    let mut swapper_script: Vec<u8> = vec![0x51u8, 0x20]; // P2TR = 0x5120 || x-only
+    swapper_script.extend_from_slice(&swapper_xonly);
     let swap_id = [0xC1u8; 32];
     let usdc: Address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".parse().unwrap();
     // 500 USDC (6-dec). The proven amount every forge swap-out test uses (Alles /
