@@ -20795,20 +20795,629 @@ they meant.** ⇒ When a proposal's cost depends on its scope, pin the scope bef
 
 ## ✅ §E338 · §E340 · §E342 — **"RETIRED BY `#1`, IN FLIGHT" — `#1` LANDED. Collapsed 2026-09-11.**
 
-All three were parked on **`#1` (one pooled venue position per range)**, which is now **§POOL-VENUE and
-is built**: `poolVenue` pinned on first open, `repayPool`/`withdrawPool`, `totalDebt()`/`totalCollateral()`
-read from the venue, and `debtUnits[lp]`/`collUnits[lp]` giving exact per-LP slices inside it.
-⇒ **In flight → landed.** Their questions dissolve with the walk they were about:
-- **§E338 / §E342** — the per-LP walk's cost and its cardinality ceiling. There is no walk; the
-  aggregates are O(1) reads on the venue.
-- **§E340** — *"how to measure the entry dispersion a pooled hedge would have to represent."* 🔑 **This
-  one does not merely dissolve.** §8 established there is **no pooled hedge to represent** — per-LP
-  targeting survives inside the pooled position — so dispersion never has to be collapsed into one
-  number. **The question was correct and its premise was removed**, which is a different closure from
-  being wrong.
+All three were parked on **`#1` (one pooled venue position per range)**, now **§POOL-VENUE and built**:
+`poolVenue` pinned on first open, `repayPool`/`withdrawPool`, `totalDebt()`/`totalCollateral()` read
+from the venue, `debtUnits[lp]`/`collUnits[lp]` giving exact per-LP slices inside it.
+- **§E338 / §E342** — the per-LP walk's cost and cardinality ceiling. There is no walk.
+- **§E340** — *"how to measure the entry dispersion a pooled hedge would have to represent."* 🔑 §8
+  established there is **no pooled hedge to represent**, so dispersion never has to be collapsed into
+  one number. **The question was correct and its premise was removed.**
 
-⚠️ **What `#1` did NOT settle, kept visible:** per-LP debt against one pooled position is still
-`§STALE-BRANCH`/`§M.1` — `swapOutDeliverUnlevered`, zero production callers, `orphans-allow.txt` CLASS 3.
+⚠️ **What `#1` did NOT settle:** per-LP debt against one pooled position — still `§STALE-BRANCH`/`§M.1`,
+`orphans-allow.txt` CLASS 3.
+
+## 🟠 §E339 — **THE LANDMINE IS LIVE AND THE MODEL MAKES IT SHARPER, NOT SAFER**
+
+> *"There are no multiple entries to weight: **top-ups are forbidden**. `RangeLib.openPos` does a
+> wholesale overwrite — `pos[lp] = p;` — so a second open would REPLACE `ilBasisPx` outright, not
+> blend it. Unreachable today because `openLev` reverts `AlreadyOpen`."*
+
+✅ **Still exactly true** (`RangeLib.openPos:195-202` carries the same warning in the code).
+🔴 **AND THE MODEL RAISES THE STAKES, because it makes the overwritten field MORE load-bearing, not
+less.** Part I §7 replaces the price-based `ilBasisPx` with **`entryEquity`**, which `openPos` also
+overwrites wholesale. ⇒ **the landmine survives the field change and moves to the field that replaces
+it.** A top-up path added later would destroy an LP's `entryEquity` and therefore its entire measured
+drift — silently, and in the direction that erases the hedge it is owed.
+⭐ **THE ROW'S OWN PRESCRIPTION IS THE RIGHT ONE AND SHOULD BE WRITTEN IN THE SAME COMMIT AS ANY
+TOP-UP:** blend size-weighted at the assignment, *"the defect is this assignment, not its caller."*
+⚠️ Note the model does NOT need blending to be solved first — with top-ups forbidden there is nothing
+to blend. It needs the guard to stay, and the blend to land **with** the capability, never after.
+## ✅ §E341 — **THE DISPERSION INPUT IS NOW MEASURED FROM REAL CHAINLINK DATA. POOLING COSTS 13–15 bp OR 147 bp, AND THE VARIABLE IS HOLDING PERIOD.**
+
+§E340 said the unknown reduces to *"CV of the price path over the deposit window — a property of ETH,
+not of our users."* **Fetched it.** 52 weekly samples of Chainlink ETH/USD
+(`0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419`) read at historical blocks over the archive endpoint,
+head `25813494`. Range over the year: **$1,564.71 – $4,601.73**, spot $2,409.03.
+
+| deposit window | n | mean | **CV** | pooling gap `(CV²/8)·√(ē/p)` |
+|---|---|---|---|---|
+| 4 weeks | 4 | $2,011 | 0.115 | **15.1 bp** |
+| 13 weeks (3m) | 13 | $1,845 | 0.110 | **13.3 bp** |
+| 26 weeks (6m) | 26 | $1,997 | 0.116 | **15.4 bp** |
+| **52 weeks (1y)** | 52 | $2,685 | **0.333** | **🔴 146.7 bp**  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): E341 dispersion measurement cell** |
+
+### ⭐ THE RESULT — IT IS FLAT TO SIX MONTHS AND THEN EXPLODES
+CV sits at ~0.11 for every window up to 26 weeks and jumps to 0.333 at 52. **The gap is quadratic in
+CV, so that 3× in dispersion is a 10× in cost.** The cause is visible in the data: the year window
+spans a drawdown from ~$4,500 to ~$1,900, while the last six months are range-bound.
+⇒ **The deciding variable is not calendar time — it is HOW LONG POSITIONS STAY OPEN**, because an LP
+who closes and reopens re-anchors `ilBasisPx` at the current price (§E339: there are no top-ups, so
+close-and-reopen is the only way to add). **A book that turns over quarterly is cheap to pool (~14 bp);
+one that accumulates across a full cycle is not (~147 bp).**
+▶️ So the pooled-hedge design (§E338) is viable **iff** typical holding period stays inside ~6 months,
+and the thing to monitor is not dispersion directly but **position age**. That is observable from day
+one, unlike the gap itself.
+
+### ⚠️ THE ASSUMPTION THAT REMAINS, AND ITS DIRECTION
+Equal-weighting each week assumes **uniform deposit flow**. Real flow is not uniform — it clusters with
+price action. **This is a much weaker assumption than inventing the price distribution** (the prices
+are real), but it is still one: if deposits cluster in rallies, entries concentrate at high prices,
+CV falls and the gap is **over-stated** here; if flow is steady through a drawdown, it is about right.
+⇒ Re-run weighted by actual deposit volume once there is any. **The method is now fixed and the only
+missing term is the weights.**
+
+📌 Method note for whoever repeats it: `cast call <feed> "latestAnswer()(int256)" --block N` against the
+archive endpoint in `evm/.env` (`ANKR_RPC_URL`) — publicnode is head-only and cannot serve this.
+
+
+---
+
+## ✅ §E343 — **σ² CAN COME FROM CHAINLINK'S OWN ROUNDS. MEASURED, AND IT RETIRES §E327's WHOLE BLOCKER.** ⛔ **THE "UNIFIED SOLUTION" IT CAME WRAPPED IN DOES NOT SURVIVE — RECORDED SO IT IS NOT RE-PROPOSED.**
+
+Hunting one change that would dissolve §SKEW-DOUBLE, §E327, §E332 and §E330 together. **One quarter of it
+is real and validated; three quarters collapsed under my own stress test.** Both halves are booked,
+because the collapsed half is the more re-proposable one.
+
+### ✅ THE PART THAT HOLDS — VARIANCE NEEDS NO INDEPENDENT SOURCE
+**§E222's objection is scoped, and reading it precisely is what unlocks this.** It requires an
+independent ring source because the ring feeds **`twapResolve`'s deviation test and
+`BasketLib.isManipulated`** — guards that need two sources able to DISAGREE (*"they had simply lost the
+ability to disagree"*). **It says nothing about variance.** σ² is a property of ONE series, not a
+cross-check between two, so estimating it from the anchor is not the self-reference §E222 forbids.
+
+**MEASURED — 60 consecutive Chainlink ETH/USD rounds via `getRoundData`, archive endpoint:**
+| | |
+|---|---|
+| updates/day | **57.3** |
+| inter-update gap min / median / max | 30 s / **20.5 min** / 61 min (the heartbeat) |
+| median absolute move | **0.53%** (matches the 0.5% deviation threshold) |
+| implied annualised σ | **95.5%** — right order for ETH |
+⚠️ **I EXPECTED THE 0.5% THRESHOLD TO STARVE THE ESTIMATE. IT DOES NOT**, and the reason is the
+heartbeat: it forces an update through quiet periods, so quiet times ARE sampled and the
+censored-sampling bias is bounded rather than open-ended.
+⇒ **Accumulate squared log-returns of the Chainlink read into an EWMA on each swap — the same O(1)
+pattern `_bumpFlow` already uses.** No ring source, no keeper, no `pushObservation`, no
+`setObservationSource`, and **no "which pool" decision — the one the owner rejected three times.**
+📌 **This unblocks §E283 (σ²=0 makes the 3% sentinel the only price we quote) and §E326 (the mark's
+volatility input) immediately, and it dissolves §ORACLE-FRESHNESS (a).**
+⛔ **BUT DO NOT DELETE THE RING.** I proposed that and it is wrong: `twapResolve` reads it, so removing
+it leaves a SINGLE Chainlink round as the settle price and loses TWAP smoothing. **The ring's SMOOTHING
+job survives; only its INDEPENDENT-SOURCE job is v4 residue.** Feed it from Chainlink and retire the
+deviation guard that needed a second source — that is the correct version.
+
+### 🟢 §E332-c SURVIVES ON ITS OWN — PRICE THE OOR TRIGGER, DO NOT CHARGE THE FILL
+The objection to charging OOR skew was that a limit order filling BELOW its limit breaks the
+abstraction (§E332). **Baking the inventory term into where the order RESTS avoids that entirely**: the
+trigger already includes it, the fill honours the stated price, and the maker still pays for the
+inventory it consumes. ▶️ This is independent of everything above and is the cheapest of the four.
+
+### ⚠️ METHOD NOTE — WHY THIS ROW HAS TWO HALVES
+The owner asked *"make sure it's definitely the best solution"* and it was not. **The check that broke it
+was applying my own §E332 reasoning back to my own proposal** — the same "does the tree already reject
+this?" question. ⇒ A proposal that dissolves four open items at once should be assumed to be a
+restatement of three of them until each is checked separately.
+
+
+## 🔴 STARTED, NOT FINISHED — EXACT STATE
+
+⚠️ **COORDINATE STALE 2026-08-26 — `FixedRateFill.sol` IS FOLDED into `imports/SwapLib.sol:2511` (§E310), not deleted.** ⛔ But per CLAUDE.md this does NOT settle the row either way: `SwapLib.quoteFill` still has ZERO callers in `src`/`test`/`script`, so 'unwired, a marker for unbuilt work' remains as true as when it was written. Destale the coordinate; re-run the claim separately.
+1. **`refillNeeded` — 1 call site, and it is the `function` line.** Still unwired. It IS `skewWad`'s
+   flush test and the near relative of the "cannot cover this swap" predicate. **§E300 built the
+   fillable bound INSIDE `wellSkew` instead**, so the predicate now lives in the pricing path and
+   `refillNeeded` was never needed there. ⇒ **DECIDE: wire it, or delete it as superseded by
+   `_fillableDrain`.** Do not leave it as a third opinion on the same question.
+2. ⛔ **STALE — `FixedRateFill.sol` DOES NOT EXIST** (re-measured 2026-08-22: `ls` says no such file;
+   its only remaining mention in `evm/src` is `SwapLib.sol:2322`, a docblock noting it *"was
+   `FixedRateFill`'s @title"*). The library was FOLDED INTO `SwapLib`, which the §E315 handoff records
+   two sections up — *"Folded away: … `FixedRateFill.sol`"* — so this row and that one contradicted
+   each other inside one document. **The quote surface itself survives** (`Quote`, `quoteDrain`,
+   `quoteFill`, `enforce`, `assertConserved`), still with zero production callers, and §E300 still
+   removes its stated blocker. ⇒ **The decision it asks for is live; the file it names is not.**
+   ▶️ Re-read it at its new address before acting: the row's coordinates rotted, not its question.
+3. **`proRataShortfall` — restored (§E313), still unwired**, and `SPRINT:1942` carries a STANDING
+   instruction to wire it into the redeem path. 🔴 **OPEN MEASUREMENT, booked not assumed: is the
+   15.2 bps first-out advantage still real once the ~25.6 bps offramp floor (`QUEUE:7486`) is
+   subtracted?** That answer decides wire-or-park. **Do not close it by citing the offramp number.**
+4. **§E274's derived Γ = 5.48e15 — measured, NOT landed.** Deliberately unbundled from the cap removal
+   so a regression is attributable. §E289's `κ` is the mechanism; §E290 says κ cannot move because the
+   curve and its restoration rail are on opposite ranges. ⇒ **Blocked on that, not on effort.**
+5. **The 30 `PREMISE:` / 14 `CONTROL:` suite failures.** Characterised as fixture preconditions that
+   never establish state (not one root cause), and they sit in the lev/morpho area another session is
+   actively rewriting. **Not mine to touch; booked so the count is not mistaken for skew damage.**
+
+## ⚠️ AND THE MISTAKE THAT COST THE MOST TODAY, SO IT IS NOT REPEATED
+**A conflict auto-merge that concatenates both sides is correct for an append-only ledger and WRONG for
+source.** It spliced two `ICore` declarations into `function mo.  t amount, address token)`, leaving
+`ICore` declaring neither `modLP` nor `outOfRange` while both are called through it — **and I pushed it,
+because I verified the rebase succeeded rather than the build** (§E315). ⇒ **Never auto-resolve a `.sol`
+conflict; at minimum refuse to join two lines that each end in a semicolon.**
+### C23. 🟠 THE REMAINDER OF §E310 — every site still reading its own oracle, and what is left of my thread
+
+**§E310's defect is one shape: a helper reads `AUX.getTWAPforAsset` (the observation RING) and sets
+the Chainlink mock FROM it, so the anchor is a copy of the thing it anchors and NEITHER can move.**
+⛔ **`rangePrice()` is NOT an escape** — `CORE.poolStats().priceWad` **IS** `obsState.lastPrice`.
+§V4-CUT settles fills AT ORACLE against inventory (*"one price, no traversal, no discovery"*), so **a
+swap moves NO price**. The move must be **INJECTED**, never read.
+
+**FIXED (this thread):** `LevYbReal._rallyRange`, `LevCascade._rallyRange`,
+`LeverageCrossSubsidyProbe._rallyRange`, `LevYbReal._crashRange`, `LevCascade._crashRange`.
+⛔ **I BOOKED "6 SITES STILL CIRCULAR" FROM A GREP AND IT WAS AN OVER-CLAIM. Reading each one, only
+ONE is a defect** — the rest are deliberate or harmless, and calling them defects would have sent the
+next thread to "fix" correct code:
+
+| site | verdict |
+|---|---|
+| **`Alles._moveEth`** | 🔴 **REAL DEFECT — FIXED.** It is a price-MOVER by name and by use, and it moved no price. |
+| `Alles.t.sol` setup site | ✅ **CORRECT.** One-time `_setEthFeed` then `AUX.setAssetFeed(WETH, ETH_FEED)` — initialising the sentinel to the live price *before* pinning it. Not a loop. |
+| `PremiumIsCarryNotIncome` ×3 | ✅ **CORRECT, AND DELIBERATE.** Same pin, and its own comment gives the reason: *"Pin the external anchor and HOLD it: production-faithful, since draining OUR pool does not move Chainlink."* **Freezing the anchor is the point of those tests.** |
+| `BufferSwapDrain` ×2 | ✅ **DELETED 2026-08-26.** Was: *"NOT A DEFECT, but dead code.* Drain loops whose goal is to consume INVENTORY, not move price; the per-step `_setEthFeed` was only *"so the 5% anchor never false-trips"* and, since the price cannot move, re-writing the feed to the same value each step does nothing. Harmless, misleading, deletable." ⇒ Both writes gone; **the READ stays** — it is the loop's `px == 0` break guard, not the feed's source, so removing it would have changed the loop's termination. `_setEthFeed` is still live in 7 other files, so the helper is not orphaned. The discriminator is recorded AT the site, since a future grep for this pattern will find these loops again and must not re-book them as defects. |
+
+⇒ **THE DISCRIMINATOR IS WHETHER THE HELPER IS SUPPOSED TO MOVE THE PRICE.** `_rallyRange`,
+`_crashRange` and `_moveEth` are; a setup pin and a drain loop are not. **A grep for the pattern
+cannot tell those apart, and I published the grep's answer before reading the code** — the same error
+as `§DE-TICK`'s 185 comment-only `tick` hits.
+✅ **VERIFIED, and the one failure it touches is PRE-EXISTING.** `DerivedTheta` **passes**. `_moveEth`'s
+only other callers are `Alles`'s two IL simulations; A/B with the fix toggled and nothing else:
+
+| test | control (no fix) | treatment |
+|---|---|---|
+| `test_RunSim_IL_Baseline_TrendDownIL` | PASS | PASS |
+| `test_RunSim_IL_Baseline_ChopIsBenign` | **FAIL** 0.710935 stuck | **FAIL** 0.744110 stuck |
+
+**`ChopIsBenign` fails in BOTH arms** — *"LP position fully realized (no stuck bag)"* against a
+**0.05 ETH** tolerance, ~15× over either way. **Pre-existing; not caused by this fix.** ⚠️ It is
+nonetheless a live row: a test named *"chop is benign"* strands **0.71 ETH** of an LP's position, and
+until now it did so over a price that never chopped. **Whether the tolerance is stale or the range
+genuinely corners inventory under oscillation is unanswered — do not read the pre-existing verdict as
+"fine".**
+
+⚠️ **`_moveEth`'s callers make it load-bearing:** `DerivedTheta` reads θ = yield/(K·σ²), and **σ² is 0
+unless the ring records a moving price**, so those tests were measuring a frozen oracle.
+
+⚠️ **AND THE SECOND HALF OF THE SAME DEFECT, which bit three times: `_setEthFeed` targets the
+`0xE7F0FEED` SENTINEL**, which only becomes the anchor after `AUX.setAssetFeed(WETH, ETH_FEED)`.
+Fixtures that never pin it read REAL Chainlink and **`_setEthFeed` is completely inert**.
+`_setLiveEthFeed` (added to `AllesFixture`) mocks whatever `AUX.assetPriceFeed(WETH)` actually
+returns. **Every remaining site above needs the LIVE variant, not `_setEthFeed`.**
+
+▶️ **THE ONE-LINE RULE THIS THREAD PAID FOUR TIMES TO LEARN, and it belongs at the top of any
+price-driven probe:**
+```solidity
+emit log_named_uint("oracle", AUX.getTWAPforAsset(address(WETH), 1800));   // BEFORE any assertion
+```
+**Four separate false findings** came from an unverified injection — *"Morpho will not lend"*, *"the
+manager skips the borrow"*, *"the de-lever does not repay"*, *"the LP's claim conceals 4.7% IL"* —
+each with a tidy story and the wrong subject. **A quantity that fits a constant perfectly across a
+supposedly varying input is a FROZEN INPUT, not a discovery.**
+
+### C24. ⛔ §C19-REGRESSION IS NOT REPRODUCIBLE — `BtcLpMintStress` IS 14/8 **WITH** THE COMMIT IN THE TREE
+
+§C19-REGRESSION concludes *"`b4e192c1` COSTS 7 TESTS IN `BtcLpMintStress`, AND THE REVERT PROVES IT"*,
+from `14/8` clean → `7/15` local → `14/8` with only that commit reverted. **Re-measured 2026-08-22 on
+`origin/main`, which ALREADY CONTAINS the change (`04fcceda`, the pushed form of the same content):**
+
+| tree | `BtcLpMintStress` |
+|---|---|
+| `origin/main`, C19 change **present** (verified: zero executable `q.ilBasisPx` writes) | **14 passed / 8 failed** |
+
+⇒ **IDENTICAL TO THE ROW'S OWN "CLEAN" BASELINE.** The change cannot cost 7 tests in a tree where it
+is present and the count matches the baseline.
+
+⚠️ **THE ISOLATION WAS INCOMPLETE, AND THE ROW SAYS SO ITSELF.** Its treatment arm was *"local HEAD"*
+carrying **six `spv-rally` WIP commits** — *"WIP rally raises feed"*, *"WIP soldFraction diag"*, *"WIP
+receive() in fixture"*, *"WIP rally step size"*, **all marked unverified** — several of which touch the
+**same rally/feed machinery** (§E310/§E309). **Reverting one commit from a chain of interacting
+changes restores the baseline whenever that commit is NECESSARY for the interaction; it does not show
+it is SUFFICIENT.** With the WIP commits absent, the change is inert on this suite.
+⇒ **This is the shared-tree confound `CLAUDE.md` opens with: *"A SHARED TREE INVALIDATES EVERY
+FULL-SUITE NUMBER."*** The row's method (isolate one commit, re-run) is right; the tree it ran in had
+five other people's uncommitted hypotheses in it.
+▶️ **DO NOT REVERT `04fcceda` on the strength of that row.** If `7/15` reappears, bisect the **WIP
+rally commits** first — and note the row's quoted assertion, *"precondition: levered debt > 0"*, is in
+**`BufferSwapDrain.t.sol:42`, NOT `BtcLpMintStress`**, so the trace and the counts in it come from two
+different suites.
+✅ **The row's OTHER half stands and is valuable: ~45 of the 92 full-suite failures are RPC contention,
+not defects** — suites reporting `0/3` in a full run pass `3/3` in isolation on the identical commit.
+**Judge the tree with isolated runs or `ETH_RPC_URL=$ANKR_RPC_URL`.**
+
+### C25. 🔴 THE EXIT PATH DRAINS ASYMPTOTICALLY — `ChopIsBenign`'s "stuck bag" is ~63 TRANSACTIONS, not a bag
+
+`test_RunSim_IL_Baseline_ChopIsBenign` fails on *"LP position fully realized (no stuck bag)"* with
+**0.744 ETH residual against a 0.05 tolerance**. §C23 established it fails in BOTH arms of the
+`_moveEth` A/B, so it is **pre-existing**. This characterises it, because "pre-existing" is not a
+diagnosis.
+
+**MEASURED — the LP's residual claim after each successive full-size `withdraw`:**
+
+| exits | residual | per-exit ratio |
+|---|---|---|
+| 1 | **0.744640 ETH** (⚠️ **0.990386 today** — re-measured 2026-08-25; the per-exit ratios below were never re-derived at the new baseline) | — |
+| 4 | 0.620431 | 0.937 → |
+| 20 | **0.328337** | → **0.971** |
+
+⇒ **55.9% cleared over TWENTY exits, and the per-exit ratio RISES toward 1.** At the geometric mean
+(0.9578) reaching the 0.05 tolerance takes **~63 transactions**, and because the ratio is rising that
+is a **LOWER BOUND**. **The position is not stuck and it is not permanently lost** — `got` was
+**55.21 ETH on a 50 ETH stake**, so the LP is over-recovered on principal — **but a full exit costs
+tens of transactions.**
+
+🔎 **WHY THE ONE-CALL ASSERTION WAS NEVER THE CONTRACT'S PROMISE.** `Quid.redeem` and
+`Quid.withdraw` BOTH route through `_withdraw(assets)`, so switching to the by-shares primitive
+changes nothing. `Quid.sol`'s own note states the mechanism and the intended remedy: *"its
+`shortfall` re-credit exists for a SINGLE cause, venue illiquidity, which is **temporary and
+recoverable**"*, and the 4626 path *"defaults to WAIT (no forced haircut)"*. **A residual after one
+call is BY DESIGN.** What is NOT by design is that re-exiting clears only ~4% of what remains each
+time.
+⇒ **THE DEFECT IS THE RATE, NOT THE RESIDUAL.** Each `withdraw` appears to deliver a FRACTION of the
+outstanding claim rather than everything the venue can currently source — the signature of a
+proportional cap (`_deliverVenueShortfall`'s `vaultShare = venueBal · amount / plainDepth` is the
+prime suspect) applied to a shrinking `amount`, so the delivered slice shrinks with the claim and the
+tail never closes.
+
+▶️ **NEXT, and it is a contained investigation:** instrument `_withdraw`'s delivered-vs-requested per
+call over these 20 exits and find which cap binds. **If it is the proportional venue share, the fix is
+to size delivery by what the venue can SOURCE, not by a fraction of the request.**
+
+### ⏸️ §C25-FIX LANDED 2026-08-26, UNVERIFIED — **THE BINDING CAP WAS FOUND BY READING, NOT BY INSTRUMENTING**
+
+The prime suspect was named correctly and the mechanism is one level sharper than the row states. It
+was **not** that a proportional cap shrinks with the request — it is that the cap was **subtracting a
+POOL-WIDE balance from an LP-SPECIFIC slice of a DIFFERENT POT**:
+
+```solidity
+excess = min(shortfall, vaultShare > inPool ? vaultShare - inPool : 0);   // inPool = CORE.POOLED()
+```
+
+`vaultShare` is this LP's pro-rata claim on the **external venue** (`_venueBalance` = `rangeOp(0,2)`
+− lev net-equity, i.e. the 4626 vaults). `inPool` is the **whole range's** ETH. ⇒ for any LP whose
+venue slice is smaller than the entire pool balance — nearly always, and more so on each exit as
+`amount` shrinks — `excess` was **0 and the venue leg delivered nothing at all**, leaving the tail to
+close through `deliverableETH` alone. That is the rising per-exit ratio.
+⭐ **AND THE COVER IT CLAIMED WAS ALREADY APPLIED ONE LEVEL UP:** `_withdraw` forms
+`shortfall = amount − sent` **after** burning `min(amount, AUX.deliverableETH())`, so `shortfall` IS
+"what POOLED could not cover". Subtracting the pool again double-counted it.
+
+⇒ **FIX: `excess = min(shortfall, vaultShare)`.** Neither removed bound was load-bearing —
+**fairness** is `vaultShare` itself (the call site's own note: *"`amount` ≤ `plainDepth`, so the share
+never over-delivers"*), and **solvency** is `QuidLib.sendEth`, which sources on-hand ETH → WETH →
+`rangeOp(·,1)` → de-lever and **returns what it actually delivered**, short-paying into the same
+`pooled` deferral this path is built around. Delivery is now sized by what the venue can SOURCE,
+which is what this row asked for.
+
+### ⛔ §C25-FIX — **THE PREDICTION IS FALSIFIED. MEASURED 2026-08-27 ON A CLEAN RUN.**
+
+`ChopIsBenign` residual: **0.990386 → 0.980276 ETH** against a 0.05 tolerance. A **1.0%**
+improvement — the tail did not collapse, so **the proportional venue cap was NOT the binding
+constraint.** The row's own second branch is what happened: *"if it only improves the per-exit
+ratio, the proportional cap was one of two binds and `deliverableETH` is the other."*
+
+⚠️ **THE FIX IS INCOMPLETE, NOT WRONG** (rule 8d — say which). Subtracting `CORE.POOLED()`, a
+POOL-WIDE balance, from `vaultShare`, an LP-sized slice of the EXTERNAL venue, was a genuine units
+error and `shortfall` already accounted for pool coverage. Removing it is correct and stays. It
+simply was not what held the tail open.
+
+⇒ **WHERE THE REAL BIND IS, READ RATHER THAN GUESSED THIS TIME.** `QuidLib.deliverableETH` starts at
+`_rangeETH` and subtracts TWO deferrals, and neither was in my diagnosis:
+1. **weETH is deliverable only to what Curve can pay** — bounded by `curvePool.balances(0) * 9/10`,
+   *"the surplus DEFERS"*. A range holding weETH beyond the pool's WETH cannot realise it.
+2. ⭐ **THE LEVERAGE NET-EQUITY IS NOT DELIVERABLE AT ALL** — *"solvency backing … but NOT
+   deliverable from this Vault (unwind-only via closeLev — the LP gets it back by repaying debt +
+   withdrawing coll)"*.
+✅ **§C25's `rangeETH >= POOLED` HALF IS CLOSED, AND THE ANSWER WAS A THIRD QUANTITY NEITHER
+HYPOTHESIS NAMED** (2026-08-26).
+⚠️ **SCOPE, because I over-claimed this once already: this closes the `rangeETH >= POOLED` assertions
+in `LevYbReal` and `LevCascade` (both green). It does NOT close `ChopIsBenign`**, which asserts *"LP
+position fully realized (no stuck bag)"* on an UNLEVERED LP — `levBuf` is 0 there, so the finding
+below cannot be its cause. One section number over two different assertions is how the ✅ leaked
+across; the table row at the head is corrected.
+The row's own instruction — instrument, do not reason — is what produced it. Two candidates were
+eliminated by reading, and the cause was neither:
+- ⛔ **(2) REFUTED — THE LP IS NOT LEVERED.** `_stageIL` does a plain `ETH.deposit` and calls itself
+  an *"all-Galaxy ETH LP"*; there is no `openLev` anywhere in `ChopIsBenign`.
+- ⛔ **(1) DOES NOT FIT THE NUMBERS.** The weETH bound is `curvePool.balances(0) * 9/10`, and
+  `ETHERFI_CURVE_POOL` holds **2,207 WETH** — a ~1,986 ETH ceiling against positions of ~5.
+- ⛔ **AND THE LEVERED NET-EQUITY IS SUBTRACTED BY `deliverableETH`, NOT BY `rangeETH`** — which is
+  the function the failing assertion actually reads. That alone rules out the whole family.
+
+⭐ **MEASURED: THE STUCK BAG IS THE DEBT-FUNDED BUFFER, `levBuf`.** Gap (`POOLED − rangeETH`) =
+**0.100497 ETH** against `levBuf` = **0.107576**, so `rangeETH + levBuf` clears `POOLED` with
+0.00708 ETH to spare — the honest-LP margin the assertion was always about.
+**WHY, and it is by construction:** `CORE.POOLED()` is the range's CAPACITY, which `Quid.sol:979`
+pins as `levPooled + levBuf` — the levered net leg PLUS a buffer funded by BORROWED DOLLARS.
+`AUX.rangeETH()` counts only ETH held at a venue, so it cannot include a slice no ETH backs. With
+leverage live, `rangeETH < POOLED` by ~`levBuf`, necessarily. The assertion is restated in the units
+it always meant: dropping the buffer term would have been the clamp; adding it is the identity.
+⚠️ **A SECOND, SEPARATE WINDOW WAS FOUND IN THE SAME PASS AND IS ALSO REAL:** between a seizure and
+its `syncLev`, the range's minted depth still reflects the pre-seizure position, so `POOLED`
+legitimately over-states what backs it (measured 5.118 vs 7.776 — the gap IS the seized collateral).
+The backing claim is about the RECONCILED state. That is now guaranteed rather than hoped for: see
+the crystallisation row below.
+
+*(original prediction, kept because it was wrong and the record matters:)*
+🔴 **STAYS OPEN (rule 16) — THE PREDICTION IS STATED AND NOT YET RUN.** `ChopIsBenign` fails on a
+**0.990386 ETH** residual against 0.05. If the diagnosis is right that collapses on the FIRST
+withdraw. **If it only improves the per-exit ratio, the proportional cap was one of two binds and
+`deliverableETH` is the other** — instrument then, as this row originally asked. ⚠️ **The test must
+not be loosened either way** (rule 4; it is left failing on purpose).
+⚠️ **THE TEST IS LEFT FAILING ON PURPOSE.** Looping it to exit-until-drained makes it pass and would
+have buried a real usability defect behind a green tick — rule 4. **Its 0.05 tolerance is the right
+assertion; the exit path is what should change.**
+
+## ✅ §E318 — **THE 13 UNREACHABLE COMMITS ARE NOT LOST WORK. EACH IS SUPERSEDED, WITHDRAWN, OR ALREADY LANDED — CHECKED ONE BY ONE.**
+Owner: *"make sure they are reachable… make sure they land into main"*. **Checked before merging, and
+merging would have been wrong: two of them REVERT fixes that are on main.**
+
+| chain | verdict | evidence |
+|---|---|---|
+| `16d54a8d → … → 61456610` (rally/diag, 6) | ⛔ **SUPERSEDED BY §E310 — merging REVERTS the fix** | the conflict IS the fix: main reads `ETH.rangePrice()` + `_setLiveEthFeed` + `pushObservation`; the WIP holds the circular `AUX.getTWAPforAsset` → `_setEthFeed` that §E310 records as *"the anchor was a copy of the thing it anchors and NOTHING could ever move"* |
+| `f14553c6 → d43e1f91`, `f6f91219` (un-vendor morpho, 3) | ✅ **ALREADY LANDED** | `evm/lib/morpho-blue` is **gone from main**; `f6f91219` cherry-picks **EMPTY** |
+| `e2d46efa` (C19 fix) | ⛔ **WITHDRAWN BY ITS OWN AUTHOR** | `e2544537` *"Withdraw §C19-REGRESSION: my isolation was contaminated"* + `551376d9` *"the C19 regression does not reproduce"* |
+| `0c280d10 → 1e92fa91` (PoP, 2) | ✅ **ALREADY LANDED** | `0c280d10` cherry-picks EMPTY; `popDigest` is in `Interfaces.sol` |
+| `6f980005` (C17) | ✅ **CONTENT LANDED** | the finding is in SPRINT; its 76 sol files were a `band`→`range` sweep another thread landed |
+
+🔴 **THE DECISIVE CHECK, AND IT IS CHEAP: NO FILE ADDED BY ANY OF THE 13 IS ABSENT FROM `origin/main`.**
+Every `--diff-filter=A` path across all thirteen resolves on main. ⇒ **Nothing is lost.** The large
+`git diff <wip> origin/main` figures are MAIN'S NEWER WORK (interface folds, the `preferred` removal, the
+rename) — **a big diff against main measures how far main has MOVED, not what the commit is carrying.**
+⚠️ **I nearly read those numbers the other way**, which would have justified force-merging superseded
+scaffolding over two live fixes.
+
+⇒ **THEY ARE SAFE TO GARBAGE-COLLECT AND MUST NOT BE MERGED.** A dangling commit is not evidence of lost
+work; **an unreachable WIP whose conclusion has landed is the NORMAL end state of an investigation.**
+📌 **THE GENERAL RULE THIS EARNS:** before merging any unreachable commit, ask whether the CONFLICT IS
+THE FIX. Twice here the file main holds is the corrected version and the WIP holds the bug it corrects —
+and a conflict resolver that keeps "theirs" would silently reinstate it.
+
+### ✅ §E317 — **COMMITTING HALF OF ANOTHER SESSION'S REFACTOR BROKE MAIN. FINISHING IT WAS RIGHT; THE ORDER WAS NOT.**
+Booked because the code landed and only the commit message carried the reasoning — the gap this repo
+calls *"closing the work is not closing the row"*, arriving in my own close-out.
+
+**WHAT HAPPENED.** At close-out I committed two orphaned working-tree files (`Aux.sol`,
+`BasketLib.sol`) so they would not be lost. They were the MIDDLE of another session's §E313 —
+*"remove the redeem preference from the take path"* — and half of it does not compile: **12 arity
+errors**. ⚠️ **Committing was still correct** (uncommitted work in this checkout does not survive —
+three of my own edits were destroyed by resets today). **The error was verifying the PUSH instead of
+the BUILD**, the same order that produced §E315 an hour earlier.
+
+**HOW IT WAS FINISHED — BY READING THE TREE, NOT BY CHOOSING.** The landed half stated the direction:
+`_takeArgs` had already dropped `preferred` (4 params) and `BasketLib:1099` already called the 6-arg
+`takeWith`. So the unfinished half was `Aux.takeWith` + `IAux.takeWith` + their forwarding call, and
+then `redeem`/`redeemTo` had lost a trailing stable the same way, so five test files followed. **12 → 0.
+No signature was chosen by me; each was read off the half already on main.**
+📌 **THE RULE:** if you must commit someone's in-flight tree to save it — and here you must — **build
+before you push, and finish the refactor in the direction the landed half already states.** A
+half-landed signature change is not a merge conflict; it is a compile error waiting for whoever pulls.
+---
+
+## ✅ §E319-FOLDKEY — **FOLD KEY: THE NINE FOLDED FILES AND THEIR HOSTS. `check-doc-symbols.py` LISTS THEM AS MISSING AND THEY ARE NOT TOMBSTONES.**
+
+`tools/check-doc-symbols.py` reports 68 cited-but-absent `.sol` files. CLAUDE.md says to classify each
+row as **RENAME** or **TOMBSTONE** before touching anything. Nine of those rows are neither: they are
+**FOLDS** — the file is gone, the code is live inside a host. A reader who checks one of these against
+the tree finds nothing and concludes the concern is obsolete, **which is the exact misreading the
+citation existed to prevent**. Verified against `origin/main`, not recalled:
+
+| cited file | code now lives in | landed as |
+|---|---|---|
+| `ISwap.sol` | `imports/Interfaces.sol` (symbol `ISwap` intact) | `5af1aeb0` §E296 |
+| `ILevVenue.sol` | `imports/Interfaces.sol` (symbol `ILevVenue` intact) | `5af1aeb0` §E296 |
+| `FixedRateFill.sol` | `imports/SwapLib.sol` | `5b56c4a6` §E310 |
+| `SortedSet.sol` | `imports/Types.sol` (`SortedSetLib` + `OorBook` intact) | `9ddd31da` §E311 |
+| `MuSig2Agg.sol` | `imports/BitcoinTx.sol` | `a5816ea8` §E312 |
+| `ExitLib.sol` | `imports/BitcoinTx.sol` | `d3262881` §E318 |
+| `ExternalTwap.sol` | `imports/OracleLib.sol` | `d3262881` §E318 |
+| `ShareMath.sol` | `imports/BasketLib.sol` (`qdShareValue`) | see the ⚠️ below |
+| `BandLib.sol` | `imports/RangeLib.sol` (a RENAME, not a fold) | see the ⚠️ below |
+
+⚠️ **THE LAST TWO ROWS ARE A WORKED EXAMPLE OF RULE 14b, AND THE HISTORY NOW LIES ABOUT THEM.**
+`git log --diff-filter=D` attributes `ShareMath.sol`'s deletion to **`1b21ca09` *"C17: correct an Aave
+listing claim I asserted without measuring"*** and `BandLib.sol`'s to **`df0cbf1c` *"C17: Morpho is the
+only permissionless listing"*** — two commits from a DIFFERENT thread, about Aave and Morpho, that
+have nothing to do with either file. The deletions sat `git rm`-staged in the shared index and rode
+out under whoever committed next. **The work landed and the tree is correct; only the attribution is
+wrong**, so this is recorded rather than repaired — rewriting that history would cost more than it buys.
+⇒ The rule that prevents it is unchanged and worth re-reading: **a deletion and its replacement must be
+staged and committed together, or the deletion waits.** `git status --short` showing no `D ` rows does
+NOT mean your deletion is safe; it can mean someone already committed it for you.
+
+⛔ **AND THE COUNTEREXAMPLE THAT BREAKS THE RULE THIS TABLE TEACHES — `SignatureChecker` WAS REALLY
+DELETED (measured 2026-08-23).** The standing shorthand *"a zero-hit grep on a name means RENAMED,
+not removed — check the table"* is right about every row above and **wrong here**, and the two live
+handoff traps are the worked example. §0-HANDOFF says *"do not delete `ExternalTwap` or
+`SignatureChecker` as unwired — both are the `create_sweep_tx` shape."* Re-run today:
+
+| trap subject | grep in `evm/src` | what actually happened | live coordinate |
+|---|---|---|---|
+| `ExternalTwap` | 1 hit, a **comment** (`OracleLib.sol:355`) | **renamed/folded** — the trap holds, the file does not | `OracleLib.curvePriceWad` **`:378` / `:384`** |
+| `SignatureChecker` | 2 hits, **both comments** (`BTCChannels.sol:920`, `Types.sol:215`) | **deleted on purpose** by §REKEY-FOLD (`5b62de87`) — **zero `isValidSignatureNow` in the tree**, the sole hit being the comment that records its removal | none — and there should be none |
+
+⇒ **Applying the rule blindly protects a symbol whose removal was CORRECT.** The trap's reasoning —
+*"`lpEth` is key-derived so it looks unreachable, but EIP-7702 means that address can carry code"* —
+was answered by deleting the LP's EVM signature outright (§E183 item 1, `7d11fe22`): the LP now signs
+**nothing** on the EVM, so the EOA/smart-wallet split that justified `SignatureChecker` has no
+referent. A future thread "restoring" it would re-add a signature check for a signature that no
+longer exists. **The discriminator is not the hit count — both read as ~0 — it is whether the
+surviving hits are a POINTER (a fold note naming the new home) or an OBITUARY (a note explaining why
+nothing should be there).** `OracleLib.sol:355` is the first; `BTCChannels.sol:920` is the second.
+⚠️ Both traps are still worth carrying, and neither is worth carrying **as written**: the first now
+needs the `OracleLib` coordinate or its grep returns a comment, and the second must be inverted.
+
+### Verified state of `origin/main` at `a047ca59` — built in an ISOLATED worktree, not in the shared tree
+
+The shared checkout had four of another thread's files dirty (`Aux`, `Core`, `Interfaces`, `SwapLib`),
+so any number measured there would have described code that is not on `main`. Measured at `a047ca59`
+in `git worktree add --detach`:
+
+- **`forge build` → 0 errors.**
+- **All 35 deployable contracts under EIP-170**; tightest is **`Quid` 24,104 (472 to spare)**,
+  then `BTCChannels` 23,403 (1,173), `LevManager` 22,063 (2,513).
+  ⚠️ **Anchored to `a047ca59` and kept as that reading. TODAY @`7e32eb48` the script measures **30**
+  deployable contracts, and after the fleet's fold sweep the tightest is **`BTCChannels` 23,413
+  (1,163)**, with `Quid` down to **21,856 (2,720)** — i.e. the BINDING CONTRACT CHANGED, not just the
+  numbers. The count fell because contracts were folded away, not because the check narrowed.**
+- **`tools/check-client-abis.py` → 116 Rust signatures, 0 drifted; 68 SPA signatures, 0 drifted.**
+- **Zero duplicate top-level declarations** (`interface`/`library`/`struct`/`error`/`event`) across
+  `evm/src` — standing rule 2 holds tree-wide, not just in `Interfaces.sol`.
+- **Zero occurrences of `band` (any case) in `evm/src`** — the noun is gone, as instructed.
+- `imports/` is **14 files, from 22**.
+
+### The nine `rescue/*` tags are all superseded — checked one by one, none is an ancestor of `main`
+
+Not being an ancestor is **not** evidence of lost work: each tag's content was located in `main` by its
+own distinctive text. `wt-c19` (the `ilBasisPx`-on-reseat write that made the levered book inert, plus
+the oracle read that fed it) is in `main` — the signature takes no `px`, the caller passes none, the
+write is gone and only its comment remains. `spv-dd`'s `btcRecipientPoPDigest` declaration is at
+`Interfaces.sol:620`. `weeth-morpho-not-deep`'s `DeployL1_s` rewrite is at `:211`/`:442` with the eMode
+measurement at `:674`/`:689`. `e304-library-sweep`'s section is in this file. The rest are `WIP …
+(unverified)` diagnostics superseded by landed commits. **The tags are kept as the backup they were;
+they are not pending work.**
+
+### 🔴 STILL OPEN — the next fold's blocker, measured
+
+⚠️ **COORDINATE STALE 2026-08-26 — `collectBtcFees` is now `Vault.collectFees()` (`Vault.sol:667`).** Renamed in the §SLOP pass; substance unaffected.
+
+`Quid` ∥ `Vault` and `LevManager` ∥ `BtcLevManager` remain unfolded. **The blocker is NOT body
+placement** — `Quid` is ~1,700 lines but only ~631 are code. It is the **93 ABI selectors** on `Quid`
+(9 ERC-20, 12 ERC-4626, 72 other) against a 472-byte margin. The 4626 face is the lever, and it ties to
+the 7540 finding that both ranges are **async**, so `preview*` must revert. **Do that before attempting
+either fold.**
+
+⚠️ **AND A SECOND BLOCKER FOUND WHILE AUDITING, WHICH IS CHEAPER AND SHOULD GO FIRST — four
+BTC-suffixed members of `Vault` have UNSUFFIXED TWINS on `Quid`, so the two contracts cannot fold
+while their members are spelled differently:** `collectBtcFees`∥`collectFees` (11 external refs),
+`outOfRangeBtc`∥`outOfRange` (9), `pullBtc`∥`pull` (6, none outside `evm/test` — no SPA hits), and
+`onlyUsBtc`∥`onlyUs` (**0 external refs**). The established direction is already *one name per concept,
+two instances* (`resizeBtcLp`→`resize`, `syncLevBTC`→`syncLev`, `d2dc8b78`), and these are separate
+INSTANCES so the shared name is correct. **Not done here on purpose: it is squarely the BTC thread's
+area and would collide.** `onlyUsBtc` is free whenever someone wants it.
+
+#### ⏸️ RE-MEASURED 2026-08-26 — **ONE OF THE FOUR IS DONE; THE OTHER THREE ARE NOT "FREE" AND THE ROW DID NOT KNOW WHY**
+
+⚠️ **COORDINATE STALE 2026-08-26 — `collectBtcFees` NO LONGER EXISTS. It is `Vault.collectFees()` (`Vault.sol:667`), renamed in this session's §SLOP pass** (one name across both ranges). The row's substance is untouched; only the name is.
+
+The deferral reason expired: *"would collide with the BTC thread"* stopped being true when the tree
+went single-worktree — the same expiry the §MODFOLD row directly below records nobody noticing.
+Re-counted rather than relayed, and **none of the four has a single SPA or Rust reference**, so the
+client-ABI gate is not the obstacle for any of them:
+
+| member | evm/src | evm/test | verdict |
+|---|---|---|---|
+| `onlyUsBtc` | 1 file | 0 | ✅ **RENAMED to `onlyUs`.** Private modifier, no external surface, and `Shares` (its only non-OZ parent) declares no `onlyUs` — checked, not assumed |
+| `collectBtcFees` | 1 | 3 | 🔴 **NOT FREE — see below** |
+| `outOfRangeBtc` | 4 | 1 | 🔴 **NOT FREE — see below** |
+| `pullBtc` | 4 | 1 | 🟠 unblocked, but bundled with the two above rather than landed alone |
+
+### ✅ **ALL FOUR DONE 2026-08-26 — THE `ICore` QUESTION BELOW WAS ANSWERED BY TRACING, AND THE ANSWER IS "NO".**
+
+The blocker was one factual question: *is a `Vault` ever passed where `ICore(core).collectFees()` is
+decoded?* **Traced: no.** `SwapLib.sol:2629` sits in `rebalanceCore`, whose only two callers are
+`BtcLib.sol:497` and `QuidLib.sol:365`, and **both pass `c.core`** — built at `Vault.sol:563` and
+`Quid.sol:1374` as `core: address(CORE)`, i.e. the **`Core` instance**, never the range manager. So
+the `(uint,uint)` decode only ever meets `Core.collectFees()`, which really does return two words.
+⇒ **A third claimant on the name is unreachable**, and the renames are spelling after all.
+
+| landed | note |
+|---|---|
+| `onlyUsBtc` → `onlyUs` | private modifier; `Shares` declares no twin |
+| `collectBtcFees` → `collectFees` | identical shapes (`external nonReentrant`, no return) on both instances |
+| `outOfRangeBtc` → `outOfRange` | same params and returns; ⚠️ **`Quid`'s is `payable` and `Vault`'s is not** — a REAL asymmetry (a BTC boundary order is USD-funded only), to be preserved by any fold |
+| `pullBtc` → `pull` | identical signatures |
+
+⛔ **THE `BtcLib` BODIES KEEP THEIR SUFFIX AND THAT IS NOT AN OVERSIGHT.** `BtcLib.outOfRangeBtc` and
+`BtcLib.pullBtc` are that library's own delegatecall bodies, mirroring how `Quid`'s members call
+`RangeLib.pull`. The blocker was about CONTRACT members colliding by concept, not about library
+spellings — a blanket rename would have hit both, so they were protected explicitly.
+🔴 **CORRECTION TO MY OWN RATIONALE ABOVE, ASKED FOR BY THE OWNER (*"outOfRangeBtc was not merged?"*)
+— THE TWO LIBRARY BODIES ARE NOT THE SAME CASE, AND I TREATED THEM AS ONE.**
+I protected both `BtcLib.pullBtc` and `BtcLib.outOfRangeBtc` from the rename as "the library's own
+delegatecall bodies". **That is true of one of them and false of the other:**
+
+| pair | state |
+|---|---|
+| `pull` | ✅ **ALREADY MERGED.** `BtcLib.pullBtc` **does not exist** — `RangeLib.pull` is the single body and BOTH `Vault.pull:697` and `Quid.pull:1208` call it. ⇒ what I "protected" was a **STALE COMMENT** at `Vault.sol:693` reading *"Body in BtcLib.pullBtc"* directly above a line calling `RangeLib.pull`. **Fixed.** The comment survived its own subject, which is this file's most-repeated failure. |
+| `outOfRange` | 🟢 **NOT MERGED, AND CORRECTLY SO.** `BtcLib.outOfRangeBtc:299` is live and `Vault.outOfRange:675` calls it. |
+
+⇒ **WHY `outOfRange` CANNOT FOLD THE WAY `pull` DID — three differences, and the third is decisive:**
+1. **BTC is USD-funded only** — `if (a.token == address(0)) revert NotAStable();`. This is the same
+   asymmetry as `Quid.outOfRange` being `payable` and `Vault`'s not.
+2. **Price is PASSED, not read.** ETH runs `_rebalance()` inside the body; the library cannot.
+3. ⭐ **BTC DELIBERATELY DOES NOT INDEX THE ORDER.** ETH ends at `RangeLib.openOor(...)`, which writes
+   the position, pushes to `positions` **and inserts into `book.index` by trigger price**. BtcLib
+   writes and pushes and **stops**. That reads exactly like a missing line, and it is not:
+   `Vault.sweepOor` is `external pure returns (uint) { return 0; }` with a docblock saying
+   *"BTC orders are deliberately not indexed and never swept"* — every BTC order is a bid filling
+   INTO BTC, this range has no on-chain BTC delivery (settlement is a Lightning cooperative close),
+   so `_handleDelta` would hand the filled leg to a `deliverVolatile` returning 0 and **burn it**.
+   ⇒ Auto-filling would convert a loss the owner currently CHOOSES at `pull` into one the protocol
+   inflicts on its own schedule.
+⚠️ **SO THE MISSING `book.index.insert` IS THE §E258 ASYMMETRY, NOT A BUG — AND ANY FOLD MUST CARRY
+IT.** A merged body that indexed unconditionally would silently arm sweeping on a range that cannot
+deliver. **The residual dedup is three lines (write + push) and is not worth an `index` flag** on
+`openOor` under the owner's *"only if considerably cleaner"* bar.
+📌 **This stays live until native BTC delivery attributes the off-chain fill channel**, which is what
+`Vault.sweepOor`'s own last line says.
+
+📌 **AND IT SURFACED THE NEXT FOLD CANDIDATE:** `RangeLib.sol:140` records that `RangeLib.pull` and
+`BtcLib.pullBtc` are *"BYTE-IDENTICAL after normalising the storage PARAMETER"* — so the two library
+bodies are a pair too, one level below the one just cleared.
+
+*(original blocker text, kept — its reasoning is what the trace answered:)*
+🔴 **WHY THE OTHER TWO ARE NOT MECHANICAL, AND THE ROW MISSED IT: `ICore` ALREADY DECLARES BOTH
+UNSUFFIXED NAMES WITH DIFFERENT SHAPES.**
+`Interfaces.sol:535` is `collectFees() external returns (uint, uint)` while `Quid.collectFees()` and
+`Vault.collectBtcFees()` are BOTH `external nonReentrant` returning **nothing**; `:508` is
+`outOfRange(address,int,address)` against `Quid.outOfRange(uint,address,int,uint)`. Those `ICore`
+entries are **`Core`'s** members, not the range managers' — `Core.collectFees()` at `Core.sol:1181`
+does return `(uint,uint)`. ⇒ the names already mean two different things depending on which contract
+`ICore` is pointed at, so renaming `Vault`'s copies makes a THIRD claimant on each name. Whether that
+is safe turns on whether a `Vault` is ever passed where `ICore(core).collectFees()` is decoded
+(`SwapLib.sol:2629` decodes two words). **Establish that before renaming; it is not a spelling change.**
+
+📌 **AND ONE FINDING FROM READING IT: `Core.collectFees()` IS A CONSTANT-ZERO STUB** (`return (0, 0)`,
+`public view`). That is CORRECT post-§V4-CUT — CLAUDE.md records that the accumulators it fed were
+fed by v4 trading fees only and the cut removed the FEED — but it means `SwapLib.sol:2629`'s
+`(r.jitFeesUsd, r.jitFeesTok) = ICore(core).collectFees()` and everything downstream of those two
+values are **inert**. Booked, not deleted: rule 1 removes unreachable code, and this is reachable code
+whose SOURCE was removed, which is the `create_sweep_tx` shape.
+
+### ✅ **CLOSED 2026-08-25 — THE `Vault` MODIFIER DUPLICATION IS ALREADY MERGED (§MODFOLD).**
+Verified in the tree: `onlyBtcChannels` has **zero declarations** and survives only inside the
+`§MODFOLD` comment recording its removal; `onlyBTCChannels` is the rule-8c form
+(`modifier onlyBTCChannels() { _onlyBTCChannels(); _; }` — one routine, N jumps) and gates all 14 uses.
+The dead `btcChannels != address(0)` clause is gone with it.
+⚠️ **THE ROW OUTLIVED THE WORK BY WEEKS**, and its own last line says why it was left: *"it is the BTC
+thread's file-region and this thread would collide with it."* The collision reason expired when the
+tree went single-worktree, and nobody re-read the row. **The exact failure CLAUDE.md names: a commit
+is not a closure, and the row is the half the next thread reads.**
+▶️ (original row, kept for its evidence)
+#### 📎 (historical evidence — NOT an open row) ONE CONFIRMED DUPLICATION LEFT IN `Vault`
+
+`Vault` declares **two modifiers that gate the same address on adjacent lines** — its own comment says
+so: *"same gate, distinct name kept from Aux."*
+- `onlyBtcChannels` (`:199`) — `require(msg.sender == btcChannels && btcChannels != address(0), "403")`,
+  gates 3 functions (`requestDeposit` `:487`, `:555`, `:566`).
+- `onlyBTCChannels` (`:203`) — `if (msg.sender != btcChannels) revert NotBTCChannels()`, gates 4
+  (`:703`, `:715`, `:726`, `:727`).
+
+The `btcChannels != address(0)` half is **dead**: `msg.sender` is never `address(0)`, so
+`msg.sender == btcChannels` already implies it — a clamp giving false safety (rule 3). **The merge is
+behaviour-preserving except the revert selector on the three `require` sites, and nothing asserts it:**
+the only `expectRevert(bytes("403"))` in the suite is `Alles.t.sol:2245` on **`Aux.setVaultHealth`**,
+unrelated; `ReentrancyProbe.t.sol:45,52` assert `NotBTCChannels()`, which is the modifier that SURVIVES.
+⇒ **Keep `onlyBTCChannels`'s body, back it with a `private view _onlyChannels()` and make the modifier
+one call (rule 8c — a modifier inlines at all 7 sites, a function is one routine and 7 jumps), then
+delete `onlyBtcChannels`.** Left undone here for the same reason as the renames above: it is the BTC
+thread's file-region and this thread would collide with it.
 
 ## 🔴 §E319 — **TWO THINGS I NAMED IN PROSE AND NEVER BOOKED AS ROWS**
 
