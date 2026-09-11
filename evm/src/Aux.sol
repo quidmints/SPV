@@ -516,9 +516,8 @@ contract Aux is
     }
 
     function takeWith(address who, uint amount, address token, uint seed,
-        uint[16] memory amounts, uint[16] memory yieldW) public onlyUs returns (uint sent) {
-        return BasketLib.takeBodyWith(
-            _takeArgs(who, amount, token, seed), amounts, yieldW);
+        uint[16] memory amounts) public onlyUs returns (uint sent) {
+        return BasketLib.takeBodyWith(_takeArgs(who, amount, token, seed), amounts);
     }
 
     mapping(address => uint256) public committedOf;

@@ -317,21 +317,21 @@ library BasketLib {
             aux.checkBacking();
             return sent;
         }
-        (uint[16] memory amounts, uint[16] memory yieldW,,) = aux.get_deposits();
-        sent = _takeCore(a, amounts, yieldW);
+        (uint[16] memory amounts,,,) = aux.get_deposits();
+        sent = _takeCore(a, amounts);
 
         if (a.amount > 0 && sent == 0) revert NothingDelivered();
     }
 
-    function takeBodyWith(TakeArgs memory a, uint[16] memory amounts, uint[16] memory yieldW)
+    function takeBodyWith(TakeArgs memory a, uint[16] memory amounts)
         external returns (uint sent) {
-        sent = _takeCore(a, amounts, yieldW);
+        sent = _takeCore(a, amounts);
 
         if (a.amount > 0 && sent == 0) revert NothingDelivered();
 
     }
 
-    function _takeCore(TakeArgs memory a, uint[16] memory amounts, uint[16] memory yieldW)
+    function _takeCore(TakeArgs memory a, uint[16] memory amounts)
         private returns (uint sent) {
         IAux aux = IAux(address(this));
         FeeLib.FeeCtx memory fc = FeeLib.FeeCtx(a.stables, a.linkAddr);
@@ -547,7 +547,7 @@ library BasketLib {
         (uint perShare, uint freeUsd) = _redeemQuote(r, amts[15], yW[0], depegLossOut);
 
         (uint usdPart, uint seedBurned, bool unwound) = _settleRedeem(r, perShare, freeUsd);
-        _dispatchTake(r, usdPart, seedBurned, amts, yW, unwound);
+        _dispatchTake(r, usdPart, seedBurned, amts, unwound);
     }
 
     function _settleRedeem(RedeemArgs memory r, uint perShare, uint freeUsd)
@@ -580,10 +580,10 @@ library BasketLib {
     }
 
     function _dispatchTake(RedeemArgs memory r, uint usdPart, uint seedBurned,
-        uint[16] memory amts, uint[16] memory yW, bool fresh) private {
+        uint[16] memory amts, bool fresh) private {
 
         if (seedBurned == 0 && !fresh) {
-            IAux(address(this)).takeWith(r.recipient, usdPart, r.quid, 0, amts, yW);
+            IAux(address(this)).takeWith(r.recipient, usdPart, r.quid, 0, amts);
         } else {
             IAux(address(this)).take(r.recipient, usdPart, r.quid, seedBurned);
         }

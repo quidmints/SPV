@@ -177,10 +177,26 @@ library DeployLib {
         // later, and no configuration under which it talks to another one.
         Basket quid = new Basket(address(ETH), address(aux), LZ_ENDPOINT_V2);
 
-        // §TWAP-DELETED — there is no ring to seed. `setup` took a `seedPrice` that nothing read
-        // once `OracleLib.seedRing` went, so the two `seedPrices` reads and the scoped block that
-        // existed to keep them off the stack all went with it.
+        // §TWAP-DELETED — there is no ring to seed, so the `seedPrice` argument and the two
+        // `OracleLib.seedPrices` reads that computed it are gone.
+        // 🔴 BUT THE ANCHORS MUST BE REGISTERED *HERE*, BEFORE ANY setup(), AND THAT IS NEW.
+        // `Quid.setup` -> `QuidLib.setupBody` reads `Core.poolStats()` to centre the initial range
+        // (`updateBounds(spotPrice, RANGE_DELTA)`), and `poolStats` now reads `Aux.assetPrice`
+        // instead of the seeded ring slot. With no feed registered that read reverts `NoAnchor()`
+        // *inside the deploy*. DeployLib never registered anchors before because the RING supplied
+        // the price and was seeded from these very same `cfg.ethFeed`/`cfg.btcFeed` values — so the
+        // feeds were always available at this point and the registration was merely unnecessary.
+        // ⚠️ Deleting the ring did not create this gap; it removed what was hiding it.
         {
+        address[] memory aTok = new address[](2); aTok[0] = cfg.weth; aTok[1] = cfg.wbtc;
+        address[] memory aFee = new address[](2); aFee[0] = cfg.ethFeed;   aFee[1] = cfg.btcFeed;
+        address[] memory none = new address[](0);
+        aux.configure(Aux.Wiring({
+            assetTokens: aTok, assetFeeds: aFee,
+            stableTokens: none, stableFeeds: none,
+            vaultStables: none, vaultAddrs: none,
+            quid: address(0), ethVenue: address(0), btcChannels: address(0)
+        }));
         core.setup(address(ETH), address(aux), address(quid));   // ETH range manager IS Quid
         // §E222 — NO OBSERVATION SOURCE IS PINNED, ON THE OWNER'S INSTRUCTION (2026-08-21).
         // A single Curve 3-coin pool was pinned here and is REMOVED: pricing the range off one pool

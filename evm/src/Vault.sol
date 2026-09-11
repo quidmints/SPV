@@ -146,8 +146,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
 
     function _rebalance() internal returns (uint spotPrice,
         uint loPrice, uint upPrice, uint myLiquidity, uint anchorPrice) {
-        BtcLib.RebalOut memory o = BtcLib.rebalanceBody(
-            _btcCfg(), _lo(), _hi(), lpShares + totalBuffer);
+        BtcLib.RebalOut memory o = BtcLib.rebalanceBody(_btcCfg(), _lo(), _hi());
 
         feesPerShare += o.feesPerShareInc; USD_FEES += o.usdFeesInc;
         RANGE_ANCHOR = o.spotPrice;

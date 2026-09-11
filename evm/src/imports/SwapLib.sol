@@ -102,15 +102,15 @@ library SwapLib {
         IERC20OZ(tokenIn).safeTransferFrom(msg.sender, address(this), pulled);
         pulled = aux.supplySelf(tokenIn, pulled);
 
-        uint requested = _convert(aux, tokenIn, tokenOut, pulled, idxOut, linkAddr);
+        uint requested = _convert(tokenIn, tokenOut, pulled, linkAddr);
         amountOut = aux.withdrawSelf(tokenOut, requested, recipient);
         if (amountOut < minOut)              revert SlippageExceeded();
 
         aux.checkBacking();
     }
 
-    function _convert(IAux aux, address tokenIn, address tokenOut, uint pulled,
-        uint idxOut, address linkAddr) private returns (uint) {
+    function _convert(address tokenIn, address tokenOut, uint pulled,
+        address linkAddr) private returns (uint) {
 
         uint usdIn  = BasketLib.scaleTokenAmount(pulled, tokenIn, true);
         uint usdOut = FeeLib.applyFeeAndHaircut(tokenOut, usdIn, linkAddr);

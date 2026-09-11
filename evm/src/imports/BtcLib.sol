@@ -234,8 +234,7 @@ library BtcLib {
     }
 
     function rebalanceBody(
-        Types.RangeCfg memory c, uint loPrice, uint upPrice,
-        uint feeDenom
+        Types.RangeCfg memory c, uint loPrice, uint upPrice
     ) public returns (RebalOut memory o) {
 
         SwapLib.Rebalanced memory r = SwapLib.rebalanceCore(

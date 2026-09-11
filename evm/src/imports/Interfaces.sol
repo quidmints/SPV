@@ -193,7 +193,7 @@ interface IAux is ISwap {
     function vaults(address) external returns (address);
     function tranche(address) external returns (uint);
     function take(address who, uint amount, address token, uint seed) external returns (uint);
-    function takeWith(address who, uint amount, address token, uint seed, uint[16] memory amounts, uint[16] memory yieldW) external returns (uint);
+    function takeWith(address who, uint amount, address token, uint seed, uint[16] memory amounts) external returns (uint);
     function riskFactor(address token) external view returns (uint);
     function getDepegSeverityBps(address token) external view returns (uint);
     function GHO() external view returns (address);
