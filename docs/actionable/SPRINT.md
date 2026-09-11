@@ -368,8 +368,8 @@ Each was carried as open, some in red, some for weeks.
    under one nonce — but `nonce_bindings` is an in-memory `HashMap` (`validating_signer.rs:194`) and a
    restart clears it. Negotiate candidate A → restart → peer re-drives → candidate B signs at the same
    height. A counterparty can wait for a restart or induce one.
-   ⛔ **DO NOT FIX IT BY SPICING THE NONCE. THAT IS `b9213c55` AND IT BROKE EVERY SPLICE, EVERY
-   COMMITMENT AND EVERY COOP-CLOSE.** MuSig2 commits nonces BEFORE the message exists; at
+   ⛔ **DO NOT FIX IT BY SPICING THE NONCE. THAT IS `b9213c55`, AND IT BROKE EVERY SPLICE AND EVERY
+   COOP-CLOSE** — ⚠️ **NOT the commitment path, which is where I over-corrected: see `§NONCE-TWO-RULES`.** MuSig2 commits nonces BEFORE the message exists; at
    `splice_init` there is no message and no peer nonce to spice with, so a pre-advertised nonce cannot
    be message-bound. The fork says so itself (`channel.rs:6595`): *"the SAME height
    `partially_sign_splice_shared_input` uses, so the advertised nonce equals the one we sign with."*
@@ -398,6 +398,32 @@ Each was carried as open, some in red, some for weeks.
    failed partial verification through `.ok()?` with **no log** (`interactivetxs.rs`), which is why a
    fully-negotiated splice vanished silently for 108 s instead of erroring. That silence is what made
    `b9213c55` cost an e2e run to find rather than a log line.
+
+**13b-bis. 📌 `§NONCE-TWO-RULES` — THREE MuSig2 SITES, TWO RULES, AND THE DISCRIMINATOR IS ONE
+   QUESTION.** Settled 2026-09-11 by project-e9's driver-e2e trace after I got it wrong in both
+   directions on the same day. **The question is `taproot_signer`'s own module table: "does the partial
+   LEAVE THE BOX?"**
+   · **NO ⇒ untagged, deterministic.** `finalize_holder_commitment` counter-signs our OWN commitment
+     and the partial is never sent, so the holder nonce is the advertised one at height `idx`.
+   · **The nonce is PRE-ADVERTISED ⇒ untagged, deterministic, advertise==sign.**
+     `partially_sign_closing_transaction` (advertised at `closing_nonce_height(round)`) and
+     `partially_sign_splice_shared_input` (advertised by `generate_splice_nonce`). **Spicing these is
+     unimplementable** — MuSig2 commits the nonce before the message exists.
+   · **The nonce is CARRIED WITH the partial ⇒ tagged + spiced.**
+     `partially_sign_counterparty_commitment` returns `PartialSignatureWithNonce`, so nothing has
+     committed to the nonce in advance and `COUNTERPARTY_COMMITMENT_NONCE_TAG` + `(message, cp_nonce)`
+     spices are both safe and REQUIRED.
+   🔴 **WHY REQUIRED, AND THIS IS THE PART THAT COST A DAY:** `finalize_holder_commitment` already uses
+   the untagged domain at the SAME `idx`. Put the counterparty commitment there too and both purposes
+   collapse onto ONE nonce — measured as `our=033f20… cp=02358b…` bound at `.502` and **REFUSED** at
+   `.507`, same nonce, same cp_nonce, DIFFERENT message, 5 ms apart inside
+   `funding_created→funding_signed`. `bind_nonce` was RIGHT; two messages under one nonce is
+   `x=(s1−s2)/(e1−e2)` on the funding key. **Every channel open failed, silently, as an async-signer
+   stall.**
+   ⭐ **BOTH OF MY ERRORS WERE THE SAME SHAPE — A RULE APPLIED PAST ITS DOMAIN.** `b9213c55` spiced all
+   three because spicing is right for one; `7a0549ae` un-spiced all three because un-spicing is right
+   for two. **The tag and the spices are not one decision** — the tag separates PURPOSES at one height,
+   the spices re-randomise per message — and only the carried-nonce site can afford the second.
 
 **13c. `§DEAD-SPICED-NONCE-HELPERS`** — `taproot_signer::our_key_path_partial_counterparty` and
    `KeyPathFirstRound::new_counterparty` have **ZERO production callers** after `7a0549ae`; the only 4

@@ -1684,17 +1684,21 @@ impl TaprootChannelSigner for ValidatingChannelSigner {
         // lockstep) — reuse across the two commitment sighashes leaks the funding
         // key (x = (s1 - s2)/(e1 - e2)).
         let cp_nonce_bytes = counterparty_nonce.serialize();
-        // 🔴 **ADVERTISE == SIGN.** This nonce was already published (commitment: via
-        // `generate_local_nonce_pair`; close: at `closing_nonce_height(closing_round)`), so the
-        // partial MUST be computed with the SAME secret nonce. b9213c55 switched both sites to
-        // `our_key_path_partial_counterparty`, which spices the secret nonce with
-        // `(counterparty_nonce, message)` and uses a different seed domain — a nonce the peer has
-        // never seen — and three tests have been RED ever since.
-        // ⭐ MuSig2 commits nonces BEFORE the message exists, so a pre-advertised nonce cannot be
-        // message-bound. The two-messages-under-one-nonce hazard is covered by the HEIGHT (distinct
-        // per commitment number / per closing round, both persisted by LDK) plus `bind_nonce`,
-        // which REFUSES a second different message under one nonce. Never by re-deriving.
-        let (partial, our_pubnonce) = crate::taproot_signer::our_key_path_partial_holder_local(
+        // 🔴 **THIS PATH TAKES THE COUNTERPARTY DOMAIN, AND THE DISCRIMINATOR IS THIS MODULE'S OWN
+        // TABLE: "partial leaves the box?" — YES here, NO for `finalize_holder_commitment`.**
+        // Our pubnonce is RETURNED to LDK inside `PartialSignatureWithNonce` and travels to the peer
+        // WITH the partial, so this nonce is never pre-advertised and advertise==sign does not bind.
+        // ⛔ **DO NOT "unify" this with the close/splice sites onto `our_key_path_partial_holder_local`.**
+        // I did (7a0549ae) and it broke every channel OPEN: `finalize_holder_commitment` already uses
+        // the untagged domain at this same `idx`, so both purposes collapsed onto ONE nonce and
+        // `bind_nonce` correctly refused the second — measured in the driver e2e as our=033f20…,
+        // cp=02358b… bound at .502 and REFUSED at .507, same nonce, same cp_nonce, DIFFERENT message,
+        // 5 ms apart during funding_created→funding_signed. That is a genuine funding-key-leak
+        // condition, not a false positive: two messages under one nonce is x=(s1−s2)/(e1−e2).
+        // ⭐ `COUNTERPARTY_COMMITMENT_NONCE_TAG` exists precisely to separate these two purposes at
+        // one height, and the message+peer-nonce spices are safe HERE for the same reason they are
+        // fatal on close/splice — nothing has committed to this nonce in advance.
+        let (partial, our_pubnonce) = crate::taproot_signer::our_key_path_partial_counterparty(
             key_agg,
             our_index,
             counterparty_index,
