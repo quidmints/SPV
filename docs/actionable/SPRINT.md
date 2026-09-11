@@ -336,6 +336,17 @@ Each was carried as open, some in red, some for weeks.
    **The single highest-value test in the Bitcoin scope**, and still **half-covered**: the freshness
    script exists, nothing broadcasts a matured exit. ⚠️ **Until it runs, "refundable trustlessly" is
    a design intention, not a measured property.**
+**26b. 🔴 RAIL B's e2e CANNOT PASS UNTIL THE HARNESS PRODUCES VAULT-SIGNED CONSENT.** `driver_e2e.rs:448-456`
+   says it in terms: `drive_open` refuses without `consent_for_funding` (an `OpenAuth` + `ExitArming`
+   ladder), the harness only binds funding, so `swap_out_onchain_delivery_on_real_evm` stops at PROOF 1 —
+   and the delivery step needs a SECOND ladder for the rotated outpoint (`swap_out_onchain.rs:368`). Its
+   premise *"the fleet holds no LP funding half"* is FALSE since §NO-SELF-PROVISIONED-LPS: the vault holds
+   it in-process and `deadman_exit::arm_signer` already signs rungs. ▶️ Wire the harness to have the VAULT
+   arm both ladders (open + post-delivery outpoint) and bind them, then run `regtest/driver-e2e.sh`.
+   Measured 2026-09-11: the harness feature code had rotted against boot/OpenParams/VaultNode/encode_deliver
+   signatures (fixed, `ce57a9a2`) and the deploy needed `--slow` (`fdd731ae`); `hop_bridge_e2e` is
+   separately rotted (24 errors, `settleSwapIn` deletion) and untouched. Gates nothing; is the proof of rail B.
+   📌 **Booked on behalf of the bitcoin lane (project-e9), verbatim from its own measurement.**
 **27. `§BTC-10b` — the settlement layer has NEVER been audited** (`_resize`, `requestDeposit`,
    `creditSwapIn/Out`): *"where value is created and destroyed."* Called **a new audit area, not a
    leftover** — and **no gate ever opened it.**
@@ -541,6 +552,38 @@ err)`"*) · `§E244` (*"wire the mock router"*) · `§BTC-LEG-FEE`.
 phantoms, then write invariant tests against the finalized model* — and that cannot start before the model
 is built, so it is gated on D2/D4/D7 like everything else.
 
+### 🔁 SIX SECTIONS THIS CUT DROPPED WHILE STILL OPEN — RESTORED BY A PEER AUDIT, AND NOW CLASSIFIED
+project-e9 audited the cut against the record, the code, `TARGET-DESIGN`/`OWNER-DECISIONS`/`PRODUCTION-LAUNCH`,
+triaged **148 open-marked sections that no longer resolve**, found **126 legitimately closed elsewhere**, and
+restored **six** verbatim (`0ed635a6`). They are classified here so they are not dropped a second time:
+| restored row | gate | why |
+|---|---|---|
+| `§PARTIAL-TAKE-IS-DEBITED-IN-FULL` | ✅ **UNGATED — do it** | a settlement defect, not downstream of any decision. Re-verified 2026-09-11: **three** call sites discard `takeBody`'s `sent`, and the fix is the reconciling debit, not a revert |
+| `§THE-SLIPPAGE-WINDOW-IS-THE-LEAK` | **D4b** | `SELL_SLIP_BPS` is still 100, and the surviving §THE-KEY-ONLY-BUYS-`swap()` prose repeats the *"cannot extract"* claim this row refuted. Money path |
+| `C3` — vBTC IS the 7540's asset, its 4626 face contradicts it | **D7-adjacent** | `VBtc.sol:34-36`, 0 call sites |
+| `A.5f` — no on-chain per-action authorisation for the delegated strategy layer | **owner ask, ungated** | its only later trace was a *"tracked"* list that was itself cut |
+| `B6` — regime: two classifiers, one unreachable | **D1** | an observation-source question |
+| `§IMPACTED-TESTS-BASE-CLASS-BLINDSPOT` | ✅ **UNGATED** | a named false-negative class in `tools/impacted-tests.py` |
+
+🔴 **AND THE AUDIT'S METHOD FINDING IS WORSE THAN THE SIX, SO IT IS RECORDED RATHER THAN THANKED.** The peer
+asked why the classifier missed a section *carrying a `▶️`*. **Measured against the pre-cut file recovered
+from `4ae99cd6`: the rule this file publishes keeps 100 sections; the cut kept 85; TWENTY-EIGHT were
+open-marked, carried an imperative, and were cut anyway.**
+⇒ **the rule was right and the cut did not run it** — it kept the 85 from an earlier index whose rule
+differed, then published a rule that cannot reproduce its own artifact. **Running the published rule would
+have kept all 28: twenty-two extra sections to save six, which is the trade to take every time.**
+✅ **FIXED AS A GATE, NOT A PARAGRAPH** (`tools/sprint-actionable.py`, `4469bc8a`) — `--self-test` replays
+`4ae99cd6` and REQUIRES `§PARTIAL-TAKE` and `§IMPACTED-TESTS-BASE-CLASS` to classify QUEUE, because the
+acceptance test for a detector is the KNOWN POSITIVE and both of those were dropped.
+📌 **AND IT NAMES THE CLASS A KEYWORD RULE CANNOT DECIDE: 132 pre-cut sections are open-marked, carry no
+closing marker, and phrase NO imperative anywhere.** `§THE-SLIPPAGE-WINDOW-IS-THE-LEAK` is one — it states a
+live money-path defect and never asks for anything. Those are now a third class, **REVIEW**, reported rather
+than dropped. ⛔ **Triage REVIEW against the CODE. Hand-triage is the only instrument that has worked on it.**
+⚠️ **ONE COINCIDENCE CHECKED RATHER THAN CITED, because it is the false-corroboration shape:** the REVIEW
+class is **132** and the peer's *"no trace post-cut"* count is also **132** — **different sets.** By this
+file's own measure 148 are gone, 120 without an imperative and 28 with. **Two instruments agreeing on a
+number is not two instruments agreeing.**
+
 ### ▶️ THE ORDER THAT CARRIES THE GUARANTEE
 1. **`§SESS-59`** — security, ungated, unconditional.
 2. **The 8 SAFE rows.** Nothing downstream of a decision; nothing else deletes them.
@@ -657,6 +700,58 @@ if (!keep && token != address(0))
 ⇒ **`take` MAY return `sent < requested` without reverting.** Its own comment says the guard exists
 because *"asking for a non-zero amount and receiving nothing is never a valid outcome"* — **the ZERO
 case was closed and the PARTIAL case was left open.**
+
+### ✅ RE-VERIFIED AGAINST LIVE CODE 2026-09-11 — **CONFIRMED, AND IT IS THREE CALL SITES, NOT ONE**
+Graded per rule 20 (go to the code, never to the prose). **Every claim in this row holds, and the
+census widened it:**
+| site | code, as it stands | return |
+|---|---|---|
+| `Core.sol:354` `_settleUsdSide` | `AUX.take(who, BasketLib.from6(usdAmount, token), token, 0);` | **discarded** |
+| `Core.sol:186` `refundUnfilled` | `if (amount != 0 && to != address(0)) AUX.take(to, amount, token, 0);` | **discarded** |
+| `BasketLib.sol:592` (redeem) | `IAux(address(this)).take(r.recipient, usdPart, r.quid, seedBurned);` | **discarded** |
+`BasketLib.sol:317` — `function takeBody(TakeArgs memory a) external returns (uint sent)`, and `:327`
+is the whole guard: **`if (a.amount > 0 && sent == 0) revert NothingDelivered();`**
+
+🔴 **THE BOUND, WHICH IS THE PART THE ROW DID NOT STATE (rule 18 ④ — what is the worst input that still
+satisfies the guard?): `sent = 1 wei` against a 1,000,000 USDC request PASSES.** The guard admits any
+non-zero delivery. ⇒ **this is the `minReturn = 1` family verbatim** — a mechanism that works perfectly
+and a bound that says *"anything non-zero is acceptable"*. §A-VERIFIED-MECHANISM-IS-NOT-A-VERIFIED-NUMBER
+is the canonical entry, and this is a fourth instance of it on a money path.
+
+⭐ **SO THE FIX IS THE ROOT ONE, NOT THREE SITE PATCHES (rule 17 / rule 18 ①②).** Three call sites
+discarding one return is past the point where patching sites is defensible — rule 18 says *"two patches
+for one class is the signal, and the second one is where it becomes unmistakable."*
+▶️ **MAKE UNDER-DELIVERY UNCONSTRUCTIBLE IN `takeBody`, NOT DETECTABLE AT THREE CALLERS:** the guard
+becomes `sent < a.amount ⇒ revert`, or `take` returns and the signature forces reconciliation. Deriving
+it in ONE place means no call site can forget, which is exactly rule 18 ②'s test, and it lets all three
+sites stay as they are.
+### 🔑 ANSWERED — **A PARTIAL DELIVERY IS LEGITIMATE AND DELIBERATE, SO THE REVERT IS THE WRONG FIX**
+Read `_takeCore`'s exits (`BasketLib.sol:339-361`) rather than guessing, and the answer flips this row's
+own prescription:
+```solidity
+if (amounts[15] == 0 || a.amount == 0) { _finalBacking(aux, a.softBacking); return sent; }  // exit 2
+if (a.seed == 0) a.amount = Math.min(amounts[15], a.amount);                                // ← THE CLAMP
+```
+`amounts[15]` is the basket's TOTAL balance (accumulated at `:83`). **Line 355 deliberately reduces the
+ask to what the basket actually holds, then delivers that.** That is not a bug and not an edge case — it
+is an explicit *serve-what-we-have* decision, and exit 2 returns a partial (or zero) the same way.
+⇒ ⛔ **`sent < a.amount ⇒ revert` IS THEREFORE A LIVENESS REGRESSION, NOT A FIX.** Every request larger
+than basket liquidity would revert instead of serving what exists — and this repo's own standing rule 4
+names that shape: a guard that makes the symptom disappear while breaking the path it guards.
+✅ **THE FIX IS THE RECONCILING RETURN, AND IT IS AT THE DEBIT, NOT AT THE DELIVERY.** `_settleUsdSide`
+(`Core.sol:350-354`) runs `_poolUsdInRange(usdAmount, false, basketLeg)` — **debiting the range's USD
+side by the FULL amount** — and only then calls `take`, which may send less. **The range must be debited
+by `sent`, not by the request.** That is one change in one place and it makes all three call sites correct,
+because the discarded return stops being information nobody has.
+⚠️ **ONE SUB-QUESTION REMAINS AND IT IS AN ORDERING HAZARD, SO DO NOT JUST SWAP THE TWO LINES:**
+`take` calls `_finalBacking` → `checkBacking()`/`tryCheckBacking()` internally, which compares committed
+against liquid. **Calling `take` BEFORE the range is debited makes `checkBacking` run against a different
+balance sheet than it does today**, and a backing check that passes or fails for the wrong reason is worse
+than the divergence it replaces. ▶️ **Price both forms — (a) take-then-debit-`sent`, (b) debit-full-then-
+credit-back-the-shortfall — against what `checkBacking` sees in each.** Rule 9: the regression is always on
+the axis nobody measured, and here that axis has a name.
+📌 **NOT DECISION-GATED** (§COMPOSITION-ORDER): it is a settlement defect, not downstream of D1-D9.
+⚠️ **Money path ⇒ rule 15: it needs a verification run before it lands, and no build has been done.**
 
 ### 🔴 THE DIVERGENCE
 The range's USD side shrinks by **X**; the recipient receives **Y ≤ X**. The difference stays in the
