@@ -50,6 +50,68 @@ the venue, so there is nothing it must bring that it has not already deposited.
 
 ---
 
+## 🔴🔴🔴 0a-bis. **THE ADVERSE-SELECTION MEASUREMENT — THE CHARGE IS ~10× TOO SMALL, AND IT REFUTES TWO CLAIMS IN THIS DOCUMENT** (2026-09-11)
+
+Owner: *"measure the adverse selection."* **Run, on live mainnet data, not reasoned.**
+
+**METHOD.** Our settlement price is `AUX.getTWAPforAsset(ASSET, TWAP_WINDOW_SECS)` with
+**`TWAP_WINDOW_SECS = 1800`** (`Interfaces.sol:76`) — a **30-minute TWAP** — and the ring is fed from the
+Chainlink anchor (`_observeIfSourced`), so the ring's cadence *is* Chainlink's. Pulled **150 consecutive
+Chainlink ETH/USD rounds** (`0x5f4eC3Df…`, 8-dec) = **103.1 hours**, \$2,490.29 → \$2,544.80, and
+reconstructed the 1800s TWAP at each observation to compare against spot.
+
+| | median | mean | p90 | max |
+|---|---:|---:|---:|---:|
+| **gap between feed updates** | **55.0 min** | — | — | 61.0 min |
+| **\|move\| between consecutive updates** (ppm) | **5,058** | 4,145 | 6,326 | 15,976 |
+| 🔴 **\|spot − our 1800s TWAP\|** (ppm) | **4,209** | 5,611 | 10,452 | **43,402** |
+
+### ⛔ AGAINST THE 420 ppm CHARGE
+| | |
+|---|---|
+| deviations **exceeding** the charge | **135 of 149 — 90% of the time** |
+| **median deviation ÷ charge** | 🔴 **10.0×** |
+| worst observed | **103×** |
+
+⇒ **THE FLOOR IS NOT CLEARED. IT IS MISSED BY AN ORDER OF MAGNITUDE**, and §5's own validity condition —
+*"the charge must exceed adverse selection over the settlement window"* — is **false as the system is
+configured today.** The update gap's median of 55 minutes says why: the **1-hour heartbeat dominates and
+the 0.5% deviation trigger rarely fires**, so the feed is routinely ~0.5% stale before it moves at all,
+and a 30-minute TWAP of a 55-minute-stale feed is staler still.
+
+### 🔴 THIS REFUTES TWO CLAIMS THIS DOCUMENT MAKES — **the self-contradictions the owner asked for**
+| § | the claim | why the measurement refutes it |
+|---|---|---|
+| **§2** | *"**No LVR** — ✅ **STRUCTURAL.** LVR is arbitrageurs exercising a free option against a stale published price. **We publish none.**"* | 🔴 **We publish one.** Settling at a 1800s TWAP of a public feed means **the counterparty can compute our settlement price exactly**, ahead of time, and compare it to the market. That is the free option, and it is worth a **median 4,209 ppm**. Not publishing a *quote* is not the same as not publishing a *price* |
+| **§4** | *"Where our IL comes from — **and it is not adverse selection** … we sold at an **honest price** and the price moved after. **No arb picked us off.**"* | 🔴 The price was **0.42% stale at the median** when we sold. *"The price moved after"* describes the 10% of fills where the deviation was below the charge. For the other 90%, **the move had already happened and we had not seen it** |
+
+⭐ **AND THE ONE THING THAT IS GENUINELY STRUCTURAL MAKES IT WORSE, NOT BETTER.** §2's *"no slippage —
+one price for the whole size"* is true and is the product. **Against a stale price it is also an
+unbounded-size free option**: a CFMM's curve at least prices an arb out of the trade as size grows;
+ours does not. **Our defence is inventory alone.**
+
+### ▶️ WHAT THIS DOES AND DOES NOT ESTABLISH — stated so nobody over-reads it
+✅ **Established:** the settlement price is stale by ~10× the charge, ~90% of the time, on 103h of real
+ETH data at the real window.
+⛔ **NOT established:** that this loss is *realised*. A deviation is an **opportunity**, not a fill —
+someone has to take it, and our inventory bounds the size. **The measurement is the upper bound of what
+the charge must cover, not a P&L.**
+⚠️ **But the asymmetry is the point, and it is not a modelling choice:** the deviation is symmetric,
+**the counterparty's choice of side is not.** Informed flow takes the profitable side every time;
+uninformed flow is a coin flip. ⇒ **we eat the tail and split the middle**, which is exactly why a
+charge must exceed the deviation rather than average it.
+
+### ⏸️ REMEDIES — NAMED, NOT CHOSEN, because each needs its own measurement
+1. **Shorten the window.** 1800s of a 55-minute-updating feed is mostly *lag on lag*. A shorter window
+   cannot beat the feed's own cadence, so this is bounded by the anchor, not by us.
+2. **Raise the charge** toward the measured deviation. ⛔ But 420 ppm was chosen to be **ungameable**, and
+   ~4,200 ppm is a *different product* — 0.42% a side is not a competitive swap venue.
+3. **A deviation guard** — refuse to fill when spot and the anchor disagree by more than X. This is
+   Part III decision 1, and it is the only remedy that does not trade the charge against the window.
+4. **A faster anchor.** The binding constraint is Chainlink's 1-hour heartbeat, not our TWAP.
+🔴 **THIS OUTRANKS BUILDING THE HEDGE.** The hedge addresses inventory drift; **this is mispricing at the
+moment of fill, and no hedge repairs it.** ⇒ it is the top open item in the file.
+
 ## 0b. THE ASSUMPTIONS, EACH GRADED BY HOW WE KNOW IT
 | # | assumption | grade |
 |---|---|---|
