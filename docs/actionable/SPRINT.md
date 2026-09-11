@@ -349,6 +349,7 @@ Each was carried as open, some in red, some for weeks.
 **29. `§BTC-4.5` — ML-KEM on RA-TLS.** The strongest quantum item, and **PHASE 4 was scheduled by no
    gate at all.** ⭐ `§NO-POST-QUANTUM-ANYWHERE` ranked taproot first and **retracted itself**: the
    exposure is the **transport** (HNDL on the migration path), not the channels.
+**30. 🟠 RAIL A — LIGHTNING SWAP-OUT, re-implemented under M11 (owner, 2026-09-11: *"so it's getting added back later?"* — yes).** The off-chain LN swap-out (pool pays a swapper's BOLT11) was **deleted** (`34f6e30`, pre-snapshot; `BTCChannels` has only `requestSwapOutOnchain`, `daemon.rs:12` *"removed (re-added in a later milestone)"*). Why: every swap-out now settles against an SPV-verified splice-out that proves the sats AND whose channel they left; an HTLC resolving inside a channel proves neither, so the hop would attest both — the hop-as-payee-and-attester hole the swap-IN side spent §E158/§E166/T1 removing. **It comes back ONLY with hop attribution under SGX** (the enclave attests which channel's sats paid the invoice, bounded by that channel's locked sats — the §E158 economic-bound shape). Two conditions travel with it: (1) `quid-ln/src/route.rs:49` `MAX_TOTAL_ROUTING_FEE_MSAT = None` — a hop paying swapper invoices with no routing-fee ceiling exposes the pool; set it before the first hop LN-pay. (2) T3 was closed on *"every LP-balance change is a splice"* and said in terms *"re-run it when rail A arrives"* — off-chain delivery moves an LP balance without a splice. Sequenced LAST, with M11. Not to be confused with LN swap-IN (live) or rail B (on-chain swap-out, live behind the `MAIN_HOP` single-writer gate).
 
 ## 3b · VERIFIED AGAINST CODE — 2026-09-11. **Every surviving item was opened, not trusted.**
 
@@ -496,8 +497,9 @@ the swapper is paid **twice on Bitcoin**; only the first `deliverSwapOutOnchain`
 channel is permanently unretirable holding phantom backing.
 **Its unreachability rested on two clauses. One is deleted; the other never covered this shape.**
 - **(a) DELETED:** *"`onchain_rail_enabled` requires `vault.is_some()`, default
-  `QUID_FLEET_COHOSTS_VAULT=false`"* — rail B never ran. **`daemon.rs` is now
-  `let onchain_enabled = vault.is_some();` and the vault is always `Some`.**
+  `QUID_FLEET_COHOSTS_VAULT=false`"* — rail B never ran. **The vault is always `Some` now, and
+  `daemon.rs` gates rail B on IDENTITY instead (`4d5d210a`): `is_main_hop()` compares `MAIN_HOP()`
+  to the daemon's own signer; only MAIN runs the watcher and mounts `/swap-in/onchain`.**
 - **(b) SURVIVES BUT IS A NON-ANSWER:** *"the fallback holds no LP key for any channel main funded."*
   That blocks *"fallback splices MAIN's channel"*. **The finding says "via DIFFERENT channels."**
   `select_delivery_channels` enumerates the **local** `chain_monitor.list_monitors()`, so a second
@@ -638,11 +640,11 @@ and closes as soon as the mirror lands. A lying node cannot walk through it: to 
 must show this pair or the immediately-preceding one the signer already checked, and the signer holds
 the predecessor in `taproot_ctx` (`prev.splice_parent_funding_txid`, already read at `:711`).
 
-▶️ **WHAT THE LP DAEMON NEEDS, AND IT IS SMALL:** `ChannelTruthFactory::new(rpc, btc_channels, cids)`
-needs an EVM endpoint, and `quid-lp-daemon` configures **none** today (network, data dir, hop
-addr/port, esplora, confs, poll). ⭐ **IT IS READ-ONLY — no key, no gas, no transaction — so it does
-NOT weaken *"the LP signs nothing on the EVM"*.** The LP gains the ability to REFUSE, which is the
-whole point of §T9.
+▶️ **WHAT THE LP SIGNER NEEDS, AND IT IS SMALL:** `ChannelTruthFactory::new(rpc, btc_channels, cids)`
+needs an EVM endpoint. ⚠️ Since `8faddbb1` the LP signer IS the fleet vault, in the same process as
+the hop — so this check is the enclave verifying the chain against itself, and its value is bounded by
+that. ⭐ **IT IS READ-ONLY — no key, no gas, no transaction.** The signer gains the ability to REFUSE,
+which is the whole point of §T9.
 
 📌 **AND THE DELIVERY-SPLICE OUTPUT QUESTION, ANSWERED SO IT IS NOT GUESSED:** a delivery splice
 legitimately pays an **arbitrary swapper script**, so *"every non-funding output must be the LP's
@@ -650,236 +652,6 @@ pinned script"* is WRONG and would break Rail B. The bound must come from the sa
 a splice paying script `S` for `V` sats is legitimate iff `BTCChannels` records a swap-out obligation
 for `S`/`V`. **That is the extension §T9 adds beyond wiring — and it is the reason the truth source,
 not a local heuristic, is the right home.**
-
-## 🟡 §ACCEPTOR-CONTRIBUTION-FEES — **WHO PAYS THE SPLICE FEE WHEN THE INITIATOR CONTRIBUTES NOTHING? MEASURED BLOCKER, 2026-09-01.**
-
-The acceptor-contribution patch (`aa2f84a7`) landed and the functional test found the next real
-obstacle — which is what the test was for. Two guards down, one design question left.
-
-✅ **GUARD 1, FIXED:** `splice_channel` refused a zero INITIATOR contribution outright. That guard
-predates acceptor contribution, when a zero-zero splice really was a pointless outpoint rotation.
-Relaxed, with the both-zero case refused in `splice_init` instead — **the first place it is knowable**,
-since the initiator cannot see the acceptor's contribution. ⚠️ NOT a flag parameter: a flag there would
-be the caller ASSERTING something it cannot check. Same correction shape as the EVM's
-`SpliceUnchanged`, widened from *"the size did not change"* to *"NOTHING changed"*.
-
-🔴 **GUARD 2, THE OPEN ONE:** *"cannot be spliced out; Total input amount 0 is lower than needed for
-contribution 0, considering fees of 152. Need more inputs."*
-`channel.rs` states the rule: *"Fees for splice-out are paid from the channel balance whereas fees for
-splice-in are paid by the funding inputs … in the case of splice-out, we add the fees on top of the
-user-specified contribution."* ⇒ **LDK charges the funding-transaction fee to the INITIATOR**, so a hop
-that contributes nothing still owes ~152 sats — **and in production the hop's balance in an LP's
-channel is typically ZERO**, because the LP funded it.
-
-▶️ **THE DESIGN QUESTION, AND IT IS NOT MECHANICAL:** in a hop-initiated delivery the sats leaving are
-the LP's, so **the LP is the natural fee payer** — it is their withdrawal. But LDK's fee attribution
-follows INITIATION, not contribution, and this patch is precisely what separates those two for the
-first time. Options, none free:
-1. **Charge fees to the contributing side rather than the initiating side.** Correct in principle and
-   the deepest change — it touches fee logic every splice path shares.
-2. **A `SpliceContribution::None` variant** whose fees fall to the acceptor. Narrower, but it still
-   needs the fee split to follow it.
-3. **The hop pays from its own channel balance.** No LDK change beyond what has landed — ⚠️ **but it
-   requires the hop to HOLD a balance in every LP channel it delivers from, which is a funding
-   requirement nobody has costed**, and a hop with zero balance simply cannot deliver.
-⚠️ **DO NOT PICK ONE BY WHICH IS EASIEST TO CODE.** Option 3 is the smallest diff and quietly imposes a
-capital requirement on the fleet; option 1 is the largest and is the only one that leaves the fee where
-the value moves.
-
-📌 **STATUS:** patch landed, both guards understood, **the functional test is RED on guard 2 and
-staying red** — per standing rule 4, adjusting it to dodge the fee would mask the question. The test is
-the record of exactly where this stops.
-
-## 🔴 §ACCEPTOR-SPLICE-TEST-IS-RED — **THE CAPABILITY LANDED, ITS OWN TEST DOES NOT PASS, AND NOTHING OUTSIDE LDK CALLS IT (2026-09-08)**
-
-**Two separate facts, booked together because either one alone reads as "§ACCEPTOR-CONTRIBUTION is done" and neither supports that.**
-
-🔴 **1. `test_acceptor_contributed_splice_out` IS RED IN OUR OWN FORK, AND IT IS PRE-EXISTING.** The test is
-`quid-ln/lib/rust-lightning/lightning/src/ln/splicing_tests.rs:898`, and its doc comment states exactly the shape §ACCEPTOR-CONTRIBUTION scoped:
-*"node 0 (the hop) initiates contributing NOTHING, node 1 (the LP) contributes the splice-out, and the resulting transaction pays the
-destination."* ⭐ **IT FAILS ON `73233fd` — BEFORE today's lexe merge — so the merge did NOT cause it** (reported by lane L2, which ran it;
-this lane runs no builds and did not re-run it). 🔑 **THAT ATTRIBUTION IS THE VALUABLE HALF: without it, the next session spends its
-time bisecting a merge that is innocent.** ⇒ **The failure is in the capability itself, not in the catch-up.**
-⛔ **SO STEP 2 OF §ACCEPTOR-CONTRIBUTION'S SCOPED PATCH IS *WRITTEN*, NOT *WORKING*.** That section's table marks
-`ChannelManager::internal_splice_init` as *"the ONLY blocker"*; the hardcoded `0i64` is gone and the plumbing is in — but the one test that
-proves the inverted shape completes end-to-end does not pass. **Do not mark §ACCEPTOR-CONTRIBUTION done, and do not build
-§DELIVERY-MUST-BE-LP-INITIATED's replacement rail on top of it, until this is green.**
-
-🔴 **2. `register_acceptor_splice_contribution` HAS ZERO CALLERS OUTSIDE `lib/rust-lightning`.** Verified by grep over every `.rs` in
-the tree, 2026-09-08. The API pair exists — `channelmanager.rs:4758` (`register_…`) and `:4766` (`clear_…`, tagged `QU!D PATCH`) — and its
-**only** caller anywhere is the red test itself, `splicing_tests.rs:917`. **`quid-bridge`, `quid-hop` and `quid-ln` do not call it.**
-⇒ **The capability exists and nothing uses it.** 🔑 **This is `§E294`'s exact shape one crate over** — a mechanism built, correct-looking,
-and unwired — and §E294 took three passes to close because the row kept arguing about wording instead of about wiring. **Book the wiring as the
-task: hop-side delivery must call `register_acceptor_splice_contribution` before it initiates, or the whole patch is dead code.**
-⚠️ **AND THE REGISTRATION'S OWN SAFETY NOTE IS PART OF THE WIRING, NOT AN AFTERTHOUGHT:** §ACCEPTOR-CONTRIBUTION step 1 requires it be
-*"consumed exactly once and scoped to ONE channel"*, which is why `clear_acceptor_splice_contribution` exists. **A wiring that registers and
-never clears attaches the swapper's output to an unrelated splice** — the precise failure that section flagged in advance.
-▶️ **ORDER: (a) make the test green — it is the only executable statement of the intended shape; (b) then wire the hop.** Doing (b) first
-wires a path no test covers.
-📌 **§SEQ-AUDIT: GATE 5 · lane L2. BLOCKED FOR THIS LANE 2026-09-09 — BOTH HALVES LIVE OUTSIDE IT.** `test_acceptor_contributed_splice_out` and `register_acceptor_splice_contribution` are both inside **`quid-ln/lib/rust-lightning`**, which is now the external repo `quidmints/rust-lightning` and is off-limits to the `quid-ln` lane — so neither the red test nor the capability can be touched from here. ▶️ **THE RUN THAT SETTLES THE RED HALF:** `cargo test -p lightning --lib splicing_tests::test_acceptor_contributed_splice_out` in that fork at the current pin, against the same run at `73233fd`; until it reports, *"pre-existing red"* is a claim carried forward, not a measurement of today's tree. ⭐ **THE ZERO-CALLERS HALF IS NOT A TEST QUESTION AND IS ANSWERED HERE:** the capability's only intended consumer is the delivery rework, which is `§MASTER-ORDER` 4b and unbuilt ⇒ **zero external callers is the EXPECTED state at this point in the order, not a defect** — and it must not be read as *"§ACCEPTOR-CONTRIBUTION is done"*, which is the mistake this section exists to prevent.**
-
-> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): needs an LP that can initiate a splice, i.e. a node. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
-
-## 🔴 §DELIVERY-MUST-BE-LP-INITIATED — **STEP 1 OF THE REWORK IS IMPOSSIBLE IN THIS LDK. THE FORK IS THE OWNER'S.**
-
-Measured 2026-09-01, and it retires the plan in `§COHOST-FLAG-IS-NOT-THE-WORK` step 1
-(*"`drive_swap_out_onchain` initiates the splice from the HOP's `channel_manager`"*). **It cannot.**
-
-🔑 **TWO FACTS FROM LDK, BOTH IN ITS OWN WORDS:**
-1. `SpliceContribution::SpliceOut { outputs }` — *"The total value of all outputs plus fees will be
-   the amount that is removed"* — is removed from **THE INITIATOR'S OWN BALANCE**.
-2. `channelmanager.rs:11868`, in `internal_splice_init`:
-   ```rust
-   // TODO(splicing): Currently not possible to contribute on the splicing-acceptor side
-   let our_funding_contribution = 0i64;
-   ```
-⇒ **Only the initiator may contribute, and a splice-out debits the initiator.** The sats a delivery
-removes are the **LP's** (the LP funded the channel; the hop holds ~0 balance in it), so **only the LP
-side can initiate a delivery splice-out.** The hop cannot, and the acceptor cannot contribute at all.
-
-⇒ **THIS IS WHY `QUID_FLEET_COHOSTS_VAULT` EXISTS.** Rail B structurally requires an LP-side node that
-can INITIATE. The flag is not a shortcut somebody took; it is the only way the current delivery design
-works at all. **My earlier booking was right that the flag is not the work and WRONG about what the
-work is.**
-
-🔴 **THE FORK, AND IT IS A DESIGN DECISION, NOT AN IMPLEMENTATION ONE:**
-| option | what it costs |
-|---|---|
-| **A. Delivery only when the LP's phone is ONLINE and initiates** | matches the shipped model (§E182-JUSTIFICATION-UPDATED: *"sign more, earn more; sign less, get routed less"*) and the candidate filter already skips offline LPs. **Cost: swap-out delivery capacity becomes a function of LP liveness**, and the phone must run splice initiation, not just signing |
-| **B. Patch LDK to allow acceptor-side contribution** | upstream has it as a TODO. Makes hop-initiated delivery possible with the LP merely co-signing — which fits an often-offline LP far better. **Cost: a real vendored-LDK protocol patch**, and the LP still must be online to co-sign |
-| **C. Delivery stops being a splice** | e.g. pay the swapper from fleet-owned inventory and reconcile against the LP later. **Cost: reintroduces fleet exposure — `§FLEET-FRONTS-THE-WINDOW` deleted exactly that** |
-⚠️ **NOTE WHAT IS COMMON TO ALL THREE: THE LP MUST BE ONLINE FOR A DELIVERY EITHER WAY** (initiate in
-A, co-sign in B). **No option delivers from an offline LP's channel**, because moving its sats needs
-its key. ⇒ *"Deliver while the LP is offline"* is not an option that exists; the only question is
-whether the online LP **initiates** or merely **signs**.
-
-📌 **AND THE HONEST STATUS OF `QUID_FLEET_COHOSTS_VAULT` UNTIL THIS IS DECIDED:** it cannot be
-deleted. Deleting it removes Rail B with no replacement. **Leave it default-OFF and documented**, and
-treat `§E162`'s residual as *scoped to a non-default mode* — which is exactly what the threat model
-below already says.
-
-> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): its subject `QUID_FLEET_COHOSTS_VAULT` is deleted. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
-
-## 🔴 §COHOST-FLAG-IS-NOT-THE-WORK — **DELETING `QUID_FLEET_COHOSTS_VAULT` TURNS OFF RAIL B. FINISHING THE SECOND HALF MEANS MOVING DELIVERY TO THE LP'S NODE.**
-
-Owner, 2026-09-01: *"finish the second funding half, no awkward variables like
-`QUID_FLEET_COHOSTS_VAULT`… just hardwire everything to work right."* **Agreed as the destination —
-and the flag is the SYMPTOM, not the work.** Measured before touching it:
-
-🔑 **THE COUPLING, IN THE CODE'S OWN WORDS** (`daemon.rs`, above `onchain_rail_enabled`):
-*"🔴 VAULT-LESS FORCES THIS OFF, AND THE COUPLING IS THE WHOLE REASON. The watcher splices deliveries
-out of the VAULT's channels, so without a vault it cannot service anything."* And the rail's registry
-is gated with it deliberately — *"if only the watcher were gated, the `/swap-in/onchain` endpoint
-would keep ACCEPTING deposit registrations that nothing would ever service — a silent black hole for
-real BTC."*
-⇒ **Delete the flag today and Rail B (on-chain swap-out delivery) plus `/swap-in/onchain` are OFF
-PERMANENTLY.** That is not hardwiring it to work right; it is hardwiring it off.
-
-🔎 **WHY THE DEPENDENCY EXISTS:** delivery is a swapper-directed SPLICE-OUT, and today the fleet
-drives it as the splice INITIATOR from the vault's own `channel_manager`
-(`vault.rs` → `initiate_splice_out_to`). It can only do that because it holds both halves. With the LP
-holding its half, a splice becomes what it always was in the protocol — a TWO-PARTY negotiation — so
-the fleet must initiate from the HOP's `channel_manager` toward the LP peer and let the LP's node
-co-sign. `drive_swap_out_onchain` takes a NON-optional `Arc<VaultNode>`, which is the co-hosted
-assumption baked into a type.
-
-✅ **AND THE HARD PART IS ALREADY DESIGNED AND PARTLY BUILT — an offline LP cannot co-sign, and that
-is FINE:** delivery candidate selection already *"collect[s] every ONLINE LP's open channel with
-enough funded sats … Offline LPs are skipped so they can't block delivery"*
-(`swap_out_onchain.rs`). That is §E182-JUSTIFICATION-UPDATED's liveness-gated routing —
-*"sign more, earn more; sign less, get routed less, and nothing breaks"* — already implemented on the
-selection side. **The gap is the EXECUTION side still assuming a local vault.**
-
-▶️ **THE WORK, IN ORDER (this is what "finish the second funding half" means):**
-1. `drive_swap_out_onchain` initiates the splice from the **hop's** `channel_manager` toward the LP
-   peer, instead of from a local `VaultNode`. Its `Arc<VaultNode>` parameter is what has to go.
-2. `onchain_rail_enabled` stops depending on `has_vault` — the rail's precondition becomes *an online
-   LP counterparty*, which the candidate filter already computes.
-3. **THEN** `QUID_FLEET_COHOSTS_VAULT`, its branch, and `derive_vault_seed` delete — and the property
-   stops being *"the fleet is configured not to hold the LP half"* and becomes **"the fleet has no
-   code path that derives it."** `derive_vault_seed` is the whole mechanism (its only caller is that
-   branch), and its own docblock already says the real fix is *"a topology … which is precisely why
-   it cannot be reached by editing this function."*
-⚠️ **DO NOT DELETE THE FLAG BEFORE STEP 1.** It would trade a configurable hole for a dead rail, and
-the `/swap-in/onchain` gate means the failure would be silent acceptance of deposits nothing services
-— which is the exact black hole its comment exists to prevent.
-
-📌 **THIS IS ALSO WHY `§E162`'s RESIDUAL IS STILL CONDITIONAL.** Until step 3, the co-hosted
-deployment remains constructible, so the threat model below must keep saying *"scoped to a
-non-default mode"* rather than *"does not exist"*. **Step 3 is what collapses it.**
-
-### 🛡️ ENCLAVE THREAT MODEL — THE THREE SCENARIOS, ANSWERED AGAINST CODE (2026-09-01)
-
-Owner asked for every scenario covered. **The headline: `§E162-rekey-CORRECTED`'s verdict —
-*"FOR VAULT CHANNELS, COMPROMISE OF THE RUNNING IMAGE IS UNMITIGATED"* — IS NO LONGER THE DEFAULT
-POSTURE'S ANSWER.** It was premised on *"it holds BOTH halves for vault channels"*, and `B0`
-(`99fda5e9`) put the fleet's whole vault boot behind `QUID_FLEET_COHOSTS_VAULT`, **DEFAULT FALSE**
-(`validating_signer.rs:27`: *"default OFF, so the LP funding half lives on the LP's own host"*).
-⚠️ **The verdict is not WRONG — it is now SCOPED to a non-default mode.** Do not quote it as the
-current answer, and do not delete it either: `QUID_FLEET_COHOSTS_VAULT=true` still exists and still
-carries exactly that residual, which is why it logs and warns.
-
-| scenario | what the attacker gets | can it take LP funds? |
-|---|---|---|
-| **(A) Legitimate image upgrade** | k-of-n `MigrationAuth` hands the sealed seed to the new image; the channel's hop half moves | **No.** On the EVM this is now a constant-size `splice` (the `rekey` fold), tested 2026-08-31 |
-| **(B) msig hacked ⇒ MALICIOUS image whitelisted** | the attacker signs a `MigrationAuth`; the old enclave verifies k-of-n and hands over the seed ⇒ the bad image holds **the HOP half** | **No, in the default posture** — it cannot spend a 2-of-2 alone. It can DoS. 🔴 **BUT SEE THE HOLE BELOW** |
-| **(C) Running enclave hacked** | the HOP half only | **No, in the default posture.** The LP's escape is the pre-signed ladder, which needs no LP participation (§E188) |
-
-🔴 **THE HOLE, AND THE REMAINDER LIST UNDERSTATES IT.** `migration.rs` verifies k-of-n EIP-712
-`MigrationAuth` signatures **against an owner list and threshold it is GIVEN** — its own words:
-*"Nothing calls a Safe contract; nothing reads Safe storage."* ⇒ **The owner set is LOCAL CONFIG.**
-So scenario (B) does not actually require compromising the msig: **an attacker with host-level write
-access can edit the owner list and authorise their own image**, and k-of-n is then satisfied by keys
-they chose. **That is `M1` — and it is not a tidiness item, it is the trust root of the entire
-upgrade path.** It also means the msig cannot ROTATE or REVOKE an owner in a way the enclave will
-honour, because the enclave never reads the chain to find out.
-⇒ **Re-ranked: `M1` is the highest-value remaining Bitcoin item after `§T9`.**
-
-📌 **WHAT THIS DOES NOT COVER, STATED SO IT IS NOT MISTAKEN FOR COMPLETE:** (i) the
-`QUID_FLEET_COHOSTS_VAULT=true` deployment, where (B) and (C) both become fund loss and the residual
-is what §E162 says it is; (ii) an LP whose OWN host is compromised — the ladder pays
-`btcRecipientOf`, so funds still land at the LP's pinned payout key, but service is the LP's problem;
-(iii) sealing itself — a DIFFERENT measurement cannot unseal, which is what makes (B) bounded, and
-that guarantee is the platform's, not ours.
-
-### 🎯 THE DEFINITIVE BITCOIN REMAINDER (measured 2026-08-31, in dependency order)
-
-| # | item | why it is not done |
-|---|---|---|
-| 1 | **§T9 LP-side signer destination refusal** | the wrapper exists, the REFUSAL does not (`validating_signer.rs:1662` never reads `tx.output`). **Newly load-bearing** — see phase 2 above |
-| 2 | **§FORCE-CLOSE end-to-end test** | derivation is proven; the emit path is not |
-| 3 | **Ladder depth as a deploy parameter** | floor of 2 exists (`LadderTooShallow`); the *generous, deploy-set* depth does not |
-| ~~4~~ | ✅ **§F5 — CLOSED 2026-09-01. ALL THREE PARTS MEASURED GREEN; NOTHING REMAINS.** | **Measured, not inferred, and at a PINNED block** (`FORK_BLOCK=25882682`, publicnode — an unpinned drpc run first returned `setUp` failures with *"Request timeout on the free plan"*, which is an ENDPOINT failure wearing a test's name and says nothing about the code). ① the zero-delivery cluster: `RecipientPin.t.sol` **4 passed / 0 failed** — the ETH+WETH diagnosis was right and its fix works. ② `test_forwardHorizon_thinBuffer_clampsToFloor` **PASS**. ③ `testLeverage_LvrControlVsTreatment` **PASS** — and **fixed, not drifted**: `a3305bdd` *"There is no LVR cross-subsidy: the assertion compared different redemption scopes"* is exactly the prescribed fix, the comparison rather than the protocol. ⚠️ **Checked precisely because that test was deliberately left RED and its own note warned its numbers drift between runs** — a green on a drifting test is not evidence until you can name the commit that fixed it |
-| 5 | 🔴 **`M1`** — `migration.rs` must read the owner set ON-CHAIN | **THE TRUST ROOT OF THE UPGRADE PATH, not an errand.** It verifies k-of-n against a LOCAL owner list (*"nothing reads Safe storage"*), so host-level write access authorises a malicious image WITHOUT compromising the msig, and the msig cannot revoke an owner the enclave will honour. **Rank second, after §T9** — see the threat model above  📌 **§SEQ-AUDIT: GATE 2 · lane L7. CODE CONTRADICTS THE ASK: migration.rs:33-42 records the live on-chain owner read as WITHDRAWN, NOT DEFERRED - owner ruling**
-| 6 | **`B1`** — freshness backstop has no economic bound | |
-| 7 | **TDX + Nitro seal wiring** | |
-| 8 | **Phase 3 freshness** | ⛔ **I RE-ASKED A SETTLED QUESTION HERE AND IT WAS WRONG.** This cell read *"is the Bitcoin freshness UTXO wanted at all?"* — **`bf5aa5ff` RETRACTED that deletion** (`c4875fcf` had recommended it). The retraction stands: deleting gives up DoS resistance, because `DeadManExitEmitted` publishes `signedExitTx` by design (§E188 keyless recovery), so **any stranger can rebroadcast a matured, superseded exit and force-close an IDLE channel** — precisely the long-offline LP the model centres on. 🔑 **THE REAL QUESTION IS "WHO MAY INVALIDATE, AND HOW DEEP"**, a three-way tension with no free side: hop-controlled freshness lets a compromised hop void every escape; NO freshness lets strangers force-close idle channels; 2-of-2 is refuted because the LP is offline. **The lever is LADDER DEPTH AND SPACING** (item 3), which is the owner trade. 🔴 **AND THE EXPOSURE IS LIVE, NOT FUTURE:** `run_deadman_exit_heartbeat` early-returns on `vault == None`, the shipped default, so production has NO freshness UTXO today  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): Question retracted (bf5aa5ff); the build item is row 1421** |
-| 9 | **§BTC-LEG-FEE** | ⏸️ OWNER DECISION: is the token-side fee leg wanted at all?  📌 **§SEQ-AUDIT: GATE 2 · lane L7. Owner decision: is the token-side fee leg wanted at all** |
-⇒ **Everything else in phases 0–4 is either landed or dissolved.** Phase 1 (the keystone) is DONE:
-fleet vault-less, `quid-lp-daemon` builds, LP seed decided and derived. 🔴 **THE LP IS A REACT-NATIVE WALLET, USUALLY OFFLINE. IT DOES NOT RUN A DAEMON.** (owner,
-2026-09-01: *"The LP is not running a daemon. they have a react native wallet that will likely often
-be offline."*) ⛔ **THIS CELL PREVIOUSLY SAID "TWO LP CUSTODY TOPOLOGIES EXIST" AND THAT WAS WRONG** —
-it read `quid-lp-daemon.rs` existing as evidence that it is a deployment. **Phase 1c superseded it as
-the answer to WHERE THE LP'S KEY LIVES:** `deriveFundingKey`, `app/features/identity`, BIP-86
-`m/86'/0'/0'/0/0`, from the LP's own mnemonic (`6c7afe9a`). `quid-lp-daemon` (phase 1b, `aea5c9b2`) is
-a deployment OPTION for an LP that chooses to self-host; **it is not the LP.**
-⇒ **TWO CONSEQUENCES THAT BIND EVERY DESIGN DECISION DOWNSTREAM, so read them before proposing one:**
-1. **AN OFFLINE LP CANNOT CO-SIGN ON DEMAND.** Anything needing LP liveness must be liveness-GATED
-   (routed only to online LPs); everything else must be **PRE-SIGNED** — which is what the
-   `ExitArming` ladder is for (§E188: *funds = no key*).
-2. **ANY LP-SIDE RUNTIME CHECK BELONGS IN THE APP**, not in a daemon. The protocol half is booked
-   here; the client half belongs in `docs/actionable/TODO.md` §3b, which ibiza owns.
-
-✅ **THE KNOWN-FALSE COMMENT IS ALREADY ANNOTATED — checked 2026-08-31, this row is STALE.** The
-§E172 refutation sits directly under the claim (`BTCChannels.sol:357-374`), naming
-`rebalancer.rs:32-35`, stating *"every swap-in is a commitment update needing the LP-side funding
-signature"*, and separating what is NOT affected (the splice behaviour) from what is. **Nothing to do.**
-~~AND ONE COMMENT IN THE CONTRACT IS KNOWN-FALSE AND STILL THERE.~~ `BTCChannels.sol:303-314`
-says the LP *"signs once, goes offline forever"* and *"buys EVERY exit it will ever need"*. `§E172`
-refuted that — a forwarding channel needs the LP signature on **every commitment update**, not just
-splices — and the row notes *"it is the single most load-bearing comment in the ladder design, and
-anyone reading it today is told a model §E172 already killed."* **Annotating it is free and should
-happen regardless of what else is decided.**
 
 ## 🔴 **§CREDIT-AT-ORACLE-IS-WORSE-THAN-THE-LEAK — RETRACTED. IT WOULD TRADE A 1% CEILING FOR A 5% ONE** (owner, 2026-08-31: *"the contract credits the position at oracle value, not at what the route returned??? why like this"*)
 
@@ -2057,8 +1829,11 @@ are all untrusted, and whether a **jury drawn from the basket** would be needed 
   3. **§IL-ACCOUNTING-SIX's enclave analysis**, reached separately and from the threat-model side:
      *"**A HACKED ENCLAVE CANNOT TAKE LP FUNDS. It never holds a key that moves them.**"* — a
      cooperative close needs the LP half by construction; a force close settles
-     `delivered=0`/`lpPayout=funded`, *"minting nothing"*; and `QUID_FLEET_COHOSTS_VAULT` defaults OFF
-     so no LP vault node is fleet-booted at all.
+     `delivered=0`/`lpPayout=funded`, *"minting nothing"*. ⛔ **THE CUSTODY HALF OF THAT CLAIM IS
+     FALSE SINCE `8faddbb1` (§NO-SELF-PROVISIONED-LPS):** the fleet vault boots unconditionally and
+     holds every LP half (`derive_vault_seed`, an HKDF sibling of the hop seed), so a compromised
+     enclave CAN spend every funding output; the enclave is the whole of the protection, by
+     accepted design. What survives is the CONTRACT-side claim: nothing on the EVM mints against it.
 ⇒ **Three derivations, three starting points, one answer.** ⚠️ **And NONE of them covers the POOL
 half** — see §POOL-SATS-STRANDING-IS-UNTESTED. The asymmetry in confidence is real and should be
 stated whenever this is quoted.
@@ -2128,8 +1903,8 @@ aggregator service, which must be EXTRACTED OUT OF THE `ibiza` REPO.**
 ### Why SPV is the repo that gets the host — verified, not assumed
 
 SPV already owns **every long-running process in the system**. `quid-ln/quid-bridge/src/bin/` ships
-six: `quid-bridge-daemon`, `quid-lp-daemon`, `quid-watchtower`, `quid-provision`,
-`quid-migrate-auth`, `quid-recover-exit`. The Solidity keeper is not a new thing to build — it is
+five: `quid-bridge-daemon`, `quid-watchtower`, `quid-provision`, `quid-migrate-auth`,
+`quid-recover-exit`. The Solidity keeper is not a new thing to build — it is
 `lev_keeper.rs` / `lev_keeper_btc.rs`, already *"one more `set.spawn(run_lev_keeper(...))` in the
 quid-bridge `JoinSet`, parallel to swap-in / relayer / reconciler"* (`lev_keeper.rs:4-5`). ibiza owns
 circuits, contracts and a frontend; it has **no daemon and no host**. ⇒ The separation is not a
@@ -2719,8 +2494,8 @@ closed and the old order pointed mostly at those.**
    remedy; fusing them would give one mechanism two jobs and it would do neither cleanly.
 0b. **`#19` — DOWNGRADED.** (a) is already built; (b) reduces to one off-chain question (which LN
    side parked sats land on). Answer that before treating it as a defect.
-1. **`#18` — the LP consent pipeline** (built; note D7: needed for a PHONE LP, removable for a daemon LP). Highest, because it is the one gap that makes
-   the whole LP-half topology inert: custody is built (`quid-lp-daemon`), the MuSig2 primitives are
+1. **`#18` — the LP consent pipeline** (built; the LP is a phone, there is no daemon LP — `8faddbb1`). Highest, because it is the one gap that makes
+   the whole LP-half topology inert: custody is the fleet vault, the MuSig2 primitives are
    built (`deadman_exit_partial`), and **nothing connects them**. It also fails silently.
    🔴🔴 **RE-SCORED 2026-08-18 — see `D2-PHASES`: read with `B0` and `B4` it is not "inert topology"
    but "NO CHANNEL CAN BE OPENED", because `_armLadder` now requires a ladder no production code
@@ -2756,10 +2531,7 @@ twice without testing it. Checked now, it does not hold for either — for DIFFE
 Its only job is to bridge the gap between *the LP signs* and *the fleet opens*. That gap exists
 because `drive_open` is a RECONCILER that retries on ticks, and because the LP is assumed to be
 push-only. **Neither is forced:**
-- **`quid-lp-daemon` is a server.** It holds a p2p link to the hop already (`connect_peer_if_necessary`,
-  re-dialled on drop). A fleet that is ready to open can **ASK** it and open in the same flow —
-  request/response, no stored state, nothing to synchronise.
-- ⇒ **For a daemon LP the registry is removable.** What needs it is **ibiza's phone**: a react-native
+- ⛔ *(a daemon-LP alternative stood here; `quid-lp-daemon` is deleted, `8faddbb1`.)* What needs the registry is **ibiza's phone**: a react-native
   client behind NAT cannot be dialled, so it must PUSH consent and something must hold it until the
   fleet next ticks. **The registry is a concession to the mobile signer, not a protocol requirement**,
   and it should be described that way or deleted with the phone model.
@@ -3089,15 +2861,14 @@ consent) and the row's own acceptance test (**ONE CHANNEL OPENED END-TO-END FROM
 CONSENT**) are still missing, so ① ② remain and the row stays OPEN.
 *(what ④ said before, now historical:)* `LpConsent` derived `(Clone, Debug, PartialEq)`,
 `OpenAuth`/`ExitArming` derived `(Clone, Debug, Default, PartialEq, Eq)`, **no serde anywhere in the
-family**, so nothing could carry one over a wire or to a file — and `bin/quid-lp-daemon.rs`, the box that should PRODUCE consent,
-mentions it only in doc comments. ⇒ **This is three pieces, not one: wire format, producer, intake.**
+family**, so nothing could carry one over a wire or to a file — and no producer existed (the LP
+daemon that was meant to be one is deleted, `8faddbb1`; the producer is ibiza's phone). ⇒ **This is three pieces, not one: wire format, producer, intake.**
 ⛔ **CORRECTION, and it makes the row STRONGER:** an earlier version of this row put the heartbeat in
 this chain (*"the only non-test `ExitArming` constructor, made inert by `99fda5e9`"*). True, but its
 rung goes to **`emitDeadManExit`** (`deadman_exit.rs:212`), a DIFFERENT entrypoint for an EXISTING
-channel; it never fed `drive_open`. ⇒ **①②③ block the open on their own and are INDEPENDENT of the
-vault flag:** `QUID_FLEET_COHOSTS_VAULT` defaults `false` (`bin/quid-bridge-daemon.rs:360`) and
-setting it `true` **does not unblock the open** — it revives the heartbeat, not the consent producer.
-**The escape hatch that looks like a mitigation is not one.** ✅ **Falsifier checked:** no deploy
+channel; it never fed `drive_open`. ⇒ **①②③ block the open on their own** (the vault
+flag this once cited is deleted, `8faddbb1`; the fleet vault always boots, and that revives the
+heartbeat, not the consent producer). **The escape hatch that looks like a mitigation is not one.** ✅ **Falsifier checked:** no deploy
 script and no operator CLI calls `openChannel`; the only non-test encoder is `drive_open`'s
 (`channel_driver.rs:748`). ⇒ The heartbeat point belongs to `§PHASE-3-NOT-BUILT` instead, where it
 is the reason the Bitcoin freshness mechanism has no live writer.
@@ -3697,18 +3468,7 @@ findings below want.**
 | **All 10 keeper selectors** (`rebalance`, `rebalanceMany`, `cascadeDelever`, `protectFromQuid`, `compound`, `syncLev`, `leverBorrow`, `deleverWithdraw`, `repay`, `rebalanceWbtc`) | **Every one is `external nonReentrant` with NO caller gate — permissionless by design (§84).** The hot key confers ZERO privilege; a compromised daemon can do exactly what any address can already do. `minOut` is FLOORED against the TWAP inside the contract (`LevMath.sol:314`, `:323` *"the oracle floor always wins"*), so a caller can only make it STRICTER; `dex` is a path with the router pinned to `ONEINCH_ROUTER`; and `debtDelta(..., _bandFor(lp, e0))` returns 0 inside the no-trade band, so repeated calls cannot grind. **Residual ≤ `SELL_SLIP_BPS` (1%) per GENUINE rebalance via route choice — a permissionless-function property, not a compromise one.** |
 | **`addBlockHeaderBatch`** | **Fully permissionless** (`SPVGateway.sol:133`, no caller gate) and every header is checked against PoW target, epoch retarget, median-past-time and cumulative work. A compromised hop can only submit headers that satisfy Bitcoin consensus. **It is in the signer allowlist because the daemon SENDS it, not because it is gated.** |
 | **`openChannel` claim path** | §LAZY-OPEN converted this from "a hop that declines strands the LP" into "custody is booked as `pendingClaimSats`, and **anyone** may credit it" (`BTCChannels.sol:1018` try/catch, `:588` permissionless `registerChannelClaim`). Refusal is now DELAY, not loss. |
-| **LP channel funding half** | 2-of-2 MuSig2, and `QUID_FLEET_COHOSTS_VAULT` defaults **false**. ⚠️ **BUT SEE THE CRITICAL ROW BELOW — this is safe only while that stays false.** |
-
-### 🔴 CRITICAL — one boolean decides whether the 2-of-2 is real
-
-`QUID_FLEET_COHOSTS_VAULT=true` makes the fleet hold BOTH halves of every channel, and `vault.rs`
-says so outright: *"one custodian, one secret … the 2-of-2 is NOMINAL in this deployment."* Then:
-*"A compromised enclave could spend every channel's funding output, and no contract change reaches
-that — the Bitcoin UTXO does not care what Solidity believes."*
-⇒ **This is the highest-severity item in the audit and it is a DEPLOYMENT SETTING, not code.**
-▶️ **Fix: assert it at boot against the attestation policy** so a co-hosting fleet cannot present
-itself as a split-custody one. Default-false is necessary and not sufficient — rule 3's inverse
-applies exactly: violating this is SILENT.
+| **LP channel funding half** | 2-of-2 MuSig2 — **and the fleet holds BOTH halves, unconditionally** (§NO-SELF-PROVISIONED-LPS, `8faddbb1`): the vault seed is `derive_vault_seed(&root_seed)`, an HKDF sibling of the hop seed, one key wearing two hats. *"A compromised enclave could spend every channel's funding output, and no contract change reaches that."* This is the ACCEPTED DESIGN, not a setting and not a gap to file: the enclave is the whole of the protection, and every exit, ladder and splice policy is a guarantee against a party that has already agreed to be bound. |
 
 ### 🔴 §HOP-RCE-1 — `emitDeadManExit` has NO FRESHNESS BINDING, so LP protections are hop-erasable
 
