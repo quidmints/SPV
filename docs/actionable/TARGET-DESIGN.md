@@ -182,7 +182,12 @@ same fees: a Uniswap LP's 10% is gross MINUS LVR; ours is gross ≈ net.**
   `_deleverFlash`, `flashDeleverWbtcSettle`, `_extractSettle` mode 2. ⚠️ **Venue migration still needs
   a flash** — deferred with the allocator. Removing this also dissolves the ETH/BTC asymmetry where
   `BtcLevManager.init` refuses a zero flash and `LevManager.init` accepts it.
-- **The per-LP position model** 🧠 (the largest cut). ⛔ **AND IT IS A *REPLACE*, NOT A *REMOVE* —
+- ~~**The per-LP position model**~~ 🪦 **CANCELLED 2026-09-10 — see §8.** The owner ruled option (c),
+  and (c) keeps the per-LP model because per-LP units, per-LP actuation and an O(1) exact per-LP
+  target all already exist inside the ONE pooled position. Nothing here is waiting for a replacement.
+  The original reasoning is kept below because its middle step — a *replace*, not a *remove* — was
+  right, and only its conclusion was wrong.
+  🧠 (was: the largest cut). ⛔ **AND IT IS A *REPLACE*, NOT A *REMOVE* —
   the same shape as the flash.** `cascadeDelever` + the no-trade band ARE the liquidation defence
   (*"must keep the AGGREGATE away from the liquidation threshold, because Morpho no longer does it
   for us"*), so deleting the per-LP walk before a POOLED rebalance exists removes the defence rather
@@ -351,92 +356,44 @@ sweep-up.
 
 ---
 
-## §8 — THE POOLED DELTA TARGET, WHICH GATES EVERY REMAINING REMOVAL ✅ algebra, ⏸️ one decision
+## §8 — 🪦 THE POOLED DELTA TARGET — **CANCELLED 2026-09-10. OWNER RULED (c), AND (c) IS ALREADY BUILT.**
 
-Everything still on the §5b list (`Types.Pos.ilBasisPx`/`entryEquity`, `debtDeltaToTarget`,
-`_targetInputs`, `deleverRepayUsd`, `ilTargetBps`, the flash on the delivery side) is a **replace**,
-not a remove, and this is what replaces it. It is also the answer to *"how/when does borrow fire"*.
+Owner: *"c wasnt continue. i dont like buckets"* — i.e. option **(c)**, and a rejection of (a)/(a′),
+which were both grids.
 
-### What the per-LP target actually is (read from code, not reasoned)
-- `LevMath.ilTargetBps(b_i, px, cap) = min(cap, 1 − √(b_i/px))`, and **0 when `px ≤ b_i`** —
-  up-side-only by design, because down-side IL heals and a below-entry short would realise it.
-- `LevMath.entryEquityUsd(entryEquity_i, px) = entryEquity_i · px / 1e18`, and `entryEquity_i` is
-  **fixed at open** (`LevBase.sol:384` — *"the IL base, FIXED at open"*).
-- So each LP's target debt is `target_i · e0_i`, and the pool's correct debt is the **SUM of the
-  individual targets** — *not* an average target applied to aggregate equity. Those differ, and the
-  difference is a cross-subsidy between LPs who entered at different prices.
+⛔ **AND THE RULING EXPOSES THAT §8 INVENTED ITS OWN PROBLEM.** I framed this as *"the pooled delta
+target, which gates every remaining removal"* and then spent two passes on how to compute
+`Σ target_i · e0_i` in sub-linear time — a closed form, then a grid, then a Fenwick tree.
+**Nothing needs that sum.** Measured, three greps:
 
-### ⭐ THE SUM DISTRIBUTES — SO THE POOLED TARGET IS O(1), NOT A WALK
-Unclamped, for one LP:
+| claim | measurement |
+|---|---|
+| Per-LP debt is REAL under one pooled position | `LevVenueBase:110-111` — `p.debt = _unitSlice(debtUnits[lp], totalDebtUnits, pool.debt)`. `debtUnits[lp]`/`collUnits[lp]` are that LP's exact share slice; interest accrues to the pool and reaches every LP through that one conversion. |
+| Per-LP actuation is REAL | `repay(lp, …)` → `_repayCreditingLp` and `withdraw(lp, …)` burn **that LP's own units** (`:345` *"this LP's exact share slice"*). §POOL-VENUE ADDED `repayPool`/`withdrawPool` for pool-wide sweeps; it did not remove the per-LP pair. |
+| The per-LP target is already O(1) and exact | `debtDeltaToTarget(lp)` → `_targetInputs(lp)` reads ONE `Types.Pos` + `debtUsd(lp)`. No walk, no aggregate, always fresh in price. |
+| **Nothing sums targets** | `grep -c 'totalTarget\|sumTarget\|aggregateTarget\|targetDebtTotal' src` = **0**. |
 
-```
-target_i · e0_i = (1 − √(b_i/px)) · entryEquity_i · px / 1e18
-                = [ entryEquity_i·px  −  entryEquity_i·√b_i·√px ] / 1e18
-```
+⇒ **(c) IS NOT "A LAZILY MAINTAINED SUM THAT LAGS" — THERE IS NO SUM.** The pool's debt is an
+OUTCOME: each LP's own delta is computed exactly, when that LP is touched, and applied against that
+LP's units. The venue's `totalDebt()` is whatever those deltas produced. My "the lag is the crash
+window" objection was against a stored aggregate that this design does not have.
 
-`√` does not distribute over a sum, but it does not have to: `√(b_i/px)` factors into `√b_i · (1/√px)`,
-and `√b_i` is a **per-LP constant**. Summing:
+**AND THE CRASH PATH NEVER NEEDED IT EITHER.** `deleverToVault` is pool-level and LTV-driven — it
+reads `totalDeliverableDollars` and `poolLtvBps`, not any target. Safety and targeting are separate
+questions, and only targeting is per-LP.
 
-```
-D*_raw = ( px·S1  −  √px·S2 ) / 1e18
-   S1 = Σ entryEquity_i                 (native units)
-   S2 = Σ entryEquity_i · √b_i
-```
+### 🔴 CONSEQUENCE: §5b's LARGEST REMOVAL IS CANCELLED
+`Types.Pos{ilBasisPx, entryEquity, syncKeyPx}`, `debtDeltaToTarget`/`_targetInputs`/`_bandFor`/
+`deleverRepayUsd`, `_repayCreditingLp`/`repayFor`, `closeLev`, `ilTargetBps`, and
+`debtUnits`/`collUnits` + `_mintUnits`/`_burnUnits`/`_unitSlice` were listed as *"waiting for the
+pooled target"*. **They are not waiting for anything — they ARE the design under (c).** §5b's
+proposed replacement (*"per-LP attribution falls out of the SHARE PRICE… no `ilBasisPx` needed"*) is
+the cross-subsidising option (b) wearing different words: an LP entering later would be hedged against
+the pooled entry basis rather than its own.
 
-**Two scalars, both updated only on open/close.** Every LP's own entry basis is preserved *exactly* —
-there is no averaging and therefore no cross-subsidy — and a price move re-prices the whole book with
-one `sqrt`. This is the same trick §POOL-VENUE used on debt: the aggregate is a function of two sums,
-so the array holding the addends was never the thing that made it computable.
-
-### ⏸️ THE ONE DECISION: THE TWO CLAMPS DO NOT DISTRIBUTE, AND THEY BIND PER-LP
-`min(cap, …)` and `max(0, …)` each bind at a price threshold **that differs per LP** (`px ≤ b_i`, and
-`px` where `1 − √(b_i/px)` reaches `cap`). The closed form ignores both:
-
-- **Below entry**, `1 − √(b_i/px)` goes **negative**, so a below-entry LP would *subtract* from `D*`
-  and cancel part of an above-entry LP's legitimate hedge. The direction is safe (less debt, less
-  leverage) but it is wrong, and it is a cross-subsidy in the opposite direction.
-- **Deep in the money**, LPs clip at `TARGET_LTV_CAP_BPS` and the closed form does not, so `D*` would
-  over-borrow.
-
-🔴 **CORRECTION (same day, before any code): MY FIRST ANSWER — "bucket `b_i` into fixed tiers,
-O(tiers), no cross-subsidy" — IS WRONG, AND WRONG IN THE DIRECTION THAT MATTERS.** Bucketing is exact
-only if every threshold crossing lands on a bucket EDGE. It does not: at any `px` the book splits at
-`b_i = px` and at `b_i = px·(1−cap)²`, and with `cap = TARGET_LTV_CAP_BPS = 7500` that second
-threshold is `px/16`. Both thresholds move continuously with price, so the **boundary bucket is
-always partially in and partially out**, and resolving it needs its members — i.e. the walk. Coarser
-tiers make the error bigger, finer tiers make the read longer; neither makes it exact. I recommended
-it as exact. It is not.
-
-**What actually makes an exact structure possible — QUANTISE `ilBasisPx` AT OPEN.** Round each LP's
-`b_i` UP to a fixed relative grid (1 bps steps) when the position opens. Rounding *up* means the LP is
-treated as having entered slightly later, so its own hedge is slightly smaller — the loss falls on
-that LP alone and never on another, which is the property that matters. With `b_i` on the grid, a
-Fenwick tree over the grid gives **exact** prefix sums in O(log N) reads and O(log N) writes; at 1 bps
-over a 4096× price range that is ~17 slots per query.
-
-| | how | read cost | exact? | cross-subsidy |
-|---|---|---|---|---|
-| **(a′) grid + Fenwick — the corrected recommendation** | quantise `b_i` up at open; Fenwick over the grid holds `(S1, S2)` prefixes | O(log N) ≈ 17 slots × 2 | **yes**, to the grid, with the residual borne by the LP itself | none |
-| (a) fixed tiers | per-tier `(S1, S2)`, walk the tiers | O(tiers) | **NO** — the boundary tier is always split | bounded, but nonzero |
-| (b) one pooled `ilBasisPx` | equity-weighted entry for the whole book | O(1) | yes, of the wrong quantity | **yes, by construction** — the defect §POOL-VENUE exists to remove |
-| (c) lazy sum | maintain `D*` on each LP's own touch | O(1) | exact when fresh | none, but `D*` **lags**, and the lag is the crash window |
-
-⇒ **(a′).** ⏸️ Still an owner ruling, because (a′) costs materially more gas than (b) and the
-question "is the cross-subsidy worth ~17 SLOADs" is a pricing judgement, not an engineering one.
-
-### ⛔ WHY NO CODE LANDED FOR THIS YET — THE REPO'S OWN RULE 1
-`RangeLib.openPos:202` refuses to add `ilBasisPx` blending *"because the branch would be unreachable
-(standing rule 1)"*. The same rule binds here: `S1`/`S2` and a pure `pooledTargetDebtRaw` are needed by
-**every** variant above and are trivially correct, but until the clamp question is answered nothing
-calls them, and they would add bytes to `LevManager`/`BtcLevManager` (2,592 and less to spare) for an
-unreachable path. **The algebra is the deliverable; the code waits for the ruling.**
-
-The wiring, when it comes, is two sites and no more — measured: `LevBase._openPos` is the ONLY open,
-and both closes already funnel through `_untrackOpen(lp)` (`LevManager.sol:512`, `BtcLevManager.sol:450`),
-which is currently an EMPTY STUB left by the `_openLps` removal. ⚠️ One trap: at `LevManager.sol:511`
-`p` is `Types.Pos storage`, so `delete pos[lp]` on the line before zeroes it — the two fields must be
-captured BEFORE that line, not read inside `_untrackOpen`. (`BtcLevManager` holds a `memory` copy and
-does not have this problem, which is exactly how a shared hook acquires an asymmetric bug.)
+✅ **WHAT REMAINS TRUE FROM §8**: the closed form `D* = (px·S1 − √px·S2)/1e18` is correct arithmetic
+and cost nothing to derive, but it has no consumer. Recorded, not built — `RangeLib.openPos:202`'s
+standing rule 1 (*"the branch would be unreachable"*) applies to it now for a second reason.
 
 ### WHEN BORROW FIRES, ONCE THIS EXISTS
 `D*` is a **function of price and the two sums, evaluated on read.** So:
