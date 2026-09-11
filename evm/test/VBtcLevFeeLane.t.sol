@@ -523,6 +523,84 @@ contract VBtcLevFeeLane is AllesFixture {
         _shrinkExpectOk(ch, cid, ftx, lpPubkey, _p2tr(shutdownKey));
     }
 
+}
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+// §LEV-DELEVER-CLUSTER — the ETH `LevManager` de-lever legs, which had ZERO coverage of any kind:
+// `grep -rl 'deleverToVault\|deleverBook' evm/test/` returned NOTHING, and `grep -rn 'closeLev('
+// evm/test/` returned NOTHING. Three money-path defects shipped through that hole, and each of the
+// three is a single assertion away from being caught. They are asserted HERE rather than in the
+// BTC suite above because the paths are ETH-side; the fixture is the minimum LevCascadeProbe stack
+// (real Morpho weETH/USDC market, real flash provider, real range) and is DELIBERATELY NOT reached
+// by inheriting `LevCascadeProbe` — that contract is also a suite of 18 fork tests, and inheriting
+// it re-runs every one of them (its own §POOL-VENUE note records exactly that measurement).
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+contract EthLevDeleverLegs is AllesFixture {
+    address constant WEETH_E        = 0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee;
+    address constant MORPHO_E       = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
+    address constant ADAPTIVE_IRM_E = 0x870aC11D48B15DB9a138Cf899d20F13F79Ba00BC;
+    address constant CL_ETH_USD_E   = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
+
+    // Fields, not deep locals — same non-via_ir stack discipline the sibling fixtures keep.
+    LevManager        elm;
+    MorphoEscrowVenue evenue;
+    MarketParams      emp;
+
+    address constant LP_A = address(0xE7BEEF1);
+    address constant LP_B = address(0xE7BEEF2);
+    address constant SINK = address(0x5117BEEF);   // stands in for the redeem sink (`BasketLib`)
+
+    /// Real Morpho weETH/USDC market + a real `LevManager` pinned to the REAL ETH range and the REAL
+    /// zero-fee Morpho flash provider. Mirrors `LevCascadeProbe._setupLev` minus the parts these tests
+    /// do not exercise.
+    function _setupEthLev() internal {
+        // Real basket depth, so `syncLev` has something to pair the levered slice against.
+        deal(address(USDC), User01, 2_000_000 * USDC_PRECISION);
+        vm.startPrank(User01);
+        USDC.approve(address(AUX), type(uint).max);
+        QUID.mint(User01, 1_000_000 * USDC_PRECISION, address(USDC), 0);
+        vm.stopPrank();
+
+        emp = MarketParams({
+            loanToken: address(USDC), collateralToken: WEETH_E,
+            oracle: address(new RealRateMorphoOracle(WEETH_E, CL_ETH_USD_E)),
+            irm: ADAPTIVE_IRM_E, lltv: 0.86e18});
+        IMorphoTest morpho = IMorphoTest(MORPHO_E);
+        morpho.createMarket(emp);
+        deal(address(USDC), address(this), 5_000_000 * USDC_PRECISION);
+        IERC20V(address(USDC)).approve(MORPHO_E, 5_000_000 * USDC_PRECISION);
+        morpho.supply(emp, 5_000_000 * USDC_PRECISION, 0, address(this), "");
+
+        elm = new LevManager(WEETH_E, address(AUX), address(WETH), address(this), address(QUID));
+        evenue = new MorphoEscrowVenue(MORPHO_E, emp, address(elm));
+        address[] memory vs = new address[](1); vs[0] = address(evenue);
+        elm.init(address(ETH), MORPHO_E, vs);   // RANGE = the ETH range (the only `deleverToVault` caller)
+        EV.setLevManager(address(elm));         // pin the leveraged book into rangeETH
+        // Pin the ETH/USD anchor, or `assetPrice` can answer 0 and the sizing divides by it.
+        _setEthFeed(AUX.assetPrice(address(WETH)) / 1e10);
+        _auxSetAssetFeed(address(WETH), ETH_FEED);
+    }
+
+    /// Open a ZERO-leverage position for `lp` (mirrors `LevCascadeProbe._rangeE0` + `_openLevOnly`).
+    function _openEth(address lp, uint sizeEth) internal {
+        vm.deal(lp, sizeEth + 1 ether);
+        vm.prank(lp); ETH.deposit{value: sizeEth}(0, lp);
+        deal(WEETH_E, lp, sizeEth);
+        vm.prank(lp); IMorphoTest(MORPHO_E).setAuthorization(address(evenue), true);
+        vm.startPrank(lp);
+        IERC20V(WEETH_E).approve(address(elm), sizeEth);
+        elm.openLev(ILevVenue(address(evenue)), sizeEth);
+        vm.stopPrank();
+    }
+
+    /// Give `lp` REAL Morpho debt through the venue's own `onlyManager` leg — the same shape the BTC
+    /// fixture above uses, and for the same reason: the keeper's IL-clamped `rebalance` borrows nothing
+    /// at a flat price, and these tests are about the DE-lever, not about how the debt got there.
+    /// The venue pays the MANAGER, so the stable is handed on to `lp` (see `_borrowMorpho`'s note).
+    function _borrowEth(address lp, uint usdc6) internal {
+        vm.prank(address(elm)); evenue.borrow(lp, usdc6);
+        vm.prank(address(elm)); IERC20V(address(USDC)).transfer(lp, usdc6);
+    }
 
     /// @notice (#43) PERMISSIONLESS `repayFor` reduces the LP's share of the venue debt — the on-chain
     ///   primitive the QUID-protect keeper calls after redeeming the LP's mature QUID
