@@ -4,18 +4,30 @@
 //! This is the daemon plumbing around the audited crypto in
 //! [`quid_ln::deadman_exit`]: it NEVER touches key material.
 //!
-//! ⚠️ **READ THIS BEFORE QUOTING EITHER THIS HEADER OR [`run_deadman_exit_heartbeat`]'S DOC —
-//! THEY DESCRIBE A DEPLOYMENT NO CONFIGURATION CURRENTLY PRODUCES.** §E175 made the vault an
-//! `Option` and made its absence the security split, and that half is real and enforced: the
-//! heartbeat disables itself on `None` and must never re-derive the half locally. **But
-//! `daemon.rs:235` passes `Some(vault.clone())` UNCONDITIONALLY** — there is no flag, config
-//! or binary that starts the fleet without a vault seed. ⇒ **In every deployment that ships
-//! today, one process still reaches both funding halves**, exactly as `daemon.rs:228-229`
-//! says outright (*"the fleet runs both halves in-process"*).
+//! ⚠️ **SCOPE OF THE BOTH-HALVES WARNING — CORRECTED 2026-09-11, IT USED TO BE TOO BROAD.**
+//! §E175 made the vault an `Option` and made its absence the security split, and that half is
+//! real and enforced: the heartbeat disables itself on `None` and must never re-derive the half
+//! locally.
 //!
-//! ⇒ The `Option` is the MECHANISM for the LP-hosted split, not evidence the split is live.
-//! What is missing is the deployment: a vault-only mode and LP seed provisioning (§E175
-//! remainder). Do not report the both-halves trapdoor as closed on the strength of the type.
+//! ⛔ **WHAT THIS HEADER USED TO SAY, AND IT IS FALSE:** *"they describe a deployment no
+//! configuration currently produces… there is no flag, config or binary that starts the fleet
+//! without a vault seed ⇒ in every deployment that ships today, one process still reaches both
+//! funding halves."* **`bin/quid-lp-daemon.rs` EXISTS and is the production LP path** —
+//! `deploy/PRODUCTION-LAUNCH.md` §"Three deployable units" lists *"LP enclaves (many) —
+//! `quid-lp-daemon`, each self-hosted by an LP (own SGX, or own laptop+watchtower). LPs are their
+//! **own** trust root; they do not provision into foundation infra"*, and `deploy/run-lp.sh`
+//! builds and execs it. The cited `daemon.rs:235` has also rotted.
+//!
+//! ✅ **WHAT IS STILL TRUE, and is the part worth keeping:** `quid-bridge-daemon` **co-hosts a
+//! vault**, so for any LP served in **fleet** mode (the hop advertises to *"the LPs it serves —
+//! fleet / family / self"*) one process does reach both halves, and for those channels no exit,
+//! ladder or splice policy binds the fleet. ⇒ **The trapdoor is per-LP-HOSTING-MODE, not
+//! per-deployment.** Check which mode an LP is on before reasoning about what binds the fleet.
+//!
+//! 🔑 **WHY THE OVERSTATEMENT MATTERED: it understated the security posture of the shipped
+//! system and would have been read as an argument that the split is vapour.** A stale
+//! "nothing works yet" is as costly as a stale "this is done" — it invites rebuilding what
+//! exists. ⇒ **quote `deploy/PRODUCTION-LAUNCH.md` for topology, never a source header.**
 //!
 //! Per open vault-owned channel, each heartbeat tick it
 //! 1. re-derives BOTH funding-half signers (the hop node's + the vault node's) off their OWN
