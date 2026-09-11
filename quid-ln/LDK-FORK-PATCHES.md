@@ -43,7 +43,7 @@ Where the weight actually is (added/removed vs upstream):
 
 ### 🔑 AND THE CORRECTION THAT MATTERS MOST: **SIMPLE-TAPROOT CHANNEL SUPPORT IS OURS, NOT LEXE'S.**
 
-`QUEUE-KNOWLEDGE.md`'s §E174-r records the opposite — *"Simple-taproot support comes from the
+§E174-r (removed with the wrong-turn record 2026-09-11; `git show 25fe980f:docs/informational/QUEUE-KNOWLEDGE.md`) records the opposite — *"Simple-taproot support comes from the
 **vendored LDK fork itself**… the fork carries `negotiate_simple_taproot` in `util/config.rs:242`…
 taproot lives in the LDK codebase, not in those patches — **absence from a changelog is not absence
 from the code**."* The reasoning was sound and the conclusion is wrong, because it was checked

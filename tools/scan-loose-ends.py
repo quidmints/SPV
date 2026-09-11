@@ -52,10 +52,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # already-booked items as loose ends for its whole life, which is precisely the failure its own
 # header describes. Same class as every other empty-check in this repo: it could not fail, so it
 # certified. ⛔ Keep these as REAL PATHS; a section selector belongs in the grep, not in the path.
-# ⛔ AND THE ARCHIVE IS STILL NOT A BOOKING FILE (see the note above): 2026-09-11 moved 49,320
-# record lines to docs/informational/SPRINT-RECORD.md, and adding it here would make anything ever
-# MENTIONED in the record score as booked -- exactly how `13c` hid. The split is what finally makes
-# the first entry honest: SPRINT.md now contains the queue and nothing else.
+# ⛔ AND THE RECORD IS STILL NOT A BOOKING CORPUS (see the note above): 2026-09-11 removed 49,320
+# record lines from SPRINT.md outright -- they live in git history and nowhere else. Scoring against
+# history would make anything ever MENTIONED score as booked, exactly how `13c` hid. The removal is
+# what finally makes the first entry honest: SPRINT.md now contains the queue and nothing else.
 BOOKING_FILES = [
     "docs/actionable/SPRINT.md",
     "CLAUDE.md",

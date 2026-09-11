@@ -417,7 +417,20 @@ lines all in all. you must not be reconciling right."* Then, on an index that on
 | | sections | lines | |
 |---|---|---|---|
 | **KEPT here** — navigation, the three ordering documents, and every section still demanding work | 85 + 4 | **5,731** | 10% |
-| **MOVED to `docs/informational/SPRINT-RECORD.md`** — closed, or demanding nothing | 1,110 | **49,320** | 90% |
+| **REMOVED** — closed, or demanding nothing. **Recoverable from git, nowhere else** | 1,110 | **49,320** | 90% |
+
+🔴 **AND THEN THE ARCHIVE FILE WENT TOO** (owner, same day: *"removal is the policy… files, comments,
+variables, functions, docs, docstrings"*, and *"i dont know what queue-knowledge.md is or why it exists"*).
+**`docs/informational/SPRINT-RECORD.md` and `docs/informational/QUEUE-KNOWLEDGE.md` are DELETED.** Writing
+the record to a second file was still keeping it; **git is the archive, and it is the only one.**
+▶️ **RECOVERY, and it is one command — the record is intact at `25fe980f`:**
+```
+git show 25fe980f:docs/informational/SPRINT-RECORD.md      # 49,320 lines, 1,110 sections
+git show 25fe980f:docs/informational/QUEUE-KNOWLEDGE.md    # 1,699 lines, the wrong-turn record
+git log -S "<the phrase you remember>" -- docs/            # find which commit holds a thing
+```
+⚠️ **A `§TAG` THAT RESOLVES NOWHERE IN THE WORKING TREE IS NOT EVIDENCE IT WAS NEVER BOOKED** — 1,383 of
+1,886 now live only in history. **`git log -S` before concluding absence.**
 
 ⇒ **`docs/actionable/` HOLDS WORK. THIS FILE IS NOW THE QUEUE AND NOTHING ELSE**, which is the rule the
 `QUEUE-KNOWLEDGE.md` split already set: *"`docs/actionable/` holds WORK; this is not work."*
@@ -431,11 +444,11 @@ kept growing while every individual row got shorter.
 **1,383 of the 1,886 `§TAGS` in this document's history now resolve ONLY in the archive.** The move was a
 partition — **zero tags were lost, and the two files verified as 5,731 + 49,320 = 55,051, the original
 line count exactly** — but a grep scoped to `docs/actionable/` will come back empty for most of them.
-⛔ **An empty grep here is not evidence a thing was never booked. `grep docs/informational/SPRINT-RECORD.md`
-before concluding absence** — that is this repo's canonical rule arriving through a file boundary.
-⚠️ The archive's **evidence** (traces, `file:line`, measurements, do-not-delete instructions) is
-authoritative; its **status markers are not**, exactly as `§BUILD-QUEUE-FOLD` says of its own rows.
-📌 What it protects is what five purge passes nearly destroyed: 466 measurements, 81 attack descriptions,
+⛔ **An empty grep here is not evidence a thing was never booked — `git log -S "<phrase>" -- docs/` is,
+and it is the ONLY instrument now.** That is this repo's canonical rule arriving through a file boundary.
+⚠️ History's **evidence** (traces, `file:line`, measurements, do-not-delete instructions) is authoritative;
+its **status markers are not**, exactly as `§BUILD-QUEUE-FOLD` said of its own rows.
+📌 What it holds is what five purge passes nearly destroyed: 466 measurements, 81 attack descriptions,
 78 RESTORE/DO-NOT-DELETE instructions, and the reasons behind deletions nobody could otherwise reconstruct.
 
 ### WHAT IS IN THIS FILE, AND NOTHING ELSE IS
@@ -1607,7 +1620,6 @@ touching either.**
 `_rallyRange`, then again either side of the auto-reseat. One run, and it separates "the fixture never
 moved the ring" from "the reseat does not track".
 
-<!-- from the archived block # 2026-08-26 — LANDED THIS SESSION (each verified, each with its commit) — body in docs/informational/SPRINT-RECORD.md -->
 ## 🔴 **§BTC-OOR-ENTERABLE-NEVER-FILLABLE — a user can PLACE a BTC boundary order that CANNOT fill, and the only exit is a recorded loss** (2026-08-28)
 
 ✅ **CLOSED 2026-09-08 — MOOT BY THE BOOK DELETION.** There is no placement path left to trap in: neither
@@ -1708,7 +1720,6 @@ It now prints once under its real name, with the per-range figures taken from th
 differ — which is what let the debt term be derived instead of guessed.
 
 
-<!-- from the archived block # 🔝 DO THESE FIRST — ordered, 2026-08-23 — body in docs/informational/SPRINT-RECORD.md -->
 ## 0e. 🟠 **§SILENT-SETUP — 25 OF 40 EMPTY `catch {}` BLOCKS IN THE SUITE RECORD NOTHING, AND THE
 ONES THAT MATTER ARE IN FIXTURE SETUP** (2026-08-23; same family as §VACUOUS-BOUNDS)
 
@@ -2106,7 +2117,6 @@ returning can satisfy it.** That is a one-line rule for triaging any future fee 
 redefine what the test checks and delete the only remaining statement that the TRADING-fee leg is
 dead. **It is the last witness to that gap.**
 
-<!-- from the archived block # 🚦 FLEET SWEEP 2026-08-23 — FIVE LANES, LANDED. New rows, relayed by the coordinator and booked here in the s — body in docs/informational/SPRINT-RECORD.md -->
 ## 0-TOPOLOGY. 🔴 **OWNER DECISION 2026-08-18 — SPV STAYS A SEPARATE REPO, BECAUSE IT IS THE ONE THAT HAS A HOST**
 
 **The decision (owner, 2026-08-18):** SPV is **not** folded into `../ibiza`. It stays separate so a
@@ -2357,7 +2367,6 @@ BTC burn, a gateway bricked by an ordinary reorg, and a delivery root cause unde
 ---
 
 
-<!-- from the archived block # PART B — session `391df7b6` (the Bitcoin / secp256k1 thread) — body in docs/informational/SPRINT-RECORD.md -->
 ## B1. ⏸️ §E222 — **MOOT BY CONFIGURATION, LIKE §E257. SAME CAUSE, SAME STATUS, SAME WARNING.**
 ⏸️ **RE-POINTED 2026-08-22. NOT CLOSED.** This row and §E257 are **one defect seen from two lanes** —
 both say the ring's source is a `getRate` read that cannot fit in a block. Measured today:
@@ -2401,7 +2410,6 @@ leg, a forced pro-rata during depeg, or a basket-wide haircut; (3) if a charge, 
 **DIRECTIONAL** (the `§A.64 step 2` requirement) — a symmetric fee taxes the deposit that heals the
 basket as hard as the drain that hurts it.
 
-<!-- from the archived block # PART D — **THE QUEUE DIGEST + THE COMPLETE BITCOIN REMAINDER** (session `391df7b6`, written 2026-08-17) — body in docs/informational/SPRINT-RECORD.md -->
 ## D2. 🔴 THE COMPLETE BITCOIN REMAINDER FROM THIS THREAD — in dependency order
 
 **Two are closed and stay listed so nobody redoes them:** `B0` the fleet no longer co-hosts a vault
@@ -2605,9 +2613,9 @@ is the exact failure the tool's own header says it exists to prevent, arriving t
 ⚠️ **THE FOUR FINDINGS BELOW ARE THEREFORE NOT INVALIDATED — they are a LOWER BOUND on the noise, not on the
 signal.** A false "unbooked" verdict means the tool flagged something already tracked; re-run it now that the
 corpus is real, and expect the count to FALL.
-⛔ **THE ARCHIVE IS STILL NOT A BOOKING FILE** — `docs/informational/SPRINT-RECORD.md` is evidence, and adding
-it would make anything ever MENTIONED in the record score as booked, which is how `13c` hid. **The 2026-09-11
-removal is what finally makes the first entry honest: `SPRINT.md` now holds the queue and nothing else.**
+⛔ **AND THE RECORD IS NOT A BOOKING CORPUS EITHER** — it lives only in git history now, and pointing the
+scanner at history would make anything ever MENTIONED there score as booked, which is how `13c` hid. **The
+2026-09-11 removal is what finally makes the first entry honest: `SPRINT.md` holds the queue and nothing else.**
 
 ### 0. ✅ **TRIAGED 2026-08-22 — THE CLASSIFICATION, SO NOBODY RE-JUDGES THESE ONE AT A TIME**
 
@@ -2803,7 +2811,6 @@ rule 17: prefer making the bad state unconstructible over making it detectable.
 registry needs an owner decision on whether the phone is a signer at all.
 
 
-<!-- from the archived block # 📋 #12 — THE SPEC WAS NEVER WRITTEN. Writing it, because that is what blocked the investigation. — body in docs/informational/SPRINT-RECORD.md -->
 ## 🟠 §A.71 DEDUP PASS — **HALF-CLOSED, RE-SCOPED 2026-08-23 — I CLOSED IT WHOLE AND THAT WAS WRONG.** Of the four pairs it names, **two are TOMBSTONES** (`IEthVenueV`, `IAaveSpoke` — `^interface` = 0, deleted symbols, not outstanding merges) **and two ARE STILL DECLARED AND STILL LIVE WORK: `IEthVenue` and `IAaveV4Spoke` (1 each).** ⇒ **A row whose example list is half-stale is half-open, not closed.** ▶️ **RE-AUDIT TARGET: the two surviving interfaces — do they still have distinct consumers, or has the `EthVenue` extraction made `IEthVenue` foldable into `ICore` like §E325's pairs were?** *(superseded closure text:)*  Of the four pairs it names, only `IEthVenue` and `IAaveV4Spoke` are declared (`^interface` = 1 each); **`IEthVenueV` and `IAaveSpoke` are declared ZERO times** — deleted symbols, not outstanding merges. ⚠️ Do not "fix" a tombstone by renaming it. STATUS
 
 ✅ **THE ROW'S OWN CLAIM RE-VERIFIED 2026-08-26 and it HOLDS: `IAaveSpoke` and `IEthVenueV` are declared ZERO times** — they are tombstones, exactly as the row says, not outstanding merges. The absence CONFIRMS this row rather than staling it. Only `IEthVenue` and `IAaveV4Spoke` remain live work.
@@ -2822,7 +2829,6 @@ registry needs an owner decision on whether the phone is a signer at all.
 
 ### `§D5` (none)
 
-<!-- from the archived block # ✅ SECOND PASS — the `#NNN` axis, the archive's OWN open list, and a self-check that caught me — body in docs/informational/SPRINT-RECORD.md -->
 ## 🔴 §SPLIT-WEIGHTS — **THE ONE ITEM THIS THREAD RAISED AND NEVER BOOKED (found by scanning the transcript, 2026-08-17).**
 **The reshaped fee's division between SWAPPER / LP / BASKET was flagged as the owner's call early in
 the thread and then dropped from every summary.** It is not in any row above; 181 open-item flags were
@@ -3057,7 +3063,6 @@ trade's own flow*). **Nothing today refuted it; today refuted my ability to MEAS
 
 ### `§V-DOLLARS` (none)
 
-<!-- from the archived block # 🔴 THE v4 CUT — MEASURED SURFACE (2026-08-15, from the SPV-v4cut worktree) — body in docs/informational/SPRINT-RECORD.md -->
 ## (original headline, kept) ⏸️ **NO CHANNEL CAN BE OPENED IN THE DEFAULT DEPLOYMENT, SILENTLY**
 ▶️ **RE-AUDIT TARGET (2026-08-24): `quid-bridge/src/swap_in_api.rs:196-207` AND `vault.rs:208`. STEP ③ IS FALSIFIED; ①②④ ARE NOT, SO THE ROW STAYS OPEN.** Re-run of ③'s own claim (*"`bind_consent` has only test callers; `LpConsent` appears in one file and in no route handler"*): **there is now a production caller** — `swap_in_api.rs` constructs `crate::vault::LpConsent { … }` and calls `registry.bind_consent(&txid, req.funding_vout, consent)` at **`:286`** (re-measured 2026-09-07; the row said `:207` and line numbers rot fastest), and the file's own header notes it *"had zero production callers"* in the past tense. ~~**④ still holds exactly as written**~~ — ✅ **④ IS NOW CLOSED, see below.** `LpConsent` is at `vault.rs:231` (not `:208`) and now derives serde. ⇒ **The chain is now "intake exists on the SWAP-IN rail, but the OPEN rail's producer and wire format do not"** — narrower than *"no intake"*, and unproven either way until this row's own acceptance test (**ONE CHANNEL OPENED END-TO-END FROM AN LP-SUPPLIED CONSENT**) runs. Re-read whether that binding reaches `drive_open` before re-quoting ③.
 
@@ -3106,7 +3111,6 @@ caught this.
 
 ### `§E263` (none)
 
-<!-- from the archived block # 🚨🚨 REGRESSION I INTRODUCED — **SwapLib is OVER EIP-170. The library is UNDEPLOYABLE.** — body in docs/informational/SPRINT-RECORD.md -->
 ## 🔴 §E282 — **STILL TRUE, NOW LOAD-BEARING, AND THE MODEL NAMES ITS FIX**
 
 > *"Nothing unwinds the IL hedge when borrow cost exceeds fee yield."* Measured across the whole `Lev`
@@ -3123,7 +3127,6 @@ whole book. This row could not be actioned when written because neither term was
 ⏸️ **What is still owed is the other side of the comparison:** fee yield per unit of levered notional,
 which is Part III decision 6 (turnover). **The unwind rule is specified; one of its two inputs is not
 yet measured.**
-<!-- from the archived block # 📕 §SKEW-LEARNINGS — **EVERYTHING THIS THREAD ESTABLISHED ABOUT THE SKEW, AND THE TRAPS THAT COST THE MOST** — body in docs/informational/SPRINT-RECORD.md -->
 ## C15. 🔴 THE 1inch EXECUTION MIGRATION — the seam is ONE function, the cost is CLIENT-SIDE (2026-08-21)
 
 ⚠️ **LARGELY DONE, AND THE NAME IS WRONG. 2026-08-26:** the constant is `ONEINCH_ROUTER` (`Interfaces.sol:173`), not `ONE_INCH_ROUTER`, and the migration this row describes LANDED under §C2.1 — but NOT as `swapData`. Keeper-supplied calldata was replaced by a single `uint256 dex` POOL WORD, because 1inch calldata embeds its own `amount` and every amount is computed on-chain. Re-read §C2.1 before actioning.
@@ -3217,6 +3220,52 @@ the whole design unworkable, and everything else is mechanical once it is answer
 > pool can be short the ASSET (`TARGET-DESIGN` Part I §6b), so a first-out advantage is real — and
 > deferral **sharpens** it, because whoever accepts a dated claim is by construction not first out.
 
+### 🔑 THE MODEL'S ANSWER — **THE FIX IS RIGHT, THE TARGET IS AN ARTIFACT, AND THE ROW STAYS OPEN FOR A DIFFERENT REASON** (2026-09-11)
+
+`TARGET-DESIGN` §7c, from the owner's *"we should have a design where there is no shortfall and no one
+has to bear it"*: **the tree holds two incompatible definitions of an LP claim.** `Quid._convert` is
+PRO-RATA (`shares × _pricingBacking() / lpShares`); `Core._shortfallLoadBalance` is DENOMINATED — it
+compares `lpShares`, a raw COUNT, against `rangeETH`, an asset BALANCE, as though 1 share = 1 ETH.
+**A pro-rata claim cannot be short**, because `shares_i/lpShares × rangeETH` is deliverable at every
+ratio. ⇒ the number that machinery reports is **not a solvency fact — it is the share price in ETH
+having fallen below 1**, which is IL measured in the wrong unit and given an alarming name.
+⇒ **DELETE THE COMPARISON AND ALL FIVE SYMBOLS GO WITH IT** — `sharesForShortfall`, `realInventory`,
+`onShortfall`, `_shortfallLoadBalance`, and `proRataShortfall` itself. There is then nothing to escape,
+so nothing to share, so nobody bears anything. **Same move as §NO-GAMEABLE-BOUND: we did not bound the
+gameable quantity, we deleted the measurement that manufactured it.**
+
+⚠️ **AND THAT IS WHY THE RESTORE WAS STILL CORRECT — THE TWO DELETIONS ARE NOT THE SAME DELETION.**
+| | deleted because | verdict |
+|---|---|---|
+| §E301 · `c0b3b98f` · and the two before them | it sat in the same FILE as a refill symbol | ⛔ **proximity. Refuted three times.** |
+| §7c | its TARGET does not exist under a pro-rata claim | ✅ **derivation. Correct, and it takes four other symbols with it.** |
+⇒ **`proRataShortfall` is load-bearing until §7c lands, and then it is deletable — by an argument that
+names it.** 🔴 **Anyone deleting it must quote §7c, not a neighbour.** That is the whole content of
+this row's three-time history, and a fourth deletion-by-proximity is still constructible today.
+
+📌 **MEASURED AGAINST THE CODE 2026-09-11, so "then it is deletable" is not read as "it is deleted":**
+`grep -c` over `evm/src`, both trees — `_shortfallLoadBalance` **5** · `sharesForShortfall` **6** ·
+`realInventory` **7** · `onShortfall` **9**. **§7c is entirely UNBUILT.** `proRataShortfall` is **1** on
+`lane/CUT` (the restore) and **0** on `main` (the third deletion is still live there), so the two trees
+disagree about whether the mitigation exists at all.
+⇒ **ALL THREE CONDITIONS §7b LISTS STILL HOLD** — claims exceed real inventory (serving a drain is what
+CREATES that), exit is first-come, and an exiter still leaves at full value because `onShortfall` is
+`function onShortfall(address, uint) external {}`, **a literal no-op**, and `_shortfallLoadBalance` only
+calls it once the gap reaches **1% of total shares**. **The 15.2 bps is constructible right now.**
+
+### ⚠️ THE BOOKED MEASUREMENT IS REFRAMED, NOT DISCHARGED — IT WAS ONE QUESTION AND IT IS TWO
+The row below asks: *"is the first-out advantage still real once the ~25.6 bps offramp floor is
+subtracted?"* **§7c splits that into two costs that were sharing one name, and they have different fates:**
+| | what it is | how it resolves |
+|---|---|---|
+| **accounting shortfall** — `lpShares` vs `rangeETH` | ✅ an **artifact** | dies by DERIVATION. **No measurement is owed** — you cannot measure your way to or from a unit error |
+| **liquidity-cost asymmetry** — first exiter takes the cheap rung (Curve), later exiters hit the expensive ones | 🔴 **REAL, and pro-rata does not touch it** | each exiter bears **their OWN** conversion cost, or §6's paid deferral pays whoever takes the late/expensive path |
+⛔ **DO NOT LET DELETING THE FIRST CONVINCE ANYONE THE SECOND IS GONE.** The first is a naming error; the
+second is a queue with a price on it. ▶️ **The measurement still owed is about the SECOND only:** does the
+forward yield §6 pays a late exiter actually cover the conversion cost queue position imposes on them?
+**If yes, the queue is compensated and there is no advantage left to remove. If no, §6 is underpriced.**
+⛔ **And do not wire `proRataShortfall` and §6 at the same time either way — they would double-charge one gap.**
+
 Owner asked whether any of my retractions should not have been made. **This one.** §E301 deleted
 `proRataShortfall` alongside `refillPlacement` as "restoration sizing". **It is not restoration anything.**
 
@@ -3249,7 +3298,7 @@ one argument, and the argument only fitted one of them. **Rule 1 asks whether co
 not ask whether the reason for deleting it is the reason it exists.** Check each deletion against the
 thing's OWN stated purpose, not against its neighbour's.
 
-### C22. 🔴🔴 `ilTargetLive` HAS TWO BRANCHES THAT DISAGREE BY 13×, AND THE ONE THAT RUNS TODAY RUNS BY ACCIDENT
+### C22. ✅ `ilTargetLive` HAS TWO BRANCHES THAT DISAGREE BY 13× — **AND THE MODEL DELETES BOTH, SO THERE IS NOTHING TO CHOOSE**
 
 Audit prompted by the owner (*"make sure we have the most efficient solution for IL that is humanly
 feasible"*). **The most important thing found is a LANDMINE FOR THE NEXT FIX, not an inefficiency.**
@@ -3287,7 +3336,39 @@ cap on the same price path.** Anyone reading §C19 and finishing the job will 13
 position in the book, and the tests will not catch it because the assertions are written against
 whatever the code does. **Do not touch `syncKeyPx` in the reanchor without settling C22 first.**
 
-⚠️ **WHICH BRANCH IS CORRECT IS UNRESOLVED, AND I AM NOT GUESSING.** I tried to settle it by simulating
+### 🔑 THE MODEL'S ANSWER — **NEITHER BRANCH. THE 13× GAP DISSOLVES, AND THE EXPERIMENT BELOW IS NOT OWED** (2026-09-11)
+
+`TARGET-DESIGN` §7: **both branches are CFMM laws, and we deleted the CFMM.**
+| branch | what it actually is | evidence |
+|---|---|---|
+| PRIMARY `soldFractionWad` | **a CONSTANT, 0.507500313** — the range recentres on spot every repack, so the triple is always `(P(1−d), P, P(1+d))` and **P cancels** | measured across a rally that DOUBLED the price: it returned `0.500750000312500535` at EVERY step while real inventory fell 7.566 → 2.331 ETH. *"It reports a 50.075% hedge at open, at +100%, and the same on the way down."* **It is the 50:50 assumption hardcoded by the algebra** |
+| FALLBACK `ilTargetBps` | `1 − √(entry/now)`, the **constant-product composition law** — a statement about a curve we do not have | — |
+
+⇒ **BOTH describe a pool whose composition is a function of PRICE. Ours is a function of FLOW** — we
+sell volatile when someone BUYS it, not when the price moves. The replacement needs no price at all:
+```
+drift_i  =  entryEquity_i  −  (shares_i / lpShares) · rangeETH        // volatile units, per LP
+```
+✅ `entryEquity_i` already exists (`Types.Pos.entryEquity`, *"the IL base, FIXED at open"* — **27-28
+references in `evm/src`, measured 2026-09-11**). ✅ Correct for entry time BY CONSTRUCTION: the two terms
+are equal at entry, so drift starts at 0 and accrues only from sales AFTER that LP joined. ✅ A round
+trip self-cancels, where the old formula would have hedged on the price move alone.
+
+⛔ **SO THE "PYTHON AFTERNOON" BELOW IS RETIRED, NOT PARKED.** It was an experiment to decide WHICH of two
+formulas matches the integral of volatile actually sold. **The answer is that the integral of volatile
+actually sold is a quantity the pool can read directly** — `entryEquity_i` minus this LP's pro-rata slice
+of `rangeETH` — so there is no formula to validate and no simulation to run. **Do not re-commission it.**
+⭐ **AND THIS IS WHY THE LANDMINE WARNING GETS STRONGER RATHER THAN WEAKER.** Above it says *"do not touch
+`syncKeyPx` in the reanchor without settling C22 first."* Settled: **the primary branch is not the one to
+activate, it is one of the two to delete.** Anyone finishing §C19's job by pinning `syncKeyPx` would 13×
+the leverage of every position in the book to reach a number the model does not use.
+📌 **MEASURED, so this is not read as done:** `_ilTargetLive` **7** · `ilTargetBps` 7-10 · `soldFractionWad`
+15-16 · `holdingRatioWad` 3-4 · `ilBasisPx` **22** · `syncKeyPx` **43** references in `evm/src` across both
+trees. **Drift-based hedging is UNBUILT and every symbol it replaces is still live.** `syncKeyPx`'s 43 is
+the size of that deletion, and it is the reason this is a task rather than a note.
+
+⚠️ **(SUPERSEDED — kept because it records why neither branch could be defended, which is the evidence
+that they are both wrong rather than one of them being right.)** **WHICH BRANCH IS CORRECT IS UNRESOLVED, AND I AM NOT GUESSING.** I tried to settle it by simulating
 a band that recentres on spot against the constant-product path, and **the simulation was WRONG and its
 result is discarded**: it modelled selling within each seat but **ignored the RE-BUY when the band
 recentres**, so it reported "100% sold" at every horizon, which is obviously false for a range that
@@ -3299,8 +3380,16 @@ honest position is: **two defensible measures, a 13× gap, and no derivation for
 compare against BOTH branches at several horizons. Whichever the integral matches is the hedge; the
 other is a bug. **That is a Python afternoon, not a Solidity change.**
 
-⚠️ **SECOND, INDEPENDENT AND ALREADY KNOWN (§C19): `RANGE_BPS = 300` AGAINST A ±20 bps BAND IS
-DIMENSIONALLY MISMATCHED.** On the FALLBACK branch the deadband means leverage does not engage until
+⚠️ **SECOND, INDEPENDENT — AND ✅ DISSOLVED BY `TARGET-DESIGN` §9 FOR THE SAME REASON.** A bps deadband
+on a price-derived target is a **no-trade BAND, and a band assumes a size** — which §9 rules out along with
+the dwell, on the owner's *"we should not be making forecasts at all."* The replacement is a **realised-cost
+accumulator: act when the carry ALREADY PAID on the excess debt exceeds the round trip it would cost to fix
+it.** Backward-looking, no timer, no σ, no reversal assumption — and `Δ` cancels out of `Δ·carry·T >
+roundtrip·Δ`, leaving a pure time condition (~14 days at today's 183 bps net carry, an OUTPUT of the rule
+rather than a constant to set). ⇒ **there is no deadband to dimension, so there is no mismatch.** 📌 Gas is
+the one cost that does not scale with `Δ`, so it yields a minimum SIZE instead — `min_rebalance_usd`, which
+already exists. **(as written, and still the evidence that one constant could not serve both branches:)**
+`RANGE_BPS = 300` AGAINST A ±20 bps BAND IS **DIMENSIONALLY MISMATCHED.** On the FALLBACK branch the deadband means leverage does not engage until
 `1 − √(entry/now) > 3%`, i.e. **a +6.28% move**, and unwinds only outside a 3%-of-equity corridor. On
 the PRIMARY branch the same 300 bps is crossed within the first **0.012%** of band traverse. **One
 constant cannot be right for both branches**, which is itself evidence the two were never reconciled.
@@ -3391,7 +3480,6 @@ and expect `Quid`/`BTCChannels` margin to move in the right direction.
 
 ---
 
-<!-- from the archived block # 📋 §E316 — **EVERY UNFINISHED THING THIS THREAD STARTED, WITH ITS EXACT STATE** — body in docs/informational/SPRINT-RECORD.md -->
 ## 🔴🔴 §E330 — **THE FOLD'S BLOCKER FIGURE IS STALE BY 2.2×, AND THE "FEES DID NOT ACCRUE" CLUSTER IS A DESIGN CONSEQUENCE, NOT A TEST BUG**
 
 ### 1. ⏸️ **RE-MEASURED 2026-08-26: THE BLOCKER IS NOW 8,896 BYTES OVER, DOWN FROM 12,187 — THE FOLD GOT 3,291 BYTES CLOSER AND NOBODY BOOKED IT.**
@@ -3523,7 +3611,6 @@ lies about what happened.**
 
 ---
 
-<!-- from the archived block # TRAPDOORS — every place the protocol KNOWINGLY trusts something — body in docs/informational/SPRINT-RECORD.md -->
 ## T9 🔴 REOPENED — a SPLICE silently voids the whole exit ladder (M1#5)
 
 Arming is a construction-time invariant **at open only** (§E156/§E165): `openChannel` verifies a
@@ -3588,7 +3675,6 @@ than "every splice entrypoint takes a ladder".
 ✅ **The heavier version IS built and measured** — see the recipe below — so if defence-in-depth
 is wanted later it is a paste, not a design. But it should not be the first move.
 
-<!-- from the archived block # Where the contract still takes the hop's WORD — the complete class — body in docs/informational/SPRINT-RECORD.md -->
 ## 🔴 §HOP-RCE — WHAT SURVIVES ARBITRARY CODE EXECUTION *INSIDE* THE DAEMON (2026-08-28)
 
 Owner's threat model, and it is the right one: *"if the daemon is hacked and arbitrary source code
@@ -3680,7 +3766,6 @@ unestablished. Also unexamined: `splice`, `recordClose`, `recordForceClosePermis
 
 ### §DOCS-FOLD/GAS-AND-CORRECTNESS-AUDIT — folded verbatim 2026-08-29
 
-<!-- from the archived block # 🎯 NEXT ACTION, RANKED (rewritten IN PLACE 2026-08-02 — the 07-29 ranking below was stale) — body in docs/informational/SPRINT-RECORD.md -->
 ## 🔴 BOOKED — THE ZERO-FEE SPLICE QUESTION (a real product question the fixture work exposed)
 Writing real splices forced an exact-arithmetic choice, and the choice is load-bearing:
 **every splice shape the tests assert sums EXACTLY to the funding** — `20e6 → 15e6 + 5e6`,
@@ -3860,7 +3945,6 @@ exit at once.** A fleet fault inside that window exposes the whole shard togethe
   not just any two words), and **always sample the BOOKED side**, weakest-match first. An unbooked
   list is a to-do; the booked list is where a real finding hides.
 
-<!-- from the archived block # ═══ ITEMS NOT IN THE A/B/C REGISTER — surfaced today, easy to lose ═══ — body in docs/informational/SPRINT-RECORD.md -->
 ## 🔴 "REFILLING BUCKET" HYPOTHESIS — **REFUTED BY MY OWN EXPERIMENT.** The warp plan does NOT work.
 Asked to prove it, I sampled `totalRedeemableAmount(native)` densely. The data CONTRADICTS the hypothesis:
 | block range | value |
@@ -3890,7 +3974,6 @@ Flat-then-zero is the signature of a **CONFIGURED VALUE or a BINDING GUARD**, no
 📌 The landed runtime capacity SKIP is correct under ALL THREE readings — it is the one piece that needed no
   mechanism knowledge, which is why it was right to land it first.
 
-<!-- from the archived block # ═══ NEW (2026-08-01) — RUST / TEE ENCLAVE STACK. First session that could build it at all ═══ — body in docs/informational/SPRINT-RECORD.md -->
 ## 🔴 #114 DEAD-MAN EXIT × CIRCULATING vBTC — A REAL CONFLICT (user, 2026-08-01). Must be resolved before either ships.
 **The mechanism (read from code):** `emitDeadManExit(channelId, cltvDeadline, checkpointSats, signedExitTx)`
 emits RAW pre-signed Bitcoin bytes; the event records `ch.lpEth`. **The BTC payout address is BAKED INTO
@@ -3967,7 +4050,6 @@ re-derived documented knowledge twice on #114 — the test comment, and possibly
 📌 Everything ELSE about the design survived this: zero-grow is valid, the gate is the right site, the
   splice pipeline is reused. **Only my API assumptions were wrong — the design was not.**
 
-<!-- from the archived block # 📐 LEGACY vs NOW, PART 2 — `Aux` and range mechanics. **The growth is EXTERNAL SURFACE, not logic.** — body in docs/informational/SPRINT-RECORD.md -->
 ## 🔴 THE LAST FAILING TEST IS A REAL FINDING, NOT A BROKEN TEST — and it IS #12
 `testLeverage_LvrControlVsTreatment` is the only failure in the suite (3,560 pass). It has now been
 measured to the mechanism. **Do not weaken the assertion** — it is asserting a true thing.
@@ -4041,7 +4123,6 @@ same error the leverage fold already fixed once by switching gross → net equit
   leverage in this path. The leak is a property of ordinary range swap flow, which makes it broader
   than the `LeveragePnLProbe` filename suggests. Its comments claiming a leverage mechanism are stale.
 
-<!-- from the archived block # 💰 COSTING: "QUOTE THE SAME DOLLARS IN BOTH RANGES" (user's #12 proposal). Priced on all six axes. — body in docs/informational/SPRINT-RECORD.md -->
 ## §BTC-9b-bis 🔴 THE LADDER IS THE LEAST-TESTED MECHANISM IN THE SYSTEM
 
 **Measured: ZERO Rust test files mention `deadman` / `dead_man` / `DeadMan`** across
@@ -4097,7 +4178,6 @@ the shortfall path meant to be operational end to end? **Neither is written down
 3. **Queue rather than reverse.** Trades latency for fill rate. ⚠️ Requires holding the swapper's USD.
 📌 **This section is scoping, not a recommendation** — the answer is a product target.
 
-<!-- from the archived block # 🔍 §SEQ-AUDIT-2026-09-06 — **WHAT THE 461 MARKERS MEAN, AND EXACTLY HOW FAR THEY WERE VERIFIED** — body in docs/informational/SPRINT-RECORD.md -->
 # 🧭 §MASTER-ORDER-2026-09-05 — **ONE DEPENDENCY ORDER ACROSS BOTH SCOPES AND THIS FILE**
 
 **Owner, 2026-09-05:** *"make sure sprint.md (including all the new stuff you added) does everything in a
@@ -4642,7 +4722,6 @@ behind. **Put the answer here; put the consequence in a gate; never let a ✅ he
 
 ---
 
-<!-- from the archived block # 🔬 §SESSION-2026-09-05 — WHAT WAS MEASURED, WITH THE TRACE — body in docs/informational/SPRINT-RECORD.md -->
 ## §SESS-12 🔴 `avail = rs − rd` — THE OPERANDS' SCOPES WERE NEVER VERIFIED, AND THE GUARD HIDES IT
 
 **Owner, 2026-09-05.** Aave v4 is **hub-and-spoke**: the hub holds reserves and does the accounting,
@@ -4714,7 +4793,6 @@ from this getter pair** once (1) lands. ⚠️ **Do NOT "fix" this by widening t
 rule 3's false sense of safety, and rule 17's clamp-vs-root test says a bound added over an unverified
 subtraction is the clamp.
 
-<!-- from the archived block # 🔬 §A7-PREMISE-IS-FALSE — **THE LOOP IT WARNS ABOUT IS ALREADY IN THE MINT PATH, SO ITS OBJECTION TO §E2 IS V — body in docs/informational/SPRINT-RECORD.md -->
 ## 🔴 WHY THIS MATTERS BEYOND ONE ROW: IT REMOVES AN OBJECTION FROM A LIVE FORK
 
 `§E2` is one of the genuine owner decisions, and its fix option ① is *"entry at the mark — mint
@@ -4737,7 +4815,6 @@ references in `evm/src`, 0 test files**. `:15515`'s claim that its scaffolding i
 E111's cost is not what the last thread to touch it believed. **The row itself stays open — it is
 booked for a dedicated session and is a design question, not a scaffolding question.**
 
-<!-- from the archived block # ⚖️ §HOW-TO-ADJUDICATE-BOUND-VS-DELETE — **NOT BY AUTHORITY. BY THE SCOPE OF EACH OBJECTION, AND ONE ARITHMET — body in docs/informational/SPRINT-RECORD.md -->
 ## 🔴 BUT IT IS DOWNSTREAM OF A FORK THAT IS STILL OPEN, AND THAT IS THE REAL ANSWER
 
 **If composition is NOT to be repaired at all, bound-vs-delete is moot** — no bonus of any shape is
@@ -4748,7 +4825,6 @@ composition*).
 ⇒ **Resolve that fork first. Bound-vs-delete is its consequence, not a separate question**, and
 answering it in isolation would settle the instrument before deciding whether any instrument is wanted.
 
-<!-- from the archived block # 🧮 §CENSUS-2026-09-07 — **ONE COUNT. IT SUPERSEDES EVERY EARLIER TOTAL IN THIS FILE.** — body in docs/informational/SPRINT-RECORD.md -->
 ## 🔴 §CENSUS-CROSSTAB — **THE BUILDER IS NOT THE CONSTRAINT. 62 OWNER DECISIONS ARE.**
 
 **The census counted gates and lanes separately. Crossing them says what to actually do next, and it
@@ -4818,7 +4894,7 @@ would have gained nothing. **39 of the 40 are owner decisions; exactly one (`:34
 ## 🔒 THE CANONICAL LANE TABLE — **MACHINE-READ. DO NOT REFORMAT THE FENCED ROWS.**
 `tools/blast-radius.py` parses BETWEEN the markers below. ⛔ **The fence is not decoration: this file
 used to carry a SECOND `| L1 | … |` table from an older partition where `L1` is `Core.sol`; that table
-now lives in `docs/informational/SPRINT-RECORD.md`, so the ambiguity is gone from THIS file and the fence
+was removed with the record, so the ambiguity is gone from THIS file and the fence
 is still the parse contract — restore it rather than relaxing the check if it is ever lost
 rather than `.md`.** An unfenced parser takes whichever it meets first and reports confident, wrong
 ownership — so the marker is what makes the read unambiguous. Moved here 2026-09-09 when the lane
@@ -5332,6 +5408,48 @@ added here, which sizes the crash off `totalCollateral`/`totalDebt` the way Morp
 §POOL-VENUE's O(1) aggregate repay, §E342) or joining the pooled venue must be priced/disclosed as
 what it is. **Do not read the O(1) repay win without this number beside it.**
 
+### 🔑 THE MODEL'S ANSWER — **IT SHRINKS THE EXPOSURE AND DOES NOT TOUCH THE MECHANISM. DO NOT READ IT AS A FIX** (2026-09-11)
+
+⛔ **THE FIXTURE REPRODUCES UNCHANGED UNDER DRIFT-BASED HEDGING, AND THAT IS THE POINT OF WRITING THIS
+DOWN.** The setup's load-bearing step is *"the LATE LP opens at the post-rally price, so `ilBasisPx ==
+spot`, its target is 0, and it never borrows."* Under `TARGET-DESIGN` §7 the late LP's target is **still
+exactly 0** — `drift_i = entryEquity_i − (shares_i/lpShares)·rangeETH`, and **the two terms are equal at
+entry BY CONSTRUCTION**, so a joining LP's drift starts at 0 whatever the price did before it arrived.
+⇒ **replacing the hedge formula changes the numerator and nothing else. A zero-target LP still funds a
+liquidation it did not cause, because the SEIZURE is pro-rata on units and the UNITS are pooled.**
+**Sizing and pooling are orthogonal, and only sizing changed.**
+
+✅ **WHAT THE MODEL DOES DO — three multipliers, all on the SIZE, none on the SHARING:**
+1. **The lever is the THIRD choice, not the first** (§8 Q2, §11): incoming flow nets drift down for free
+   and self-cancels; deferral settles in kind at zero carry; the lever covers only the **residue**. If
+   flow cleared the drift, `drift_i` is already 0 and there is nothing to borrow — so the book carries
+   debt in fewer states than it does today.
+2. **The trigger is a realised-cost accumulator** (§9), ~14 days at 183 bps net carry, not a 300 bps
+   deadband that re-engages every band traverse — so positions are opened far less often.
+3. **The size is the IL fraction, not the book** (§10): 4.7% of equity at ×1.10, 29.3% at ×2.00.
+⇒ **A smaller, rarer, residual debt is a smaller 4,801 bps. It is not a different number in kind**, and
+the owner decision this row books is unchanged by any of it.
+
+🔑 **AND THE MODEL SHARPENS *WHY* IT IS A DECISION RATHER THAN A BUG: IT IS §1's CONSERVATION PRINCIPLE
+ONE LEVEL DOWN.** The invariant reads *"lp preserve upside, basket depositors preserve dollar value —
+neither subsidises the other."* This is the same rule between two LPs: **an LP with zero drift is funding
+an LP with positive drift.** The invariant does not name LP-vs-LP explicitly, and it should — because the
+argument that kills a pooled IL basis (§App-2) is the argument against a pooled liquidation.
+
+📌 **THE ATTRIBUTION ALREADY EXISTS; ONLY THE ISOLATION DOES NOT — measured 2026-09-11, and it narrows the
+decision.** `LevVenueBase.sol:78` declares `mapping(address => uint256) debtUnits` and `:111` slices a
+position with `_unitSlice(debtUnits[lp], totalDebtUnits, pool.debt)` — **19 `debtUnits` and 18 `collUnits`
+references in `evm/src`.** So the pooled venue can already say EXACTLY what each LP owes and holds.
+⇒ **Option (a) is not "reverse §POOL-VENUE and give up O(1)"** — the per-LP ledger survived the collapse.
+**It is: make the SEIZURE consult that ledger instead of splitting pro-rata on units.** ▶️ Whether a
+protocol-side position can charge a seizure to the units that CAUSED it, while Morpho only ever sees one
+aggregate, is the question that decides it — and it is a code question, not a judgment call.
+⚠️ **`cascadeDelever` (16 refs) and `_bandFor` (3) are what stand in front of this today**, and
+`LevVenueBase.sol:200` already says isolation is *"PROTOCOL-ENFORCED rather than MORPHO-ENFORCED"* —
+⛔ but **`_bandFor` is reachable from exactly two sites** (§PLP-Y2, measured), so it gates the keeper paths
+and **none** of `deleverToVault` / `swapOutDeleverPooled` / `deleverBook` / `closeLev` / `closeLevFor`.
+**A guard that covers two of seven entry points is not what stands between the book and 4,801 bps.**
+
 ## 🔴 §KEEPER-LIQ-FALLBACK — the row asked the wrong question; the defect was the FALLBACK'S VALUE
 `LevManager.sol:51-58` warned that *"the keeper still carries `QUID_LEV_VENUE_LIQ_BPS` … so a market
 whose LLTV differs makes the contract and the keeper disagree about where liquidation is"*, and L4
@@ -5401,10 +5519,58 @@ is a fairness question (first-come? pro-rata? highest-LTV-first?) that must be r
 both are "a per-LP operation against a pooled position, with no per-LP unit written". Fix them with one
 model of pooled authorisation, or the second will re-open the first.
 
+### 🔑 THE MODEL'S ANSWER — **THE FAIRNESS RULING IS NOT OWED. UNDER DRIFT THE PER-LP TARGETS *SUM* TO THE POOL TARGET** (2026-09-11)
+
+This row books a fairness question — *"whose borrow is refused when the POOL is at the line: first-come?
+pro-rata? highest-LTV-first?"* — and marks everything downstream ⏸️ until it is ruled on. **`TARGET-DESIGN`
+§7 dissolves the question rather than answering it, and the derivation is two lines:**
+```
+drift_i      =  entryEquity_i − (shares_i / lpShares) · rangeETH
+Σ_i drift_i  =  Σ entryEquity_i − rangeETH · Σ(shares_i/lpShares)  =  Σ entryEquity_i − rangeETH
+```
+because `Σ shares_i = lpShares` exactly. And `entryEquity` equals shares at entry, so
+**`Σ drift_i = lpShares − rangeETH` — which is the POOL-LEVEL GAP, the same arithmetic
+`Core._shortfallLoadBalance` already computes.**
+⇒ **IF EVERY LP IS HEDGED TO ITS OWN DRIFT, THE POOL IS HEDGED TO EXACTLY THE AGGREGATE GAP — no LP's
+borrow ever has to be refused, because the sum is not an extra constraint, it IS the constraint.**
+**The missing aggregate gate is not a gate to add; it is an identity the current formula destroys.**
+
+🔴 **AND THAT NAMES THE ROOT THIS ROW MEASURED THE SYMPTOM OF.** *"N LPs each individually in-target can
+compose a pooled LTV that is not"* is true **only because `ilTargetLive`'s targets do not sum to
+anything.** Each LP's `ilBasisPx` is pinned at its own entry and `soldFractionWad` is a constant
+(0.507500313 — §E313/C22), so N per-LP targets have no defined relationship to any pool quantity.
+⇒ **the asymmetry is a property of the HEDGE FORMULA, not of the pooled venue.** Two rows measured this
+defect from opposite ends — this one from the borrow side, §CROSS-SUBSIDY-MEASURED from the seizure side
+— and neither could see that the per-LP/pooled mismatch had a formula underneath it.
+
+⛔ **WHAT THIS DOES *NOT* FIX, SO THE TWO ROWS ARE NOT COLLAPSED INTO ONE:** summing correctly stops the
+book from composing an out-of-target aggregate. **It does not stop a LIQUIDATION from being shared.**
+§CROSS-SUBSIDY's zero-debt LP has drift 0 under the new formula too (the two terms are equal at entry by
+construction) and still loses 48% of its collateral, because the seizure is pro-rata on pooled UNITS.
+⇒ **SIZING and SHARING are two decisions. The model settles the first and leaves the second an owner
+decision**, exactly as §CROSS-SUBSIDY books it. `swapOutDeliverUnlevered`'s unwired state belongs to the
+SECOND, not the first.
+
+### 🔴🔴 AND A CONTRADICTION BETWEEN TWO MODEL SECTIONS, FOUND BY RECONCILING THESE ROWS — READ IT BEFORE DELETING ANYTHING
+`TARGET-DESIGN` §7c says *"delete `sharesForShortfall`, `realInventory`, `onShortfall`,
+`_shortfallLoadBalance` and `proRataShortfall` — all five"*. **Measured what the first two actually are:**
+`Quid.sol:1562` — `function sharesForShortfall() external view returns (uint) { return totalShares(); }`
+`Quid.sol:1567` — `function realInventory() external view returns (uint) { return _auxRangeETH(); }`
+⇒ **THOSE ARE `lpShares` AND `rangeETH` — the two pool-level operands the drift hedge NEEDS.** Deleting
+them on §7c's authority removes the inputs to §7's replacement.
+✅ **THE RECONCILIATION, AND IT IS §6b VERBATIM:** solvency is denominated in **VALUE** and exposure in
+**THE ASSET**. `lpShares − rangeETH` is **meaningless as a solvency alarm** (a pro-rata claim cannot be
+short) and **exactly right as an exposure measure** (the pool holds less volatile than its LPs deposited).
+⇒ **§7c deletes the INTERPRETATION and the CONSUMER — the alarm, the threshold, the remediation, the
+`onShortfall` no-op, the sharing. It does not delete the ARITHMETIC, which §7 re-reads under its true
+name.** ▶️ **Restate §7c's deletion list as: delete `_shortfallLoadBalance`, `onShortfall` and
+`proRataShortfall`; KEEP the two accessors and RENAME them for what they are** (`lpShares` and
+`rangeETH` are already public quantities — rule 23 asks whether the accessors should exist at all once
+nothing calls them by the shortfall name).
+
 
 ---
 
-<!-- from the archived block # 📥 §L5-KAPPA-FOLDED-2026-09-09 — the κ/Γ lane book, folded in and its file DELETED — body in docs/informational/SPRINT-RECORD.md -->
 ## 🔴 §SESS-49 — THE KEEPER'S PLANNER TAKES A DIRECT POOL WHENEVER ONE EXISTS AND NEVER COMPARES
 
 Found by the measurement above, and it is the same question the owner asked of the route arm: *is the
@@ -5651,7 +5817,6 @@ reason.**
 ⚠️ It is a NEW EXTERNAL DEPENDENCY (key, rate limit, availability) on a path that currently has none,
 and it must degrade to the self-planned route rather than to no route.
 
-<!-- from the archived block # ⛔ §MIGRATION-NOT-ALLOCATION IS **WRONG** — simultaneous multi-venue is the design, and the aggregation layer — body in docs/informational/SPRINT-RECORD.md -->
 ## ⏸️ WHAT GENUINELY GETS HARDER — the honest cost, since this is now the direction
 - **Liquidation is per-venue with separate engines** (the code says so at `:533`). N pooled positions
   ⇒ **N cross-subsidy surfaces**, and `cascadeDelever` must know WHICH venue is stressed rather than
@@ -5672,7 +5837,6 @@ cheapest-first repay; the marginal-rate band width) and it sits behind the unfin
 
 ---
 
-<!-- from the archived block # 🔐 §BLOB-IS-BOUNDED-NOT-SAFE — *"how do we know there is never a malicious blob vulnerability"* — body in docs/informational/SPRINT-RECORD.md -->
 ## ⏸️ THE FIX, AND WHY IT IS NOT LANDED — **BYTE-BLOCKED, MEASURED**
 The lever is **w6**, not our per-leg guard. ⛔ **Do NOT make `RouteTookAndGaveNothing` proportional** —
 that is `> 0` deliberately, and §SESS-20 already ruled a per-leg SIZE bound out (*"a keeper would pass
