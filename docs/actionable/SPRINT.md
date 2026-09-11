@@ -246,6 +246,40 @@ Each was carried as open, some in red, some for weeks.
    📌 **Sequencing:** this is Tier 0 and cannot be added later, but it is downstream of item 0 (the
    LP's own funding half) on the critical path, and the quantum exposure that is LIVE today is
    transport (item 29, ML-KEM on RA-TLS), not the channels — §NO-POST-QUANTUM-ANYWHERE's own retraction.
+   ▶️ **THE BUILD, MEASURED AGAINST THE CODE 2026-09-11 — it is a mechanical change once the tree is
+   clean, and every number here was checked:**
+   1. **`Types.BTCChannel` gains `uint8 form` and it costs ZERO storage.** `address lpEth` (20) +
+      `uint32 fundingVout` (4) + `uint8 status` (1) = 25 bytes in one slot; 7 free bytes remain. Set at
+      open, never written again — **that immutability IS the blast-radius bound**, so it must be
+      enforced, not merely intended.
+   2. **`IPqVerifier` in `imports/Interfaces.sol`** (standing rule 2: one declaration, shared file),
+      three `bytes`-in/`bytes`-out members so no format is presumed: `fundingScript(bytes lpKey, bytes
+      hopKey)`, `payoutScript(bytes32 dest)` (reverts on invalid — replaces `isValidXOnlyKey`), and
+      possession + exit verification.
+   3. **The authority — and this is the finding that changes the ruling's premise.** 🔴 **`BTCChannels`
+      HAS NO AUTHORITY AT ALL TODAY: no owner, no msig, no `DEPLOYER`.** And the "enclave-image msig"
+      the owner's ruling says to reuse **does not exist on-chain anywhere in `evm/src`** — it is
+      `OPERATOR_SAFE` (an EIP-712 `verifyingContract`) + `OPERATOR_OWNERS` (3 addresses), verified in
+      **Rust** by `quid-hop::migration::guard_prod_trust_anchors`. ⇒ gating the setter on it means
+      adding `address immutable PQ_ADMIN` as a **6th constructor argument** and the **first on-chain
+      governance surface this contract has ever had.** `CLAUDE.md`'s *"THIS SYSTEM HAS NO GOVERNANCE
+      KNOBS"* goes from true to false. **The owner's argument still holds — it is the same Safe, not a
+      new trust anchor — but the ruling was made believing the anchor was already on-chain, and it is
+      not.**
+   4. **Branch points** at the secp decision sites: funding-script construction, exit-signature
+      verification, destination validity, possession proof, and the close/splice output match.
+   ⚠️ **BLAST RADIUS: 15 `new BTCChannels(...)` sites across 9 test files** (`BTCChannelsAuth`,
+   `SmartWalletLp`, `Alles`, `VBtcLevFeeLane`, `BtcLpMintStress`, `ReentrancyProbe`,
+   `btc/SettleSwapInProven`, `btc/OpenChannelE2E`, `btc/BtcSelfManaged`) plus `DeployLib.sol:308` and
+   `HopDemo.s.sol:53`. **Announce before starting** — several are files other lanes hold.
+   ✅ **AND THE SECP PATH IS LEGACY-FOREVER, NOT DEAD** (owner asked directly). Because `form` is fixed
+   at open, every v1 channel uses secp for its whole life — close, splice, exit. **If secp could be
+   switched off, every existing LP's funds would strand**, so it can never be gated away and, on an
+   immutable contract, never removed. That permanence is the safety property.
+   ⛔ **AND THE SEAM DOES NOT MAKE THE SYSTEM POST-QUANTUM — IT MAKES THE CONTRACT NOT THE BLOCKER.**
+   The channel stack is separately secp-bound: LDK has no PQ signer, and Lightning's commitment scheme
+   is built on secp 2-of-2. **Do not read a landed seam as PQ readiness**; read it as the one piece
+   that could not be added later being added now.
    ⚠️ **AND IT RESOLVES THE §R-P2MR CONTRADICTION:** `OWNER-DECISIONS.md:234` says the switch is the
    enclave-image msig; `SPRINT.md:198` says *"derived from Bitcoin, never from an authority"*. **The
    msig version is the owner's ruling and is the one this design uses.** The Bitcoin-derived latch
