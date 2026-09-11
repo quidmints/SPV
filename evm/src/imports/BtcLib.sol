@@ -15,6 +15,7 @@ import {IAux} from "./Interfaces.sol";
 library BtcLib {
 
     error ZeroTwap();
+    error InsufficientChannelBtc();
 
     function settleBtcLp(
         Types.Deposit storage LP,
