@@ -382,7 +382,7 @@ interface ILevManagerDeliver {
     function swapOutDeleverAmt(address lp, uint maxUsd18)
         external view returns (address venue, address stable, uint amtNative);
     function swapOutDelever(address lp, uint stableUsd, uint freeSats)
-        external returns (uint usedUsd);
+        external returns (uint usedUsd, uint freedSats);
 
     function consolidateForRepay(address lp, address refundTo) external returns (uint sent);
 }
@@ -413,6 +413,13 @@ interface IBtc {
     function addPendingSwapOut(uint usd6) external;
     function subPendingSwapOut(uint usd6) external;
 }
+
+interface IVaultExposeB {
+    function exposeBtcToLev(address lp, uint sats) external returns (bool);
+    function unexposeBtcFromLev(address lp, uint sats) external returns (bool);
+}
+
+interface IVBtcToken { function VAULT() external view returns (address); }
 
 interface IVBtcRange {
     function totalShares() external view returns (uint);

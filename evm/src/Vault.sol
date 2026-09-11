@@ -76,7 +76,24 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
 
     VBtc public immutable VBTC;
 
+    error NotLevManagerBtc();
     error InsufficientChannelBtc();
+
+    function exposeBtcToLev(address lp, uint sats) external returns (bool) {
+        if (msg.sender != LEV_MANAGER) revert NotLevManagerBtc();
+
+        BtcLib.vbtcExposeBody(autoManaged, levPooled, lp, sats);
+        VBTC.mintTo(LEV_MANAGER, sats);
+        return true;
+    }
+
+    function unexposeBtcFromLev(address lp, uint sats) external returns (bool) {
+        if (msg.sender != LEV_MANAGER) revert NotLevManagerBtc();
+
+        BtcLib.vbtcUnexposeBody(levPooled, lp, sats);
+        VBTC.burnFrom(LEV_MANAGER, sats);
+        return true;
+    }
 
     function sharesOf(address lp) external view returns (uint) { return autoManaged[lp].pooled; }
 
@@ -90,12 +107,6 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
             autoManaged, levBuf, from, to, amount, feesPerShare, USD_FEES, address(QUID));
     }
 
-    function redeemVBtc(address holder, uint sats) external nonReentrant {
-        if (msg.sender != address(VBTC)) revert Unauthorized();
-        if (sats == 0 || sats > SwapLib.plainNet(autoManaged[holder].pooled, levPooled[holder]))
-            revert InsufficientChannelBtc();
-        _resize(holder, sats, sats, false, 0);
-    }
 
     function creditFee(uint premium6) external onlyUs {
         (, uint usdInc) = SwapLib.feeIncrements(0, premium6, lpShares + totalBuffer);

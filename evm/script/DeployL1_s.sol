@@ -28,6 +28,7 @@ import {BtcLevManager} from "../src/BtcLevManager.sol";
 import {MorphoEscrowVenue, MarketParams} from "../src/imports/LevVenueBase.sol";
 import {ISwap} from "../src/imports/Interfaces.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {RealRateBtcMorphoOracle} from "../src/imports/LevBase.sol";
 
 
 contract Deploy is Script {
@@ -330,7 +331,7 @@ contract Deploy is Script {
         _wireBasketFeedsAndVenues();
 
         // ─── IL-protect leverage overlay (opt-in, SAME script) ────────────
-        // The ONE deploy script also stands up the ETH (weETH) + BTC (WBTC) leverage
+        // The ONE deploy script also stands up the ETH (weETH) + BTC (vBTC) leverage
         // managers + escrow venues and pins every link, when DEPLOY_LEV=1. Runs
         // BEFORE finalize so all GOV/owner pins land inside this broadcast. Skipped
         // (no lev-infra env required) for a core/fork deploy.
@@ -424,17 +425,14 @@ contract Deploy is Script {
     ///     ETH (weETH collateral): LevManager (folded SOR + ether.fi mint/redeem legs) → Morpho escrow
     ///       venues → `pinVenues` (frozen) → `setFlashProvider` (Morpho, zero-fee de-lever) →
     ///       `setQuidSyncHook` (Quid) → `Vault.setLevManager` (backing: rangeETH counts the book).
-    ///     BTC (WBTC collateral): BtcLevManager → `init` (RANGE + Morpho flash provider + the venue
-    ///       allowlist, frozen in ONE call) → `Vault.setLevManager` (backing: rangeBTC counts the book).
-    ///       ⚠️ The allowlist is EMPTY since the Aave V3 WBTC venue was removed: no BTC lev position can
-    ///       open until a WBTC-collateral venue is added to `vsB` below.
+    ///     BTC (vBTC collateral): BtcLevManager → Morpho vBTC/USDC escrow venue → `Vault.setLevManager`.
     ///   Skipped when `DEPLOY_LEV` is unset, so a core / fork-e2e deploy needs no lev-infra env. External-infra
     ///   addresses come from env; the in-script tokens (weETH via the ETH venue, WBTC/USDC/AUX/V4) are reused.
     ///   GOV (`YB_GOV`, default = deployer) must be the broadcaster so the pin-once calls land, then has no
     ///   ongoing power (allowlist + hooks frozen). ENV (only when DEPLOY_LEV=1) — EVERY external address has a
     ///   LIVE mainnet default (the constants above), so a bare `DEPLOY_LEV=1` deploys the whole overlay;
     ///   overrides: MORPHO, MORPHO_ORACLE/IRM/LLTV (weETH long), MORPHO_WETH_ORACLE/IRM/LLTV (plain-WETH long),
-    ///   optional YB_GOV. The BTC leg takes no env at all.
+    ///   optional YB_GOV, MORPHO_VBTC_ORACLE.
     ///   (Down-side short venues REMOVED 2026-07-24 — up-side-only;
     ///   the short subsystem was an LVR leak, see docs §J.4. A directional-short product, if shipped, is a normal
     ///   position on an inverse venue added to the allowlist, per §K — not the removed hedge.)
@@ -514,23 +512,19 @@ contract Deploy is Script {
         // `ethVenue` pointer. Pinning the wrong one compiles and silently reads leverage as disabled.
         Quid(payable(AUX.ethVenue())).setLevManager(address(lm));
 
-        // ── BTC lev: WBTC collateral. External+async acquisition ⇒ no swapper/flash ──
-        BtcLevManager bm = new BtcLevManager(address(AUX), address(WBTC), gov, address(QUID));
-        // ⛔ NO MORPHO MARKET FOR OUR LIGHTNING BITCOIN — STANDING OWNER RULING (2026-09-07),
-        //    not a deployment convenience. Using Lightning-custodied BTC as collateral to borrow
-        //    dollars, then selling those dollars for more Lightning BTC, is a toxic loop: the
-        //    position's collateral and its acquisition target are the SAME asset, so a drawdown
-        //    margin-calls the very thing the borrow was used to buy.
-        //    ⇒ the market creation, its vBTC oracle and its escrow venue are DELETED, not disabled.
-        //    ⛔ Do not re-add a market whose `collateralToken` is the vBTC token.
-        //
-        // ⚠️ NO BTC LEV VENUE IS WIRED. The Aave V3 {collateral: WBTC, debt: <stable>} escrow that stood here
-        //    was removed with the rest of the AAVE integration. `BtcLevManager.init` accepts an empty
-        //    allowlist, so the manager deploys and pins (the Vault's backing hook and the flash provider
-        //    still need it), but `openBtcLev` has no venue to route to until one is added here.
-        //    Whatever replaces it must be WBTC-collateral (`init` vets that) and must NOT be a market whose
-        //    collateral is the vBTC token (owner ruling above).
-        address[] memory vsB = new address[](0);
+        // ── BTC lev: vBTC-collateral (vBTC == the Vault). External+async acquisition ⇒ no swapper/flash ──
+        BtcLevManager bm = new BtcLevManager(address(ETH.VBTC()), address(AUX), address(WBTC), gov, address(QUID));
+        address vbOracle = vm.envOr("MORPHO_VBTC_ORACLE", address(0));
+        if (vbOracle == address(0))
+            vbOracle = address(new RealRateBtcMorphoOracle(address(AUX), address(WBTC)));
+        address[] memory vsB = new address[](1);
+        vsB[0] = _mkMorphoVenue(morpho, MarketParams({
+            loanToken: address(USDC),
+            collateralToken: address(ETH.VBTC()),
+            oracle: vbOracle,
+            irm: vm.envOr("MORPHO_IRM", ADAPTIVE_IRM),
+            lltv: MORPHO_LLTV_86
+        }), address(bm));
         bm.init(address(ETH), morpho, vsB);                // atomic pin-once: hook + Morpho flash provider + venue allowlist, FROZEN
         ETH.setLevManager(address(bm));                 // BACKING: rangeBTC counts the BTC lev book
         // Both lev-manager slots are one-shot pins (`LevManagerPinned`) and are the Vault's ONLY
@@ -539,7 +533,7 @@ contract Deploy is Script {
 
         LEVM = lm; BTCLEVM = bm;                           // recorded into deployments/l1.json
         console.log("LevManager (ETH weETH):", address(lm));
-        console.log("BtcLevManager (WBTC):", address(bm));
+        console.log("BtcLevManager (vBTC):", address(bm));
     }
 
     /// @dev Create the Morpho market if unlisted, then a MorphoEscrowVenue bound to `mgr`. Own frame keeps the
