@@ -1037,6 +1037,78 @@ cap, no band, no scarcity term and no size dependence to describe, because there
 — that is the check, and it found a live instance today on `main` after the same sweep had already been
 run on `lane/CUT`.
 
+## 🔴🔴 §THE-SUITE-DID-NOT-NOTICE — **WE DELETED THE PRICING MECHANISM AND 997 TESTS PASSED** (owner, 2026-09-11)
+
+Owner: *"if we have been removing code and haven't even landed our new design yet, but we have a
+thousand tests passing, i doubt the value of those thousand tests at all."* **Measured. The suite's own
+evidence says he is right, and the proof is sharper than the suspicion.**
+
+### 📊 THE CONTROL, AND IT IS THE MERGE ITSELF
+`ffec9643` merged 36 commits that **deleted the entire scarcity kernel** — `skewTargetUsd`,
+`flowEwmaUsd`, `premiumEwmaUsd`, `_varSq`, the 48h flow EWMA, `soldFractionWad`'s primary branch — and
+replaced the charge with a constant. **`wellSkew` now reads `public pure … return MIN_SWAP_SKEW_WAD`.**
+| | |
+|---|---|
+| test files the merge deleted | **0** |
+| test functions the merge deleted | **0** |
+| full suite after the merge | **997 passed / 6 failed / 1 skipped** |
+⇒ **THE ENTIRE PRICING MECHANISM WAS REMOVED, EVERY TEST WRITTEN AGAINST IT WAS KEPT, AND THE SUITE GOT
+GREENER.** That is not a suite that failed to catch a regression. It is a suite that **cannot see the
+thing the product charges for.**
+
+### 📊 WHY IT COULD NOT SEE IT — the reach of the suite, measured
+| | test functions | |
+|---|---:|---|
+| total (142 files that contain tests) | **946** | |
+| **touch a money-path contract at all** | **353** | **37%** |
+| touch NONE | 593 | 62% — and the largest are `RegistrySourceAnchor` (47), `TitleLedger` (34), `IdentityRegistry` (29), i.e. **deferred identity scope** |
+| **mention the CHARGE at all** (`wellSkew`/`sellSkew`/`MIN_SWAP_SKEW`/`skewWad`) | **114** | **12%** |
+| 🔴 **test FILES referencing `wellSkew`** | **1** | `UnificationControls.t.sol` |
+⇒ **The number this product is built on is touched by ONE test file.**
+
+### 🔑 AND THE TWO TESTS THAT *DID* NOTICE ARE THE WHOLE LESSON
+Of 6 failures, **two are `LeverageCrossSubsidyProbe` and both failed on a PREMISE, not a property**:
+*"premise: the early LP carries the pool's debt: 0 <= 0"* and *"precondition: levered position took real
+debt"*. A third, `DeleverEthBacking`, failed with *"RUN-HAPPENED: the de-lever leg was never reached, so
+the property below is VACUOUS."*
+⇒ **THE ONLY TESTS THAT DETECTED A WHOLE MECHANISM BEING DELETED WERE THE ONES THAT ASSERT THEIR OWN
+PREMISE FIRST.** The other 997 had nothing to say, because a test that asserts a property without
+asserting that the mechanism ran is satisfied by the mechanism being **absent**.
+📌 That is standing rule 21's *"name the mechanism you expect to move the number, and assert it is
+PRESENT and ACTIVE"* — and this is the first time the file can price what ignoring it costs: **~99.4% of
+the suite.**
+
+### 📊 WITH THE EARLIER CENSUS, WHICH NOW READS DIFFERENTLY
+**1,126 test functions · 7 take a parameter · 0 `invariant_` · 9 use `bound()`/`vm.assume` · 95 assert
+NOTHING · 481 assert exactly once · 610 have bodies ≤12 lines.** Read alongside the above, the shape is
+not "some weak tests among good ones" — **it is a suite of examples, and examples cannot notice a
+deletion.**
+
+### ▶️ WHAT REPLACES THE SEVEN TEST-HYGIENE ROWS — and it is one instruction, not a backlog
+⛔ **DO NOT fix the 25 `catch {}` blocks, the 18 swallowed residuals, the 27 mock sites, or wire §E244's
+mock router.** Those rows polish instrumentation on tests that cannot fail for the right reason.
+✅ **THE REPLACEMENT, and it is gated on the model being built (D7 + §7c/§7 landing as one change):**
+1. **EVERY test asserts its PREMISE before its property** — the mechanism under test is present and did
+   something. A test that cannot distinguish *"the property holds"* from *"the code is gone"* is deleted,
+   not fixed.
+2. **The invariant suite is written against the MODEL, not the implementation** — conservation (§1: no
+   constituency funds another), drift's self-cancelling round trip (§7), pro-rata deliverability (§7c),
+   and the flat charge being size- and direction-blind (§5). Those are properties that survive a
+   refactor; `assertEq(fee, 420)` does not.
+3. **Under randomness**, which today is 9 tests out of 1,126.
+⚠️ **AND THE NEGATIVE TESTS ARE THE ONE THING TO KEEP AS-IS.** `RefillKeeper.t.sol` asserts *"the TOXIC
+make-whole cluster is GONE"* — it tests that a deletion STAYED deleted, which is exactly the class that
+survives a design change. **Write more of those, not fewer.**
+
+📌 **THE SIX FAILURES ARE DELIBERATELY NOT BEING DEBUGGED** (owner: *"i dont care about those 6"*), and
+the reason is recorded rather than assumed: 3 are in project-6b's pre-merge control, and the other 3 —
+2 × `LeverageCrossSubsidyProbe` + 1 × `Alles` — are the merge's, caused by the hedge no longer borrowing
+now that the kernel is gone. **They will be rewritten against the model, not repaired against the corpse.**
+⚠️ **One consequence must not be lost with them: the 4,801 bps cross-subsidy is currently UNREACHABLE for
+the same reason the protection is** — no debt is taken, so nothing can be liquidated. **That is not the
+exposure being fixed; it is the lever being inert**, and `§CROSS-SUBSIDY-MEASURED`'s number still stands
+for the moment the hedge is rebuilt.
+
 ## ⛔ §STRIPPED-CONSTRAINTS — **93 PROHIBITIONS THE COMMENT STRIP DELETED WITH NO SECOND COPY ANYWHERE. RESTORED HERE, NOT IN CODE** (2026-09-11)
 
 `561a36f7` removed every comment from `evm/src` (24,983 → 10,322 lines) on the owner's *"remove all
