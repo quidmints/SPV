@@ -643,6 +643,65 @@ checkpointed, the fix is to FEED this accumulator, not to remove it — the pipe
 intention nobody wired. **Deleting it resolves an open design question by deletion, which this repo has
 ruled out before.**
 
+### 🔴🔴🔴 BREAK 10: **THE VENUE-FEE BOOKMARK IS A ONE-WAY RATCHET, AND PRICE VOLATILITY ALONE DRIVES IT**
+`QuidLib.rebalanceBody`, the venue-yield block:
+```solidity
+uint current = _venueBalanceLib(c.ev, c.aux);
+if (plainDepth == 0) { o.newBookmark = current; }
+else {
+    if (c.bookmark > 0 && current > c.bookmark)                       // credit ONLY on a rise
+        o.venueFeesPerShareInc = fullMulDiv(current - c.bookmark, WAD, plainDepth);
+    o.newBookmark = current;                                          // ⬅ but ratchet ALWAYS
+}
+```
+⭐ **THE CREDIT IS CONDITIONAL AND THE BOOKMARK IS NOT.** A fall writes the lower value down with no
+debit; the next rise from that trough is then paid out **in full, as yield**. Over any round trip the
+venue's real value is unchanged and `venueFeesPerShare` has ratcheted **up by the whole down-leg**.
+
+🔑 **AND THE QUANTITY IS NOT A VENUE BALANCE — IT IS A VENUE BALANCE MINUS THE LEVERED BOOK, PRICED AT
+THE ORACLE**, which is what turns a rare drawdown into a continuous pump:
+```
+_venueBalanceLib = IEthVenue.rangeOp(0,2)  −  ILevEquity.totalNetEquity()
+LevBase.totalNetEquity → LevMath.netEquityBase(coll, debtUsd, AUX.assetPrice(ORACLE_KEY))
+netEquityBase        → debtBase = debtUsd·WAD/price;  return collBase − debtBase
+```
+**Verified by reading the body, not inferred from the name** — the sign is the whole finding:
+| ETH price | `debtBase` | `totalNetEquity` | `current` | what the block does |
+|---|---|---|---|---|
+| **↓** | ↑ | **↓** | **↑** | 🔴 **credits the whole move as venue YIELD** |
+| **↑** | ↓ | ↑ | ↓ | ratchets the bookmark down, **silently, no debit** |
+
+⇒ **EVERY DOWNWARD PRICE MOVE IS DISTRIBUTED TO PLAIN LPs AS YIELD; EVERY UPWARD MOVE IS ABSORBED.**
+`venueFeesPerShare` is **monotone non-decreasing by construction** and rises with **volatility**, not
+with earnings. A price that ends where it started has still paid out every down-tick along the way.
+⚠️ **Opening or closing a levered position does it too**, without any price move: an open raises
+`totalNetEquity` (bookmark ratchets down, silent), the matching close lowers it (**paid out as yield**).
+⚠️ **And the `total > n ? total − n : 0` clamp sharpens it**: once the levered book exceeds the venue
+balance, `current` pins at 0, and the entire recovery off that floor is credited.
+
+💸 **WHO FUNDS IT — THE PAYOUT MINTS SHARES.** `_pendingFor` adds `venueOwed − venueBm[user]` to
+`tokReward`; `_settlePending` does `_creditShares(LP, tokR)` ⇒ `LP.pooled += tokR; lpShares += tokR`.
+**No asset arrives.** The claim is satisfied by dilution ⇒ **a transfer from every other LP to whoever
+holds the oldest `venueBm` checkpoint.** Long-standing LPs extract from newer ones, funded by
+oscillation rather than by yield.
+⛔ **AND THE CHECKPOINT IS NOT THE DEFENCE HERE, THOUGH IT LOOKS LIKE ONE.** `venueBm` *is* set on
+deposit and transfer (`QuidLib:142`, `Quid:250`), so a joiner cannot claim past accrual — I checked,
+and that half is sound. **It does not help**, because the accumulator does not rise when the loss
+happens; it rises on the recovery. A depositor who enters at the trough is checkpointed **below** the
+credit they are about to receive for a drawdown they never bore. ⇒ **buy the dip, collect the rebound
+as a fee, leave.** Constructible with no oracle staleness and no second venue.
+
+📌 **THIS IS ALSO BREAK 7's FOURTH SURFACE.** `totalNetEquity` reads `AUX.assetPrice(ORACLE_KEY)`, so
+the same stale anchor now reaches **swap pricing, LP exit valuation, hedge sizing, and the venue-fee
+ratchet** — and here staleness does not merely mis-price, it **mis-times which side of the ratchet
+fires.**
+
+⚠️ **STATED AT THE CONFIDENCE I HAVE.** I verified the four bodies above by reading them and the sign of
+`netEquityBase` explicitly, because the whole finding turns on it. **I have NOT measured the magnitude
+in a fixture** — that is the next step, and it is a premise-asserting test: drive the price down and
+back up with a levered book open, assert the venue balance returns to its start, and assert
+`venueFeesPerShare` **did not move**. It will.
+
 ### ✅ AND ONE BOUND THAT IS FINE, checked so the absence is not read as unexamined
 `LevVenueBase._unitSlice(u, tot, bal) = fullMulDiv(u, bal + 1, tot + 1e6)` floors, and `_unitsFor` floors
 on the way in — so **collateral rounds against the LP at both ends (conservative) and debt rounds in the
