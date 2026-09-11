@@ -170,6 +170,43 @@ drift_i  =  entryEquity_i  −  (shares_i / lpShares) · rangeETH        // vola
 MORE than it deposited, and selling that realises a loss that heals); the per-LP basis fixed at open;
 the cap as a safety bound.
 
+## 7b. 🔑 The shortfall IS the aggregate drift — and THREE mechanisms now aim at it
+Traced 2026-09-11, because §E313's `proRataShortfall` could not be graded without it.
+
+**What the shortfall is, in code:** `Core._shortfallLoadBalance` compares
+`RANGE.sharesForShortfall()` (= `lpShares`) against `RANGE.realInventory()` (= `rangeETH`):
+```
+shortfall = totalShares − rangeETH
+```
+**And that is the same quantity §7 hedges.** `Σ drift_i = Σ entryEquity_i − rangeETH`, and shares equal
+`entryEquity` at entry. ⇒ **the pool-level shortfall and the aggregate per-LP drift are one number
+under two names.**
+
+| mechanism | where it acts | what it does to the gap |
+|---|---|---|
+| **the hedge** (§7) | upstream, at the keeper's touch | **closes** it — borrows so the pool is not short |
+| **paid deferral** (§6) | downstream, at exit | **compensates** whoever waits, out of what the asset earns |
+| **`proRataShortfall`** (§E313) | at exit | **shares** it, so exiting first gains nothing |
+
+### ⚠️ THE CONDITIONS `proRataShortfall` NEEDS, AND WHETHER THEY STILL HOLD
+1. **claims > real inventory** — ✅ **holds, and the design CREATES it**: serving a drain sells LP ETH,
+   which is precisely how drift becomes positive.
+2. **exit is first-come** — ✅ holds, unchanged.
+3. **an exiter can leave at FULL value while the gap is open** — ✅ holds. `onShortfall` is
+   `function onShortfall(address, uint) external {}` on ETH — **a literal no-op** — and
+   `_shortfallLoadBalance` only calls it at all once the gap reaches **1% of total shares.**
+⇒ **All three conditions hold today. The measured 15.2 bps first-out advantage is still constructible.**
+
+### 🔑 BUT THE THIRD MECHANISM MAY BE REDUNDANT, AND THAT IS THE REAL QUESTION
+**Paid deferral already compensates the party who does not get served now.** If that compensation is
+fair, being second costs nothing and **there is no first-out advantage to remove** — at which point
+sharing the shortfall would CHARGE an exiter for a gap the protocol has already agreed to pay for.
+⇒ **`proRataShortfall` is the right fix for an UNCOMPENSATED queue and the wrong one for a COMPENSATED
+queue.** ⏸️ **The open question is therefore not "restore it or not" but: does the forward yield paid
+under §6 actually cover the drift a waiter absorbs?** If yes, §E313's fix is superseded by §6. If no,
+it is still needed and `onShortfall`'s no-op is a live hole.
+⛔ **Do not wire it before answering that** — the two mechanisms would double-charge the same gap.
+
 ## 8. The two questions a swap raises, and their answers
 **Serving is what CREATES the exposure**, so these are independent, not a chain.
 
