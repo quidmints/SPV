@@ -97,7 +97,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         _resize(holder, sats, sats, false, 0);
     }
 
-    function creditSkewPremium(uint premium6) external onlyUs {
+    function creditFee(uint premium6) external onlyUs {
         (, uint usdInc) = SwapLib.feeIncrements(0, premium6, lpShares + totalBuffer);
         USD_FEES += usdInc;
     }

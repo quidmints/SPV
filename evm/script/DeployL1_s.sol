@@ -327,8 +327,10 @@ contract Deploy is Script {
             btcFeed: 0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c,   // Chainlink BTC/USD
             mainHop: mainHop_, fallbackHop: fallbackHop_,
             btcDepositKey: vm.envOr("BTC_DEPOSIT_KEY", bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798))),
-            // §PQ-SEAM: OPERATOR_SAFE, the enclave-image authority. 0 = the seam stays shut forever.
-            pqAdmin: vm.envOr("OPERATOR_SAFE", address(0)),
+            // §PQ-SEAM: THE msig — this broadcaster, the same Safe that owns ANGEL and renounces
+            // Aux and Basket below. One msig for everything; it keeps only `setPqVerifier` after
+            // finalize. Pass address(0) instead to stay fully adminless and forgo P2MR support.
+            msig: msg.sender,
             weth: address(WETH), wbtc: address(WBTC), gho: address(GHO), usdg: address(USDG),
             aaveSpoke: aaveSpoke, aaveHub: aaveHub,
             stables: STABLECOINS, vaults: VAULTS,
@@ -388,9 +390,13 @@ contract Deploy is Script {
         // then the msig renounces Basket. The assert runs FIRST, so a mis-wire reverts before anything renounces
         // or burns → all-or-nothing. One-shot (ANGEL burned + owners zeroed) ⇒ renounced EXACTLY once. No skip:
         // the fork harness gives the deployer ANGEL up front, so this runs identically to production.
-        // BTCChannels is NOT renounced: it owns rotateHopNode() — the operator's lever to replace a
-        // lost/compromised hop key. Renouncing would strand the channel system on a dead hop. It stays
-        // deployer-owned; the operator should transferOwnership to a multisig for production.
+        // ⛔ **THIS BLOCK USED TO SAY `BTCChannels` STAYS DEPLOYER-OWNED BECAUSE IT OWNS
+        // `rotateHopNode()`. BOTH HALVES ARE FALSE** (measured 2026-09-11): `rotateHopNode` has ZERO
+        // occurrences in any Solidity source — the comment was its only remaining trace — and
+        // `contract BTCChannels {` is not `Ownable`, so there was nothing to renounce or transfer.
+        // MAIN_HOP and FALLBACK_HOP are pinned at construction and cannot be replaced; that is the
+        // §E164 design, not an oversight. The only authority it has is §PQ-SEAM's `MSIG`, which can
+        // name the post-quantum verifier once and do nothing else.
         AUX.finalize();                          // assert wiring + burn ANGEL + renounce Aux
         Ownable(address(QUID)).renounceOwnership();  // Safe renounces Basket (owner == deployer, no _transferOwnership)
 

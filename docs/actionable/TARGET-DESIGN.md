@@ -393,6 +393,83 @@ the instrument we chose to watch**, and no section currently says so.
 job; the value gap is the charge's). ⛔ **But it is unstated, and "a round trip self-cancels" reads as
 "nothing was lost," which is false.**
 
+## 🔴 0a-octies. **TWO MORE BREAKS — §6's "cost is zero" is false, and the flat fee taxes the trade that helps us**
+
+### 🔴 BREAK 3: **§6 CLAIMS DEFERRAL COSTS THE PROTOCOL NOTHING. IT DOES NOT COST *THE PROTOCOL* — IT COSTS THE LPs**
+§6, verbatim: *"The asset keeps working; its yield compensates the wait. Nothing forecast, nothing
+borrowed, **and the protocol's cost is zero — it pays out yield it would not otherwise have owed.**"*
+
+**Follow the yield.** The pool owes you 10 ETH and cannot deliver. The 10 ETH is still in the pool,
+still staked, still earning. We pay you that yield for the wait.
+⇒ **but that yield was accruing to the LPs, whose asset it is.** Paying it to the waiter is a
+**transfer from LP to counterparty**, not a free lunch. *"Yield it would not otherwise have owed"* is
+true of the PROTOCOL as a legal entity and false of the people whose capital generates it.
+📌 **It may still be the right trade** — the LP keeps the asset working for the book while the waiter
+takes the carry, which is a defensible split. ⛔ **But §6 is the answer to "who funds the drift", and
+answering it with "nobody, it is free" is exactly the shape this document keeps catching elsewhere.**
+⇒ **the honest statement is: deferral moves the cost from the LP's PRINCIPAL to the LP's YIELD.** That
+is a real improvement over selling inventory, and it is not zero.
+⚠️ **And it composes badly with §1.** *"LPs preserve upside; neither constituency subsidises the
+other."* A waiter being paid LP yield is the LP funding the counterparty's patience. Small, bounded,
+probably acceptable — **but it is a subsidy, and §1 does not currently have an exception for it.**
+
+### 🔴 BREAK 4: **A SYMMETRIC FLAT FEE TAXES THE TRADE THAT HEALS US AS HARD AS THE ONE THAT HURTS**
+420 ppm is charged **in both directions**. But the pool's position is directional: when drift > 0 we
+are short the asset, so **a buy makes it worse and a sell makes it better.** Charging both identically
+means the flow we most want is priced exactly like the flow we least want.
+📌 **This is not a new observation — it is `§A.64 step 2`'s requirement, already in `SPRINT.md` as
+C2b:** *"a symmetric fee taxes the deposit that heals the basket as hard as the drain that hurts it."*
+It was booked about the BASKET's redemption leg. **It applies to the SWAP identically and nobody
+carried it across.**
+⚠️ **AND IT IS THE SAME FIX AS §0a-sexies, WHICH IS WHY IT IS WORTH SAYING NOW:** a directional charge
+keyed off **inventory level** is not flow-derived, so §NO-GAMEABLE-BOUND does not forbid it — the
+discriminator established there is *can the counterparty move the input without paying*, and they
+cannot move the level without trading.
+⛔ **But per §0a-septies it still does not touch adverse selection**, so it is a third thing the design
+wants and not a substitute for freshness. **Three separate jobs: freshness kills the arb, a level-keyed
+charge rations depletion, and DIRECTION decides who pays it.**
+
+### 🔴🔴 BREAK 5: **THE FEE ON THE VOLATILE LEG CREDITS USD THAT WAS NEVER RECEIVED — AND IT IS MONOTONE**
+Traced through `retainFee` → `Core.recordFee`, both legs:
+| leg | what the pool actually receives | what the ledger records |
+|---|---|---|
+| USD in (`nativeAmount = false`) | `premium` **USD** | `POOLED_USD += premium`. ✅ correct |
+| 🔴 **volatile in** (`nativeAmount = true`) | `premium` of **VOLATILE** (`r.amount -= premium` on a volatile input) | `retainedNativeFee += premium` **and** `POOLED_USD += premium·px` |
+
+⇒ **on the volatile leg the pool keeps VOLATILE and credits its USD ledger with the dollar equivalent.**
+✅ **And the volatile it keeps is NOT in `POOLED`** — `LevYbReal.t.sol:577` states the invariant as
+`POOLED + retainedNativeFee == rangeETH + levBuf`, i.e. you must ADD the counter back to balance.
+⛔ **`retainedNativeFee` has ZERO consumers in `evm/src`** — a declaration, an increment, an interface
+member, and tests. Nothing ever converts it, spends it, or nets it off.
+
+**WHY IT MATTERS, and it is not the backing check:** `POOLED_USD` is an INVENTORY counter, not a claim
+ledger — `_fillDelta` reads it as the bound on what we can pay out:
+```
+uint held = inputIsUsd ? (POOLED) : (POOLED_USD);
+if (out > held) { out = held; … }
+```
+⇒ **the clamp that exists to stop us over-delivering USD is reading a number inflated by fees that
+arrived as volatile**, and since the counter is described in its own test as *"a monotone wei counter"*,
+**the overstatement accumulates and is never trued up.** Per swap it is 420 ppm; over the book's life it
+is the integral of every volatile-in swap.
+
+⚠️ **ONE HYPOTHESIS I HAD AND KILLED, recorded because a dismissal is a conclusion:** I expected this to
+tighten `checkBacking` on every volatile-in swap, the mirror of §PARTIAL-TAKE. **It does not.**
+`Core._rangeEquityUsd18` keys off **`basketUsd`**, and `recordFee` never touches `basketUsd` — only
+`POOLED_USD`. So the committed figure is unaffected and the backing check is clean. **The defect is
+confined to the delivery bound.**
+⏸️ **NOT FULLY CLOSED:** whether the inflation is intended — `POOLED_USD` may be meant as "USD value
+owed to LPs" rather than "USD held", in which case crediting the dollar value of a volatile fee is
+coherent and the real defect is that `_fillDelta` uses a VALUE ledger as an INVENTORY bound. **Either
+way one of the two readings is wrong, and the two sites disagree.** ▶️ Settle which by asking what
+`drawPooledUsdBtc`'s `POOLED_USD -= usd6` means — it spends it like inventory.
+
+### ⚠️ AND A NOTE ON WHAT I HAVE NOT BROKEN, so the absence is not read as endorsement
+I have not been able to break: §7c's argument that a pro-rata claim cannot be short (it is arithmetic);
+§12's finding that collateral is weETH/WBTC only (read from the deploy); §NO-GAMEABLE-BOUND's two
+measured attacks; or the drift formula's entry-time correctness. ⛔ **That is four sections examined
+and standing — it is not a claim that the rest is sound**, most of it has not been attacked yet.
+
 ## 0b. THE ASSUMPTIONS, EACH GRADED BY HOW WE KNOW IT
 | # | assumption | grade |
 |---|---|---|

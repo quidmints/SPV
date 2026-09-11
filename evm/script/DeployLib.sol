@@ -100,7 +100,7 @@ library DeployLib {
         /// §PQ-SEAM. The operator Safe that may name the post-quantum verifier ONCE. `address(0)`
         /// means this deployment can NEVER enable a v2 channel — which is the correct value for any
         /// deployment that does not intend to carry the seam.
-        address pqAdmin;
+        address msig;
     }
 
     /// @dev The deployed core-stack addresses. `rover`/`spvGateway`/`btcChannels`
@@ -323,7 +323,7 @@ library DeployLib {
         // 4-of-7 compromise pulls. `cfg` carries both so a deployment names them explicitly
         // rather than inheriting a default nobody chose.
         BTCChannels c = new BTCChannels(address(spv), BTC, cfg.mainHop, cfg.fallbackHop,
-                                        cfg.btcDepositKey, cfg.pqAdmin);
+                                        cfg.btcDepositKey, cfg.msig);
         // WIRING INVARIANT (regression guard): btc MUST be the merged Vault `BTC` —
         // where creditSwapOut / requestDeposit / resize live. A prior version passed
         // `ETH` (Quid, which has none), silently breaking ALL BTC swap-out (creditSwapOut

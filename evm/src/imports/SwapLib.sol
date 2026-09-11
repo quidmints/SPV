@@ -229,7 +229,7 @@ library SwapLib {
 
         {
             r.px = _priceOr(priceHint, address(aux), r.asset);
-            retainSkewPremium(c.core, r, MIN_SWAP_SKEW_WAD, !r.forVolatile);
+            retainFee(c.core, r, !r.forVolatile);
         }
         max = _finishSwap(ctx, aux, r, r.forVolatile, max);
     }
@@ -435,7 +435,7 @@ library SwapLib {
         rp.fillPrice      = basePrice;
 
         SwapReq memory sr; sr.amount = amount; sr.px = 0;
-        retainSkewPremium(core, sr, MIN_SWAP_SKEW_WAD, false);
+        retainFee(core, sr, false);
         amount = sr.amount;
         rp.amount    = amount;
         rp.recipient = address(this);
@@ -626,13 +626,17 @@ library SwapLib {
         return pooled > lev ? pooled - lev : 0;
     }
 
-    function retainSkewPremium(address core, SwapReq memory r, uint skew, bool nativeAmount)
+    /// @notice Take the flat charge off the input and credit it to the range's LPs.
+    /// §TWAP-DELETED / §NO-GAMEABLE-BOUND — this used to take a `skew` argument because the charge
+    /// was a function of inventory scarcity and realised variance. It is a CONSTANT now
+    /// (`MIN_SWAP_SKEW_WAD`, 420 ppm), so the parameter was a constant threaded through two call
+    /// sites and a `skew == 0` guard that could never fire. Both are gone; the body reads the
+    /// constant it always received.
+    function retainFee(address core, SwapReq memory r, bool nativeAmount)
         internal {
-        if (skew == 0) return;
+        uint premium = SoladyMath.fullMulDiv(r.amount, MIN_SWAP_SKEW_WAD, 1e18);
 
-        uint premium = SoladyMath.fullMulDiv(r.amount, skew, 1e18);
-
-        ICore(core).recordSkewPremium(
+        ICore(core).recordFee(
             nativeAmount ? SoladyMath.fullMulDiv(premium, r.px, 1e30) : premium,
             nativeAmount ? premium : 0);
         r.amount -= premium;

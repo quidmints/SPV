@@ -337,8 +337,8 @@ interface ICore {
     function pendingSwapOutUsd() external view returns (uint);
     function levClaimUsd6() external view returns (uint);
 
-    function recordSkewPremium(uint256 premiumUsd, uint256 premiumNative) external;
-    function retainedEthPremium() external view returns (uint256);
+    function recordFee(uint256 premiumUsd, uint256 premiumNative) external;
+    function retainedNativeFee() external view returns (uint256);
     function refundUnfilled(address token, uint amount, address to) external;
     function repack(uint anchorPrice) external returns (uint price);
 
@@ -349,7 +349,7 @@ interface ICore {
 
     function addLiq(uint deltaTok, uint price) external returns (uint usdOut, uint outDelta);
 
-    function creditSkewPremium(uint premium6) external;
+    function creditFee(uint premium6) external;
 
     function levManager() external view returns (address);
 

@@ -523,20 +523,20 @@ contract UnificationControls is AllesFixture {
     /// The A-S scarcity premium is charged to a swapper who WORSENS inventory imbalance, and it is
     /// charged FOR THE LP'S INVENTORY RISK. Before §E5 it was withheld into basket backing — which
     /// prices QU!D, not LP shares — so an imbalance banked a profit for QU!D HOLDERS while the LP
-    /// carried the risk. `Core.skewPremium*` recorded it and nothing consumed it
+    /// carried the risk. `Core.feesRetained*` recorded it and nothing consumed it
     /// (`SwapLib:937`: *"NO consumer beyond the counters + theta EWMA"*).
     ///
     /// This is the owner's invariant as a test: drive a real drain, and assert the LPs' own USD
-    /// accumulator MOVED. Without §E5 this fails while `skewPremium` still rises — i.e. it
+    /// accumulator MOVED. Without §E5 this fails while `feesRetained` still rises — i.e. it
     /// distinguishes "recorded" from "received", which is the whole defect.
     function test_E16_RetainedPremiumReachesLpsNotOnlyTheCounter() public {
         _seedBasket();
         vm.prank(lpA); ETH.deposit{value: 200 ether}(0, lpA);
         vm.roll(block.number + 1); vm.warp(block.timestamp + 30 minutes);
 
-        uint prem0 = CORE.skewPremium();
+        uint prem0 = CORE.feesRetained();
         uint usdFees0 = ETH.USD_FEES();
-        emit log_named_uint("skewPremium before", prem0);
+        emit log_named_uint("feesRetained before", prem0);
         emit log_named_uint("USD_FEES       before", usdFees0);
 
         // Drain the volatile side hard enough to make the pool scarce, which is what makes
@@ -550,9 +550,9 @@ contract UnificationControls is AllesFixture {
         }
 
         _assertTraded();
-        uint prem1 = CORE.skewPremium();
+        uint prem1 = CORE.feesRetained();
         uint usdFees1 = ETH.USD_FEES();
-        emit log_named_uint("skewPremium after ", prem1);
+        emit log_named_uint("feesRetained after ", prem1);
         emit log_named_uint("USD_FEES       after ", usdFees1);
         emit log_named_uint("premium retained     ", prem1 - prem0);
         emit log_named_uint("USD_FEES increment   ", usdFees1 - usdFees0);
@@ -1142,7 +1142,7 @@ contract UnificationControls is AllesFixture {
         // MECHANISM STARTED WORKING — CORRECTED §SESS-28.** It read
         // `assertApproxEqAbs(redeem1, redeem0, 1e15)` on the rationale quoted above. Measured
         // 2026-09-06: **redeemable moves by $6.629717 on $3,000 of BTC buys**, so the old bound failed
-        // by 6,629x. ⛔ **The cause is NOT a leak: `skewPremium` went 0 → $6.019917 over those six
+        // by 6,629x. ⛔ **The cause is NOT a leak: `feesRetained` went 0 → $6.019917 over those six
         // swaps.** The pool now CHARGES for the imbalance it is being handed, and that premium is real
         // retained backing. When this test was written the premium was ~0, so "does not move" and
         // "moves by exactly what we earned" were the same number — and only the second is the property.
@@ -1236,7 +1236,7 @@ contract UnificationControls is AllesFixture {
     /// never an operator subsidy, and zero at zero gasprice so unit tests are unaffected.
     /// ⇒ When the refill is wired into `_rebalance()` (E6: reseat and refill fire together), the gas
     /// is ALREADY PAID. No reserve pot, no new state, no new payout path — and, deliberately, NO
-    /// CHANGE to `recordSkewPremium`/`creditSkewPremium`, which is where the skew work is happening.
+    /// CHANGE to `recordFee`/`creditFee`, which is where the skew work is happening.
     ///
     /// The ONE thing that must hold is that `COMPOUND_GAS` actually covers the crank. It is a
     /// hardcoded 140,000 (`Quid.sol:1504`, `private constant` — hence the literal here) and it was

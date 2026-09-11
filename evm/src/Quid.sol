@@ -583,7 +583,7 @@ contract Quid is Shares,
         usdFreed = freed6 * 1e12;
     }
 
-    function creditSkewPremium(uint premium6) external onlyUs {
+    function creditFee(uint premium6) external onlyUs {
         (, uint usdInc) = SwapLib.feeIncrements(0, premium6, lpShares + totalBuffer);
         USD_FEES += usdInc;
     }

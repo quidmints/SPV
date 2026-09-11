@@ -56,22 +56,22 @@ contract Core {
         return RANGE.levGrossNative();
     }
 
-    uint public skewPremium;
-    event SkewPremiumRetained(uint256 premiumUsd, uint256 cumulative);
+    uint public feesRetained;
+    event FeeRetained(uint256 premiumUsd, uint256 cumulative);
 
-    uint256 public retainedEthPremium;
+    uint256 public retainedNativeFee;
 
-    function recordSkewPremium(uint256 premiumUsd, uint256 premiumNative) external onlyUs {
-        retainedEthPremium += premiumNative;
+    function recordFee(uint256 premiumUsd, uint256 premiumNative) external onlyUs {
+        retainedNativeFee += premiumNative;
         if (premiumUsd == 0) return;
         uint256 cum;
 
-        skewPremium += premiumUsd; cum = skewPremium;
+        feesRetained += premiumUsd; cum = feesRetained;
 
-        RANGE.creditSkewPremium(premiumUsd);
+        RANGE.creditFee(premiumUsd);
 
         POOLED_USD += premiumUsd;
-        emit SkewPremiumRetained(premiumUsd, cum);
+        emit FeeRetained(premiumUsd, cum);
     }
 
     function refundUnfilled(address token, uint amount, address to) external onlyUs {

@@ -665,7 +665,7 @@ contract AllesFixture is ForkPin, ExitFixture {
             // (E164) MAIN_HOP must be the address tests prank as, or every channel op reverts.
             mainHop: makeAddr("hop"), fallbackHop: makeAddr("hop-fallback"),
             btcDepositKey: bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)),
-            pqAdmin: address(0),
+            msig: address(0),
             ethFeed: 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419,   // Chainlink ETH/USD
             btcFeed: 0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c,   // Chainlink BTC/USD
             weth: address(WETH), wbtc: address(WBTC), gho: address(GHO), usdg: address(USDG),
@@ -1867,7 +1867,7 @@ contract Alles is AllesFixture {
         emit log_named_uint("oracle base (usd18)   ", base);
         // §SELL-SKEW-18PCT: `sellSkew` returns 0 at `target == 0` and prices `(inv - target)/target`
         // otherwise, so a tiny `flow` against a large `inv` saturates toward its pole. Print both.
-        emit log_named_uint("skewPremium (accum)   ", CORE.skewPremium());
+        emit log_named_uint("feesRetained (accum)   ", CORE.feesRetained());
         emit log_named_uint("range USD depth (6dec)", ICore(address(CORE)).POOLED_USD());
         emit log_named_uint("range ETH depth (18dec)", ICore(address(CORE)).POOLED());
         emit log_named_uint("AUX USDC balance      ", USDC.balanceOf(address(AUX)));
@@ -1930,7 +1930,7 @@ contract Alles is AllesFixture {
 
     // GRIND-REMOVAL PROOF (deliverability): the grind implicitly slowed draining the reservoir. Its
     // real replacement is the WELL. This proves the LIVE path prices a drain: draining the volatile
-    // inventory pays a positive, RETAINED skew premium (Core.skewPremium) that stays as backing —
+    // inventory pays a positive, RETAINED skew premium (Core.feesRetained) that stays as backing —
     // not leakage. (The skew's MAGNITUDE is Γ·σ²·qⁿ: scarcity q strictly raises it at any given
     // vol — proven deterministically in testSkewStablenessRamp_ConvexCapAndMonotone — while σ²→0 in
     // a settled, non-moving market correctly zeroes it, since no volatility ⇒ no inventory risk.)
@@ -1946,7 +1946,7 @@ contract Alles is AllesFixture {
         _auxSetAssetFeed(address(WETH), ETH_FEED);
 
         uint pooledBefore  = CORE.POOLED();
-        uint premiumBefore = CORE.skewPremium();
+        uint premiumBefore = CORE.feesRetained();
         uint lpFeesBefore  = ETH.USD_FEES();      // §E5: where the premium must actually LAND
 
         vm.startPrank(User02);
@@ -1963,7 +1963,7 @@ contract Alles is AllesFixture {
         // The reservoir genuinely drained (uncapped, post-grind): inventory fell hard.
         assertLt(CORE.POOLED(), pooledBefore / 2, "reservoir drained (uncapped large outflow)");
         // The drain was PRICED: a positive skew premium was recorded.
-        assertGt(CORE.skewPremium(), premiumBefore, "draining paid a retained skew premium");
+        assertGt(CORE.feesRetained(), premiumBefore, "draining paid a retained skew premium");
         // §E5 — STRICTLY STRONGER: recorded is not received. Before E5 the premium accrued to
         // BASKET BACKING, which prices QU!D and never touches an LP's share value, so this second
         // assertion is what distinguishes "we wrote it down" from "the LPs got it". The counter
@@ -3842,7 +3842,7 @@ contract Alles is AllesFixture {
         // §WRONG-RANGE — this is test_RunSim_AllExit_BtcLp: a BTC LP's premium and pooled depth
         // live on the BTC instance. `BCORE()` (= BTC.CORE()) already exists and line ~4285 of
         // this same file declares an identically-named `pooledBtc0` using it correctly.
-        uint premBefore = BCORE().skewPremium();
+        uint premBefore = BCORE().feesRetained();
 
         // Two BTC LPs; fund POOLED_USD (median-governed) so SOME of their
         // sats pair into active virtual liquidity and the rest is retention.
@@ -3886,7 +3886,7 @@ contract Alles is AllesFixture {
         // the premium reach the LP through the fee leg, so the proxy broke while the INVARIANT —
         // no proceeds were minted — still holds. Bound = the premium ACTUALLY CHARGED + the
         // original 1e18 dust allowance, so a real proceeds claim (orders larger) still fails.
-        assertLt(qdGain, (BCORE().skewPremium() - premBefore) * 1e12 + 1e18,
+        assertLt(qdGain, (BCORE().feesRetained() - premBefore) * 1e12 + 1e18,
             "only fee dust + retained premium minted (no proceeds claim when delivered==0)");
         // Virtual consistency: the shared POOLED didn't go negative / wrap.
         assertLe(BCORE().POOLED(), pooledBtc0, "POOLED only shrank - no over-burn across LPs");
@@ -4805,10 +4805,10 @@ contract Alles is AllesFixture {
         //    `creditSwapIn` on the pinned gate, EVERY candidate accumulator is flat:
         //        POOLED        17,503,967 -> 18,003,967   (+500,000 = the swap-in EXACTLY, nothing retained)
         //        USD_FEES      200,525,450,000,000,000    -> UNCHANGED
-        //        skewPremium   4,010,509                  -> UNCHANGED
+        //        feesRetained   4,010,509                  -> UNCHANGED
         //        feesPerShare  0                          -> 0
         //    ⇒ The fee is not merely landing somewhere else under another name — the synonym check
-        //    was run against USD_FEES, skewPremium, POOLED_USD, basketUsd and lpShares, and NONE of
+        //    was run against USD_FEES, feesRetained, POOLED_USD, basketUsd and lpShares, and NONE of
         //    them moves. Nothing is charged on this path at all.
         // ⛔ **STILL NOT "FIXED" BY ASSERTING `USD_FEES`** — the §BTC-LEG-FEE row forbids exactly
         //    that swap of subject, and the measurement above now shows WHY it would have been

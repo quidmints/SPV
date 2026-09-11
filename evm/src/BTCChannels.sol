@@ -241,12 +241,19 @@ contract BTCChannels {
         return abi.encodePacked(bytes1(0x51), bytes1(0x20), btcRecipientOf[lpEth]);
     }
 
-    /// §PQ-SEAM. The ONLY authority this contract has ever had, and it can do exactly one thing:
-    /// name the post-quantum verifier, once. It is the operator Safe that already authorises
-    /// enclave-image migration (`OPERATOR_SAFE` / `guard_prod_trust_anchors`), so this reuses a trust
-    /// anchor rather than creating one — but note it was previously enforced only in Rust, so this IS
-    /// the first ON-CHAIN governance surface here.
-    address public immutable PQ_ADMIN;
+    /// §PQ-SEAM. **THE msig — the same deploy Safe that owns ANGEL and renounces `Aux` and `Basket`
+    /// at finalize. There is one msig for everything; this is not a second role.**
+    ///
+    /// It retains exactly ONE power here and no other: name the post-quantum verifier, once. It
+    /// cannot change a parameter, move a balance, pause, upgrade, or reach any channel that is
+    /// already open — `form` is fixed at open and never rewritten.
+    /// ⚠️ **THE REST OF THE SYSTEM IS ADMINLESS AFTER FINALIZE** (`DeployL1_s`: *"Every admin key is
+    /// RENOUNCED — no multisig handoff"*), so this is the one thing that survives that renunciation,
+    /// and only if a deployment chooses to pass a non-zero address.
+    /// ⭐ **`address(0)` IS A REAL AND SUPPORTED DEPLOYMENT**: the setter is then unreachable by
+    /// construction, because `msg.sender` can never be zero, and the system stays fully adminless at
+    /// the cost of needing a redeploy to ever support P2MR.
+    address public immutable MSIG;
 
     /// §PQ-SEAM. `address(0)` until P2MR/OP_CAT activate, and while it is zero **no v2 channel can be
     /// opened at all** — which is what stops witness v2 being accepted while it is still
@@ -255,11 +262,11 @@ contract BTCChannels {
     address public pqVerifier;
 
     error PqVerifierPinned();
-    error NotPqAdmin();
+    error NotMsig();
     event PqVerifierSet(address verifier);
 
     function setPqVerifier(address v) external {
-        if (msg.sender != PQ_ADMIN) revert NotPqAdmin();
+        if (msg.sender != MSIG) revert NotMsig();
         if (pqVerifier != address(0) || v == address(0)) revert PqVerifierPinned();
         pqVerifier = v;
         emit PqVerifierSet(v);
@@ -285,7 +292,7 @@ contract BTCChannels {
     }
 
     constructor(address _spv, address _btcVault, address _mainHop, address _fallbackHop,
-                bytes32 _btcDepositKey, address _pqAdmin)
+                bytes32 _btcDepositKey, address _msig)
     {
         if (_mainHop == address(0) || _fallbackHop == address(0) || _mainHop == _fallbackHop)
             revert InvalidParam();
@@ -294,7 +301,7 @@ contract BTCChannels {
         MAIN_HOP = _mainHop;
         FALLBACK_HOP = _fallbackHop;
         BTC_DEPOSIT_KEY = _btcDepositKey;
-        PQ_ADMIN = _pqAdmin;
+        MSIG = _msig;
     }
 
     address public immutable MAIN_HOP;

@@ -116,7 +116,7 @@ contract Deploy is Script {
             btcFeed: 0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c,   // Chainlink BTC/USD
             mainHop: msg.sender, fallbackHop: address(uint160(msg.sender) + 1),
             btcDepositKey: bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)),
-            pqAdmin: address(0),
+            msig: address(0),
             weth: WETH, wbtc: WBTC, gho: GHO, usdg: USDG,
             aaveSpoke: aaveSpoke, aaveHub: aaveHub,
             stables: stables, vaults: vaults,

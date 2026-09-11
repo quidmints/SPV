@@ -12,12 +12,12 @@ import {Core} from "../src/Core.sol";
 /// paying ALL skew premium to our LPs"*. This measures the second half directly.
 ///
 /// 🔑 THE TWO NUMBERS ARE NOT THE SAME OBJECT, WHICH IS THE WHOLE REASON TO MEASURE:
-///   · `Core.skewPremium` is incremented by `recordSkewPremium` and its own comment calls it
+///   · `Core.feesRetained` is incremented by `recordFee` and its own comment calls it
 ///     **an AUDIT RECORD** — *"the CREDIT is what actually reaches LPs"*.
-///   · The credit is `RANGE.creditSkewPremium(premium6)` →
+///   · The credit is `RANGE.creditFee(premium6)` →
 ///     `feeIncrements(0, premium6, lpShares + totalBuffer)` → `USD_FEES += usdInc`, a PER-SHARE
 ///     accumulator.
-/// ⇒ Asserting on `skewPremium` would assert that the counter counts. This reconstructs what LPs
+/// ⇒ Asserting on `feesRetained` would assert that the counter counts. This reconstructs what LPs
 ///   can actually claim and compares it to what the swapper was charged.
 ///
 /// ⛔ TWO LEAK SURFACES THIS IS BUILT TO EXPOSE, both in `feeIncrements`:
@@ -47,13 +47,13 @@ contract SkewPremiumReachesLPs is AllesFixture {
         assertGt(sharesDenom, 0, "PREMISE: LP shares must exist, else feeIncrements credits nobody");
 
         // Drain hard enough that the range goes scarce and the drain leg charges the A-S premium.
-        uint chargedBefore = CORE.skewPremium();
+        uint chargedBefore = CORE.feesRetained();
         uint usdFeesBefore = ETH.USD_FEES();
         for (uint i = 0; i < 20; ++i) {
             _drainEth(40_000 * 1e18);
-            if (CORE.skewPremium() > chargedBefore) break;
+            if (CORE.feesRetained() > chargedBefore) break;
         }
-        uint charged = CORE.skewPremium() - chargedBefore;
+        uint charged = CORE.feesRetained() - chargedBefore;
         assertGt(charged, 0,
             "PREMISE: the drain must actually charge a premium, else this measures nothing");
 
@@ -88,11 +88,11 @@ contract SkewPremiumReachesLPs is AllesFixture {
     // close it, and they split it the way the code splits it.
     //
     // 🔑 THE CREDIT AND THE BACKING ARE TWO DIFFERENT MOVEMENTS, and only the first is gated on
-    //    shares existing. `Core.recordSkewPremium` does BOTH, unconditionally:
-    //      · `RANGE.creditSkewPremium(p)` -> `feeIncrements(0, p, lpShares + totalBuffer)` — the
+    //    shares existing. `Core.recordFee` does BOTH, unconditionally:
+    //      · `RANGE.creditFee(p)` -> `feeIncrements(0, p, lpShares + totalBuffer)` — the
     //        CLAIM, which is `(0,0)` at a zero denominator;
     //      · `POOLED_USD += p` (§E42-netting) — the BACKING, which moves regardless.
-    //    `Quid.creditSkewPremium`'s docblock calls the no-LP case deliberate: *"the premium simply
+    //    `Quid.creditFee`'s docblock calls the no-LP case deliberate: *"the premium simply
     //    STAYS as basket backing"*. **That sentence predates §E42-netting and is asset-dependent
     //    now**, because `redeemableBody` nets exactly one of the two mirrors.
     // ══════════════════════════════════════════════════════════════════════════════════════════
@@ -119,7 +119,7 @@ contract SkewPremiumReachesLPs is AllesFixture {
     ///     no claim was created, and the dollars now back nothing anyone can draw.**
     /// 📌 MEASURED (this test, 10,000e6 premium): ETH leg 151999999998999999999999 -> unchanged;
     ///    BTC leg -> 141999999998999999999999, i.e. exactly -10,000e18. One-for-one, not approximate.
-    /// ⚠️ The pranked `recordSkewPremium` moves NO dollars — it is the bookkeeping half alone. That
+    /// ⚠️ The pranked `recordFee` moves NO dollars — it is the bookkeeping half alone. That
     ///    is why the ETH leg reads flat rather than rising: in a real swap the dollars arrive
     ///    separately, through the basket. The netting is what this isolates.
     /// ⚠️ THIS ASYMMETRY DOES NOT NEED ZERO SHARES TO BE MEASURED — the netting is unconditional.
@@ -133,11 +133,11 @@ contract SkewPremiumReachesLPs is AllesFixture {
 
         uint before = AUX.redeemableAmount();
         vm.prank(address(AUX));
-        CORE.recordSkewPremium(premium, 0);
+        CORE.recordFee(premium, 0);
         uint afterEth = AUX.redeemableAmount();
 
         vm.prank(address(AUX));
-        Core(btcCore).recordSkewPremium(premium, 0);
+        Core(btcCore).recordFee(premium, 0);
         uint afterBtc = AUX.redeemableAmount();
 
         emit log_named_uint("redeemable before                ", before);

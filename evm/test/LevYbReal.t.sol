@@ -522,8 +522,8 @@ contract LevYbRealProbe is AllesFixture {
     ///     · `LevMath.netEquityBase` (`imports/LevMath.sol:399`) is `coll − debtUsd·1e18/price`
     ///   ⇒ **`rangeETH` CARRIES A TERM DIVIDED BY THE ORACLE PRICE.** `POOLED` is a raw token count
     ///   and cannot follow it, `levBuf` is stored state that only `syncLev`/reconcile moves, and
-    ///   `retainedEthPremium` is a monotone wei counter. So `POOLED − rangeETH − levBuf +
-    ///   retainedEthPremium` **moves whenever the price moves, with zero custody change and no swap
+    ///   `retainedNativeFee` is a monotone wei counter. So `POOLED − rangeETH − levBuf +
+    ///   retainedNativeFee` **moves whenever the price moves, with zero custody change and no swap
     ///   at all** — it was never a conservation law, and the docblock two functions up already named
     ///   this as *"a suspect, not a control"* without ever discharging it.
     /// ⚠️ §GATE-0e — **TRUE, AND NOT THE ANSWER. READ `_conserved`'s §GATE-0e BLOCK BEFORE ACTING ON
@@ -542,7 +542,7 @@ contract LevYbRealProbe is AllesFixture {
     ///   little; the INTERLEAVED arm, which re-pins the feed from the live TWAP on every iteration,
     ///   moves it most and drifts most. One term, monotone in how far the price travelled.
     /// ⇒ **ADDING `totalNetEquity` BACK REMOVES THE PRICE**, because it is the same read: the sum is
-    ///   `POOLED − custodiedETH − levBuf + retainedEthPremium`, which contains no oracle price. That
+    ///   `POOLED − custodiedETH − levBuf + retainedNativeFee`, which contains no oracle price. That
     ///   IS the quantity the identity was reaching for, stated in the units it always meant.
     /// 🔴 §GATE-0e — **AND IT DOES NOT CANCEL THE DRIFT, SO THE PARAGRAPH ABOVE IS THE UNITS FIX AND
     ///   NOT THE DIAGNOSIS. RUN, 2026-09-09.** `testReal_Identity_C_PerSwap` on THIS price-free form
@@ -571,26 +571,26 @@ contract LevYbRealProbe is AllesFixture {
     ///   ~4.5e-6 of the weETH leg — order 1e13 against a 8.85e15 red. Real, expected, not the cause;
     ///   if this ever lands within an order of magnitude of the drift, THEN it needs a tolerance.
     function _conserved() internal returns (int256) {
-        return _res() + int256(rlm.totalNetEquity()) + int256(CORE.retainedEthPremium());
+        return _res() + int256(rlm.totalNetEquity()) + int256(CORE.retainedNativeFee());
     }
     /// 🔬 §PREMIUM-READABLE — **THE CANDIDATE IDENTITY, MEASURED BEFORE IT IS ASSERTED.** The claim is
-    ///    `POOLED + retainedEthPremium == rangeETH + levBuf` (= tokens + gross), i.e. the residual is
+    ///    `POOLED + retainedNativeFee == rangeETH + levBuf` (= tokens + gross), i.e. the residual is
     ///    exactly minus the retained ETH premium. ⚠️ It may be FALSE: a cumulative premium can only be
     ///    ≥ 0, so it can only ever explain a NEGATIVE residual, and `_calmVol` produced a POSITIVE one.
     ///    Printing both rather than asserting, because asserting a sign I have not checked is how two
     ///    wrong mechanisms already reached this row.
     function _identity(string memory label) internal {
         int256 res = _res();
-        uint256 prem = CORE.retainedEthPremium();
+        uint256 prem = CORE.retainedNativeFee();
         emit log_named_string("IDENTITY at", label);
         emit log_named_int ("   residual              ", res);
-        emit log_named_uint("   retainedEthPremium    ", prem);
+        emit log_named_uint("   retainedNativeFee    ", prem);
         emit log_named_int ("   residual + premium (0?)", res + int256(prem));
     }
     ///  at notice ⭐ §PREMIUM-READABLE — **THE REAL IDENTITY, AND IT IS A CONSERVATION LAW.**
-    ///   `POOLED − rangeETH − levBuf + retainedEthPremium` is INVARIANT across the sell path.
+    ///   `POOLED − rangeETH − levBuf + retainedNativeFee` is INVARIANT across the sell path.
     ///   MEASURED, to the wei: the residual fell from −577,021,548,053,173 to
-    ///   −6,788,994,715,881,832 while `retainedEthPremium` rose 0 → 6,211,973,167,828,659, and the
+    ///   −6,788,994,715,881,832 while `retainedNativeFee` rose 0 → 6,211,973,167,828,659, and the
     ///   SUM did not move by one wei. ⇒ the residual is exactly minus the retained ETH premium, plus
     ///   a constant that setup establishes before any swap runs.
     /// 🔑 **THAT IS WHY `rangeETH + levBuf >= POOLED` IS NOT A SOLVENCY CHECK.** Its slack IS the
@@ -619,24 +619,24 @@ contract LevYbRealProbe is AllesFixture {
     function testReal_Identity_A_SellsWithWarps() public {
         _setupToRebalanced(); vm.deal(address(this), 20 ether);
         _identity("before");
-        int256 inv0 = _res() + int256(CORE.retainedEthPremium());
+        int256 inv0 = _res() + int256(CORE.retainedNativeFee());
         for (uint i; i < 8; i++) {
             vm.warp(block.timestamp + 12 minutes); vm.roll(block.number + 1);
             try AUX.swap{value: 0.015 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch {}
         }
         _identity("after 8 sells + warps");
         // CONTROL: the premium must actually have moved, or the invariant below is vacuous.
-        assertGt(CORE.retainedEthPremium(), 0, "CONTROL: sells must retain a native premium");
+        assertGt(CORE.retainedNativeFee(), 0, "CONTROL: sells must retain a native premium");
         // §GATE0e — same venue-conversion dust as Identity_C. This arm is SELLS ONLY and used to
         // conserve to the wei precisely because it never drains; with `_depositVol` now placing what
         // it takes, a sell converts WETH→weETH on the way in, so the sum absorbs one round-trip
         // rounding. Measured 14 wei on ~5.8e14. 100 wei is an order above it and fourteen below the
         // 8.85e15 drift §GATE0e was found by. ⛔ Do not widen.
-        assertApproxEqAbs(_res() + int256(CORE.retainedEthPremium()), inv0, 100,
-            "POOLED - rangeETH - levBuf + retainedEthPremium is CONSERVED across sells");
+        assertApproxEqAbs(_res() + int256(CORE.retainedNativeFee()), inv0, 100,
+            "POOLED - rangeETH - levBuf + retainedNativeFee is CONSERVED across sells");
     }
     ///  at notice 🔬 §IDENTITY-PER-SWAP — **WHICH SWAP BREAKS CONSERVATION, AND BY HOW MUCH.** Sells alone
-    ///   conserve `POOLED − rangeETH − levBuf + retainedEthPremium` to the wei; interleaving drains
+    ///   conserve `POOLED − rangeETH − levBuf + retainedNativeFee` to the wei; interleaving drains
     ///   with them breaks it by ~0.00808 ETH, yet drains ALONE are −9 wei and drains+warps +376e9.
     ///   ⇒ it is drains in a state the sells created, so the invariant is printed after EVERY swap
     ///   with the leg labelled and each term's own delta, rather than reasoning about which it must be.
@@ -677,7 +677,7 @@ contract LevYbRealProbe is AllesFixture {
         // per swap below, so the old two-term invariant stays recoverable by subtraction.
         int256 prev = _conserved();
         int256 first = prev;
-        uint pP = CORE.POOLED(); uint pR = AUX.rangeETH(); uint pB = ETH.levBuf(LP); uint pX = CORE.retainedEthPremium();
+        uint pP = CORE.POOLED(); uint pR = AUX.rangeETH(); uint pB = ETH.levBuf(LP); uint pX = CORE.retainedNativeFee();
         uint pN = rlm.totalNetEquity();
         // 16, matching `_calmVol` EXACTLY. At 8 every swap conserved, so if the interleaved arm really
         // breaks conservation the offending swap is in the second half — and if it does NOT break here,
@@ -691,7 +691,7 @@ contract LevYbRealProbe is AllesFixture {
             emit log_named_int("   d POOLED  ", int256(CORE.POOLED()) - int256(pP));
             emit log_named_int("   d rangeETH", int256(AUX.rangeETH()) - int256(pR));
             emit log_named_int("   d levBuf  ", int256(ETH.levBuf(LP)) - int256(pB));
-            emit log_named_int("   d premium ", int256(CORE.retainedEthPremium()) - int256(pX));
+            emit log_named_int("   d premium ", int256(CORE.retainedNativeFee()) - int256(pX));
             // §GATE-0d — THE PRICE-VALUED TERM. `rangeETH` adds `totalNetEquity =
             // coll − debtUsd·1e18/price`, so this column IS the old two-term invariant's per-swap
             // drift: subtract it from the line below to recover what the pre-§GATE-0d assertion was
@@ -708,7 +708,7 @@ contract LevYbRealProbe is AllesFixture {
             // invariant line jumps by roughly that same amount is the over-send.
             _custody(i % 2 == 0 ? "DRAIN" : "SELL ");
             prev = _conserved();
-            pP = CORE.POOLED(); pR = AUX.rangeETH(); pB = ETH.levBuf(LP); pX = CORE.retainedEthPremium();
+            pP = CORE.POOLED(); pR = AUX.rangeETH(); pB = ETH.levBuf(LP); pX = CORE.retainedNativeFee();
             pN = rlm.totalNetEquity();
         }
         emit log_named_int("TOTAL invariant drift over 16 swaps", prev - first);
@@ -735,7 +735,7 @@ contract LevYbRealProbe is AllesFixture {
         // drift this test was found by. ⛔ Do not widen: the per-swap `d INVARIANT` column names
         // the opening swap if it ever needs more.
         assertApproxEqAbs(prev, first, 100,
-            "POOLED - rangeETH - levBuf + totalNetEquity + retainedEthPremium is CONSERVED across "
+            "POOLED - rangeETH - levBuf + totalNetEquity + retainedNativeFee is CONSERVED across "
             "the WHOLE interleaved run (the price-free form -- see _conserved)");
     }
 

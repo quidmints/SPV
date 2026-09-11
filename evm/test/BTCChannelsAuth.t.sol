@@ -61,31 +61,31 @@ contract BTCChannelsAuthTest is Test, ExitFixture {
         BTCChannels c = new BTCChannels(address(0xCA11), address(0x4006), makeAddr("hop"),
             makeAddr("hop-fallback"),
             bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)),
-            makeAddr("pqAdmin"));
+            makeAddr("msig"));
 
-        vm.expectRevert(BTCChannels.NotPqAdmin.selector);
+        vm.expectRevert(BTCChannels.NotMsig.selector);
         c.setPqVerifier(makeAddr("v"));
 
-        vm.prank(makeAddr("pqAdmin"));
+        vm.prank(makeAddr("msig"));
         vm.expectRevert(BTCChannels.PqVerifierPinned.selector);
         c.setPqVerifier(address(0));
 
-        vm.prank(makeAddr("pqAdmin"));
+        vm.prank(makeAddr("msig"));
         c.setPqVerifier(makeAddr("v"));
         assertEq(c.pqVerifier(), makeAddr("v"), "named once");
 
-        vm.prank(makeAddr("pqAdmin"));
+        vm.prank(makeAddr("msig"));
         vm.expectRevert(BTCChannels.PqVerifierPinned.selector);
         c.setPqVerifier(makeAddr("v2"));
     }
 
     /// @notice §PQ-SEAM — a deployment with NO admin can never open the seam. `address(0)` is a real
-    ///   configuration (`DeployLib.StackConfig.pqAdmin`), and `msg.sender` can never be zero, so the
+    ///   configuration (`DeployLib.StackConfig.msig`), and `msg.sender` can never be zero, so the
     ///   setter is unreachable by construction rather than by policy.
     function test_pqSeam_zeroAdmin_canNeverName_averifier() public {
-        assertEq(ch.PQ_ADMIN(), address(0), "PREMISE: this deployment has no PQ admin");
+        assertEq(ch.MSIG(), address(0), "PREMISE: this deployment has no msig");
         vm.prank(makeAddr("anyone"));
-        vm.expectRevert(BTCChannels.NotPqAdmin.selector);
+        vm.expectRevert(BTCChannels.NotMsig.selector);
         ch.setPqVerifier(makeAddr("v"));
     }
 
