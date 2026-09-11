@@ -583,27 +583,78 @@ LVR) and the sale was at the honest oracle. It is pure INVENTORY RISK: we sold a
 price moved after. An AMM's IL is that PLUS adverse selection; ours is the residue that survives
 deleting the curve.
 
-### THE FIX IS ONE CHANGE OF DENOMINATION: **THE LP LENT, IT DID NOT SELL**
-Value the USD leg at the price it was CREATED at, not today's. The LP that handed over 50 ETH is owed
-**50 ETH**, not $100,000. Their claim never changes denomination, so there is no IL by construction.
+### 🔴 CORRECTION 2026-09-11 — **MY DEFINITION OF IL WAS WRONG, AND THE FIX I PROPOSED WAS OPTION (b) AGAIN**
 
-### ⚠️ AND HERE IS WHAT THAT COSTS, BECAUSE IT DOES NOT VANISH — IT MOVES
-The pool then owes 100 ETH while holding 50 ETH + $100,000 (worth 25 ETH). **A 25 ETH deficit.** It has
-to come from somewhere, and there are exactly three candidates:
-| source | verdict |
-|---|---|
-| **the basket** | ⛔ **FORBIDDEN.** Basket depositors *"preserve dollar value"* (§1). Spending their dollars to buy ETH back for an LP is the cross-subsidy the whole design forbids. |
-| **flow reversal** | ✅ free, ⏸️ and not guaranteed. If a sell-in returns the ETH, the obligation clears at no cost. This is §12/§13's deferral, and it is the reason the term structure matters. |
-| **the lever** | ✅ **this is exactly what the IL-protect already does** — borrow dollars, buy the volatile back, restore delta-1. Costs carry: **~4.3%/yr** (§6 check 3). |
+Owner: *"you dont define il right. its different for every lp based on when they enter and when they
+want to leave. then there is instantaneous il for everyone at any given time."* Correct on both counts,
+and the worked example above hides it by speaking of *"the"* IL as if the pool had one.
 
-### ⇒ THE ANSWER: THE LEVER BECOMES PROTOCOL-LEVEL AND AUTOMATIC, NOT PER-LP OPT-IN
-The pool is **structurally short volatile whenever it has sold LP inventory** — that is not a view any
-LP takes, it is a fact about the book. So hedging it is not an opt-in product, it is the protocol
-closing its own delta. Every LP, passive or not, then has no IL, and the carry is a PROTOCOL cost paid
-out of fee revenue.
+**IL IS THREE DIFFERENT QUANTITIES AND I CONFLATED THEM:**
+1. **REALISED, per LP** — fixed only at EXIT, and a function of BOTH endpoints: that LP's entry price
+   and the price on the day it leaves. Two LPs leaving the same day with different entries realise
+   different numbers; the same LP leaving a week later realises a different number again.
+2. **INSTANTANEOUS, per LP** — at any moment every open LP carries an unrealised gap between its claim
+   and what it would have held since ITS OWN entry. It is a distribution across the book, not a scalar.
+3. **PATH-DEPENDENT** — it round-trips. A gap that is wide today narrows if price retraces, which is
+   why it is called impermanent and why the design refuses to hedge the DOWN side.
+
+⇒ **THE POOL DOES NOT HAVE "AN IL". IT HAS ONE PER LP PER INSTANT**, and only the exit collapses one
+into a number.
+
+⛔ **SO "VALUE THE USD LEG AT THE PRICE IT WAS CREATED AT" IS WRONG** — that is a POOL-level basis,
+belonging to no LP. An LP that joined after the sale would be handed a hedge it never needed; one that
+joined before would get too little. **That is exactly option (b) from §8** — the equity-weighted
+pooled basis I rejected there as cross-subsidising — arriving by a different road. I should have caught
+it; §8 is four sections up.
+
+✅ **AND THE TREE ALREADY GETS THIS RIGHT, which is the strongest argument that the correction is the
+design and not a patch:**
+- `Types.Pos{ ilBasisPx, entryEquity }` — **per LP, FIXED AT OPEN.**
+- `LevMath.ilTargetBps(p.ilBasisPx, pxNow, cap) = min(cap, 1 − √(entry/now))` — each LP's hedge sized
+  off **its own** entry against **today's** price. That IS quantity 2, computed per LP, on demand.
+- `pxNow <= ilBasisPx ⇒ 0` — the down side is deliberately unhedged, because it heals (quantity 3).
+- `soldFractionWad(syncKeyPx, …)` — keyed to the position's own sync price, not the pool's.
+
+⇒ The per-LP model is not legacy to be collapsed (§8 already concluded that). **It is the only shape
+that can represent the quantity at all.**
+
+### ⇒ THE ANSWER, RESTATED PER-LP: **AUTOMATIC, BUT NOT POOLED**
+The hedge should be **automatic rather than opt-in** — an LP does not elect to be short volatile, the
+book makes it so — but it must still be sized **per LP off that LP's own `ilBasisPx`**, exactly as
+`ilTargetBps` already does. "Automatic" changes WHO DECIDES (nobody — it is the protocol closing a
+delta it created); it must not change WHAT IS MEASURED (each LP's own entry). Collapsing the basis is
+the cross-subsidy; collapsing the DECISION is the improvement.
 ⭐ **THIS ALSO RELOCATES "OPT-IN" TO WHERE THE OWNER ALREADY PUT IT.** *"Defer should be opt-in."* The
 choice an LP makes is not *"do I want a hedge"* — it is *"will I wait to be paid in kind."* §13's
 primitive is the opt-in; the hedge is not.
+
+### 📌 WHY LEVERAGE AT ALL — the owner asked, and I did not originate this
+**I did not choose it. The owner did, and the reason was market impact** (verbatim, earlier in this
+design): *"why are we buying anything back if all of this is transient and we would be incurring huge
+slippage on external venues by moving our entire tvl. we should use leverage instead."*
+
+But that is the reason for rejecting BUY-BACK, and it is not by itself the reason leverage is the
+right replacement. The structural reason, stated so it can be attacked:
+
+> **After serving a drain the pool must be TWO things at once: holding dollars as inventory for the
+> other direction, AND long volatile for the LP. One pot of capital cannot be both. Leverage is what
+> lets the same capital do both jobs.**
+
+Spend the sale proceeds buying volatile back and the dollar inventory is gone — the pool can no longer
+serve a sell-in, and the imbalance has simply been moved to the other side. Hold the dollars and the
+LP is short its own asset. Borrowing against collateral is the only way to be long the volatile while
+the dollars stay available as inventory.
+
+⚠️ **AND THE HONEST LIMITS OF THAT ARGUMENT:**
+- It does NOT avoid market impact, only *reduces* it: the lever still buys volatile, just at the size
+  of the IL rather than of the TVL. The owner's slippage point survives at the smaller size.
+- It is not free — **~4.3%/yr** (§6 check 3), which is what the break-even below is about.
+- ⭐ **AND IT IS NOT THE ONLY INSTRUMENT.** Deferral (§12/§13) achieves the same delta at ZERO carry
+  when flow reverses — the LP is owed volatile in kind and the obligation clears itself. Leverage is
+  what you use when flow does NOT reverse. **So the ordering is the same one §13 arrived at:
+  serve/settle now if you can, defer if the counterparty prefers it, and lever only for the residue
+  that neither clears.** Leverage is the third choice, not the first — and nothing in the tree
+  currently expresses that ordering.
 
 ### THE BREAK-EVEN, so this is a number and not a hope
 Carry on levered notional `L` is `4.3%·L/yr`. Fee revenue is `4.2 bps × volume`. Break-even:
