@@ -405,6 +405,76 @@ transfers); "1e12 tranche wipe" overstated it. **F5** — inert unless a stable 
 
 ---
 
+## 🔴🔴 §AUDITS-RE-RATED-2026-09-11 — **ONE OF THREE MOVED, AND NOT FOR THE REASON I BOOKED.**
+
+I recorded that `§NO-SELF-PROVISIONED-LPS` invalidated three ratings because *"the fleet can spend the
+funding output alone"*. **Re-checked against code: that clause moves NOTHING. The clause that actually
+moved is different, and worse.**
+
+### ✅ 1. `§AUDIT-POOLPARKER-PHANTOM` — **DISSOLVED. Not re-rated: its SUBJECT is deleted.**
+`grep -rn "parkProven|poolSats|poolOwned" evm/src/` → **zero**. `parkProvenSats`, `poolOwnedSats`,
+`poolSatsParker`, `_releasePoolSats`, `ProvenSatsParked` are all gone (`§POOL-INVENTORY-PURGED`,
+2026-08-30, which already said *"DISSOLVED… There is no parker."*). `§AUDITS-RATED`'s citation
+`BTCChannels.sol:1359-1396` is rot — those functions do not exist in a 2,565-line file.
+⇒ **Strike the `§AUDITS-RATED` row; it is stale prose about absent code.** A premise change cannot
+re-open a finding about code that is not there.
+
+### ✅ 2. `§AUDIT-SWAPOUT-DOUBLEPAY` — **UNCHANGED. Its premise was never "fleet alone".**
+It is a **single-channel timeout race** and the rating says so: *"it never needed two hops."* Fix
+verified present: `vault.rs:396` `DeliveryInFlight`, raised at `:778` on timeout with the receiver
+deliberately carried out (`&mut rx`, correlator slot kept); `swap_out_onchain.rs:265-300` neither
+retries nor reverses and spawns a 6h watcher that calls `complete_delivery` on a late lock.
+📌 One real consequence: rail B was **unspawned by default** when this was graded, so the fix was partly
+precautionary. **It is now on a live path — load-bearing rather than defensive.**
+⚠️ Stale: `§DELIVERY-INFLIGHT-RESOLUTION` still reads *"Tier 2, not yet done"*. Its **settle-on-late-lock
+half IS implemented**; only *reverse-once-provably-dead* is missing.
+
+### 🔴 3. `§AUDIT-SWAPOUT-CONCURRENT` — **⚪ UNREACHABLE → 🔴 REACHABLE. NO ADVERSARY REQUIRED.**
+MAIN and FALLBACK hop instances both service one `swapId`, each splicing out of **its own** channel ⇒
+the swapper is paid **twice on Bitcoin**; only the first `deliverSwapOutOnchain` lands, and the losing
+channel is permanently unretirable holding phantom backing.
+**Its unreachability rested on two clauses. One is deleted; the other never covered this shape.**
+- **(a) DELETED:** *"`onchain_rail_enabled` requires `vault.is_some()`, default
+  `QUID_FLEET_COHOSTS_VAULT=false`"* — rail B never ran. **`daemon.rs` is now
+  `let onchain_enabled = vault.is_some();` and the vault is always `Some`.**
+- **(b) SURVIVES BUT IS A NON-ANSWER:** *"the fallback holds no LP key for any channel main funded."*
+  That blocks *"fallback splices MAIN's channel"*. **The finding says "via DIFFERENT channels."**
+  `select_delivery_channels` enumerates the **local** `chain_monitor.list_monitors()`, so a second
+  daemon races out of its **own** channel set. No cross-process lock exists: `handled` is per-process,
+  and the only shared gate is a pre-flight on-chain read both processes pass in the same window. EVM
+  `swapInUsed[swapId]` lets only one settle land — **after both Bitcoin splices are broadcast.**
+🔑 **ADVERSARY: NONE. Two honest daemons, both healthy, both polling.** SGX is irrelevant — the enclave
+behaves correctly and the swapper is still paid twice. ⇒ **this is NOT covered by *"a hacked keeper
+opens no serious attack surface"***, because nothing is hacked.
+⚠️ **Condition is a DEPLOYMENT fact:** `deploy/` ships only `run-hop.sh`, so no fallback exists today.
+**The instant one is provisioned — which is the entire stated purpose of `FALLBACK_HOP` — the race is
+live.** The old escape hatch is gone too: the 2026-08-23 re-grade said the only reachable config was two
+daemons sharing one `root_seed` (*"independently catastrophic"*); two daemons with DIFFERENT seeds is
+the **intended HA deployment** and reaches the race benignly.
+▶️ **NEEDS CODE — the only one of the three that does.** The old row's fix (*"bind the co-hosted vault to
+the DERIVED hop address"*) is **moot**: it targeted the shared-seed config, no longer the reachable one.
+Two options: **(i)** serialize per-`swapId` across hops before the BTC broadcast via shared on-chain
+state (⚠️ a bolted-on external lock is a clamp under rule 17); **(ii)** make rail B **single-writer** —
+only `MAIN_HOP` runs the delivery watcher, fallback spawns it only on a proven-dead main.
+📌 The second remainder stands on its own merits regardless: **an abandoned splice leaves the channel
+unretirable** (`_withdrawalPayout` / `_requireNotSplice` / `recordForceClosePermissionless` all reject
+that shape) and is reachable from a crash mid-delivery with **no second hop involved.**
+
+### ⛔ §HOW-THE-OFF-SWITCH-DIED — **I COMMITTED THIS WITHOUT READING IT. RULE 14.**
+`onchain_rail_enabled(env_flag, has_vault)` gated rail B on **the operator asking for it AND a vault
+existing**. Its own docblock named the silent failure it prevented: *"the same flag mounts
+`/swap-in/onchain`, so a version that gated only the watcher would keep ACCEPTING deposit registrations
+that nothing ever services — real BTC into a black hole, with no error anywhere."*
+**It was deleted in `ace81c7b` — my commit, titled "Delete the vendored rust-lightning".** I used
+`git add -A`, which swept `daemon.rs` and `OFFCHAIN-STRATEGIES.md` — **neither of which I edited** — into
+a commit about deleting a directory. ⇒ **I committed a live money-path change I never read, under a
+message that describes something else**, which is precisely what rule 14's pathspec discipline exists
+to prevent and what I had followed all session until then.
+⭐ **THE DELETION ALSO REPEATS MY OWN ERROR ONE CONJUNCT DOWN:** `has_vault` did become always-true, so
+*that* half of the gate was genuinely dead — **but the OPERATOR-INTENT half was not**, and removing a
+two-conjunct gate because one conjunct went constant removes a real off-switch. ⇒ **Restoring an
+operator toggle is a candidate fix for (ii) above**, not merely a revert.
+
 ## 🔑 §R-P2MR-NEEDS-AN-AUTHORITY — **RESOLVED 2026-09-09: DERIVE ACTIVATION FROM BITCOIN. AND IT IS FEASIBLE — CHECKED, NOT ASSUMED.**
 
 **THE CONFLICT THAT FORCED THE QUESTION.** Owner ruled (2026-09-09) *"prepare for p2mr with the same
