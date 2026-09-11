@@ -656,15 +656,35 @@ the dollars stay available as inventory.
   that neither clears.** Leverage is the third choice, not the first — and nothing in the tree
   currently expresses that ordering.
 
-### THE BREAK-EVEN, so this is a number and not a hope
-Carry on levered notional `L` is `4.3%·L/yr`. Fee revenue is `4.2 bps × volume`. Break-even:
-```
-volume / L  =  4.3% / 0.042%  ≈  102× per year   ≈  2× per week
-```
-**The pool must turn over its levered notional about twice a week to pay for hedging it out of fees.**
-That is a demanding but ordinary number for a real venue — and it is the single measurement that
-decides whether protocol-level hedging is self-funding or a subsidy. ⏸️ **UNMEASURED. It is the most
-important open number in this document.**
+### 🔴 THE BREAK-EVEN — **I GOT THIS WRONG BY ~25×. CORRECTED 2026-09-11.**
+Owner: *"idk about twice a week."* Right to doubt it. I wrote *"volume/L = 4.3%/0.042% ≈ 102×/yr ≈ 2×
+per week"*, and it is wrong twice over:
+
+**ERROR 1 — `L` IS NOT THE BOOK, IT IS THE IL FRACTION OF IT.** The borrow is sized by
+`ilTargetBps = 1 − √(entry/now)`, so it is a small fraction of equity, not all of it:
+`×1.1 ⇒ 4.7%`, `×1.2 ⇒ 8.7%`, `×1.5 ⇒ 18.4%`, `×2 ⇒ 29.3%` (cap 75%). I costed carry on 100%.
+
+**ERROR 2 — THE COLLATERAL EARNS WHILE IT IS POSTED.** weETH keeps ratcheting at **+2.46%/yr** (the
+tree's own measured figure, `LevManager.sol:189`, and the hurdle `QuidLib:599` makes every WETH venue
+clear). Carry is therefore NET: `4.30% − 2.46% =` **183 bps/yr**, not 430. I used the gross rate.
+
+| price move since entry | ilTarget | net carry as % of TVL | **turnover to break even** |
+|---|---|---|---|
+| ×1.05 | 2.4% | 0.044% | **1.1× / yr** |
+| ×1.10 | 4.7% | 0.086% | **2.0× / yr** |
+| ×1.20 | 8.7% | 0.160% | **3.8× / yr** |
+| ×1.50 | 18.4% | 0.338% | **8.0× / yr** |
+| ×2.00 | 29.3% | 0.539% | **12.8× / yr** |
+| ×3.00 | 42.3% | 0.778% | **18.5× / yr** |
+
+⇒ **The real requirement is a few times ANNUAL turnover, not twice a week** — about **4×/yr** after a
+20% rally, rising to ~13×/yr if the asset doubles. That is an ordinary number for a venue with real
+flow, and it makes protocol-level hedging plausibly self-funding rather than a subsidy.
+⚠️ **THE SHAPE IS THE POINT, THOUGH: THE COST RISES WITH THE RALLY.** The hedge is cheapest when it
+matters least and dearest exactly when the LP is most exposed. Nothing here removes that; it is why
+§12/§13's deferral (zero carry, settles in kind) should be preferred whenever flow will clear it, and
+why leverage is the THIRD choice rather than the first.
+📌 Still to measure: our actual turnover, and the 2.46% as a live number rather than a carried one.
 
 ### WHAT SURVIVES OF "NO SLIPPAGE, NO LVR, NO IL"
 | claim | status |
@@ -758,11 +778,38 @@ right at large size; the benefit is zero until a leg approaches its own kink.
 handles both facts with no shortlist: RLUSD gets a small tranche, USDC/USDT get the bulk, and PYUSD
 gets zero because it is unfundable at every size measured.
 
-**WHAT IT NEEDS, so the size of the job is known before it starts:** `borrowRateRay` and
-`supplyHeadroom` are already declared on both venue classes and allowlisted as §MULTI-VENUE orphans;
-the per-venue walk exists at three sites (`LevBase:538/:700/:791`). The single blocker is
-`LevBase:422-423` — `else if (poolVenue != address(venue)) revert VenueNotPooled()` — i.e. the
-one-venue pin, not any missing aggregation. (Recorded in `tools/orphans-allow.txt`, CLASS 2.)
+**WHAT IT NEEDS — re-checked 2026-09-11 against code, because the owner noted it is still not built.**
+
+✅ **THREE OF THE FOUR PIECES ARE ALREADY THERE:**
+- **The price signal.** `borrowRateRay(size)` on both venue classes, and §6 check 3 proved it answers
+  at size and REFUSES (`VenueCannotFund`) rather than flattering an unfundable draw.
+- **The multi-venue walk.** `LevBase.poolVenues[]` exists and is iterated at **four** sites already
+  (`:499` deliverable, `:661` LTV, `:748` debt, plus `poolVenueCount`), each written for
+  HETEROGENEOUS venues — different stables, different liquidation engines.
+- **The per-venue registry.** `isPoolVenue[]` + `poolVenues.push()` already run on every open.
+
+🔴 **THE BLOCKER IS ONE LINE, AND IT IS DELIBERATE:**
+```solidity
+// LevBase.sol:384-385 — §POOL-VENUE
+if (poolVenue == address(0)) poolVenue = address(venue);
+else if (poolVenue != address(venue)) revert VenueNotPooled();
+```
+*"One position means one venue, and this is the only place that can be enforced cheaply."* The
+aggregates were built for many; the OPEN path pins to one. **So the allocator is not blocked on
+missing machinery — it is blocked on a guard that was added on purpose**, and lifting it means every
+aggregate that currently sums one venue starts summing several for real.
+
+⚠️ **AND WHAT LIFTING IT ACTUALLY COSTS, which is why it is not a one-line change:**
+`swapOutDeleverAmt`, `deleverToVault`, `deleverBook` and `_sourceRepayFree` all resolve **the** venue
+via `poolVenue` (singular). With N venues each of those must choose WHICH — and the right choice is
+not the same for a repay (the dearest debt first) as for a withdraw (the venue with spare collateral).
+**That routing decision is the allocator's real body; the rate maths is the easy half.**
+
+📌 **THE ALLOCATION RULE, already settled by measurement (§6 check 3(c)):** equalise MARGINAL rates.
+Allocate to each venue until `borrowRateRay(its next dollar)` matches the others'. That gives RLUSD its
+~$30k, USDC/USDT the bulk, and PYUSD nothing — with no shortlist and no special cases. **Never rank on
+`borrowRateRay(0)`**, which picks the cheapest base rate and therefore the worst venue at size.
+(Recorded in `tools/orphans-allow.txt`, CLASS 2.)
 
 ---
 
