@@ -593,6 +593,145 @@ BODIES UNDER ONE NAME.** `main` carries a 242-line **removal plan** (§0-§7); `
 ⛔ **Every citation of "TARGET-DESIGN §N" in this file means the CUT one.** ▶️ **Merge `lane/CUT` to `main`
 before anyone plans off the model, or the next reader opens the wrong document and nothing announces it.**
 
+## 🔴 **§THE-SLIPPAGE-WINDOW-IS-THE-LEAK — "CAN GRIEF BUT NOT EXTRACT" WAS WRONG, AND THE HOLE PREDATES CALLDATA** (owner, 2026-08-31: *"we must still be fully secure even if the enclave/lightning daemon/keeper is hacked and replaced with malicious code"*)
+📌 **RESTORED 2026-09-11** after the 55k→5.6k cut removed it. Verified open at restore: `LevMath.sol:201` `SELL_SLIP_BPS = 100` and the `_aggSwap` floor is still `oracle × 0.99`; the surviving §THE-KEY-ONLY-BUYS-`swap()` prose still asserts *"it cannot extract"*, which this section was written to refute.
+
+I recommended accepting aggregator calldata on the lever and claimed a hostile route *"can GRIEF but
+cannot EXTRACT."* **Re-tested against a fully malicious keeper: false.**
+
+### 🔴 THE ATTACK, AND IT IS REPEATABLE AND SILENT
+`minOut` is `oracle × (10_000 − SELL_SLIP_BPS)/10_000`, and **`SELL_SLIP_BPS = 100` — a 1% window**
+(`LevMath.sol:486`; `CONSOL_SLIP_BPS` and `MAX_SLIPPAGE_BPS` are also 100). A compromised keeper routes
+through a contract it controls, returns **exactly `minOut`**, and keeps the rest. **The swap SUCCEEDS,
+so nothing announces it.** ⇒ **Up to 1% of every levered swap, every time, risk-free.**
+⛔ **AND THIS IS NOT INTRODUCED BY CALLDATA — IT EXISTS TODAY.** `_aggSwap`'s `dex` is an **arbitrary
+address** with protocol bits; a keeper-deployed fake "pool" returning exactly `minOut` extracts
+identically. **The selector pin never protected against this**; it protects the *destination and
+function*, and the leak is through the *price*. ⇒ **My argument for calldata is unharmed — but so is
+the hole, and I should not have claimed it was absent.**
+
+### ✅ WHAT *IS* SAFE, PRECISELY
+**The PRINCIPAL cannot be taken.** The floor is enforced on a **measured balance delta** of the output
+token, and the whole call is **atomic**: a route that returns nothing, or pays a keeper-controlled
+receiver, fails the delta check and **reverts, restoring the tokens**. Exact, zeroed approvals cap what
+the router may pull. ⇒ **The exposure is bounded at the slippage window — never the notional.**
+📌 **AND THE OOR FILL IS ALREADY CLEAN, WHICH POINTS AT THE FIX:** the maker is paid **exactly
+`limitPx`** — *there is no slippage window at all*, so a malicious relayer extracts **zero**. **The
+lever is the exposed path precisely because it settles at a HAIRCUT rather than at the oracle.**
+
+### 🔴 **[RETRACTED 2026-08-31 — §CREDIT-AT-ORACLE-IS-WORSE-THAN-THE-LEAK (removed; `git log -S`). Crediting at oracle makes the ORACLE a pricing source, and §ORACLE-FRESHNESS measures a 500 bps window — 5x the 1% leak it closes — while also requiring capitalised callers on a permissionless path. TIGHTEN `SELL_SLIP_BPS` INSTEAD.]** ~~THE DESIGN THAT MEETS THE OWNER'S BAR LITERALLY: SETTLE AT ORACLE~~
+Generalise what the fill already does:
+1. the caller supplies the route (any venue, full aggregator);
+2. the contract measures the output and **credits the position at the ORACLE value, not at what the
+   route returned**;
+3. **surplus above oracle value is the caller's profit; a shortfall is pulled FROM THE CALLER**
+   (`transferFrom`, revert if they cannot cover);
+4. the caller earns an **explicit, bounded fee** for the service.
+⇒ **A compromised keeper then extracts NOTHING.** It must deliver full oracle value or the transaction
+reverts; the only thing it can forgo is its own fee. **"Impossible to do damage" becomes literally
+true rather than bounded-at-1%.**
+⚖️ **THE TRADE, HONESTLY:** today the PROTOCOL absorbs execution risk inside a 1% band and the keeper
+is unpaid; under this the CALLER absorbs execution risk and is paid a stated fee. **That is strictly
+better for the security property and requires an economic decision — the fee must beat real slippage
+or nobody calls.** ⚠️ It also means a route worse than 1% no longer silently succeeds; it either costs
+the caller or reverts. **That is the point.**
+🔧 **CHEAP INTERIM, INDEPENDENT OF THE ABOVE: `SELL_SLIP_BPS` IS A POLICY NUMBER, NOT A LAW.** Every
+basis point of it is a basis point a compromised keeper may take. §ROUTE-COST-MEASURED puts real
+execution at **1.7–8 bps** for the stables we route — **so 100 bps is ~12–60× the measured need.**
+Tightening it shrinks the leak proportionally and costs only liveness on genuinely thin routes.
+**Measure before choosing a number; do not simply halve it.**
+
+## 🔴 **§PARTIAL-TAKE-IS-DEBITED-IN-FULL — THE ZERO CASE IS GUARDED AND THE PARTIAL CASE IS NOT** (found sweeping for ignored return values, 2026-08-31)
+📌 **RESTORED 2026-09-11** after the cut. Verified open at restore: `Core._settleUsdSide` still calls `AUX.take(...)` and discards its return; `BasketLib.takeBody` still guards only `sent == 0`.
+
+### 📄 THE CODE, VERBATIM
+`Core._settleUsdSide`:
+```solidity
+usdAmount = uint(usdDelta);
+if (inRange) _poolUsdInRange(usdAmount, false, basketLeg);          // debits the FULL amount
+if (!keep && token != address(0))
+    AUX.take(who, BasketLib.from6(usdAmount, token), token, 0);      // may deliver LESS — return DISCARDED
+```
+`BasketLib.takeBody` ends: **`if (a.amount > 0 && sent == 0) revert NothingDelivered();`**
+⇒ **`take` MAY return `sent < requested` without reverting.** Its own comment says the guard exists
+because *"asking for a non-zero amount and receiving nothing is never a valid outcome"* — **the ZERO
+case was closed and the PARTIAL case was left open.**
+
+### 🔴 THE DIVERGENCE
+The range's USD side shrinks by **X**; the recipient receives **Y ≤ X**. The difference stays in the
+basket, uncounted by `POOLED_USD`. ⇒ **The LPs are debited in full, the recipient is short-changed,
+and the remainder accrues to the basket.**
+⚠️ **AND IT IS SILENT IN THE DANGEROUS DIRECTION.** `checkBacking` compares committed against liquid:
+committed falls by X, liquid falls by only Y, so **the backing gap IMPROVES** — the protocol looks
+*more* solvent for having under-paid. **Nothing announces it**, which is exactly the condition
+standing rule 3 says earns a check.
+📌 **IT IS ALSO THE INVERSE OF A DISCIPLINE THIS RAIL ALREADY FOLLOWS.** §INTENT-HAS-NO-FUNDING-LEG
+fixed the buy leg precisely so *"the credit is derived from the debit, never from `i.size`"*, and the
+sell leg I landed today derives `etherSold` from what `AUX.take` ACTUALLY delivered. **`_settleUsdSide`
+is the same shape with the rule inverted.**
+
+### 🎯 WHEN IT FIRES — THE WORST POSSIBLE TIME
+`take` under-delivers when the basket cannot cover the draw across all stables. **That is the stressed
+case**: a depeg, a redemption run, or a large exit — exactly when the accounting is load-bearing.
+⚠️ Under normal conditions the pro-rata leg covers the remainder and `sent == requested`, which is why
+this has never shown up.
+
+### ▶️ THE FIX, AND WHY IT IS NOT THIS COMMIT
+Debit what was DELIVERED, not what was asked — capture `take`'s return and size `_poolUsdInRange` from
+it (the debit currently runs FIRST, so the order has to change too).
+🔴 **BLAST RADIUS IS EVERY USD SETTLEMENT — swap, redeem, `settleOor` and the fee legs all route
+through `_settleUsdSide`.** That is a core money path and deserves its own commit with its own test,
+not a tail-end change at the close of a long session. **Booked with the evidence so it is not
+rediscovered; the test to write first is a basket deliberately short of the requested token, asserting
+`POOLED_USD` falls by what was delivered rather than by what was asked.**
+
+## C3. 🟠 vBTC IS the 7540's asset — its 4626 face contradicts that (§E221/E223/E224)
+📌 **RESTORED 2026-09-11** after the cut. Verified open at restore: `VBtc.sol:34-36` still carry `asset()=WBTC` and the two `pure` identities, 0 call sites — under the removal policy they go regardless of the `asset()` decision.
+`VBtc.asset()` returns **WBTC** while vBTC **is** the ERC-20 the async vault points at. `Vault` has
+**no `asset()`**, and `VBtc`'s three 4626 accessors have **ZERO call sites**. Delete them; give the
+range manager `asset() = vBTC`.
+✅ **VERIFIED CURRENT 2026-08-28** — `VBtc:95` `asset()` returns `WBTC`; `:96`/`:97` are
+`convertToAssets`/`convertToShares`, both **`pure` identities** (`return shares` / `return assets`);
+all three have **0 call sites in `src` and `test`**.
+⛔ **BUT "DELETE THEM" IS RIGHT FOR TWO OF THE THREE AND WRONG FOR THE THIRD, AND THE DISCRIMINATOR
+IS CLAUDE.md's OWN.** *"Zero in-tree references is what an ENTRYPOINT looks like, and grepping only
+Solidity would have deleted eight live functions."* `convertToAssets`/`convertToShares` are dead on
+both sides (0 in-tree, 0 off-chain) and are ordinary rule-1 deletions. **`asset()` is the ERC-4626
+IDENTITY function** — it is what an integrator or indexer calls to learn what the vault is over, so
+its zero in-tree count is expected rather than evidence.
+⇒ **THAT SPLITS THIS ROW INTO TWO DIFFERENT KINDS OF WORK, WHICH IS WHY IT HAS NOT MOVED:** removing
+the two identities is dead-code cleanup and needs only a run; removing `asset()` is the DESIGN change
+the row actually wants (`asset() = vBTC` on the range manager) and breaks 4626 conformance for anyone
+reading the old face until the new one lands. **Do not land them as one commit.** The BTC anchor is already wrapper-free (Chainlink **"BTC / USD"**),
+so the depeg exposure is narrower than §E221 first claimed. **The `WBTC/BTC` feed (`0xfdFD…BB23`,
+**1.00039110** = 3.91 bps) is wired NOWHERE** — the basis is unmeasured, and that feed is the direct
+instrument if a detector is wanted.
+
+## A.5f 🔴 TODO — NO ON-CHAIN PER-ACTION AUTHORISATION for the delegated strategy layer (user, 2026-07-26)
+📌 **RESTORED 2026-09-11** after the cut. An owner ask (2026-07-26) whose only later trace was *"✅ all four tracked"* in a list that was itself cut; the on-chain half is still absent (0 hits for per-action delegation in `evm/src`). ⚠️ Owner to confirm the delegated strategy layer is still in scope before anyone builds this.
+
+The strategy layer draws QUI for optimal entries and lever-LPs the proceeds under **delegated, revocable** permissions. The authorisation is split across two layers and **only the off-chain half exists**:
+- **Off-chain (BUILT):** `quid-common/src/api/revocable_clients.rs` — `RevocableClients` keyed by **ed25519** pubkeys, each issued a `RevocableClientCert`, with `is_revoked`/`is_expired_at`, `MAX_LEN = 100`; plus `Scope` (`api/auth.rs:173`) and a `BearerAuthToken` (~15 min). This authenticates **who may talk to the node/gateway**. NOTE it is **NOT EIP-712** and **NOT fine-grained** — `Scope` has exactly two variants, `All` and `NodeConnect`.
+- **On-chain (MISSING):** only COARSE gates — `onlyUs`, `vogueSyncHook`, `msg.sender == V4`. Those say *"this exact contract"*, never *"this delegate may do these actions, up to these limits, revocably."* There is no on-chain object expressing e.g. *"this keeper may draw ≤ X QUI for entries and lever-LP the proceeds."*
+⇒ **Build target:** on-chain per-action delegation (EIP-712 typed permissions / ERC-7710-7715-style), scoped + capped + revocable, so the on-chain gate matches the off-chain revocability model.
+⇒ **NOT needed for the BTC path:** `lpAuth` is `ecrecover` over `BTCChannels.openChannelDigest` (plain keccak digest with `hop` bound in to stop cross-submitter replay) — typed data would add nothing there.
+⇒ The **optimal-entry ALPHA logic stays deliberately off-chain / LP-discretionary** — that is by design, not a gap.
+
+## B6. 🟡 REGIME — TWO CLASSIFIERS, ONE UNREACHABLE
+📌 **RESTORED 2026-09-11** after the cut. A frontend-phase DECISION, not a build (§ONE-WALLET-APP defers the client tree); kept so the deletion of the loser happens once the decision is made.
+
+`marketRegime(σ, φ)` is live (`market/route.ts:150`,`:152`). **Every function in
+`spa/src/lib/regime.ts` has zero call sites** — including the ones I de-ticked earlier in the
+session without checking for a caller. Only the `Regime` *type* is imported. **Not a deletion —
+a decision**: on-chain TWAP or off-chain σ/φ as the source of truth. Then delete the loser.
+
+## 🔴 §IMPACTED-TESTS-BASE-CLASS-BLINDSPOT — a named false-negative class
+📌 **RESTORED 2026-09-11** after the cut. `tools/impacted-tests.py` still routes by symbol; this is a defect in a gate tool, six lines.
+`tools/impacted-tests.py` routes by **SYMBOL**. A contract whose **inheritance list** changes names no
+new symbol, so the tool has no edge to follow and a base-class change is invisible **by construction**.
+That is how an `Ownable` removal verified at *"133/0 across the BTC suites"* could sit beside a red lev
+suite. ▶️ Add it to the tool's docblock beside the existing address / raw-slot / deploy-script caveats.
+
 ## 🔴🔴 §AUDITS-RE-RATED-2026-09-11 — **ONE OF THREE MOVED, AND NOT FOR THE REASON I BOOKED.**
 
 I recorded that `§NO-SELF-PROVISIONED-LPS` invalidated three ratings because *"the fleet can spend the
@@ -778,51 +917,6 @@ pinned script"* is WRONG and would break Rail B. The bound must come from the sa
 a splice paying script `S` for `V` sats is legitimate iff `BTCChannels` records a swap-out obligation
 for `S`/`V`. **That is the extension §T9 adds beyond wiring — and it is the reason the truth source,
 not a local heuristic, is the right home.**
-
-## 🔴 **§CREDIT-AT-ORACLE-IS-WORSE-THAN-THE-LEAK — RETRACTED. IT WOULD TRADE A 1% CEILING FOR A 5% ONE** (owner, 2026-08-31: *"the contract credits the position at oracle value, not at what the route returned??? why like this"*)
-
-**The instinct behind the question is correct and my proposal does not survive it.** Retracting it
-the same turn it was made, before anyone builds from it.
-
-### 💡 WHY I PROPOSED IT (the reasoning was not stupid, the conclusion was)
-If the position receives *whatever the route returned*, then **whoever picks the route decides what the
-position gets**, and can pick one returning the bare minimum. Crediting at oracle removes the caller's
-influence over the position's outcome entirely — the caller then eats or keeps the spread. That does
-close the skim.
-
-### 🔴 AND HERE IS WHY IT IS WRONG ANYWAY — IT PROMOTES THE ORACLE FROM A *BOUND* TO A *PRICING SOURCE*
-Today the route's **actual output is the truth** and the oracle is only a **FLOOR**. My proposal
-inverts that. And §ORACLE-FRESHNESS (booked MEDIUM, OPEN) measures what that inversion costs:
-> settle price is the internal ring TWAP, returned **verbatim** unless it diverges **> 500 bps** from a
-> fresh Chainlink; the ring's only live writer is a **permissionless, unincentivised** push, so if that
-> stream lapses **the settle price can sit up to 500 bps off live Chainlink before the clamp engages.**
-⇒ **I would be crediting positions at a number that can legitimately be 5% wrong, to close a leak
-capped at 1%.** ⛔ **Five times the exposure, and on a path where the mispricing is not even
-attacker-gated — it just happens when the push stream goes quiet.**
-
-### 🔴 AND A SECOND COST I UNDER-WEIGHTED: IT MAKES THE CALLER AN UNDERWRITER
-Pulling the shortfall from the caller means only a **capitalised** party can call. `rebalance` is
-**permissionless today** — deliberately, because §CHEAPEST-DOLLAR's whole security argument is *"a
-compromised enclave holds no authority the public lacks."* ⇒ **Requiring callers to front capital
-narrows that set to well-funded routers and puts a LIVENESS dependency on the IL-protect path**, whose
-entire purpose is to fire when positions are stressed — exactly when spreads are widest and
-underwriting is least attractive.
-
-### ✅ SO THE FIX IS THE SMALL ONE, AND RULE 18 APPLIES TO MY OWN PROPOSAL
-*"A working fix is not automatically the right one"* — I proposed a structural change to close a
-**bounded** leak when **one constant** does most of the work.
-| | leak ceiling | new dependencies |
-|---|---|---|
-| today (`SELL_SLIP_BPS = 100`) | 1% per swap | none |
-| ⭐ **tighten the constant** | **proportional — 15 bps gives ~0.15%** | none |
-| ~~credit at oracle~~ | ~~0%~~ | 🔴 **oracle becomes a pricing source (500 bps window) + capitalised callers** |
-▶️ **§ROUTE-COST-MEASURED puts real execution at 1.7–8 bps** for the stables we route, so **100 bps is
-12–60× the measured need.** Tightening is proportional, needs no new machinery, and adds no oracle
-exposure. ⚠️ **Measure per-route before choosing the number** — a stable whose only venue is thin needs
-more headroom than a 3pool hop, and the number that is safe for USDT is not automatically safe for GHO.
-📌 **AND THE RESIDUAL IS SMALLER THAN THE CEILING SUGGESTS:** `rebalance` is permissionless, so a
-compromised keeper only skims **when it wins the race** against honest callers — the 1% is a
-per-successful-attack bound, not a per-swap certainty.
 
 ## 🔴 **§SELL-LEG-NOT-FORCED-AFTER-ALL — THE OWNER'S CONFUSION FOUND THE BETTER ALTERNATIVE I HAD RULED OUT ON A FALSE PREMISE** (owner, 2026-08-31: *"so you have to wait a month to redeem the dollars you got out from your OOR swap? im confused"*)
 
@@ -1217,144 +1311,6 @@ better.
 ⇒ **Aggregation was never on the table** (§E357: no solver, no route parameter). **The question is
 only whether we keep renting a callback or write one.**
 
-## ⛔ **[SUPERSEDED — its own §5 booked §E258-POKE-INCENTIVE, which §OOR-BOOK-DELETED dissolves. ⚠️ AND ITS HEADLINE OVERSTATED THE CASE: `sweepOor` was an EMULATION of the curve's automaticity, not the property; `SwapLib.sol:1104` says so and I found it a step late]** 🔴 **§OOR-IS-ALREADY-CURVE-LIKE — THE PROPERTY WE THOUGHT WE COULD NOT REPLICATE IS BUILT, THE TRIGGER IS A TWAP NOT A TRAVERSAL, AND THE ONE REAL GAP WAS "BOOKED" INTO A TAG THAT DOES NOT EXIST** (2026-08-29, owner question)
-
-Owner asked how the Rust handles ETH boundary orders, and whether Uniswap's *"the curve fills it as
-a side effect of unrelated swaps, so there is no transaction to front-run"* is something we cannot
-replicate. Four traces, and three of them move the answer.
-
-### 1. ⛔ **THE RUST DOES NOTHING WITH BOUNDARY ORDERS. ON EITHER RANGE.**
-`grep -rn "outOfRange\|sweepOor\|oorBook\|selfManaged" quid-ln --include="*.rs"` → **zero hits on the
-book.** The only `out_of_range` in the whole Rust tree is `lev_keeper.rs:362`, a LEVERED-POSITION
-band predicate (`il_ltv_bps` outside `target ± target_range_bps`) that `lev_keeper_btc.rs:123` shares.
-⚠️ **A NAME COLLISION, AND IT IS THE KIND THAT SURVIVES A SEARCH:** an author looking for the keeper's
-half of the OOR book finds `out_of_range`, reads a dwell tracker, and concludes it is handled.
-⇒ **The boundary-order book is entirely on-chain, by design, and there is no keeper half to write.**
-
-### 2. ✅ **WE ALREADY HAVE THE "NO TRANSACTION FROM THE MAKER" PROPERTY. `Core.swap` STEP (4).**
-`Core.sol:1094` — `RANGE.sweepOor(px, MAX_FILLS_PER_SWAP)`, **after settlement**, on every range and
-well swap. Its own comment states the intent exactly: *"Under v4 the PoolManager did this as part of
-any swap through the range … without this a boundary order is an option its owner must exercise
-rather than the limit order it was sold as."*
-⇒ **The fill rides on an unrelated swapper's transaction and the maker pays no gas for it** — the
-same economics as a v3 tick crossing. This was not something we failed to replicate; it is §E258, and
-it landed.
-
-### 3. ⭐ **AND THE TRIGGER IS A 30-MINUTE TWAP CROSS, NOT A PRICE TRAVERSAL — WHICH IS A STRONGER GUARANTEE THAN UNISWAP'S, NOT A WEAKER ONE**
-`Core.sol:1044` — `uint px = AUX.getTWAPforAsset(ASSET, 1800)` — and `sweepOor` sweeps the watermark
-interval `(book.lastSweptPx, px]`. `RangeLib.pokeOor:334` reads **the same** `getTWAPforAsset(asset,
-1800)`, so the two entry points cannot disagree about whether an order is fillable. (Checked because
-they looked like they might; they do not. The control refuted the hypothesis.)
-⇒ **A single-block wick through your limit does not fill you here.** On v3 it does: the pool price
-traverses your tick range within one block, you are filled at the traversed price, and the arbitrage
-that restores the pool leaves you holding the wrong side. **To fill an order here an adversary must
-move the 30-minute TWAP and hold it there** — sustained, expensive, and not a sandwich.
-📌 **THE COST IS LATENCY, AND IT IS THE HONEST TRADE:** spot can trade clean through your limit and
-you are not filled until the TWAP follows. **That is the UX gap to close or to explain, and it is a
-different gap from the one the question assumed.**
-
-### 4. ✅ **AND THE FILL CANNOT BE JIT-DILUTED, WHICH IS THE ONE THING THAT *DOES* FRONT-RUN A v3 RANGE ORDER**
-The premise *"impossible to front-run"* is right about the FILL TRANSACTION (there isn't one) and too
-strong overall. On v3 a searcher mints concentrated liquidity across your tick range in the same
-block, absorbs the swap pro-rata, and burns — **your fill is taken, and nothing you did was
-reordered.** Placement and withdrawal are also ordinary transactions and are front-runnable normally.
-⇒ **Our book is structurally immune to that half.** `RangeLib` fills from a SORTED SET keyed by
-`oorKey(triggerPrice, id)` — price first, id in the low 96 bits — so orders execute **in trigger-price
-order, one whole order at a time** (`fillOne`), never pro-rata against whoever else has depth at that
-price. There is no position for a searcher to mint alongside yours. And `oorTrigger` settles a bid at
-its OWN `upper` edge, an ask at its OWN `lower`: *"the order settles at the edge the price actually
-reached — never at a better price it never traded through."* **v3 gives you the traversal average;
-this gives you your limit.**
-
-### 🔴 5. THE ONE REAL GAP, AND ITS BOOKING IS A GHOST
-`MAX_FILLS_PER_SWAP = 4` (`Core.sol:994`) is *"NOT A TUNING KNOB — it is the anti-griefing bound:
-without it anyone can rest a crowd of cheap orders in the path and charge the next swapper for all of
-them."* Correct, and it means a busy book QUEUES: your order waits for the next swap or for a poke.
-`RangeLib.pokeOor` is the liveness backstop the cap creates — *"A LIVENESS REQUIREMENT, NOT A
-CONVENIENCE"* — and it says, in its own docblock:
-> ⚠️ **NO TIP IS PAID.** Sizing one means deciding where the difference between the order's limit
-> price and the range's price accrues … **Booked as §E258-POKE-INCENTIVE** rather than guessed at here.
-
-🔴 **IT WAS NOT BOOKED. `grep -rn "POKE-INCENTIVE"` OVER THE WHOLE REPO RETURNS EXACTLY ONE HIT: THAT
-SENTENCE.** No row, no doc, no other file — the tag names nothing. **This is rule 12's failure mode
-arriving through the word "Booked":** a comment that says a finding was recorded reads as a closed
-loop to every subsequent reader, and it is why nobody has asked who calls the poke.
-⇒ **BOOKED HERE, FOR REAL:** the cap makes the poke a liveness requirement, and the poke has no
-economic driver. Today the only parties with a reason to call it are the order's own owner (paying
-gas to be filled — which is exactly the *"an option its owner must exercise"* shape §E258 exists to
-abolish) and an arbitrageur who wants the inventory the fill releases. **Whether that second party
-reliably exists is an unmeasured assumption, and it is the whole liveness argument.**
-
-### ▶️ WHAT WOULD ACTUALLY IMPROVE IT, CHEAPEST FIRST — none of these is started
-1. **Answer §E258-POKE-INCENTIVE.** The spread between the order's limit and the range's price at
-   fill time is the natural source; who it accrues to is the open question the docblock names.
-2. **Make the queue legible.** The book is a sorted set — an order's position in it is computable and
-   is not exposed. A user who can see "3 orders ahead of you at this trigger" does not need a
-   guarantee about latency; a user who can see nothing does.
-3. **Say the TWAP out loud in the UI.** *"Fills when the 30-minute average crosses your price"* is a
-   different and better promise than *"fills when the price crosses your price"*, and it is the one
-   the contract actually keeps. Presenting it as the latter is what will generate the support load.
-⚠️ **AND THE STANDING MAKER DISCOUNT IS STILL OPEN (§E331 #1): OOR fills pay NO skew at all.** That is
-a UX advantage today and one of the four owner decisions. **Do not close this row's item 1 without
-it — they price the same seam from opposite ends.**
-
-### ⛔ **[RETIRED BY §OOR-BOOK-DELETED — there is no poke. Kept because the ENDOGENOUS-vs-EXOGENOUS trigger argument is still the reason the intent path needs a relayer at all]** ▶️ **§POKE-IS-INEVITABLE-ONLY-AS-A-BACKSTOP — AND THE REASON THE CODE GIVES IS THE REMOVABLE ONE** (owner, 2026-08-29)
-
-Owner asked whether the poke is inevitable. **Two answers, and the code's own justification is the
-weaker of the two.**
-
-#### 🔴 STRUCTURALLY YES, AND IT IS THE PRICE OF THE TWAP TRIGGER — NOT OF THE CAP
-`RangeLib.sweepOor`'s docblock says the poke exists because `MAX_FILLS_PER_SWAP` stops the sweep
-early. True, and it is not the binding reason.
-
-**Uniswap's fill is free because its trigger is ENDOGENOUS.** A v3 pool's price moves *only* when
-someone trades against it, so *"your order became fillable"* and *"there is a transaction here to
-carry the fill"* are **the same event**. Free execution is not a feature they built; it is a
-consequence of the trigger being the pool itself.
-
-**Ours is EXOGENOUS.** `Core.sol:1044` sweeps on `px = AUX.getTWAPforAsset(ASSET, 1800)` →
-`resolvedTwap` → `SwapLib.twapResolve`, which returns the internal ring **unless it diverges more
-than `TWAP_MAX_DEVIATION_BPS` from a fresh Chainlink read, in which case it returns CHAINLINK'S
-PRICE** (`SwapLib.sol:133`). ⇒ **The trigger can cross while this range sees zero swaps — and in the
-one regime where limit orders matter most, a dislocation, it is GUARANTEED to be the exogenous
-number.** Chainlink updates without transacting here.
-⇒ **Something with no swap present must be able to act. That is inevitable, and no cap change
-touches it.**
-
-⭐ **AND IT IS THE SAME PROPERTY THAT BUYS THE WICK RESISTANCE — YOU CANNOT HAVE BOTH:**
-| trigger | fill cost | single-block wick | JIT dilution |
-|---|---|---|---|
-| endogenous (v3 tick) | free, always carried | **fills you**, then arb leaves you the wrong side | **yes** — searcher mints across your range, takes your fill pro-rata |
-| exogenous (our 30-min TWAP) | needs a carrier | **cannot fill you** — the average must move and hold | **no** — sorted set, whole orders in trigger-price order |
-**The poke is what an oracle-triggered book costs. It is not a defect to engineer away; it is the
-other side of the guarantee.**
-
-#### ✅ BUT AS THE **ROUTINE** PATH IT IS NOT INEVITABLE, AND TODAY IT IS THE ROUTINE PATH
-Two removable reasons stack on top of the structural one:
-1. **The cap.** `MAX_FILLS_PER_SWAP = 4` externalises the fill's gas onto the swapper, which is
-   exactly why a crowd of cheap orders is a griefing vector and exactly why the cap has to exist.
-   **Charge the fill and credit whoever carried it and BOTH problems close at once:** resting a crowd
-   costs the rester, so the cap's justification disappears, and the poke acquires the incentive
-   §E258-POKE-INCENTIVE was supposed to book. ⚠️ **This is the same seam as §E331 #1 (*OOR fills pay
-   NO skew at all*) approached from the other end** — do not settle one without the other.
-2. **`repack` moves the range with no swapper, and nothing sweeps behind it.** Measured:
-   **`RANGE.sweepOor` has exactly ONE automatic call site in all of `evm/src` — `Core.sol:1094`,
-   inside `swap`.** `_rebalance`/`repack` already computes the new price and does not sweep. Every
-   other entrypoint that touches the range — deposit, withdraw, `syncLev`, `compound` — carries no
-   sweep either.
-
-📌 **AND THE REPO HAS ALREADY SOLVED THIS CLASS ONCE, WITH A NAME FOR IT.** `Quid.sol:1011`, on
-`syncLev`: *"Anyone (keeper, monitor, or the LP) may poke it; it is **ALSO called lazily at the entry
-of `_withdraw`** so a position seized by an EXTERNAL venue liquidation self-heals before the LP can
-extract value — closing the gap on-chain, **not by poke-hope**."*
-⇒ **The OOR book is on poke-hope, and the pattern that retires it is three lines away in the same
-contract.** A bounded sweep at the entry of the range's own touch points turns the poke from the
-routine path into what its docblock already claims it is: a backstop.
-
-▶️ **SO THE HONEST STATEMENT, AND IT SHOULD REPLACE THE ONE IN `RangeLib.sweepOor`:** the poke is a
-liveness requirement created by the ORACLE TRIGGER, not by the cap; the cap merely makes it the
-common case instead of the rare one.
-
 ## 🔴🔴 **§FIXTURE-INHERITS-ITS-ENVIRONMENT — THE IDENTITY PROOFS WERE BOUND TO THE CHAIN ID AND THE WALL CLOCK OF WHOEVER RAN THEM. BOTH ARE NOW PINNED, AND THE SUITE IS GREEN IN BOTH MODES** (2026-08-29)
 
 ✅ **CLOSED 2026-09-08 — BOTH PINS ARE IN THE FIXTURE.** `evm/test/identity/pool/WithdrawEndToEnd.t.sol:273`
@@ -1618,59 +1574,6 @@ It now prints once under its real name, with the per-range figures taken from th
 differ — which is what let the debt term be derived instead of guessed.
 
 
-## 0e. 🟠 **§SILENT-SETUP — 25 OF 40 EMPTY `catch {}` BLOCKS IN THE SUITE RECORD NOTHING, AND THE
-ONES THAT MATTER ARE IN FIXTURE SETUP** (2026-08-23; same family as §VACUOUS-BOUNDS)
-
-Scan of `evm/test/**` for `catch {}` with no success signal in the surrounding frame: **40 empty
-catches, 25 recording nothing.** The pattern is `try AUX.swap(...) {} catch {}` inside a `_swap`/
-`_seed` helper — so **if every call reverts, the fixture establishes NO state and the test proceeds as
-though it had.**
-
-> ⚠️ **THIS IS §VACUOUS-BOUNDS ONE LAYER EARLIER.** There, the ASSERTION could not fail; here, the
-> PREMISE never holds and nothing says so. Both produce a green test that never exercised its subject.
-
-**FIRST-HAND, TODAY, and it is why this is booked rather than theorised:** `VarPrecision._swap`
-(`:32`) is `try AUX.swap(bold, WETH, true, amt, 0, true) {} catch {}`. Working on §E345 I could not
-tell whether σ² read 0 because the sampler was broken or because no swap had landed — **the helper
-destroys exactly the fact needed to tell those apart.** It took an added
-`emit log_named_uint("step POOLED_USD", …)` to establish the swaps WERE landing (POOLED_USD rose 300
-per step) and that the real cause was an unpinned `assetPriceFeed`. That instrumentation should not
-have been necessary; the helper should have counted.
-
-⭐ **THE TREE ALREADY KNOWS THE RIGHT PATTERN, WHICH IS WHAT MAKES THIS A DEFECT AND NOT A STYLE
-CHOICE.** `DrainAtomicity:1387/1390` does `try … { ++buys; } catch {}` / `{ ++sells; }`, and
-`Alles._moveEth` returns `moved`. **Same construct, one line longer, and the difference is whether the
-test can distinguish "it ran" from "it reverted 16 times".**
-
-**Highest-value sites — all fixture setup, all currently silent:** `VarPrecision:32` ·
-`SkewCalibration:35` · `UnificationControls:64` · `DrainAtomicity:225` · `PooledUsdRepackMatrix:159` ·
-`LevCascade:311,853` (`ETH.withdraw`) · `LeveragePnLProbe:113` (`ETH.redeem`) · `Alles:3660,3713`.
-
-▶️ **THE FIX IS ONE LINE EACH AND IT IS NOT A NEW TEST:** make the helper return or count landings, and
-have the caller assert the count is what it expected. ⛔ **DO NOT convert them to un-caught calls** —
-several of these fixtures legitimately expect SOME reverts (`DrainAtomicity:1353` documents
-`BadAsset()` on every odd round by design). **The requirement is a COUNT, not a revert.**
-⚠️ **AND EXPECT REDS.** A counted helper will show some of these fixtures have been establishing less
-state than their tests assume — which is the point, and is how §VACUOUS-BOUNDS' row 5 (a sim whose
-invariant is vacuous if nothing was committed) most likely arises.
-
----
-## ⏸️ **[1 of 5 FIXED 2026-08-28, and the fix is the TEMPLATE for the rest]**
-✅ **The exemplar `test_FlushRangeStillOwesOnlyTheBase` is already repaired** — and repaired in the
-one way that works. It now asserts `assertEq(flush, 0)` with its reasoning inline: *"IT IS
-DELIBERATELY AN EQUALITY: it passes now and turns RED the moment §E278 is decided either way, which
-an inequality cannot do. **An assertion a fix cannot fail is not coverage of the fix.** Do NOT
-'repair' this by widening it back to a bound."*
-⛔ **I ALMOST WIDENED IT BACK.** The obvious repair for a vacuous one-sided bound is to add the
-missing other side — and here that would have re-created the defect, because at σ²=0 the true value
-IS 0 and any bound around it is satisfied by the thing it guards. **PIN THE CELL, DO NOT BRACKET IT.**
-▶️ **THE REMAINING FOUR** — `test_CHECK_FullExitResidualIsRecoverable`,
-`test_UNIT_PremiumRecordedEqualsPremiumPaid`, `test_V5_OverAskClampsToPosition`,
-`test_RunSim_IL_Baseline_TrendDownIL` — each carry 2–5 assertions and **every one is one-sided**
-(measured: zero `assertEq`/`assertApproxEq` between them). Each needs its cell MEASURED and pinned
-the same way; the value cannot be guessed, because guessing is what makes a bound vacuous in the
-first place.
-
 ## 🔴 **§BACKING-HEADROOM-3PCT — the `backing` revert is TIGHTNESS, not double-counting** (2026-08-25)
 
 `testReal_DeliverSideDelever_SwapOutTapsLeveredSlice` reverts `"backing"` —
@@ -1707,24 +1610,6 @@ $272,662 → $393,324 inside `repack`'s resync via a single **ADD** (`modLP(+149
 it) leaves a gate that fires on a value which was never simultaneously true. See §DELIVER-BACKING for
 the decomposition and the two candidate fixes (burn-before-add, or evaluate the gate at operation
 end). ⚠️ The headroom question above is still worth answering — it just is not this failure's cause.
-
-## ⏸️ **§SWALLOW-RESIDUAL — the 54 refine to 18, and they are the ones that need READING** (2026-08-25)
-
-§SWALLOWED-FAILURES split the 54 by WHERE they sit and said test-body swallows *"each need reading"*.
-**Sized today, so the residual is a number rather than an adjective:**
-| location | empty `catch {}` |
-|---|---|
-| helper / setup functions (`_trade`, `_drain`, `_sell`, `_settle`, …) | **15 — DEFENSIBLE**, they churn state to reach a precondition |
-| **TEST BODIES** | **18 — each needs reading** |
-
-⛔ **AND AT LEAST ONE OF THE 18 IS LOAD-BEARING, SO THIS MUST NOT BE BULK-REWRITTEN** — the parent row
-names `LevCascade:634` (`try lm.rebalance(...) {} catch {}` ×8), whose own comment says *"the borrow
-hits 'insufficient collateral' and stops. That IS the buffer exhausting"*. **The swallow IS the
-mechanism under test.** Rewriting it to emit would not break the test; it would delete its point.
-▶️ **THE 18, GROUPED BY SUITE:** `LevCascade` (4: `:325`, `:334`, `:686`, `:911`), `Alles` (4+),
-`UnificationControls` (3: `:475`, `:532`, `:616`), `DrainAtomicity` (`:234`), and the remainder.
-⚠️ **THE DISCRIMINATOR, from the parent row and worth restating: a swallow that announces a genuine
-ABSENCE is right; one that can absorb a FAILURE is not.** Read what the assertion AFTER it depends on.
 
 ## 🔴🔴 **§PREMIUM-VS-BORNE — 92% of what a swapper gives up is attributed to NOBODY** (2026-08-25)
 
@@ -1801,37 +1686,6 @@ owed), which is the one remaining candidate for the ~$4.06.
 `assertLe(premium, paidUsd6)` — the record must never EXCEED what the swapper bore. That is §E279's
 actual defect (*"LPs are credited value no swapper paid"*), is true by construction if the accounting
 is honest, needs no decomposition, and **passes today**.
-
-## 🔴 **§MOCK-CENSUS — 80 raw mock sites refine to 28, and the discriminator is CONDITION vs LOGIC** (2026-08-25)
-
-Owner's standing rule is *"no mocks, real mainnet fork only"*, and `scan-loose-ends.py` reports
-**98 MOCK ON A REAL PATH**. **A raw 98 is noise; here is the refinement, with the discarded class named.**
-
-| | count | |
-|---|---|---|
-| raw `vm.mockCall` / `vm.etch` in `evm/test` | **80** | (the tool's 98 counts some lines twice) |
-| **inject an EXTERNAL CONDITION a fork CANNOT produce** | **52 — LEGITIMATE** | a USDC depeg, a specific Chainlink round, an SPV header |
-| **may replace OUR OWN logic** | **28 — the real candidates** | each needs reading |
-
-⭐ **THE DISCRIMINATOR, and it is what makes the 52 defensible rather than excused: does the mock
-supply a CONDITION the fork cannot reach, or REPLACE a computation we own?**
-`vm.mockCall(AUX, getDepegSeverityBps(USDC), …)` is the clean case — **USDC is not depegged on
-mainnet and cannot be made to depeg on a fork**, so the mock injects the world, not the logic.
-`LevCascade:408` says so in its own comment: *"impractical on the fork's manipulation-guarded oracle
-… This IS the condition the fleet keeper acts on."*
-⇒ **A mock that replaces `Aux.get_metrics` is the other kind and is a real violation.**
-
-✅ **ONE FIXED IMMEDIATELY, AND IT WAS THE SHARPEST KIND: `Alles:1360-1361` MOCKED `BTC.ROVER()`.**
-`Rover.sol` went with the §V4-CUT and **`ROVER` has 0 live references in `evm/src`** — so the test
-mocked a getter no contract has. **Inert scaffolding that still read as a wired dependency.** Removed;
-`Alles` stays **100 passed / 2 failed**, confirming it was exercising nothing.
-⚠️ `LevCascade:24` still declares `interface IVaultRoverT { function ROVER() … }` and
-`UnificationControls:1245` still narrates it — **tombstone references, left because renaming or
-deleting a tombstone's mention is how a reader concludes the feature was removed when it was not**
-(the rename-table rule). The MOCK is the part that had to go.
-▶️ **NEXT:** read the remaining 27 candidates against the same discriminator. **Do not bulk-delete** —
-the 52/28 split shows a blanket sweep would have removed the fixtures that make depeg and liquidation
-testable at all.
 
 ## 🔴🔴 **§POOL-SATS-SEGREGATION — the shape of the fix, and a CORRECTION to how the gap was described** (2026-08-26)
 
@@ -1998,25 +1852,6 @@ separate funding output, or a second pre-signed exit paying the pool's script; (
 `poolOwnedSats` and its bounds delete themselves, per §T1-f-root; (3) re-ask the jury question only if
 (1) is shown impossible. ⚠️ **Until (1) lands the gap is LIVE**, and it is the honest answer to
 "are we fully immune": **for LP funds yes, for pool inventory no.**
-
-## ⏸️ **§BTC-LEG-FEE — the ONE test that genuinely needs the v4 trading-fee leg back** (2026-08-25)
-
-`testBtcLp_swapInAccruesTheBtcLegFee` asserts `BTC.feesPerShare()` GREW across a swap-in. It cannot:
-`BtcLib`'s increment comes from `feesTok = r.fees1; feesUsd = r.fees0` off `rebalanceCore`, and since
-§V4-CUT that returns `(price, 0, 0, 0, 0)`. **`feesPerShare` is permanently 0 on BOTH ranges.**
-⭐ **AND THIS IS WHY IT SURVIVED THE SKEW FIX WHILE THE ETH FEE TESTS DID NOT.** `V2_EqualLps`,
-`V2_LateJoiner`, `E41`, `Matrix_S1` all asserted `pendingRewards > 0`, which reads **both**
-`feesPerShare` AND `USD_FEES` — so crediting the skew premium (which lands in `USD_FEES` via
-`creditSkewPremium`) was enough. **This one names `feesPerShare` SPECIFICALLY, and the skew lane never
-touches it.**
-⇒ **THE CLEAN DISCRIMINATOR FOR THE WHOLE FEE QUESTION: a test that reads `pendingRewards` is
-satisfied by the skew lane; a test that reads `feesPerShare` is not, and only the v4 trading-fee leg
-returning can satisfy it.** That is a one-line rule for triaging any future fee failure.
-⏸️ **BLOCKED, NOT BROKEN.** `QuidLib.rebalanceBody` records the open decision in its own words —
-*"whether per-share accrual returns is the deferred decision … fees currently compound into
-`POOLED_*` instead"*. ⛔ Do NOT "fix" this by asserting `USD_FEES` instead: that would silently
-redefine what the test checks and delete the only remaining statement that the TRADING-fee leg is
-dead. **It is the last witness to that gap.**
 
 ## 0-TOPOLOGY. 🔴 **OWNER DECISION 2026-08-18 — SPV STAYS A SEPARATE REPO, BECAUSE IT IS THE ONE THAT HAS A HOST**
 
