@@ -910,6 +910,67 @@ class as §VACUOUS-TEST — the NAME and the EVENT assert the property; the body
 be the single BTC exit for everyone.** That also answers the collateral question honestly rather than
 leaving a function whose name implies an exit that does not exist.
 
+### 🔴🔴🔴 §BTC-IL-IS-NOT-CONSTRUCTIBLE — **THE DELETION REASON IS FOUND, IT IS THE OWNER'S OWN, AND IT
+### COLLIDES HEAD-ON WITH THE REQUEST TO RESTORE THE MARKET**
+⭐ **PRIMARY SOURCE, `3440c742` (2026-09-07) — not CLAUDE.md's account, the commit message itself:**
+> *"Owner: **IL-protect by borrowing dollars against our Lightning BTC to buy more Lightning BTC is
+> toxic.** The vBTC Morpho market is not created at all."*
+
+⇒ **CLAUDE.md's story — *"a liquidator who seizes vBTC has no way to exit"* — was wrong, exactly as the
+owner said.** The real reason is that **the MECHANISM is toxic**, which is a far stronger objection: it
+is not a missing part, it is the part itself.
+
+🔑 **AND THE OWNER IS RIGHT, FOR A REASON WORTH WRITING DOWN, BECAUSE IT ALSO EXPLAINS WHY THE ETH LEG
+IS FINE.** The IL hedge for a range must be **LONG** the asset (the range sells the asset as it rises;
+the hedge buys it back). Funding a long on BTC by **borrowing against that same BTC** is a **reflexive
+leveraged long**: BTC falls ⇒ collateral falls ⇒ debt does not ⇒ you are liquidated *into* the fall,
+holding more of the falling asset than you started with.
+⛔ **`LevManager` does the identical thing on ETH — borrow stables against WETH, buy more WETH — so why
+is that not toxic too?** Because of **one asymmetry, and it is the whole answer:**
+| leg | collateral | can a liquidator seize it? |
+|---|---|---|
+| **ETH** | WETH on the EVM | ✅ **atomically, in the liquidating transaction** |
+| **BTC** | sats in a **Lightning channel** | 🔴 **NO — not on Bitcoin's timeline, not without the counterparty** |
+⇒ **the structure is identical and only ETH's is liquidatable.** A lender against channel sats cannot
+close the position when it goes bad, so **the lender eats the gap** — which is both the toxicity and the
+reason no real market will ever list it. **This is adjacent to CLAUDE.md's "liquidator exit" story and
+sharper than it: the problem is not that the seizer cannot SELL, it is that the seizure cannot HAPPEN.**
+
+⛔ **SO I HAVE NOT RESTORED THE MARKET, AND THIS IS THE ONE PLACE I AM NOT TREATING THE INSTRUCTION AS
+SETTLED.** The instruction was *"IF SO bring that code back"*, conditioned on the `if`. **The `if`
+resolves to a mechanism the same owner deleted on 2026-09-07 for a stated reason that still holds.**
+⇒ **restoring it would re-create, on the owner's instruction, the exact thing the owner called toxic** —
+and rule 13 says a reversal needs evidence, not a newer request. **Say the word and it goes back in one
+commit** (`3440c742` removed: `DeployL1_s`'s vBTC block — `mvB`, `vbOracle`, `mpB`, `createMarket`,
+`MorphoEscrowVenue` — with `vsB` 2→1, plus `47759214`'s `-2,378 bytes` of contract-side path). **But I
+am not doing it silently on a conditional whose condition is a contradiction.**
+
+### 🔑 WHAT THE HONEST OPTION SET ACTUALLY IS, now that "the LP deposits real BTC" closes the alternatives
+**The LP deposits real BTC into a channel** (owner, 2026-09-11), so the hedge cannot be funded from the
+depositor's own EVM assets — they have none.
+| option | verdict |
+|---|---|
+| **(a)** borrow against pooled BTC (vBTC market) | 🔴 **the toxic one.** Ruled out above, by its own author |
+| **(b)** collateralise with the ETH leg's assets | 🔴 **cross-subsidy** — ETH LPs would fund BTC LPs' hedges. `LeverageCrossSubsidyProbe` exists to forbid exactly this |
+| **(c)** collateralise with basket stables | 🔴 the owner already asked and the answer is no: it puts QU!D backing behind an LP's directional bet |
+| **(d)** perps / options | 🔴 breaks *"assume in the final design that we only borrow from aavev4"* |
+| ⭐ **(e)** **fund the long from FEE INCOME, not debt** | ✅ **the only one that contradicts nothing.** The pool buys BTC exposure with revenue it already has ⇒ **no borrowing, so no liquidation, so no toxicity and no market to list.** It is **rate-limited** by fee income rather than unbounded, which is a real limitation and an honest one |
+| **(f)** accept that BTC LPs bear IL | ⚠️ **honest, and it contradicts *"no IL for a passive LP"*** — so it is a DESIGN CHANGE, not a default to fall into silently |
+
+⇒ 📌 **THE DECISION IS (e) OR (f), AND IT IS THE OWNER'S.** Every other row is already ruled out by a
+standing ruling. ⛔ **And note what this means: *"no IL for a passive LP" is currently TRUE ON THE ETH LEG
+AND FALSE ON THE BTC LEG*, and nothing in the tree says so.**
+
+### ⛔ AND `openBtcLev` IS UNREACHABLE BY ITS OWN USER BASE — a removal candidate either way
+```solidity
+function openBtcLev(uint initialWbtc, ILevVenue venue) external nonReentrant {   // BtcLevManager.sol:49
+    IERC20Min(WBTC).transferFrom(msg.sender, address(venue), initialWbtc);       // :57
+```
+**It requires the caller to already hold WBTC.** Owner, 2026-09-11: *"the lp will not deposit wbtc they
+will deposit real btc."* ⇒ **no actual BTC depositor can call this function at all.** It is not
+*"opt-in and externally funded"* as I first booked it — **it is dead on arrival for the entire intended
+user base**, and it is the entrypoint the whole `BtcLevManager` hedge hangs off.
+
 ### 🔴🔴 §NO-BTC-IL-HEDGE — **BTC DEPOSITORS ARE NOT PROTECTED FROM IL, AND THE REASON IS THE COLLATERAL**
 ```solidity
 function openBtcLev(uint initialWbtc, ILevVenue venue) external nonReentrant {   // BtcLevManager.sol:49
