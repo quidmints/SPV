@@ -578,6 +578,71 @@ because the defence guards the bookmark and not the increment.
 A fee arriving at an empty pool is credited to `POOLED_USD` and `feesRetained` and recorded by **no**
 accumulator at all, with no revert and no event. Rule 3's shape: the failure announces nothing.
 
+### ⚠️ CORRECTION TO BREAK 8 — **BOTH SURFACES WERE ALREADY BOOKED, BY A TEST, AND I DID NOT LOOK FIRST**
+`test/SkewPremiumReachesLPs.t.sol`'s own header names them, in order, as *"TWO LEAK SURFACES THIS IS
+BUILT TO EXPOSE, both in `feeIncrements`"* — the zero-denominator branch (*"Charged, never paid"*) and
+*"`usdInc = premium6 * WAD / totalShares` truncates, so a remainder can be stranded."* ⇒ **BREAK 8's
+observation is not a discovery; its MAGNITUDE is.** Rule 13 in the other direction: I should have
+grepped the symbol before writing the finding.
+
+🔴 **AND WHAT THE MAGNITUDE ACTUALLY SHOWS IS WORSE THAN THE FINDING I THOUGHT I HAD — THE TEST'S
+TOLERANCE IS EXACTLY THE SIZE OF THE DEFECT IT IS MEANT TO BOUND:**
+```solidity
+assertLe(shortfall, denomNow / 1e18 + 1, "LEAK: more than truncation dust failed to reach LPs");
+```
+`denomNow / 1e18` **is the truncation quantum**, the same number BREAK 8's table computes. So the
+assertion permits a shortfall of one whole quantum — **$0.10 per fee event on a 100,000 ETH pool,
+$1.00 on a 1,000,000 ETH pool** — and calls it *dust*. ⇒ **it cannot fail from truncation at any pool
+size, because the bound grows with the pool at exactly the rate the defect does.** §VACUOUS-BOUNDS,
+arriving through a tolerance rather than through a one-sided comparison.
+⚠️ **The one guard that WOULD bite (`assertGt(credited, 0, …)`) is never exercised on a small trade**:
+the test drains `40_000e18` twenty times, so `charged` is enormous and `credited` is comfortably
+non-zero. **The whole retail band the table describes is outside what this test ever runs.**
+✅ **AND THE TEST IS NOT BAD WORK — it is the honest kind.** It named the surface, asserted the
+zero-denominator half as a pure unit test, and wrote down that its premise *is* the leak surface. The
+defect is that a number nobody re-derived — `denomNow / 1e18` — was labelled *dust* and never priced.
+**Price every tolerance; a tolerance is a constant a guard consumes, and rule 18 ④ applies to it.**
+
+### 🔴🔴 BREAK 9: **`feesPerShare` — THE NATIVE FEE ACCUMULATOR — CAN NEVER BE NON-ZERO**
+Not truncated. Not small. **Structurally zero, by a census of every writer in `src/`:**
+| writer | what it contributes |
+|---|---|
+| `Quid.creditFee:587` / `Vault.creditFee:101` | `SwapLib.feeIncrements(**0**, premium6, …)` — the token leg is a LITERAL ZERO at both sites, and there is no third caller |
+| `Quid.sol:620` / `Vault.sol:151` | `feesPerShare += o.feesPerShareInc` |
+| `Quid.sol:416` / `Vault.sol:210` | `feesPerShare = 0` (reset) |
+
+⭐ **AND `feesPerShareInc` IS ASSIGNED NOWHERE.** It is *declared* twice — `QuidLib.RebalOut:95`,
+`BtcLib.RebalOut:233` — and `rebalanceBody` assigns `newBookmark`, `venueFeesPerShareInc`,
+`setLastRepack`, `reseatBump`, `spotPrice`, `loPrice`, `upPrice`, `myLiquidity`, `anchorPrice`, **and no
+fee field**; `SwapLib.Rebalanced` has no fee field to source one from. A memory struct zero-initialises
+⇒ **both `+=` are provably `+= 0`.** (`usdFeesInc` is dead the same way; `USD_FEES` survives only
+because `creditFee` feeds it separately.)
+
+⇒ **EVERYTHING DOWNSTREAM IS DEAD ARITHMETIC:** `pendingFor`'s `tokOwed`/`tokReward`,
+`refreshBookmarks`'s `LP.fees_tok` write, and `feeIncrements`'s entire `fees`/`tokInc` half. A whole
+accumulator pipeline that can only ever produce zero — and nothing in the tree says so.
+
+🔑 **THE DESIGN CONSEQUENCE, AND IT IS BREAK 8 AT 100% INSTEAD OF AT THE MARGIN.** The native premium is
+**not** zero: `LevYbReal.t.sol:629` asserts its own premise, `assertGt(CORE.retainedNativeFee(), 0,
+"CONTROL: sells must retain a native premium")`, and `:635` pins the conserved identity
+`POOLED − rangeETH − levBuf + retainedNativeFee`. So the ETH is real, it moves into **`rangeETH`**, and
+it reaches LPs **only through backing**.
+> ⇒ **every dollar of NATIVE fee bypasses the checkpointed accumulator entirely.** BREAK 8's redirection
+> to later joiners is a truncation remainder; this is the **whole leg, by construction**. An LP who
+> deposits one block after a large sell shares in a premium earned before they arrived — which is
+> precisely what `refreshBookmarks` exists to prevent, and the defence is bypassed rather than beaten.
+
+📌 **REMOVAL (owner: *"removal is the policy"*) — booked, not done, because a suite is in flight and
+rule 10 caps one money-path change per run:** `feesPerShareInc` ×2 declarations, `usdFeesInc` ×2, the
+two `+=` statements, `feeIncrements`'s `fees` parameter and `tokInc` return, `pendingFor`'s
+`tokOwed`/`tokReward`, `Types.Deposit.fees_tok`, and `refreshBookmarks`'s `tokAccum` argument.
+⚠️ **`feesPerShare` itself is `public` on `Shares` and read by `BtcLib` ×3 — deleting it is a bytecode
+change needing a build, a size measurement and its own run.** Do not fold it into anything else.
+⛔ **AND DECIDE THE DESIGN QUESTION BEFORE DELETING:** if the native leg is *supposed* to be
+checkpointed, the fix is to FEED this accumulator, not to remove it — the pipeline is the shape of an
+intention nobody wired. **Deleting it resolves an open design question by deletion, which this repo has
+ruled out before.**
+
 ### ✅ AND ONE BOUND THAT IS FINE, checked so the absence is not read as unexamined
 `LevVenueBase._unitSlice(u, tot, bal) = fullMulDiv(u, bal + 1, tot + 1e6)` floors, and `_unitsFor` floors
 on the way in — so **collateral rounds against the LP at both ends (conservative) and debt rounds in the
