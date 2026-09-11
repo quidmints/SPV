@@ -74,9 +74,19 @@ being priced sets observed flow. Two vectors were measured, not imagined:
   the same total size.
 
 A constant cannot be starved, so both become *unconstructible* rather than defended against.
-⚠️ **The level is a calibration and must stay current:** it has to exceed adverse selection over the
-settlement window and stay under the competing venue's all-in cost. If that band ever closes, this
-stops being a constant question.
+✅ **AND THERE IS NO COMPETITIVE CEILING — RULED 2026-09-11** (owner: *"there should be no contradiction
+or competetive ceiling"*). The earlier text made 420 ppm conditional on *"staying under the competing
+venue's all-in cost"*, which quietly reintroduced everything §NO-GAMEABLE-BOUND had just removed: a bound
+set by an outside quantity we do not control, cannot audit, and would have to keep re-measuring — and a
+competitor can move its own all-in cost at will, so pricing against it is a charge a counterparty sets.
+**That is the same defect as the flow EWMA, one level out.**
+⇒ **THE FLOOR IS THE ONLY CONDITION, AND IT IS OURS:** the charge must exceed adverse selection over the
+settlement window. That is a property of our own oracle cadence and our own inventory, measurable without
+reference to anyone else. **If a competitor is cheaper, we are cheaper-or-not on the merits; we do not
+re-price to chase them.**
+📌 **This retires open decision 5 outright.** The *"~17 bps round trip, quoted not measured"* figure it
+rested on is no longer load-bearing for the CHARGE — it survives only inside §9's realised-cost
+accumulator, where it is a cost we actually pay and can therefore observe.
 
 ## 6. The deferral primitive — ONE mechanism, both directions
 > **The pool owes you `X` of asset `A` and holds less than `X`. It issues a DATED CLAIM on `A`, and
@@ -140,6 +150,48 @@ RATIO, it has to restore the ABILITY TO QUOTE BOTH SIDES.* A much weaker require
 deferral satisfies without buying anything.
 
 ## 7. The hedge — drift, not price
+
+### 🔑 WHAT DRIFT IS, IN ONE EXAMPLE, BECAUSE THE OWNER SHOULD NOT HAVE HAD TO ASK (2026-09-11)
+Owner: *"idk what drift is or who should fund it and why."* **That is a failure of this document, not
+of the reader.** Written plainly, with no formula:
+
+> An LP deposits **100 ETH**. A swapper buys **50 ETH** out of the pool for dollars, at the oracle.
+> The pool now holds **50 ETH + \$100k**. **Drift is that 50 ETH** — what the LP put in, minus its share
+> of the volatile that is still there.
+
+**Why anyone cares:** if ETH then doubles, the LP wanted 100 ETH of upside. It has 50 ETH plus \$100k,
+which at the new price is 50 + 25 = **75 ETH worth**. The missing 25 is the impermanent loss, and drift
+is what predicts it. ⇒ **drift is not an abstraction — it is "how much of your ETH did we sell while you
+were in".**
+✅ **And the pool can read it directly**, which is the whole reason it replaces a formula:
+`entryEquity_i` is stored at open, `rangeETH` is the volatile still held, `shares_i/lpShares` is this
+LP's fraction. **No price, no √, no variance, no forecast.**
+
+### ✅ WHO FUNDS IT — **THE LP THAT WANTS IT HEDGED, OUT OF ITS OWN CARRY. THIS IS NOT AN OPEN DECISION**
+It was carried as *"decision 2, the design's central cost"*. **Measured against the code, it is already
+answered and the answer needs nothing built:**
+`LevManager.openLev` is `external`, gated on `msg.sender`, and reverts `AlreadyOpen()` if that LP already
+has a position (`LevManager.sol:75-81`). `BtcLevManager.openBtcLev` is the same shape.
+⇒ **THE LEVER IS PER-LP OPT-IN. NO LP IS LEVERED WITHOUT ASKING, AND NO LP PAYS FOR ANOTHER'S HEDGE.**
+An LP that wants its delta restored opens its own position and pays its own 183 bps/yr; an LP that would
+rather keep the dollars does nothing and pays nothing.
+
+🔑 **SO THE THREE CANDIDATE ANSWERS COLLAPSE, AND §1 IS SATISFIED BY CONSTRUCTION RATHER THAN BY A RULING:**
+| candidate | verdict |
+|---|---|
+| the basket funds it | ⛔ forbidden by §1, and never a real option |
+| the protocol funds it out of carry | ⛔ **that IS the cross-subsidy**, just with the protocol as the intermediary — every LP would pay for the hedges of the LPs who wanted one |
+| ✅ **the LP that wants it, out of its own carry** | **what the code already does.** Opt-in, per-LP, priced at the venue |
+
+🔴 **AND THE ONE PLACE THAT PROMISE IS CURRENTLY BROKEN IS NOT THE FUNDING — IT IS THE POOLING.** The
+venue holds **one** position (§POOL-VENUE), so a liquidation hits every LP pro-rata on units regardless
+of who borrowed. **Measured: a late zero-debt LP went 5.000000 → 2.599165 ETH for an early LP's
+liquidation — 4,801 bps of its own collateral** (`LeverageCrossSubsidyProbe`).
+⇒ **"WHO FUNDS THE DRIFT" IS NOT AN OPEN PRODUCT QUESTION. IT IS `§CROSS-SUBSIDY-MEASURED` WEARING A
+DIFFERENT HAT**, and the decision that remains is the pooled-liquidation one: **isolate per-LP, or price
+and disclose the sharing.** The per-LP ledger to isolate against already exists — `debtUnits[lp]` and
+`collUnits[lp]`, 19 and 18 references in `evm/src`. **What is missing is that the SEIZURE consults it.**
+
 🔴 **Both of the old design's IL terms are CFMM laws, and we deleted the CFMM:**
 - ✅ `soldFractionWad` is **a constant, 0.507500313** (`LevMath.sol:170-187`). The range recentres on
   spot every repack, so the triple is always `(P(1−d), P, P(1+d))` and **P cancels**. Measured over a
@@ -223,11 +275,29 @@ every ratio; that is what "pro-rata" means. ⇒ **the quantity `_shortfallLoadBa
 solvency fact. It is the share price in ETH terms having fallen below 1** — which is IL, measured in
 the wrong unit and given an alarming name.
 
-### ⇒ DELETE THE MEASUREMENT, NOT THE SYMPTOM
-`sharesForShortfall`, `realInventory`, `onShortfall`, `_shortfallLoadBalance` and `proRataShortfall`
-**all exist to detect, announce, refuse or share a number that has no meaning under a pro-rata claim.**
-Removing the denominated comparison removes all five, and with them the first-out attack — **there is
-nothing to escape, so nothing to share, so nobody bears anything.**
+### ⇒ DELETE THE INTERPRETATION AND ITS CONSUMERS — **NOT THE ARITHMETIC** (corrected 2026-09-11)
+⛔ **THIS SECTION USED TO SAY "REMOVES ALL FIVE" AND THAT CONTRADICTED §7, WHICH I ALSO WROTE.** Owner:
+*"there should be no contradiction."* Here is the single rule, and it has no second reading:
+
+| symbol | what it is | fate |
+|---|---|---|
+| `_shortfallLoadBalance` | the **denominated comparison** — `lpShares` (a count) against `rangeETH` (a balance) | 🪦 **DELETE.** This is the whole defect |
+| `onShortfall` | the announcement. `function onShortfall(address, uint) external {}` — **a literal no-op** | 🪦 **DELETE** |
+| `proRataShortfall` | shares a gap that does not exist | 🪦 **DELETE — but only once the comparison is gone**, and by an argument that NAMES it (§E313: three deletions-by-proximity so far) |
+| `sharesForShortfall` | `Quid.sol:1562` — `return totalShares()` | ✅ **KEEP THE READ.** It *is* `lpShares`, and §7's `drift_i` needs it |
+| `realInventory` | `Quid.sol:1567` — `return _auxRangeETH()` | ✅ **KEEP THE READ.** It *is* `rangeETH`, and §7's `drift_i` needs it |
+
+⭐ **THE PRINCIPLE, STATED ONCE SO NEITHER SECTION HAS TO REPEAT IT:** `lpShares − rangeETH` is
+**meaningless as a solvency alarm** (a pro-rata claim cannot be short) and **exactly right as an exposure
+measure** (the pool holds less volatile than its LPs deposited). §6b is why: **solvency is denominated in
+VALUE, exposure in THE ASSET.** Same arithmetic, two names, and only one of the names was wrong.
+⇒ **We delete the alarm, the threshold, the remediation and the sharing. We keep the subtraction and read
+it under its true name.** ▶️ **And both halves land in ONE change** — deleting the consumers while §7 is
+unbuilt would strand the reads with no caller, and building §7 first would leave a live alarm firing on a
+quantity the hedge is deliberately creating.
+⚠️ **The two accessors should then be renamed or inlined** (rule 23: `lpShares` and `rangeETH` are already
+public, so an accessor named for a deleted concept earns nothing) — but that is tidying AFTER the change,
+not part of it.
 ⭐ **THIS IS THE SAME MOVE AS §NO-GAMEABLE-BOUND, WHICH IS WHY IT IS THE RIGHT ONE:** we did not bound
 the gameable charge, we deleted the measurement it depended on. Here we do not share the shortfall or
 compensate it — **we delete the comparison that manufactures it.**
@@ -437,26 +507,28 @@ WHO-PAYS questions are not, and two of the unsettled ones are load-bearing rathe
 | | state |
 |---|---|
 | ✅ **SETTLED, and each replaced something gameable or forecast-based** | the flat 420 ppm (§5) · ONE deferral primitive in both directions (§6) · why the hedge exists at all (§6b) · drift instead of price (§7) · the shortfall is an artifact (§7c) · quote-both-and-let-them-pick (§8) · the realised-cost trigger (§9) · leverage as the THIRD choice (§11) · collateral is weETH/WBTC only (§12) |
-| 🔴 **NOT BUILT — and this is the whole of the new design** | drift-based hedging · `when` chosen from inventory · the tenor quoted · the keeper-callable pooled de-lever · the competitive-ceiling assertion |
-| 🔴 **OPEN DECISIONS** | **8 of the 9** in `SPRINT.md` §COMPOSITION-ORDER. Only D4 closed (by §12d). |
+| 🔴 **NOT BUILT — and this is the whole of the new design** | drift-based hedging · `when` chosen from inventory · the tenor quoted · the keeper-callable pooled de-lever |
+| 🔴 **OPEN DECISIONS** | **5 of the 9** in `SPRINT.md` §COMPOSITION-ORDER. D4 closed by §12d; **D2 dissolved into D7, D5 struck, and the §7c/§7 contradiction removed — all 2026-09-11.** |
 
-### ⛔ THE THREE THAT BLOCK BUILDING, AS OPPOSED TO MERELY REMAINING OPEN
-1. **Decision 2 — who funds drift when flow does not reverse.** This is not a parameter. **If the answer
-   is "nobody", the lever does not exist in the steady state and §7's hedge is dead code**; if it is
-   "carry", the pool pays 183 bps/yr on the IL fraction; if it is "the waiter", §6's tenor has to be
-   priced to cover it. **Three different systems.** ⇒ building §7 before this is ruled is building one
-   of three.
-2. **Decision 5 — the competitive ceiling is UNMEASURED.** §5 states the 420 ppm's own validity
-   condition: it *"has to exceed adverse selection over the settlement window and stay under the
-   competing venue's all-in cost. If that band ever closes, this stops being a constant question."*
-   **Nobody has measured the ceiling.** ⇒ **the central pricing decision rests on a band whose upper
-   edge is unknown**, and the flat fee is the one thing every other section assumes.
-3. **§7c vs §7 — the model contradicts itself and I wrote both halves.** §7c says delete
-   `sharesForShortfall` and `realInventory`; §7's `drift_i` needs exactly those two reads
-   (`Quid.sol:1562` returns `totalShares()`, `:1567` returns `_auxRangeETH()`). **Reconciled in
-   `SPRINT.md` §LEVER-UP — the deletion is of the INTERPRETATION and the CONSUMER, never the
-   arithmetic — but this document still carries both sections as originally written.** ⇒ **they must
-   land as ONE change.** Splitting them is the rework the owner asked about.
+### ✅ THE THREE THAT BLOCKED BUILDING ARE ALL RESOLVED — 2026-09-11, NONE OF THEM BY MEASUREMENT
+1. ✅ **Who funds drift — ANSWERED, and it was never three systems.** `LevManager.openLev` is `external`,
+   gated on `msg.sender`, reverting `AlreadyOpen()` (`LevManager.sol:75-81`); `openBtcLev` is the same.
+   **The lever is per-LP OPT-IN: the LP that wants its drift hedged opens its own position and pays its
+   own 183 bps/yr.** The protocol funds nothing; no LP funds another's hedge; §1 holds by construction.
+   ⇒ what remains is **not a funding question** — it is the POOLED LIQUIDATION (4,801 bps measured), so
+   this decision dissolved into the one below it rather than needing its own ruling. See §7.
+2. ✅ **The competitive ceiling — STRUCK, not measured** (owner: *"there should be no … competetive
+   ceiling"*). It had made the flat 420 ppm conditional on staying under a competitor's all-in cost —
+   **a bound a counterparty controls, which is §NO-GAMEABLE-BOUND's exact defect one level out.** Only
+   the floor remains and the floor is ours: exceed adverse selection over our own settlement window.
+3. ✅ **The §7c/§7 contradiction — REMOVED, not documented** (owner: *"there should be no
+   contradiction"*). §7c now deletes `_shortfallLoadBalance`, `onShortfall` and `proRataShortfall` and
+   **KEEPS the two reads** — `sharesForShortfall` IS `lpShares`, `realInventory` IS `rangeETH`, and
+   §7's `drift_i` needs both. One rule, stated once: **delete the alarm, keep the subtraction.**
+   ⚠️ Still true that both halves must land in ONE change; that is sequencing, not a contradiction.
+
+⇒ **SO THE HONEST STATE CHANGED TODAY: nothing now blocks BUILDING the hedge.** What is left is one
+owner ruling (pooled liquidation: isolate per-LP or price the sharing) plus the unbuilt work itself.
 
 ### ⚠️ AND ONE THING THE OWNER SHOULD SEE BEFORE THE v4 RULING IS FINAL
 Decision 4 below is retired by *"only borrow from Aave v4"* (§12d) — **but its measurement is evidence
@@ -481,8 +553,9 @@ decision 5's ceiling, and land §7c+§7 as one change. **Everything else waits o
    independent-source rule had two consumers and σ² was one; deleting σ² leaves the guard holding it
    alone. ⇒ Pin a genuinely independent source, or name Chainlink the trust root and delete the ring.
    ⛔ 1inch is not callable on chain — measured at **31.7M gas**, past a whole block.
-2. **Who funds the drift when flow does not reverse.** The basket is forbidden (Part I §1). So: carry
-   (the lever) or time (deferral). This is the §14 question and it is the design's central cost.
+2. ✅ **ANSWERED — the LP that wants it, out of its own carry.** `openLev` is per-LP opt-in
+   (`LevManager.sol:75-81`), so the protocol funds nothing and no LP funds another's hedge. What looked
+   like the design's central cost was the POOLED LIQUIDATION in disguise — see §7 and decision 7.
 3. **`usd_owed` → a QU!D vintage.** ⚠️ It **mints** where today it deliberately does not, consuming
    supply-cap headroom. A silent unpaid IOU becomes a supply-capped yield-bearing one — better for the
    LP, more honest in the accounting, and not free.
@@ -495,8 +568,9 @@ decision 5's ceiling, and land §7c+§7 as one change. **Everything else waits o
    not a one-line change, because four call sites resolve *the* venue via singular `poolVenue` and the
    right choice differs between a repay and a withdraw. **That routing decision is the allocator's
    real body; the rate maths is the easy half.**
-5. **The competitive ceiling, unmeasured.** The ~17 bps round trip used in Part I §9 is quoted, not
-   measured on our own rebalance path. One piece of work closes this and the ceiling assertion.
+5. 🪦 **STRUCK — there is no competitive ceiling** (owner, 2026-09-11). The **~17 bps round trip** is
+   still owed, but as an input to §9's realised-cost accumulator — a cost we actually pay and can
+   observe on our own rebalance path — never as a ceiling on the charge.
 6. **Turnover.** Part I §10's break-even needs our actual volume-to-levered-notional ratio. Unmeasured,
    and it decides whether protocol-level hedging is self-funding or a subsidy.
 
