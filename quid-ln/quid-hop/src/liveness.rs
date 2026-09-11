@@ -179,6 +179,36 @@ mod tests {
     /// liveness for the channel, height and sequence it names; if any field could be changed
     /// without invalidating it, a captured heartbeat would prove liveness for a different channel.
     #[test]
+    /// 🔑 **HALF OF A CROSS-LANGUAGE PAIR — the other half is
+    /// `app/features/identity/chain/liveness.test.ts` (`digest matches the Rust vector`).** The phone
+    /// PRODUCES heartbeats and this module VERIFIES them, so the two implementations agreeing with
+    /// themselves proves nothing; only a shared constant catches them drifting apart.
+    /// ⛔ **AND THE DRIFT WOULD BE SILENT.** `/lp/heartbeat` answers `{recorded: false}` for a bad
+    /// signature, a wrong signer, a replayed sequence and an unknown channel alike — deliberately, so
+    /// an unauthenticated caller cannot probe which channels a hop serves. A mismatched digest is
+    /// therefore indistinguishable from a replay, and the channel simply stops being routable.
+    /// ⇒ If this fails, ONE of the two sides moved. Find out which before touching either constant.
+    #[test]
+    fn digest_matches_the_typescript_vector() {
+        let hb = Heartbeat {
+            channel_id: B256::repeat_byte(0x11),
+            height: 900_000,
+            seq: 7,
+        };
+        assert_eq!(
+            hb.digest(),
+            B256::from_slice(
+                &[
+                    0xcd, 0x62, 0x09, 0xff, 0x93, 0xad, 0x20, 0xfb, 0xe8, 0x05, 0x20, 0xbe, 0xed,
+                    0x6d, 0xc3, 0x2c, 0x09, 0x64, 0xb7, 0xcc, 0x34, 0x55, 0xcc, 0x0f, 0x16, 0xf5,
+                    0x88, 0xda, 0x5d, 0xeb, 0x14, 0x43,
+                ][..]
+            ),
+            "digest drifted from app/features/identity/chain/liveness.test.ts"
+        );
+    }
+
+    #[test]
     fn every_field_is_committed() {
         let (sk, lp) = signer(0x22);
         let h = hb(7, 500);
