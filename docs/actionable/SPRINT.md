@@ -17015,76 +17015,22 @@ The rename costs nothing at runtime (locals) and makes the audit question expres
 
 ### `§E272` 🔴
 
-## §E272 — 🟡 **OVERSTATED AND NARROWED: THE SYNC IS TRANSIENT, NOT DESTRUCTIVE**
-⛔ **CORRECTION (owner's challenge, 2026-08-21): *"what are you trying to prove about the sync?"***
-This row said the LP *"ends the call with LESS depth than it started with"*, framed as terminal. **It
-is not.** `_syncRange` is called at ~~13~~ **11 sites** (re-counted 2026-08-28; the argument is
-unaffected — it is still every path, and 11 is still "many") across both managers — every lever, delever, repay,
-close and rebalance path. A failed add is therefore **TRANSIENT**: the next touch re-runs burn-then-add
-and restores the depth once surplus returns. Nothing is permanently lost.
-⇒ **THE DEFENSIBLE CLAIM IS NARROWER:** between touches, an LP can hold venue debt whose depth is not
-in the range, earning no range fees while still paying borrow cost — and **nothing records that it
-happened** (`levAddNet` has zero `emit` on the declining path; `_syncRange` is `try {} catch {}`).
-That is an OBSERVABILITY gap over a transient state, not depth destruction. Priority drops accordingly;
-the fix is an event on the declining path, not a re-architecture of the burn.
-⚠️ **WHAT I GOT WRONG, since it is the reusable part:** I traced the mechanism correctly and never
-asked how often the mechanism RUNS. One grep for `_syncRange(` — 13 hits — reframes the whole row.
-**A sequence that is destructive in isolation can be self-healing in context, and the context is the
-call-site count.**
+## 🟡 §E272 — **THE NARROWED CLAIM SURVIVES, AND THE MODEL MAKES IT MEASURABLE**
 
-### (original, mechanism still accurate) BURN-THEN-ADD
-🔴 OPEN — found 2026-08-19 answering the owner's "find the root issue behind the clamps". **The clamps
-are not the defect** (see the §E271 retraction — they are two independent solvency bounds plus a derived
-risk budget, all legitimate). The defect is what happens to a clamp's ANSWER.
+The row was **overstated and corrected by its own author** after the owner asked *"what are you trying
+to prove about the sync?"*: `_syncRange` runs at 11 sites — every lever, de-lever, repay, close and
+rebalance path — so a failed add is **TRANSIENT**, not destructive. The next touch re-runs
+burn-then-add. **Nothing is permanently lost.**
 
-**VERIFIED BY READING (all on `origin/main`):**
-1. `QuidLib:107-110` — `syncLev` is **BURN-ALL, THEN ADD**:
-   `if (levPooled[lp] > 0 || levBuf[lp] > 0) levBurnAll(...)` then `if (p.gross > 0) levAddGross(...)`.
-2. `RangeLib.levAddNet:79-81` — the add can return **0 WITHOUT REVERTING**: `addLiq` returns `(0,0)` when
-   `surplus == 0` (`QuidLib:321`) or when either clamp cuts to zero; `levAddNet` then does
-   `if (netTok == 0) return 0;` and skips `LP.pooled`, `levPooled`, `refreshBookmarks` and `modLP`.
-3. `levAddNet` contains **ZERO `emit`** — there is no signal on the declining path.
-4. `LevBase._syncRange` is `try ILevSyncHook(RANGE).syncLev(lp) {} catch {}` — **every outcome discarded.**
-
-⇒ **THE ASYMMETRY IS THE BUG.** The burn always succeeds — it removes. The add is conditional. A REVERT
-is survivable (it rolls the burn back; only the observability is lost to the empty `catch`). **The
-non-reverting zero is not:** the burn COMMITS, the add declines, `syncLev` returns normally, and the LP's
-levered depth is **destroyed rather than left in place**. Nothing reverts, nothing emits, and the one
-caller that could notice throws the result away. A refusal and a success are the same observable.
-⚠️ This is strictly worse than "the add did not happen" — the LP ends the call with LESS depth than it
-started with, while still holding the venue debt that depth was funding.
-
-⭐ **REACHABILITY UPGRADED 2026-08-21 (still not TESTED — see below).** `surplus = liquidTotal −
-committedBoth`, and `SwapLib.sol:389` reverts `UnderBackedS()` when `committedUsd18() > deposits[14]`.
-⇒ **`committed` can equal `liquid` but never exceed it, so `surplus == 0` IS the protocol's own
-documented operating boundary — the fully-committed state — not a pathological corner.** The backing
-gate is `committedUsd18() <= haircutTvl`, i.e. the design intends to run right up to this line.
-⇒ So the burn-then-add asymmetry does not require an exotic state: it requires the ordinary
-fully-committed one. That raises the priority; it does not close the row.
-⚠️ **AND NO EXISTING FIXTURE REACHES IT.** Checked: `BackingGateSplit.t.sol` is the closest and is an
-INSTRUMENT — it logs `committedUsd18` and `deposits[14]` and its own header says it *"asserts NOTHING
-about which is true"*. Nothing in `evm/test` drives `committed` to `liquid`. **The test is new fixture
-work — constructing a fully-committed fork state — not a quick assertion**, which is why it is still
-owed rather than done.
-
-**STILL NOT VERIFIED — do this before sizing the fix:** that `surplus == 0` (or a clamp-to-zero) is
-actually reachable at the moment `syncLev` runs. The mechanism is certain; the FREQUENCY is not, and it
-governs whether this is a latent hazard or an active leak. A test that exhausts basket surplus and then
-triggers a rebalance settles it in one run. **Do not close this on reasoning — reachability is exactly
-the axis this repo has been wrong about before.**
-
-⇒ **ROOT FIX, NOT A CLAMP** (standing rule 17): make the bad state unconstructible rather than detected.
-Either (a) size the burn to what the add can actually take — compute capacity FIRST, burn only that
-much; or (b) make `levAddGross` REVERT on a short add so the burn rolls back atomically, and let
-`_syncRange`'s caller see it. **(b) is one line and restores the invariant immediately; (a) is the real
-fix** because it never destroys depth in the first place. ⚠️ **Whichever is chosen, `_syncRange`'s
-`catch {}` must stop swallowing** — a silent failure on the money path is precisely what standing rule 3
-says earns a check.
-⚠️ **THE EMPTY-CATCH PATTERN IS TREE-WIDE: 20 `catch {}` sites** — `QuidLib` 7, `SwapLib` 5, `LevBase` 3,
-`Quid` 2, `FeeLib` 2, `LevMath` 1. Each deserves the same question: is the swallowed failure survivable,
-or does it commit a half-completed state? This row covers ONE of them.
-
-
+✅ **THE DEFENSIBLE CLAIM, UNCHANGED:** *between touches an LP can hold venue debt whose depth is not in
+the range — earning no range fees while still paying borrow cost — and nothing records that it
+happened* (`levAddNet` has no `emit` on the declining path; `_syncRange` is `try {} catch {}`). **An
+OBSERVABILITY gap over a transient state.**
+⭐ **AND `TARGET-DESIGN` Part I §9 TURNS IT FROM A GAP INTO A QUANTITY.** The keeper's rule is *act when
+the carry ALREADY PAID exceeds the round trip*, which requires knowing **carry paid on depth that was
+not earning** — which is exactly what this row says nothing records. ⇒ **the silent window is now an
+input to a decision, not just an unlogged state**, and the `try {} catch {}` swallowing it is the
+reason the input cannot be computed.
 ## PART G (cont.) — **THE 9 I HAD LEFT BEHIND, NOW CLASSIFIED BY READING THEM**
 
 I left 12 non-finished rows in `QUEUE.md` and justified it as *"moving them would drag a finished
@@ -17554,69 +17500,19 @@ shared library calls. Hoisting them into `State` was measured at **+41 bytes and
 abstract base copies into every inheritor), so that is NOT the lever — but a delegatecalled library
 would be, at the cost of one call per use. Measure before adopting.
 
-## §E275-HYGIENE — 🟡 **TWO OF FOUR DONE; ONE WITHDRAWN AS A BAD CALL; ONE STILL OPEN**
+## ✅ §E275-HYGIENE — **CLOSED. All four discharged, and its WITHDRAWN item is the one worth keeping.**
 
-✅ **CLOSED 2026-09-08 — ALL FOUR ITEMS DISCHARGED.** (1) `Shares.sol:67` declares `abstract contract
-Shares`, not `State`, and `Quid.sol:38` inherits it. (2) The allowance sentence at `Shares.sol:57`
-is corrected and now reads at `:60`. (3) `getSlot0` has **zero hits** in `evm/src`, as does
-`PoolManager`/`poolManager` outside comments — the one line this row asked to fix is gone with the
-rest. (4) The row itself resolves ⛔ DO NOT REMOVE.
-**STATUS 2026-08-21.**
-1. ✅ **DONE** — `Shares.sol` declares `abstract contract Shares`; both ranges say `is Shares`.
-2. ✅ **DONE** — the false `allowance` comment is gone (0 hits).
-3. ⛔ **WITHDRAWN — I WAS WRONG TO PROPOSE IT.** I called the 48 `uniswap`/`v4`/`slot0` mentions stale
-   prose. Reading them, they are DESIGN RATIONALE and TRAP-NOTES: a MEASURED bug ($120 of mockUSD on
-   $120,000 of volume) and why it cannot recur; why the contract *"still looked responsive to the
-   PoolManager long after it stopped trading on it"*; and the distinction that *"the PoolManager settle
-   is GONE; the ACCOUNTING is not"*. One was a false positive entirely — `BTCChannels.sol:413`'s
-   `slot0` is a STORAGE-SLOT layout. **Deleting these would strip the repo's memory, which is what
-   CLAUDE.md is built out of.** Comments that explain WHY a shape exists are not residue.
-   ⚠️ ONE genuinely stale line found while checking: `Core.sol:1272` says the sqrt variant *"survives
-   only while Repack/Reseat/Collect still read `getSlot0`"*. `getSlot0` has **0 non-comment hits** in
-   `evm/src` — the condition has already passed. Fix that ONE line; leave the other 47.
-4. 🟡 **STILL OPEN** — `approve`/`allowance`/`transferFrom` on `Quid` are genuinely stock
-   (`Shares.sol` says so itself). With `Quid` at 86 bytes (§E274-SIZE) they are the one ERC-20 piece
-   worth pricing for removal. **Check the SPA and Rust clients first** — do not assume an ERC-20 method
-   is unused because our own contracts skip it.
-   ⚠️ `totalSupply`/`balanceOf`/`transfer` are the deliberate PROJECTION and must NOT be folded;
-   CLAUDE.md measures the abstract-base alternative at +41 bytes and zero saved.
+(1) `Shares.sol` declares `abstract contract Shares` and both ranges inherit it. (2) The false
+`allowance` sentence is gone. (3) `getSlot0`, `PoolManager`/`poolManager` have **zero hits** outside
+comments. (4) The row resolves itself.
 
-🟡 OPEN — measured 2026-08-21 against `origin/main` after the owner observed the refactor looked
-unfinished. **The substance IS finished and I want that on record before the defects:** `Shares.sol`'s
-abstract base is inherited by BOTH ranges (`contract Quid is State`, `contract Vault is Ownable,
-ReentrancyGuard, State`), and `Vault` USES the inherited `autoManaged`/`levPooled`/`lpShares` rather
-than redeclaring them. The twelve-duplicated-state-concepts problem is solved.
-
-**What is NOT finished is hygiene, and it is what makes the refactor LOOK half-done:**
-1. 🔴 **`evm/src/Shares.sol` DECLARES `abstract contract State`.** The rename moved the FILE and not the
-   CONTRACT. Every inheritor says `is State` while the file says `Shares` — and CLAUDE.md already warns
-   that deriving a name from its filename is how `SortedSet.sol`/`SortedSetLib` produced a wrong
-   "callers: none" inventory. Pick one name.
-2. 🔴 **`Shares.sol:57` IS FALSE.** It states `allowance` is *"declared in `Shares` AND in `Quid`"*.
-   `Shares.sol` declares NO ERC-20 machinery — only state. A stale comment asserting a duplication that
-   does not exist, in the one file whose job is to prevent duplication.
-3. **48 `uniswap`/`v4`/`poolManager`/`slot0` mentions in `evm/src`, ALL of them comments, ZERO live
-   code.** The ranges are entirely independent of Uniswap (owner's point, verified). The residue is
-   historical prose, and it is why a reader concludes the v4 cut is unfinished when it is complete.
-4. `Quid`'s ERC-20 face is the deliberate PROJECTION (`totalSupply → lpShares`, `balanceOf →
-   autoManaged[u].pooled`, `transfer → _transferShares`) and must NOT be folded away — CLAUDE.md
-   measures the abstract-base alternative at +41 bytes and zero saved. But `approve`/`allowance`/
-   `transferFrom` ARE stock, and `Shares.sol:29` says so: *"Only the allowance machinery is stock."*
-   ⛔ **CHECKED 2026-08-25, AND THE ANSWER IS DO NOT REMOVE IT — ON BOTH COUNTS. THE ROW'S OWN
-   "check before touching" INSTRUCTION IS WHAT SAVED IT.**
-   • **The byte pressure is gone.** This says `Quid` has **86 bytes** of margin; it has **2,951**
-     (`LevManager` is the binding contract, and it has 986). The removal was motivated entirely by a
-     margin that no longer exists.
-   • **And clients DO call it: 37 external sites** across `spa/src` and `quid-ln` — **26 `approve`,
-     11 `allowance`**, 0 `transferFrom`. ⚠️ Not all necessarily target the RANGE token (a `USDC.approve`
-     matches too), so this is an upper bound — **but an upper bound of 37 is the wrong side of a
-     decision to delete an ERC-20 method**, and the ABI checker is the only client-side gate this tree
-     has (`tsc` cannot run: `spa/` has no `node_modules`).
-   ⇒ **Both premises of the proposal are false. Do not re-commission it without re-measuring both.**
-   ✅ **Item 3 above VERIFIED at the same time: `uniswap`/`poolManager`/`slot0` are **0 LIVE** in
-   `evm/src` (43 mentions, every one a comment). The v4 cut IS complete**, exactly as the item claims —
-   and that residue is precisely why a reader keeps concluding otherwise.
-
+⭐ **ITEM 3 WAS WITHDRAWN AS A BAD CALL, AND THAT WITHDRAWAL IS THE LESSON.** The author had proposed
+deleting 48 `uniswap`/`v4`/`slot0` mentions as stale prose and then withdrew it. **That instinct was
+right to withdraw and wrong to have had**: those mentions are the record of a deleted architecture, and
+deleting the record of a deletion is how the next thread rediscovers the reason for it.
+⇒ Same class as `§E319-FOLDKEY` and as this session's purge audit — **absence of a symbol is not
+absence of a subject**, and a comment narrating a removal is evidence, not litter. It is only litter
+when it narrates the object as though it still existed.
 ## ✅ §E275-VERIFIED — THE CAP DELETION HAS NO ATTRIBUTABLE REGRESSION (4 runs, 2 per arm, 2026-08-21)
 `a9da145b` landed the cap deletion from my working tree while I was holding it under rule 15. The
 verification it lacked is now done — **two runs per arm, because one is not a measurement on this suite.**
