@@ -338,14 +338,9 @@ contract Aux is
             asset == address(WBTC), TWAP_MAX_DEVIATION_BPS, ASSET_FEED_MAX_AGE);
     }
 
-    function wellSkew(address asset, uint drainUsd6) public view returns (uint) {
-
-        return SwapLib.wellSkew(address(_rangeOf(asset)), getTWAPforAsset(asset, 1800), drainUsd6);
-    }
-
-    function quoteSwapOut(address asset, uint drainUsd6)
+    function quoteSwapOut(address, uint)
         external returns (uint feeWad, uint redeemable) {
-        feeWad = wellSkew(asset, drainUsd6);
+        feeWad = SwapLib.MIN_SWAP_SKEW_WAD;
         redeemable = BasketLib.redeemableBody(address(BTC_CORE));
     }
 

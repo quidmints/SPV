@@ -101,6 +101,55 @@ the charge must cover, not a P&L.**
 uninformed flow is a coin flip. ⇒ **we eat the tail and split the middle**, which is exactly why a
 charge must exceed the deviation rather than average it.
 
+### 🪦 0a-ter. **THE TWAP MACHINERY IS THE STALENESS. DELETE IT** (owner, 2026-09-11: *"we dont need twap machinery anymore? what for?"*)
+
+**The right question, and the measurement above already answers it — I should have drawn the conclusion
+myself instead of listing "shorten the window" as one remedy among four.**
+
+🔴 **THE RING IS A TIME-SERIES OF CHAINLINK READS, VALIDATED AGAINST CHAINLINK.** Traced, not inferred:
+`Core._observeIfSourced` (`:297`) branches on `observationSource`, **and nothing ever sets it** —
+`setObservationSource` has **1 reference in `src` (its own declaration)** and **no deploy-script caller**.
+So the live branch is `src == address(0)`, which calls
+`SwapLib.twapResolve(AUX.assetPriceFeed(ASSET), 0, …)` — **a Chainlink read** — and writes it into the
+ring. `getTWAPforAsset` then averages the ring over 1800s, and `twapResolve` checks that average against
+**the same feed** with a 500 bps cap.
+⇒ **INPUT = CHAINLINK. CHECK = CHAINLINK.** You cannot detect manipulation of a source by comparing a
+time-average of it against itself. **The TWAP buys zero manipulation resistance**, which is the only
+reason a TWAP ever exists.
+
+### 📊 AND ITS COST IS MEASURED, NOT ESTIMATED — because in the dataset above "spot" IS the feed
+| \|Chainlink(t) − TWAP₁₈₀₀(Chainlink)(t)\| | median | mean | p90 | max |
+|---|---:|---:|---:|---:|
+| ppm | **4,209** | 5,611 | 10,452 | 43,402 |
+| **× the 420 ppm charge** | **10.0×** | | | |
+| observations where the TWAP ALONE exceeds the charge | **135 / 149** | | | |
+⇒ **nothing but the averaging contributes to that number.** It is not market staleness, not oracle lag,
+not adverse selection from outside — **it is self-inflicted, it is a median 10× the charge, and reading
+the anchor directly removes all of it.** The anchor read already exists and is already on this path.
+
+### ✅ SO PART III DECISION 1 IS ANSWERED BY DELETION, AND THE OWNER JUST CHOSE IT
+That decision read: *"Pin a genuinely independent source, **or name Chainlink the trust root and delete
+the ring**."* ⇒ **the second.** And it is the §NO-GAMEABLE-BOUND move a fourth time: we do not tune the
+window, we **delete the measurement that only ever added lag.**
+
+▶️ **THE DELETION SURFACE, measured** — `getTWAPforAsset` 27 src / **102 test** · `RING` 10/7 ·
+`obsState` 5/9 · `TWAP_WINDOW_SECS` 5/0 · `twapResolve` 3/12 · `_writeObservationPrice` 3/0 ·
+`observationSource` 4/0 · `OBS_CALLDATA` 3/0 · `TWAP_MAX_DEVIATION_BPS` 2/0 · `twapBody` 2/0 ·
+`setObservationSource` 1/1. **The 102 test references are the real cost of this change**, and
+§THE-SUITE-DID-NOT-NOTICE says what they are worth: they were written against machinery that provably
+cannot do the job its name claims.
+⚠️ **WHAT SURVIVES: `twapResolve`'s FRESHNESS AND DEVIATION LOGIC, which is the only part that was ever
+load-bearing.** It rejects a stale feed (`maxAge`) and a feed that disagrees with itself. Deleting the
+ring keeps that check and drops the averaging — ⛔ **do not delete `twapResolve` with the ring; retarget
+it at the direct read.**
+
+🔴 **AND WHAT THIS DOES NOT FIX, SO THE HEADLINE NUMBER IS NOT MISREAD:** after the deletion the
+settlement price is Chainlink's latest, and **Chainlink's own staleness against the true market remains
+— bounded by its 0.5% deviation trigger and 1-hour heartbeat, and UNMEASURED here** because measuring it
+needs an independent price source this repo does not have. ⇒ **deleting the TWAP removes the half that is
+ours. The other half is the anchor's, and it is why the deviation guard and the faster anchor stay on the
+list below.**
+
 ### ⏸️ REMEDIES — NAMED, NOT CHOSEN, because each needs its own measurement
 1. **Shorten the window.** 1800s of a 55-minute-updating feed is mostly *lag on lag*. A shorter window
    cannot beat the feed's own cadence, so this is bounded by the anchor, not by us.

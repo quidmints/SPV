@@ -186,7 +186,6 @@ interface ISwap {
     function getTWAPforAsset(address asset, uint32 period) external view returns (uint256 price);
     function resolvedTwap(address asset, uint32 period) external view returns (uint256 price, bool stale);
 
-    function wellSkew(address asset, uint256 drainUsd6) external view returns (uint256 feeWad);
 }
 
 interface IAux is ISwap {

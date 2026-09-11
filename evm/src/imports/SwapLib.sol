@@ -237,9 +237,7 @@ library SwapLib {
 
         {
             r.px = _priceOr(priceHint, address(aux), r.asset);
-            uint skew = r.forVolatile ? wellSkew(c.core, r.px, r.amount)
-                                      : sellSkew(c.core, r.px, r.amount);
-            retainSkewPremium(c.core, r, skew, !r.forVolatile);
+            retainSkewPremium(c.core, r, MIN_SWAP_SKEW_WAD, !r.forVolatile);
         }
         max = _finishSwap(ctx, aux, r, r.forVolatile, max);
     }
@@ -419,18 +417,6 @@ library SwapLib {
     error IntentNotCrossed();
     error IntentUnfillable();
 
-    function wellSkew(address, uint, uint)
-        public pure returns (uint)
-    {
-        return MIN_SWAP_SKEW_WAD;
-    }
-
-    function sellSkew(address, uint, uint)
-        internal pure returns (uint)
-    {
-        return MIN_SWAP_SKEW_WAD;
-    }
-
     function creditSwapOutBody(address swapper, address token, uint usdAmount, uint minSats,
         address core, address aux) external returns (uint sats, uint usd6) {
         if (usdAmount == 0) return (0, 0);
@@ -456,7 +442,7 @@ library SwapLib {
         rp.fillPrice      = basePrice;
 
         SwapReq memory sr; sr.amount = amount; sr.px = 0;
-        retainSkewPremium(core, sr, wellSkew(core, basePrice, amount), false);
+        retainSkewPremium(core, sr, MIN_SWAP_SKEW_WAD, false);
         amount = sr.amount;
         rp.amount    = amount;
         rp.recipient = address(this);
