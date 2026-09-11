@@ -161,6 +161,57 @@ list below.**
 🔴 **THIS OUTRANKS BUILDING THE HEDGE.** The hedge addresses inventory drift; **this is mispricing at the
 moment of fill, and no hedge repairs it.** ⇒ it is the top open item in the file.
 
+## 🔴 0a-quater. **IS THE DESIGN COMPLETE? NO — AND ONE GAP GOT HARDER TODAY, NOT EASIER** (owner, 2026-09-11)
+
+**Measured against the code, not read off this document.**
+
+### 1. THE MECHANISM IS SETTLED AND MOSTLY UNBUILT
+| piece | in code today |
+|---|---|
+| ✅ the flat charge | `MIN_SWAP_SKEW_WAD` **4 refs**; `wellSkew`/`sellSkew` deleted |
+| ✅ the TWAP is gone | `anchorPrice18` **2**, `assetPrice` **28**, ring **0** |
+| ✅ deferral, 2 of 3 legs | `calcMintYield` **3**, `waitNft` **2** |
+| 🔴 the third leg | `usd_owed` **13 refs** — still the unpaid IOU, not folded into the vintage ledger |
+| 🔴🔴 **drift itself** | `drift_i` / `driftOf` = **ZERO**. `entryEquity` exists (**13**) but nothing computes drift from it |
+| 🔴 the formula drift replaces | `_ilTargetLive` **3**, `ilTargetBps` **2** — still live |
+| 🔴 §7c's deletion | `_shortfallLoadBalance` **3**, `onShortfall` **4**, `proRataShortfall` **1** |
+| 🔴 the two-price seam (§8) | `quoteSwapOut` **1 ref** — a stub |
+| 🔴 automatic per-LP hedging | `openLev` is still `msg.sender`-gated opt-in (Part 0a) |
+⇒ **the charge and the oracle are built; the HEDGE is not, and it is the product.**
+
+### 2. 🔴🔴 THE CENTRAL ECONOMIC QUESTION IS OPEN, AND TODAY ONLY REMOVED OUR HALF OF IT
+Deleting the TWAP removed a **measured median 4,209 ppm** of self-inflicted staleness. **It did not fix
+adverse selection.** Chainlink's own staleness survives and is measured: **median 55.0 min between
+updates, median 5,058 ppm of price move across that gap.**
+⇒ **an informed trader still captures up to ~0.5% against a 0.042% charge.** The floor §5 names as the
+charge's only surviving validity condition is **still not cleared.**
+
+### 3. ⛔ AND THE REMEDY GOT HARDER: **WE NOW HAVE EXACTLY ONE PRICE SOURCE**
+Part III decision 1's deviation guard compared the ring-TWAP against Chainlink. **That comparison was
+circular** — the ring was built FROM Chainlink — which is why the ring is gone and the deletion was
+right. But measured just now: `curvePriceWad` and `oneInchRateWad` have **ZERO callers in `evm/src`**.
+| source | state |
+|---|---|
+| Chainlink (`assetPriceFeed`, 8 refs) | ✅ the only live one |
+| Curve `curvePriceWad` | declared, **0 callers** — booked UNWIRED-ON-PURPOSE |
+| 1inch `oneInchRateWad` | declared, **0 callers** — and **31,722,803 gas, past a whole block** |
+⇒ **a deviation guard is no longer a rewiring. It requires building a second source**, and the only
+independent one in the tree is not callable on chain. **We have one number, no way to check it, and a
+charge an order of magnitude under what it must cover.**
+
+### ▶️ SO WHAT "COMPLETE" WOULD REQUIRE, IN ORDER
+1. 🔴 **An answer to the pricing gap.** Not the hedge — the hedge addresses inventory drift, and this is
+   mispricing at the moment of fill. Either a second source that is callable, a charge that clears the
+   measured floor, or an explicit ruling that we accept the loss and size it.
+2. Drift computed and the hedge automatic per-LP (§7 + Part 0a).
+3. §7c and §7 landing as **one** change.
+4. `usd_owed` folded into the vintage ledger (§6).
+5. The two-price seam at `Aux.quoteSwapOut` (§8).
+6. The realised-cost trigger (§9).
+⚠️ **(1) IS NOT LAST AND IT IS NOT AN IMPLEMENTATION TASK.** Everything below it assumes a charge that
+covers adverse selection. If that assumption is false the LP loses on every fill and no amount of
+hedging repairs it — so this is the item that decides whether the rest is worth building.
+
 ## 0b. THE ASSUMPTIONS, EACH GRADED BY HOW WE KNOW IT
 | # | assumption | grade |
 |---|---|---|
