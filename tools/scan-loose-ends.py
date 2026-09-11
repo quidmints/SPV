@@ -45,8 +45,19 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # so a live item recorded there and never carried into QUEUE.md read as tracked. That is exactly how
 # the `registerBtcLp`/`resizeBtcLp` rename ("booked as 13c") hid: 13c appears 1× in the archive and
 # 0× in QUEUE.md. Status lives in QUEUE.md; nowhere else counts.
+# 🔴 THIS LIST WAS INERT UNTIL 2026-09-11 AND NOTHING SAID SO. The first entry read
+# "docs/actionable/SPRINT.md §FROM-QUEUE" -- a PATH WITH A SECTION SUFFIX, so `os.path.exists`
+# returned False and `booked()` silently `continue`d past it on every run. The only booking file
+# ever actually read was CLAUDE.md, which books RULES, not WORK => this scanner has been reporting
+# already-booked items as loose ends for its whole life, which is precisely the failure its own
+# header describes. Same class as every other empty-check in this repo: it could not fail, so it
+# certified. ⛔ Keep these as REAL PATHS; a section selector belongs in the grep, not in the path.
+# ⛔ AND THE ARCHIVE IS STILL NOT A BOOKING FILE (see the note above): 2026-09-11 moved 49,320
+# record lines to docs/informational/SPRINT-RECORD.md, and adding it here would make anything ever
+# MENTIONED in the record score as booked -- exactly how `13c` hid. The split is what finally makes
+# the first entry honest: SPRINT.md now contains the queue and nothing else.
 BOOKING_FILES = [
-    "docs/actionable/SPRINT.md §FROM-QUEUE",
+    "docs/actionable/SPRINT.md",
     "CLAUDE.md",
 ]
 
