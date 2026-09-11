@@ -698,6 +698,66 @@ hedge has a price. Saying otherwise is the same overclaim §0b caught about the 
 
 ---
 
+## §15 — ✅ **THE HEDGE ORDERING, SETTLED — AND THE 50:50 ASSUMPTION IS A LITERAL CONSTANT**
+
+Owner: *"settle the hedge ordering first … without being too attached to our old IL design (and its
+assumptions like 50:50 balance in the pool), but taking lessons from it."*
+
+### 🔴 FIRST, THE ARTEFACT — BOTH OF THE OLD DESIGN'S IL TERMS ARE CFMM LAWS, AND WE DELETED THE CFMM
+| term | what it actually is |
+|---|---|
+| `soldFractionWad(syncKeyPx, …)` | **A CONSTANT: 0.507500313.** `LevMath.sol:170-187` proves it — the range recentres on spot every repack, so the triple is always `(P(1−d), P, P(1+d))` and **P cancels**. It is `f(RANGE_DELTA)` alone. Measured over a rally that DOUBLED the price it returned `0.500750000312500535` at every step, moving in the 18th decimal, while real inventory fell 7.566 → 2.331 ETH. *"It reports a 50.075% hedge at open, at +100%, and the same on the way down."* |
+| `ilTargetBps = 1 − √(entry/now)` | The **constant-product composition law** — how much a `x·y=k` position has sold at a given price. It is a statement about a CURVE. |
+
+⇒ **THIS IS THE 50:50 ASSUMPTION, AND IT IS NOT AN ASSUMPTION — IT IS HARDCODED BY THE ALGEBRA.** Both
+terms describe a pool whose composition is a FUNCTION OF PRICE. §V4-CUT deleted that pool. **Our
+composition is a function of FLOW**: the pool sells volatile when someone buys it, not when the price
+moves. Nothing in `1 − √(entry/now)` knows whether a single swap has happened.
+
+### ✅ THE REPLACEMENT — **REALISED DRIFT, AND IT NEEDS NO PRICE AT ALL**
+An LP's hedge should be what the pool actually sold on its behalf:
+```
+drift_i  =  entryEquity_i  −  (s_i / S) · rangeETH          // volatile units, per LP
+```
+- `entryEquity_i` is **already stored** (`Types.Pos.entryEquity`, *"the IL base, FIXED at open"*).
+- `s_i / S · rangeETH` is that LP's live pro-rata claim on real inventory.
+- ⭐ **IT IS AUTOMATICALLY CORRECT FOR ENTRY TIME**, which is the property §14's correction demands:
+  at entry `(s_i/S)·rangeETH == entryEquity_i` by construction, so drift starts at 0 and accrues only
+  from sales AFTER that LP joined. Two LPs with different entries get different hedges with no extra
+  state.
+- ⭐ **AND A ROUND TRIP SELF-CANCELS.** Drain then equal sell-in ⇒ `rangeETH` returns ⇒ drift returns
+  to 0 ⇒ **no hedge, no carry**. The old formula would have hedged on the price move alone and paid
+  carry for a position the flow had already closed.
+- **No `√`, no price, no range bounds, no σ, no forecast.** One subtraction over realised quantities.
+
+**KEPT FROM THE OLD DESIGN, because these were right:** up-side only (hedge only `drift > 0`; negative
+drift means the LP holds MORE volatile than it deposited, and selling that would realise a loss that
+heals — the old *"do not hedge the down side"* argument transfers exactly); the per-LP basis fixed at
+open; and the cap as a safety bound.
+**DIED WITH THE CURVE:** `ilBasisPx` as a PRICE input, `soldFractionWad`, `holdingRatioWad`, and
+`1 − √(entry/now)`.
+
+### ✅ THE ORDERING — AND IT IS TWO INDEPENDENT QUESTIONS, NOT ONE CHAIN
+My earlier *"serve → defer → lever"* was wrong in shape: those are not three alternatives at one level.
+**Serving is what CREATES the exposure**, so the hedge question arises on every served swap, not only
+when we cannot serve.
+
+| | question | answer |
+|---|---|---|
+| **Q1 — swapper-facing** | how do we pay them? | **serve from inventory**; offer a **dated claim** (§12/§13) when serving now is worse FOR THEM than waiting. |
+| **Q2 — LP-facing** | what restores their delta? | **incoming flow first — it is free and self-cancelling.** The **lever** only for the residue flow has not cleared. |
+
+⇒ **THE LEVER IS A RESIDUAL INSTRUMENT.** It sizes off net, persistent drift — not off each swap and
+not off price. That is the whole ordering, and it falls out of drift-based sizing rather than needing
+to be imposed: if flow clears the drift, `drift_i` is already 0 and there is nothing to lever.
+
+⏸️ **WHAT THIS COSTS TO BUILD:** `debtDeltaToTarget`/`_targetInputs` swap `ilTargetBps(ilBasisPx, px)`
+for the drift subtraction. `Types.Pos.ilBasisPx` and `syncKeyPx` lose their last consumer;
+`soldFractionWad`/`holdingRatioWad` lose theirs. **That is the §5b removal the tree has been waiting
+for — and it lands as a consequence of the fix, not as a sweep.**
+
+---
+
 ## §11 — ✅ THE NO-TRADE BAND IS **NEITHER A WIDTH NOR A DWELL — IT IS A REALISED-COST ACCUMULATOR**
 
 §6b debt 2 asked for `_bandBps` to be derived from carry rather than from gas (*"gas has nothing to do
