@@ -501,6 +501,53 @@ symbols — `recordForceClosePenalty`, `termsLeaf`, `closeChannel` — that **ne
 `cargo test -p lightning --lib splicing_tests::test_acceptor_contributed_splice_out` **in that fork**.
 📌 Its zero-callers half is **expected state, not a defect** — its only consumer is item 4b.
 
+## 🔴 §LPETH-CANNOT-BE-FIXED-BY-A-POP — **MEASURED 2026-09-11. THE RULING AS STATED IS UNIMPLEMENTABLE, AND HERE IS THE PROOF.**
+
+Owner ruled **"prove possession of `lpEth` at open"** (R-LPETH). **It cannot close this, and the reason
+is a fact neither of us had when the option was chosen.**
+1. `lpEth = ChannelLib.lpEthOf(p.lpPubkey)` → `BitcoinTx.evmAddressOfCompressed`. So possession of
+   `lpEth` **is** possession of whatever key sits in the `lpPubkey` SLOT.
+2. ⛔ **THAT SLOT MUST HOLD THE BYTE-SORTED PAIR — IT IS NOT A FREE CHOICE.**
+   `sort_funding_pubkeys`'s own docblock: *"`OpenParams.lpPubkey/hopPubkey` **MUST** be in this order"*,
+   because `channelId` **and** the taproot funding SPK are rebuilt from that pair and the contract
+   byte-matches `0x5120||Q` against the SPV-proven output. Store by ROLE and the SPK check fails.
+3. ⇒ **Half the time the hop's key legitimately occupies `lpPubkey`, and the hop CAN prove possession
+   of it.** A possession proof therefore passes for exactly the party the rule was meant to exclude,
+   and the honest LP still cannot sign for a slot holding the hop's key. **The check discriminates
+   nothing.**
+⇒ **§LPETH's own diagnosis was right and is now proven: "TWO FIELDS CARRY THREE FACTS."** The two
+funding fields are pinned to sort order by consensus-level requirements; the LP's identity is the
+third fact and has nowhere to live. **The only fix that closes it is carrying the LP's identity
+EXPLICITLY** (rule 17 — unconstructible, not detected). ⚠️ **GATE 3 / immutable: needs an owner
+decision before it is built, because it changes `OpenParams`.**
+📌 Do NOT "fix" this by verifying the PoP under `p.lpPubkey` instead of `btcRecipient` — that is the
+change that looks right and buys nothing, for the reason in (3).
+
+## 📌 §THE-VENDORED-LDK-IS-NOT-THE-ONE-THAT-SHIPS — **a grep hazard, measured 2026-09-11**
+`quid-ln/lib/rust-lightning/` is a **plain directory with no `.git`, and it is NOT compiled.**
+`Cargo.lock` resolves `lightning 0.2.3` to
+`git+https://github.com/quidmints/rust-lightning?branch=main#7c50bb5996870dedc18fe268e7ebd024b811e2e1`
+via `[patch.crates-io]`. ⇒ **Reading `lib/rust-lightning` tells you about a stale copy, not about
+what ships.** It contains a full second copy of `sign/taproot_signer.rs` and `sign/mod.rs`, including
+`our_key_path_partial`, `partially_sign_closing_transaction` and `partially_sign_splice_shared_input`
+— every symbol involved in §MUSIG-UNSPICED below — so it is exactly the directory a search for that
+bug lands in first. **Verify against the locked commit in the fork, never against this tree.**
+
+## 🔴 §MUSIG-UNSPICED-CLOSE-AND-SPLICE — **FIXED IN `quid-ln` 2026-09-11; THE FORK IS A HANDOFF**
+`partially_sign_closing_transaction` and `partially_sign_splice_shared_input` both SEND their partial
+to the peer and both derived it through the **unspiced** `our_key_path_partial`, whose secret nonce is
+fixed by `(shachain_root, height)` alone. **`splice_nonce_height` is a hash of `prev_funding_txid`,
+CONSTANT across one negotiation** — an RBF, a fee change or a revised contribution signs a second
+DIFFERENT message at the SAME height ⇒ `x = (s1 − s2)/(e1 − e2)`.
+⚠️ A runtime guard existed (`PolicyState::bind_nonce`) but `nonce_bindings` is an **in-memory
+`HashMap`**, so an enclave restart clears it — and the counterparty path had already been hardened
+structurally *precisely* because it *"relies on no in-memory guard that an enclave restart would
+clear."* **The reasoning was never carried across. Twins that disagree, again.**
+✅ Both now derive through `our_key_path_partial_counterparty` (spiced with message + peer nonce), and
+the unspiced function is renamed **`our_key_path_partial_holder_local`** so the constraint is in the
+name. ▶️ **HANDOFF: check the same two functions in the LDK fork at `7c50bb59`** — its copy still has
+the old shape, and it cannot be edited from this tree.
+
 ## 🔴🔴 §LPETH-FROM-THE-SORTED-FIELD — **THE LP'S ON-CHAIN IDENTITY IS DERIVED FROM A FIELD THAT IS THE HOP'S KEY HALF THE TIME. FAIL-OPEN.**
 
 Found 2026-09-09 sweeping the §T9-SORT-NOT-ROLE seam. **Every other mis-ordering in that family fails
