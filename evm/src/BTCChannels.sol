@@ -814,8 +814,6 @@ contract BTCChannels {
         _whenOpen(channelId);
         _onlyHop();
 
-        _requireChannelKeys(channelId, p);
-
         PendingOnchainSwapOut memory so = pendingOnchainSwapOut[swapId];
         if (so.sats == 0) revert NoSuchSwapOut();
 
@@ -826,6 +824,8 @@ contract BTCChannels {
             revert SwapOutNotDelivered();
 
         _deliverSwapOut(swapId, channelId, p, rawSpliceTx, spliceMerkleProof);
+
+        channels[channelId].keysHash = keccak256(abi.encode(p.lpPubkey, p.hopPubkey));
 
         _armLadder(channelId, p, exits);
     }
