@@ -334,6 +334,65 @@ the property to test, and it is falsifiable.**
 work and the last one of these was wrong for two years. What is settled is the INPUT (level, not flow),
 the SHAPE (flat then biting), and the TEST (equality under splitting).
 
+## 🔴🔴 0a-septies. **BREAKING MY OWN ANSWER: THE INVENTORY SKEW DOES NOT FIX ADVERSE SELECTION** (2026-09-11)
+
+Owner: *"keep asking sharp questions and trying to break the design you came up with."* **The first
+thing to break is §0a-sexies, one section above, and it breaks cleanly.**
+
+### ⛔ THE BREAK: I CONFLATED TWO DIFFERENT ATTACKS AND OFFERED ONE CURE
+§0a-sexies proposes an inventory-keyed charge: **flat and negligible across the normal band, biting
+only near depletion.** That shape is right *for depletion*. **It does nothing against the staleness
+arb, and the staleness arb is the measured one.**
+
+> ETH really moves +0.5%. Chainlink has not updated. Our inventory is at 50% — deep in the flat band,
+> so the inventory charge is **≈0**. The arb buys at the stale price, pays **420 ppm**, and captures
+> **~5,000 ppm.** They never approach depletion, so **nothing they do ever triggers the guard.**
+
+⇒ **An arb does not need to drain us. They only need to take the size the mispricing justifies** — and
+that size sits comfortably inside the band where I just argued the charge must be zero.
+
+### 🔑 AND THAT EXPOSES WHAT A CFMM'S CURVE WAS ACTUALLY DEFENDING AGAINST
+A CFMM's price is **stale between trades** — it is the last trade's price. Its curve is not primarily
+a rationing device against depletion; **it is the defence against its own staleness.** The arb's
+profit shrinks as they take size, so the mispricing is only partly extractable. **The curve and the
+stale price are a matched pair.**
+⇒ **WE REMOVED THE CURVE AND KEPT A STALE PRICE. That is the one combination that does not work**, and
+it is the whole finding:
+
+| price | curve | outcome |
+|---|---|---|
+| stale | curve | a CFMM. Works — the curve rations its own staleness |
+| **fresh** | **no curve** | ✅ **our design, and it is coherent** — nothing to arb, so nothing to ration |
+| stale | **no curve** | 🔴 **what is deployed today.** A free option at unbounded size |
+| fresh | curve | over-charged; the curve prices a risk that is not there |
+
+### ⭐ SO THE TWO REMEDIES ARE NOT ALTERNATIVES. BOTH ARE REQUIRED, AND THEY ADDRESS DIFFERENT ATTACKS
+| remedy | kills | does NOT kill |
+|---|---|---|
+| **a fresh price** (Redstone pull, §0a-quinquies) | the staleness arb | depletion — you can still be emptied at a fair price |
+| **an inventory-keyed skew** (§0a-sexies) | depletion; restores self-correction | the staleness arb — it is ≈0 exactly where the arb operates |
+⇒ **Neither substitutes for the other, and I presented the second as if it were the answer. It is half.**
+
+### 🔑 THE SENTENCE THIS ALL REDUCES TO, AND IT IS THE ONE TO CARRY
+> **"No slippage" is a property that REQUIRES a fresh price. Against a stale price it is not a feature,
+> it is a giveaway.**
+
+⇒ **the freshness work is not one remedy among four. It is the PRECONDITION for the product's headline
+claim.** Every argument in this document for deleting the curve is sound *only* in the fresh-price
+column of that table. ⛔ **Do not ship "no slippage" on a 55-minute-old price.**
+
+### ⚠️ AND A SECOND BREAK, SMALLER BUT REAL: DRIFT RETURNS TO ZERO WHILE VALUE IS DESTROYED
+§7 claims *"a round trip self-cancels — drain then equal sell-in returns `rangeETH`, drift returns to 0,
+no hedge and no carry."* **True, and it hides a loss.** Drain 50 ETH at \$2,000 (pool gains \$100k);
+price doubles; a swapper sells 50 ETH back at \$4,000 (pool pays \$200k). `rangeETH` is restored, so
+**drift is exactly 0 and the hedge correctly does nothing** — while the USD leg is down **\$100k.**
+⇒ **drift measures the ASSET gap, never the VALUE gap.** That is §6b working as designed (exposure is
+denominated in the asset), but it means **the LP's realised value loss on a round trip is invisible to
+the instrument we chose to watch**, and no section currently says so.
+📌 **Not necessarily a defect — it may be the correct division of labour** (the asset gap is the hedge's
+job; the value gap is the charge's). ⛔ **But it is unstated, and "a round trip self-cancels" reads as
+"nothing was lost," which is false.**
+
 ## 0b. THE ASSUMPTIONS, EACH GRADED BY HOW WE KNOW IT
 | # | assumption | grade |
 |---|---|---|
