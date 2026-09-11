@@ -179,6 +179,9 @@ pub enum Tok {
     /// [`Tok::BytesArray`]. An all-static element tuple would need the inline
     /// (offset-free) layout instead and is rejected rather than mis-encoded.
     TupleArray(Vec<Vec<Tok>>),
+    /// A STATIC fixed-size array of words (`uint256[N]`, `bytes32[N]`): N words inline in the head,
+    /// no length prefix, no offset. The one static type that is not one word wide.
+    StaticWords(Vec<[u8; 32]>),
 }
 
 use crate::abi::word_u64;
@@ -206,16 +209,26 @@ impl Tok {
     }
 
     /// The static "head" word for a non-dynamic token.
-    fn head_static(&self) -> [u8; 32] {
+    fn head_static(&self) -> Vec<u8> {
         match self {
-            Tok::Uint(v) => v.to_be_bytes::<32>(),
+            Tok::Uint(v) => v.to_be_bytes::<32>().to_vec(),
             Tok::Address(a) => {
                 let mut w = [0u8; 32];
                 w[12..].copy_from_slice(a.as_slice());
-                w
+                w.to_vec()
             }
-            Tok::FixedBytes32(b) => *b,
+            Tok::FixedBytes32(b) => b.to_vec(),
+            Tok::StaticWords(words) => words.concat(),
             _ => unreachable!("dynamic token has no static head"),
+        }
+    }
+
+    /// Bytes this token occupies in the head: one word for a dynamic token (its offset) and for
+    /// every one-word static, N words for `StaticWords`.
+    fn head_len(&self) -> usize {
+        match self {
+            Tok::StaticWords(words) => words.len() * 32,
+            _ => 32,
         }
     }
 
@@ -294,7 +307,7 @@ pub fn encode_bytes(b: &[u8]) -> Vec<u8> {
 /// This is the form for `abi.encode(a, b, c, …)` and for the INNER tuple of a
 /// struct (no outer offset wrapper).
 pub fn encode_tuple(toks: &[Tok]) -> Vec<u8> {
-    let head_len = toks.len() * 32;
+    let head_len: usize = toks.iter().map(Tok::head_len).sum();
     let mut head = Vec::with_capacity(head_len);
     let mut tail = Vec::new();
     for t in toks {
@@ -954,6 +967,77 @@ pub fn encode_register_channel_claim(channel_id: [u8; 32]) -> Vec<u8> {
 /// `btcRecipientPoPDigest(msg.sender, bytes32(0))`. `requestSwapOutOnchain` refuses a caller
 /// without one (`BadBtcRecipient`), because the swapper's payout script is DERIVED as
 /// `0x5120‖btcRecipientOf[msg.sender]`, never supplied.
+/// `PrivacyPool.Withdrawal` as the relayer receives it: `processooor` (the Entrypoint, for a
+/// relayed withdrawal) and `data` (the ABI-encoded `RelayData`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PpWithdrawal {
+    pub processooor: Address,
+    pub data: Vec<u8>,
+}
+
+/// `IEntrypoint.RelayData` — what `withdrawal.data` decodes to.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PpRelayData {
+    pub recipient: Address,
+    pub fee_recipient: Address,
+    pub relay_fee_bps: U256,
+}
+
+impl PpRelayData {
+    /// `abi.decode(data, (RelayData))` — three static words. Anything else is not RelayData.
+    pub fn decode(data: &[u8]) -> Option<Self> {
+        if data.len() != 96 {
+            return None;
+        }
+        let addr = |w: &[u8]| {
+            if w[..12].iter().any(|b| *b != 0) {
+                return None;
+            }
+            Some(Address::from_slice(&w[12..32]))
+        };
+        Some(Self {
+            recipient: addr(&data[0..32])?,
+            fee_recipient: addr(&data[32..64])?,
+            relay_fee_bps: U256::from_be_slice(&data[64..96]),
+        })
+    }
+}
+
+/// BN254 scalar field order — the withdrawal context is a circuit public input and is reduced
+/// into it (`Constants.SNARK_SCALAR_FIELD`).
+pub const SNARK_SCALAR_FIELD: U256 = U256::from_limbs([
+    0x43e1f593f0000001,
+    0x2833e84879b97091,
+    0xb85045b68181585d,
+    0x30644e72e131a029,
+]);
+
+/// `PrivacyPool._contextFor(withdrawal)` = `keccak256(abi.encode(withdrawal, SCOPE)) %
+/// SNARK_SCALAR_FIELD` — the public input that binds recipient, fee recipient and fee into the
+/// proof, so a relayer that alters any of them gets `ContextMismatch`. Mirrors
+/// `app/features/identity/pp/relay.ts::withdrawalContext`; the two must agree byte-for-byte.
+pub fn pp_withdrawal_context(w: &PpWithdrawal, scope: U256) -> U256 {
+    let enc = encode_tuple(&[
+        Tok::Tuple(vec![Tok::Address(w.processooor), Tok::Bytes(w.data.clone())]),
+        Tok::Uint(scope),
+    ]);
+    let h = U256::from_be_bytes(keccak256(&enc).0);
+    h % SNARK_SCALAR_FIELD
+}
+
+/// `Entrypoint.relay((address,bytes) withdrawal, (bytes,uint256[8]) proof, uint256 scope)`.
+pub fn encode_pp_relay(w: &PpWithdrawal, proof: &[u8], pub_signals: &[U256; 8], scope: U256) -> Vec<u8> {
+    let words: Vec<[u8; 32]> = pub_signals.iter().map(|v| v.to_be_bytes::<32>()).collect();
+    encode_call(
+        "relay((address,bytes),(bytes,uint256[8]),uint256)",
+        &[
+            Tok::Tuple(vec![Tok::Address(w.processooor), Tok::Bytes(w.data.clone())]),
+            Tok::Tuple(vec![Tok::Bytes(proof.to_vec()), Tok::StaticWords(words)]),
+            Tok::Uint(scope),
+        ],
+    )
+}
+
 pub fn encode_set_btc_recipient(x_only_key: [u8; 32], pop: Vec<u8>) -> Vec<u8> {
     encode_call(
         "setBtcRecipient(bytes32,bytes)",
@@ -1246,6 +1330,57 @@ pub(crate) fn assert_head_arity(calldata: &[u8], sig: &str) {
 
 #[cfg(test)]
 mod tests {
+
+    /// §PP-RELAYER cross-language ground truth: the relayer re-derives the withdrawal context
+    /// the pool binds into every proof, so it MUST agree with the client
+    /// (`app/features/identity/pp/relay.test.ts`, same fixture: Entrypoint 0x…e1, recipient
+    /// 0x…A1, feeRecipient 0x…f1, 250 bps, scope 42) and with `PrivacyPool._contextFor`.
+    #[test]
+    fn pp_withdrawal_context_matches_client_and_pool() {
+        use super::{pp_withdrawal_context, PpRelayData, PpWithdrawal};
+        let addr = |b: u8| {
+            let mut a = [0u8; 20];
+            a[19] = b;
+            alloy_primitives::Address::from_slice(&a)
+        };
+        let data = quid_hex::hex::decode(concat!(
+            "00000000000000000000000000000000000000000000000000000000000000a1",
+            "00000000000000000000000000000000000000000000000000000000000000f1",
+            "00000000000000000000000000000000000000000000000000000000000000fa"
+        ))
+        .unwrap();
+        let rd = PpRelayData::decode(&data).expect("RelayData");
+        assert_eq!(rd.recipient, addr(0xa1));
+        assert_eq!(rd.fee_recipient, addr(0xf1));
+        assert_eq!(rd.relay_fee_bps, alloy_primitives::U256::from(250u64));
+        let w = PpWithdrawal { processooor: addr(0xe1), data };
+        let ctx = pp_withdrawal_context(&w, alloy_primitives::U256::from(42u64));
+        let expected: alloy_primitives::U256 =
+            "7948633688262801802494452180195935100535116121924170774747370064017535756814"
+                .parse()
+                .unwrap();
+        assert_eq!(ctx, expected, "context diverged from relay.ts / PrivacyPool._contextFor");
+    }
+
+    /// `relay(...)` calldata: selector + the uint256[8] laid out inline (no length word).
+    #[test]
+    fn pp_relay_calldata_shape() {
+        use super::{encode_pp_relay, PpWithdrawal};
+        let w = PpWithdrawal { processooor: alloy_primitives::Address::ZERO, data: vec![0u8; 96] };
+        let sig = [alloy_primitives::U256::from(7u64); 8];
+        let cd = encode_pp_relay(&w, &[0xab; 4], &sig, alloy_primitives::U256::from(42u64));
+        let sel = &alloy_primitives::keccak256(b"relay((address,bytes),(bytes,uint256[8]),uint256)")[..4];
+        assert_eq!(&cd[..4], sel);
+        // head: 3 words (withdrawal offset, proof offset, scope) ...
+        assert_eq!(&cd[4 + 64..4 + 96], &alloy_primitives::U256::from(42u64).to_be_bytes::<32>());
+        // ... the proof tuple's head is (offset of bytes, 8 inline words) = 9 words, so its
+        // `bytes` tail starts at 9*32 inside the tuple.
+        let proof_tuple_off = usize::from_str_radix(&quid_hex::hex::encode(&cd[4 + 32..4 + 64]), 16).unwrap();
+        let tuple = &cd[4 + proof_tuple_off..];
+        let bytes_off = usize::from_str_radix(&quid_hex::hex::encode(&tuple[..32]), 16).unwrap();
+        assert_eq!(bytes_off, 9 * 32, "uint256[8] is inline: bytes tail begins after 9 head words");
+        assert_eq!(&tuple[32..64], &alloy_primitives::U256::from(7u64).to_be_bytes::<32>());
+    }
     use super::*;
     use super::abi_arity::assert_head_arity;
 
