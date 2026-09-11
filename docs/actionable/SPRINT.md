@@ -46834,121 +46834,53 @@ lever exit** — correct, since that is exactly when they need it.
 capacity does not collapse under stress — it is protected.** Mint yield buys **EXPANSION**, not survival.
 ⇒ **The failure mode is STAGNATION, not a run.**
 
-## §PLP-U 🔴 THE DELIVERY GAP: WHAT AN LP ACTUALLY GETS, AND THE FIVE OPTIONS
+## §PLP-U ✅ **RESOLVED BY THE MODEL 2026-09-11 — OPTION C, AND ONE ROW-VS-CODE CONTRADICTION SETTLED**
 
-⛔ **First, a correction: "the pool is 100% USD after a repack" is a v3 import.** There is no concentrated
-position — `POOLED`/`POOLED_USD_*` are balances. "Out of range" locates the anchor; it does not convert
-the pool.
-**The real exposure stands.** The pool can be short ETH against claims, and ETH is held as **weETH**, so
-*owned* and *deliverable now* are different numbers — **a liquidity risk a CLMM structurally does not
-have.**
-### The ladder, precisely (`offrampBody`)
-**RUNG 1 is a DIRECT Curve call** — `LevMath.sellWeethOnCurve(weeth, curvePool, weethIn, floor)`. **No
-aggregator, no route, no venue choice.** UniV3 was REMOVED 2026-08-09 on measurement: Curve **−1.39 bps
-vs v3 −17.55** @1 weETH, −1.51 vs −18.79 @100, −3.47 vs −28.16 @1000 — *"~17–25 bps better at every
-realistic size, so there is no tier to choose between and no ordering to get wrong."*
-⇒ ✅ **`deliverableETH`'s Curve-only bound is CORRECT, not conservative.** There is no v3 depth being
-ignored; v3 lost at every size. **Option B is sounder than an earlier draft framed it.**
-⚠️ **BUT THE MEASUREMENT'S SCOPE IS NARROWER THAN IT READS (2026-09-05):** it compared **Curve vs v3**,
-never **Curve vs ROUTED**. Through 1inch the same Curve pool is reachable whenever it is best, and the
-comparison is re-derived per quote instead of frozen in a comment. **See §SESS-2's gas ruling.**
-**Fills track `~1.4 + 55·(dx/D)²` bps to ~1,000 weETH.** The break at 2,000 (**−722.80 bps**) is
-**EXHAUSTION, not slippage**: 2,000 weETH asks ~2,202 WETH from a pool holding 2,047. *"No floor value
-survives it, because the pool cannot pay; only sizing does."*
-**RUNG 2 (wait NFT) is EMERGENCY-ONLY** — *"the only case rung 2 now exists for"* is that cliff. And
-**`NEVER GATE — shrink`**: a large exit is partially filled to Curve capacity with only the remainder
-deferring. ⇒ **An earlier draft overstated this as "LPs cannot withdraw."**
-⚠️ **The 25-bps floor guards MEV, NOT capacity** — anchored to `covered` (the ether.fi rate), never a
-pool-derived quote *"which a front-runner moves along with the fill it is supposed to police."*
-### Honest positioning
-| better than a CLMM | worse |
-|---|---|
-| fills at oracle, no curve traversal ⇒ no curve sandwich | 🔴 **a CLMM LP can NEVER be told to wait**  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): Not actionable: a trade-off cell, not a task** |
-| premium retained for LPs, not paid to arbitrageurs | weETH means deliverable ≠ owned |
-| decline-by-name over a bad fill (`§E298`) | more moving parts: lever, keeper, oracle, venue |
-| two-leg NAV (`§#12`); premium compounds inside NAV ⇒ no JIT window | |
+**The row's own positioning is the design, and it is now STATED rather than a surprise:**
+> *"This is a yield-bearing market-making vault with deferred redemption, not a better AMM. A fine
+> product **stated**; a bad surprise **unstated**."*
 
-⇒ **This is a yield-bearing market-making vault with deferred redemption, not a better AMM.** A fine
-product **stated**; a bad surprise **unstated**.
-### Options, cheapest first
-| # | option | cost | note |
-|---|---|---|---|
-| **B** | **Price deliverability** — skew reads `deliverableETH`, not just `POOLED` | none | the bound EXISTS and is simply not read on the swap leg (F11). **Obvious first move** |
-| **F** | ⭐⭐ **Settle the ETH leg in USD when ETH is scarce — A TWO-CONDITION ELIMINATOR** (§PLP-R3) | none | retires shortfall (1) AND (2), and `§4796-4812` with them. The claim is on **value**. **Highest leverage; examine first** |
-| **D** | Cap the pool's short — refuse swaps pushing `deliverableETH` below expected redemption flow | some refused volume | sized from `flowEwmaUsd`. **Discovering the limit at swap time beats discovering it at withdrawal** |
-| **C** | Make deferral first-class — request→claim in the interface | interface work | `B8`/7540; what every LST does. **Turns a failure mode into a stated property** |
-| **G** | ⭐ **BORROW WETH against the weETH instead of selling it** — the ladder's own docblock: *"THE INTENDED FIRST RUNG IS MISSING"* | interest | preserves the staking position, avoids the sale, **uses machinery the lever already has**. **Strictly better than A**, and needs no product decision unlike F |
-| **A** | Hold a deliverable WETH buffer | staking yield on the float | why there is no idle WETH today. **Dominated by G** |
+⇒ `TARGET-DESIGN` Part I §6 makes deferral **first-class and paid**, which is this row's **option C**
+(*"request→claim in the interface … turns a failure into a product"*). **C is chosen.** The five other
+options re-grade against it:
 
-### ⭐ Option G expanded
-⚠️ **SCOPE UNRESOLVED:** the docblock sits in `offrampBody`, traced to the **withdraw** path (`Quid:790`,
-`:861`). **Whether swap-out delivery reaches the same ladder is the unfinished `_sendETH` funding trace.**
-**Close this first.**
-| | sell weETH (today) | borrow WETH against it (G) |
+| | option | verdict |
 |---|---|---|
-| slippage | **forced, at the moment a swap-out arrives** — worst timing, and large exits eat the quadratic | **deferred with optionality** — repay when cheapest, or **never** |
-| ether.fi ratchet | **permanently forfeited** on the sold amount (+0.674 bps/day = 2.46%/yr) | **survives** |
-| the real comparison | — | borrow rate vs **2.46% carry + avoided slippage** |
-| new cost | none | 🔴 **correlated-pair liquidation tail** — near-par so LTV is stable, but a weETH depeg liquidates  📌 **§SEQ-AUDIT: GATE 2 · lane L7. Residual risk needing an owner accept/mitigate call** |
-| accounting | none | a **second ETH-side debt term** for `committedUsd18`/`checkBacking` to net |
+| **C** | make deferral first-class | ✅ **CHOSEN** — Part I §6. The claim is dated AND the waiter is paid what the asset earns, which the row did not ask for and which is what makes it a product rather than a delay. |
+| **B** | skew reads `deliverableETH`, not `POOLED` | 🪦 **dead as written — there is no skew.** ⭐ **Its INSIGHT is load-bearing and is kept:** the binding quantity is *deliverable*, not *owned* (weETH means the two differ). **That is exactly what the tenor must key off**, so B survives as the input to C rather than as a change to a charge. |
+| **F** | settle the ETH leg in USD when ETH is scarce | 🪦 **DOMINATED BY C.** Paying dollars for an ETH order changes the counterparty's denomination without asking; a dated ETH claim preserves it. Same scarcity, better instrument. |
+| **D** | cap the pool's short at expected redemption flow | ⏸️ **survives as the CAPACITY term** — but ⛔ **not "expected" anything.** §NO-GAMEABLE-BOUND: a bound sized from a flow forecast is set by the counterparty. It must read realised inventory. |
+| **A** | hold a deliverable WETH buffer | 🪦 dominated — forfeits the ratchet on idle float, which is why no idle WETH exists today. |
+| **G** | borrow WETH against the weETH instead of selling it | 🔴 **BLOCKED, AND THIS ROW CONTRADICTS THE CODE — reconciled 2026-09-11.** See below. |
 
-⚠️ **Who pays is the same in both cases — the protocol IS the LPs.** **The difference is the amount, the
-timing, and the option not to pay at all.**
+### 🔴 THE CONTRADICTION, AND WHICH SIDE WINS
+This row proposes **option G — "borrow WETH against weETH"** — and calls the missing rung *"THE
+INTENDED FIRST RUNG."* **`QuidLib.waitNft`'s call-site says that market cannot exist:**
+> *"`MorphoEscrowVenue.borrow(lp, stableAmount)` lends STABLE, not WETH, so 'borrow WETH against
+> weETH' has no market behind it. Borrowing would yield stable needing a stable→WETH leg, i.e. the SOR
+> double-charge the design exists to avoid."*
 
-### §PLP-U2 — how much Solidity the 1inch path can actually delete
-⚠️ **Two measured facts constrain any multi-venue ambition:** `5f52054` — **two independently-built routes
-do not compose in one transaction**; `41156ec` — **`_aggSwap` is still single-pool.**
-🔴 **THE FIRST IS MEASURED FALSE IN-TREE (found 2026-09-05, §SESS-2).** `LevMath.sol:660-665`: *"I claimed two
-independently-built aggregator routes cannot compose in one transaction. **They compose — measured, 250k
-USDC + 250k USDT → 201.63 WETH in a single call.**"* **The real causes were the per-leg gas cap and
-`forceApprove`/USDT.** ⇒ **half of §PLP-U2's argument against multi-venue splitting is retired.**
-⭐ **The unifying principle, stated in `91e9445`:** the discriminator was never on-chain vs off-chain — **it
-is whether the AMOUNT IS KNOWN BEFORE THE TRANSACTION IS BUILT.** `OorIntent.size` is signed, so pre-built
-calldata is valid there; the lever leg and the offramp compute their amounts on-chain, so it is not.
-**Three sites, one rule.**
-**Can delete:** `sellWeethOnCurve`'s Curve-specific coupling (`exchange(1,0)`, `balances(0)`, `int128`
-indices), the hardcoded venue, and the 2026-08-09 measurement as a **frozen** result.
-🔴 **Cannot delete:** the offramp's amount is computed on-chain, so pathfinder calldata is **stale by
-construction** — *"too high and the router's `transferFrom` reverts, too low and it under-swaps into a
-`Slippage()` four frames away."*
-⇒ **Multi-venue splitting REQUIRES the off-chain amount. Venue-agnosticism or on-chain amount authority —
-not both.** Standing rule 17 already chose the second on the lever leg.
-🔴 **And a cost to weigh:** `deliverableETH`'s bound is `balances(0) * 9/10` — cheap, `view`, no quote,
-**cheap BECAUSE the venue is pinned.** ⇒ **This makes option B HARDER, not easier.**
+⇒ **The code note wins**: it is later, more specific, names the interface, and records a live incident
+(the NFT was repointed to `address(this)` to serve exactly this borrow, and **every exit reaching that
+rung then delivered the withdrawer nothing while taking their weETH** — three tests, *"delivered ETH:
+0"*). **G is not a missing rung; it is a rung with no market**, and it stays blocked until a
+weETH-collateral / WETH-loan market exists AND the claim-and-repay step lands with it.
+⭐ **BUT G'S ECONOMIC POINT IS RIGHT AND THE MODEL ALREADY USES IT:** selling weETH **permanently
+forfeits the ether.fi ratchet** (+0.674 bps/day = **2.46%/yr**) on the sold amount, while holding it
+as collateral keeps it. That is the same figure that makes carry NET in Part I §10 (4.30% − 2.46% =
+**183 bps/yr**). **The ratchet argument survives; only its proposed instrument is unavailable.**
 
-### §PLP-U3 — MULTI-POOL LOAD BALANCING: KEEPING IT KEEPER-PROOF
-✅ **Carries over unchanged, and is the strongest guarantee available:** the floor is already
-*"ORACLE-DERIVED AND APPLIED TO THE WHOLE ROUTE, not per hop."* Extended to N splits, the check is **total
-out ≥ oracle floor on total in**, measured as a balance delta. ⇒ **THE SPLIT BECOMES ECONOMICALLY
-IRRELEVANT** — a compromised keeper cannot profit from a bad split because the floor does not care how the
-output was produced. **Do not police the split; make it not matter.**
-✅ **CONFIRMED IN CODE 2026-09-05 (§SESS-2):** `LevMath.convertTo:630` already takes `address[] inTokens`,
-`uint[] inAmounts`, `bytes[] routes`, applies **per-leg approve→call→zero**, a **per-leg
-`ROUTE_GAS_CAP = 3_000_000`**, and **ONE floor on the whole conversion** via a measured `outToken` balance
-delta. **The router's return value is never read**, so a pool that *"appears to give the result we want
-and actually doesn't"* fails the delta check and the transaction reverts — **a liveness attack, never
-theft.** ⇒ **§PLP-U3 items 1 and 2 are BUILT.**
-🔴 **New surfaces:** (1) **approvals** — per-leg approve-then-zero **INSIDE the leg**, not once around the
-batch ✅ **already so**; (2) **reentrancy between legs** — **compute every amount up front, execute all
-legs, settle once**; (3) **gas grinding** — **bound N** (at `N × 3M`, ten legs exceeds a block).
-⭐ **THE DESIGN THAT ALSO FIXES §PLP-U2'S OBJECTION:** have the **contract compute the split from on-chain
-depth reads** — `balances(0)` for Curve, liquidity for v3, both `view` — and let the keeper supply only
-the **SET** of pools, never the weights. It removes weight authority entirely, **keeps deliverability
-computable in a `view` context** (so option B survives), and keeps keeper authority at **which venues, and
-when. Never what the output is.**
-**The honeypot case, analysed.** Under the aggregate floor a fake-depth pool is a **LIVENESS attack, not
-theft**: it fails the total-out check and **the whole transaction reverts**, so nothing is stuck. What it
-CAN do is attract the contract-computed split, underfill, and revert the offramp repeatedly. ⇒ **DoS,
-bounded, and the answer is a fallback set plus a bound on N — not a registry** (a registry brings its own
-staleness problem, which §PLP-9 shows this tree already has in quantity).
-⚠️ **This is the one place contract-computed splitting is WEAKER than keeper-supplied weights**: a fake
-`balances(0)` attracts volume a human keeper would route around. **The floor still prevents loss; it does
-not prevent the revert.**
-⭐ **Recommendation (single-pool interim):** delete the Curve ABI coupling while keeping amounts on-chain
-and the bound intact — most of the target Solidity, nothing given up. **Leave pathfinder splitting until
-either the wait-NFT rung is being hit, or G removes the need to sell at size at all.**
-🔴 **F IS A PRODUCT DECISION, NOT A PARAMETER.** An ETH depositor may WANT ETH; their claim does not
-entitle them to it. **Deciding that explicitly is worth more than any pricing item in this scope.**
+### ✅ WHAT THE ROW ESTABLISHED THAT STANDS UNCHANGED
+- **Rung 1 is a direct Curve call, and Curve-only is CORRECT, not conservative.** Measured: Curve −1.39
+  bps vs v3 −17.55 @1 weETH, −1.51 vs −18.79 @100, −3.47 vs −28.16 @1000. v3 lost at every size.
+  ⚠️ Scope caveat kept: it compared **Curve vs v3**, never **Curve vs ROUTED**.
+- **Fills track `~1.4 + 55·(dx/D)²` bps to ~1,000 weETH.** The break at 2,000 (−722.80 bps) is
+  **EXHAUSTION, not slippage** — 2,000 weETH asks ~2,202 WETH from a pool holding 2,047. *"No floor
+  value survives it; only sizing does."*
+- **The 25-bps floor guards MEV, not capacity**, anchored to `covered` rather than a pool-derived quote
+  *"which a front-runner moves along with the fill it is supposed to police."*
+- **`NEVER GATE — shrink`**: a large exit partially fills to Curve capacity and only the remainder
+  defers. An earlier draft's *"LPs cannot withdraw"* was an overstatement.
 
 ## §PLP-V ✅ THE REPACK: what it is, what funds it (nothing), and the one residual
 
