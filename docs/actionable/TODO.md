@@ -1472,3 +1472,240 @@ convert at 0.000%.** A hand-rolled Curve table would miss GHO *and* pay slippage
   we have to land those pro-rata and the frontend has to do the multicall."* The on-chain
   amount-is-computed-mid-tx argument (§NO-KEY-AND-A-KEY-WOULD-NOT-HELP) does **not** apply here: the
   slice is a wallet balance, exactly knowable, so pre-built calldata is valid on this path.
+
+
+---
+
+# 📦 MERGED FORWARD FROM THE DELETED `docs/TODO.md` (2026-09-11)
+
+> 🔴 **`docs/TODO.md` WAS A STALE TWIN OF THIS FILE AND IS NOW DELETED.** This file's own banner has
+> said since 2026-08-30 that the TODO lives here, but the old copy was never removed and the two
+> diverged. It was last touched `32e6de75` (2026-08-29, *before* the relocation); this file was
+> edited today. **Everything below is the content that existed ONLY in the twin** — six sections,
+> preserved verbatim so the deletion loses nothing. Everything else in it was a duplicate of text
+> already here.
+> ⚠️ It is SOLANA/SVM and bridge scope, not Bitcoin, and it has not been re-verified against code —
+> treat its status markers as "what was believed on 2026-08-29".
+
+## NOT DONE — do not mark these off
+
+- 🟠 **LayerZero devnet: WAS UNREACHABLE BY CONSTRUCTION; code blocker now
+  removed, run still not done.** The bridge has never carried a message.
+  ⭐ THE BLOCKER WAS TWO INTEGERS, which is why the task looked merely unstarted:
+  `SOLANA_EID`/`ETHEREUM_EID` were compile-time MAINNET constants (30168/30101),
+  `lz_receive` enforces `params.src_eid == ETHEREUM_EID`, and `bridge_home` sends
+  to `dst_eid: ETHEREUM_EID`. LayerZero testnet EIDs are 40xxx — Solana devnet
+  **40168**, Sepolia **40161** (confirmed against LZ docs 2026-08-28). So a
+  devnet message would have been rejected by OUR OWN GUARD, and a send would have
+  gone to Ethereum mainnet. No amount of funding or deployment would have fixed
+  it.
+  ✅ Now behind `--features testnet`. Kept as CONSTANTS rather than moved into
+  `OAppStore`, because that struct's docstring gives the right reason —
+  "storing either would only create a way for the record and the code to
+  disagree" — which holds; it just assumed one deployment. `eids_are_coherently_paired`
+  fails any build that mixes a 30xxx with a 40xxx. 102/102 both ways.
+  ⚠️ REMAINING BLOCKERS, both environmental:
+    - wallet `4BYcGVBnvzPKT74wZaTE3aoaJTePZWunEDiji1EbkuNP` has **0 devnet SOL**
+      and the faucet is rate-limited;
+    - the devnet program `EnEfbQwmy9GpKx55EfUh79sV8ruhDmtCpVaAikjjgfDp` IS
+      deployed (1.6 MB, slot 455147212) but its upgrade authority is
+      `4tN59r6FjtPeepxvinp4q5Ckg2ir5ckPkt16UHaRgVJ6` — **not ours** — so the
+      current build cannot be pushed to it.
+  ✅ Endpoint pin is correct: `76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6` is
+  executable on BOTH devnet and mainnet (checked live), and the 819 KB local
+  fixture matches.
+  ⛔ AND A CORRECTION TO AN EARLIER AUDIT NOTE IN THIS THREAD: it recorded
+  "source chain verified (`src_eid == store.eid`) ✅". There is no `store.eid`.
+  The check is against a constant. The check exists; the coordinate was wrong.
+- 🔴 **StrongBox enrollment untested** — this is the phone work, and it is why
+  this list is here.
+- 🔴 **Puppeteer proof of the deployed program** — client side, not started.
+- 🔴 **SEEKER APP IS OUT OF SYNC WITH THE PROGRAM, AND THE GUARD WAS DEAD.**
+  Earlier in the same thread the app was stripped (device enrollment removed —
+  it is Expo + Mobile Wallet Adapter, never had Seed Vault or StrongBox; the IDL
+  it shipped was the 28-instruction prediction-market build), cut to 4 components
+  + 4 hooks, typechecked clean, and pushed to `github.com/quidmints/quid` `dev`
+  @ `933ee54` with 4 parity tests. **It was NOT brought into SPV** — only
+  `svm/tests/seeker-parity.ts` came across.
+  ✅ NO RUNTIME BREAKAGE from the 2026-08-27/28 program changes: the app calls
+  only `.deposit(` and `.withdraw(`, whose account lists are untouched, and it
+  decodes `ProgramConfig` reading only `tokenMint`, which sits before every field
+  that moved.
+  🔴 STALE IDL: `seeker-main/constants/quid.json` declares **14** instructions
+  including `set_kestrel`; the program now exposes **13**, and `update_config`
+  changed args and gained a `bank` account. Parity test P.1 compares the two IDLs
+  byte-for-byte and WOULD fail.
+  🔴 THE GUARD WAS INERT ALL SESSION AND PASSED WHILE INERT. `findSeeker()` looks
+  in `svm/seeker` and `<repo>/seeker`; the app is at
+  `/home/rico/projects/seeker-main`. `svm/target/idl/quid.json` requires an
+  `anchor build` that was never run. Both sides missing ⇒ every assertion
+  skipped, silently.
+  ▶️ TO RE-ARM: `anchor build`, then
+  `QUID_SEEKER_DIR=/home/rico/projects/seeker-main yarn test`, then refresh
+  `constants/quid.json` from `target/idl/quid.json`. Decide whether the app moves
+  into SPV or stays in `quidmints/quid` — the parity test assumes one repo.
+- 🔴 **Squads multisig is an unenforced `&str`.**
+- 🔴 **The compromised `keypair.json` in `main`'s history.**
+
+
+# §SOLANA-RUST — handoff from the SPV/svm session (2026-08-27/28)
+
+Moved here because the client-side proof lives here: puppeteer against the
+deployed program, and **StrongBox enrollment on a physical phone**, which is the
+next thing to be plugged in. Protocol-side work stays in `SPV/svm`; this is the
+list of what is done, what is not, and what is now known.
+
+## STATUS OF THE CODE
+
+- ✅ **One config instruction.** `set_kestrel` folded into `update_config`; it was
+  never a second config *account*, only a second entrypoint onto the same
+  `ProgramConfig` with its own accounts struct and its own spelling of the admin
+  gate. `init_config` is one instruction (lib.rs entrypoint + entra.rs body).
+- ✅ **`bebop_authority` → `flash_authority`.** The account it gates was already
+  named that; the error said a third thing. Bebop is one prospective integration
+  in its own repo, and the gate is venue-agnostic.
+  ⚠️ It must SIGN — so it is a PDA of whatever settlement program is trusted, or
+  a keypair. We PIN an address; we do not own the key.
+- ✅ **`ProgramConfig::SPACE` fixed.** It counted a `keeper` field that does not
+  exist and claimed 324 against terms summing to 283; real need is 251.
+  ⚠️ Deployed accounts keep 32 bytes of slack; a FRESH deploy does not, so any
+  later field needs a real `realloc`.
+- ✅ **One ticker file.** `tickers_slim.rs` deleted, the `all-tickers` feature
+  gate removed. 1,704 non-deliverable equity entries COMMENTED (reversible),
+  160 kept = the 80 `XSTOCK_MINTS` tickers across hex + account maps.
+- ✅ **29 tests that had never run now run.** They were behind the feature gate
+  AND did not compile under it (`use super::*` reaches `tickers`, which
+  re-exports none of the risk types). Root cause was three private consts.
+  **Default `cargo test` is now 101/101 with no flag.**
+- ✅ **Risk-model fixes:** cold-start GPD prior n=4→n=2 (an unmeasured tail is now
+  a BOUND, not a guess); drawdown decay made elapsed-time-based, so splitting a
+  gap can no longer accelerate the fade.
+
+## NOT DONE — do not mark these off
+
+- 🟠 **LayerZero devnet: WAS UNREACHABLE BY CONSTRUCTION; code blocker now
+  removed, run still not done.** The bridge has never carried a message.
+  ⭐ THE BLOCKER WAS TWO INTEGERS, which is why the task looked merely unstarted:
+  `SOLANA_EID`/`ETHEREUM_EID` were compile-time MAINNET constants (30168/30101),
+  `lz_receive` enforces `params.src_eid == ETHEREUM_EID`, and `bridge_home` sends
+  to `dst_eid: ETHEREUM_EID`. LayerZero testnet EIDs are 40xxx — Solana devnet
+  **40168**, Sepolia **40161** (confirmed against LZ docs 2026-08-28). So a
+  devnet message would have been rejected by OUR OWN GUARD, and a send would have
+  gone to Ethereum mainnet. No amount of funding or deployment would have fixed
+  it.
+  ✅ Now behind `--features testnet`. Kept as CONSTANTS rather than moved into
+  `OAppStore`, because that struct's docstring gives the right reason —
+  "storing either would only create a way for the record and the code to
+  disagree" — which holds; it just assumed one deployment. `eids_are_coherently_paired`
+  fails any build that mixes a 30xxx with a 40xxx. 102/102 both ways.
+  ⚠️ REMAINING BLOCKERS, both environmental:
+    - wallet `4BYcGVBnvzPKT74wZaTE3aoaJTePZWunEDiji1EbkuNP` has **0 devnet SOL**
+      and the faucet is rate-limited;
+    - the devnet program `EnEfbQwmy9GpKx55EfUh79sV8ruhDmtCpVaAikjjgfDp` IS
+      deployed (1.6 MB, slot 455147212) but its upgrade authority is
+      `4tN59r6FjtPeepxvinp4q5Ckg2ir5ckPkt16UHaRgVJ6` — **not ours** — so the
+      current build cannot be pushed to it.
+  ✅ Endpoint pin is correct: `76y77prsiCMvXMjuoZ5VRrhG5qYBrUMYTE5WgHqgjEn6` is
+  executable on BOTH devnet and mainnet (checked live), and the 819 KB local
+  fixture matches.
+  ⛔ AND A CORRECTION TO AN EARLIER AUDIT NOTE IN THIS THREAD: it recorded
+  "source chain verified (`src_eid == store.eid`) ✅". There is no `store.eid`.
+  The check is against a constant. The check exists; the coordinate was wrong.
+- 🔴 **StrongBox enrollment untested** — this is the phone work, and it is why
+  this list is here.
+- 🔴 **Puppeteer proof of the deployed program** — client side, not started.
+- 🔴 **SEEKER APP IS OUT OF SYNC WITH THE PROGRAM, AND THE GUARD WAS DEAD.**
+  Earlier in the same thread the app was stripped (device enrollment removed —
+  it is Expo + Mobile Wallet Adapter, never had Seed Vault or StrongBox; the IDL
+  it shipped was the 28-instruction prediction-market build), cut to 4 components
+  + 4 hooks, typechecked clean, and pushed to `github.com/quidmints/quid` `dev`
+  @ `933ee54` with 4 parity tests. **It was NOT brought into SPV** — only
+  `svm/tests/seeker-parity.ts` came across.
+  ✅ NO RUNTIME BREAKAGE from the 2026-08-27/28 program changes: the app calls
+  only `.deposit(` and `.withdraw(`, whose account lists are untouched, and it
+  decodes `ProgramConfig` reading only `tokenMint`, which sits before every field
+  that moved.
+  🔴 STALE IDL: `seeker-main/constants/quid.json` declares **14** instructions
+  including `set_kestrel`; the program now exposes **13**, and `update_config`
+  changed args and gained a `bank` account. Parity test P.1 compares the two IDLs
+  byte-for-byte and WOULD fail.
+  🔴 THE GUARD WAS INERT ALL SESSION AND PASSED WHILE INERT. `findSeeker()` looks
+  in `svm/seeker` and `<repo>/seeker`; the app is at
+  `/home/rico/projects/seeker-main`. `svm/target/idl/quid.json` requires an
+  `anchor build` that was never run. Both sides missing ⇒ every assertion
+  skipped, silently.
+  ▶️ TO RE-ARM: `anchor build`, then
+  `QUID_SEEKER_DIR=/home/rico/projects/seeker-main yarn test`, then refresh
+  `constants/quid.json` from `target/idl/quid.json`. Decide whether the app moves
+  into SPV or stays in `quidmints/quid` — the parity test assumes one repo.
+- 🔴 **Squads multisig is an unenforced `&str`.**
+- 🔴 **The compromised `keypair.json` in `main`'s history.**
+
+## FINDINGS THAT CHANGE THE DESIGN
+
+- 🔴 **`downside_vol_bps` IS COMPUTED AND CONSUMED BY NOTHING.** `etc.rs:992`
+  maintains a GJR downside EMA; `collar_bps`, `hazard_rate_bps` and `lgd_bps` all
+  read the TWO-SIDED `eff_sigma`. Its own docstring says it is kept "so the
+  asymmetry is observable rather than just baked in" — and nothing observes it.
+  **The fitted asymmetry exists and is being discarded.** This is the foundation
+  for the asymmetric-collar work below; it is not new machinery.
+- 🔴 **The collar over-collateralises ~6× its own stated target.** It is sized to
+  `COLLAR_BREACH_BPS = 100` (1%); measured against calibrated equity returns
+  (Student-t ν=4, GARCH(1,1) α=.08 β=.90, GJR, overnight+weekend gaps) the worst
+  realised breach is **17 bps**. Same answer as an independently invented tail
+  (16 bps), so it is robust to the return process.
+- 🔴 **The collar stops discriminating leverage above ~2×.** 2×/5×/10× give
+  IDENTICAL collars because the σ floor binds. A 10× position posts the same
+  proportional band as a 5× with twice the sensitivity.
+- 🔴 **Horizon mismatch.** `collar_bps` is a ONE-STEP tail; the unwind ladder runs
+  `N = 7d/LIQ_GRACE_SECS = 168` windows at `MAX_TRANCHE_BPS = 185`. So the pool
+  carries a decaying position for A WEEK against a one-hour collar (√168 ≈ 13×).
+  6× of cushion against 13× of horizon ⇒ **~2× short**. That gap is the only
+  thing a securities facility needs to fund.
+- 🔴 **~26% of variance arrives in gaps** (overnight + weekend), which is exactly
+  when neither the ladder can unwind nor a spot hedge can trade.
+- 🔴 **SOL settlement can create an unhedged short.** `NativeLeg` pays dollar
+  claims out of pool lamports while a SOL depositor's claim IS lamports;
+  `clutch.rs:671` bounds the withdrawal, so it fails as a REVERTED WITHDRAWAL,
+  not silent insolvency. The pool must buy SOL back at an unknown later price.
+  No `sol_owed` liability is recorded when it happens.
+
+## THE FACILITY POLICY (settled)
+
+Buy real paper **as principal**, for the **aggregate residual only**, sized to
+**~2× the collar**, concentrated in high-vol / high-leverage positions.
+Not per-position (the band handles that). Not full coverage (7.5% deliverable is
+ample for a 2× residual). No borrow leg — no borrow market for tokenised equities
+exists; every venue lists them as collateral only. No competitor venue (owner).
+
+**Licensing: ordinary customer.** FinSA Art 5 opt-out is **CHF 2M in assets**, a
+pure asset test — not the €20M/€40M large-undertaking route.
+⚠️ It must be the ENTITY'S OWN capital, not depositor TVL.
+⚠️ The *"private investment structure with professional treasury"* route requires
+"a professionally qualified person managing its financial resources" — which the
+no-board design deliberately lacks. **Take the asset route, not the treasury
+route.** Whichever entity holds the securities is the one that must qualify.
+⚠️ **Ostium is not precedent for holding real paper** — they were purely
+synthetic and never bought a share. Their model avoided the securities question
+rather than answering it.
+
+## NEXT: THE ASYMMETRIC COLLAR ("two draggable bars")
+
+The `[lower, upper]` band IS a collar strategy — long the synthetic, floored at
+`lower`, capped at `upper`. Dragging a bar moves a strike, and the premium
+differential is option value. The new calculus:
+
+1. **Per-side collars.** `collar_down` off the DOWNSIDE tail, `collar_up` off the
+   upside. GJR already says downside vol > upside vol, so equal breach
+   probability implies `collar_down > collar_up` — a symmetric band is either
+   under-protecting the downside or over-charging the upside.
+2. **Per-side hazard.** `hazard_rate_bps` takes ONE collar today. It becomes the
+   sum of two side hazards, each with its own intensity and LGD.
+3. **The differential is convex**, which is why it is "tremendous": the downside
+   tail is fatter, so stretching the floor costs disproportionately more than
+   stretching the cap. That convexity is the product.
+4. ⚠️ **This also fixes the objective mismatch.** Principal protection is an
+   OPTION payoff; a delta hedge is linear and cannot truncate one tail without
+   truncating the other. Per-side bars give the convexity directly, on-chain,
+   without a broker.
+

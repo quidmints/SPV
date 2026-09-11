@@ -45196,7 +45196,7 @@ splice"*:** **no LP is required to act; channels that splice migrate, channels t
 ## §BTC-4 — Quantum: absent from every tracking doc
 
 Measured: **zero hits** for `quantum`, `CRQC`, `post-quantum` or `Shor` across `SPRINT.md`,
-`docs/actionable/TODO.md` and `docs/TODO.md`.
+`docs/actionable/TODO.md` (the twin `docs/TODO.md` was deleted 2026-09-11; its unique sections were merged forward into that file).
 📌 **§BTC-4 is the longest block and mostly *negative* results** — what quantum work does **not** pay
 for. Its only outputs are §BTC-4.3, §BTC-4.4, §BTC-4.5 and the pre-ship requirement in §BTC-4.6g.
 
