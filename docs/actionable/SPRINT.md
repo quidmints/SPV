@@ -920,6 +920,179 @@ new symbol, so the tool has no edge to follow and a base-class change is invisib
 That is how an `Ownable` removal verified at *"133/0 across the BTC suites"* could sit beside a red lev
 suite. ▶️ Add it to the tool's docblock beside the existing address / raw-slot / deploy-script caveats.
 
+## ⛔ §STRIPPED-CONSTRAINTS — **93 PROHIBITIONS THE COMMENT STRIP DELETED WITH NO SECOND COPY ANYWHERE. RESTORED HERE, NOT IN CODE** (2026-09-11)
+
+`561a36f7` removed every comment from `evm/src` (24,983 → 10,322 lines) on the owner's *"remove all
+comments in all files and we will write new ones when the implementation is finalized"*, and its commit
+message justified the loss of the category-3 constraints with *"git preserves the clamp"*. **project-6b
+then checked ONE file before letting me strip it and found TWO OF THREE rationales existed nowhere but
+that file.** That is a far higher base rate than "trust git" assumes, so the check was run retroactively
+over the other 26.
+
+### 📊 WHAT THE RETROACTIVE AUDIT MEASURED — and the control changed the conclusion once
+| | |
+|---|---|
+| deleted comment lines carrying ⛔ / 🔴 / DO NOT / MUST NOT / NEVER / an owner quote, ≥35 chars | **654** |
+| of those, an 8-word phrase traceable in the CURRENT `SPRINT.md` | **0** |
+| traceable in the **PRE-CUT** `SPRINT.md` (`4ae99cd6`, 55,027 lines) | **30** |
+| traceable in `CLAUDE.md` | **0** |
+| 🔴 **no trace in any of the three** | **624** |
+| of those, **PROHIBITIONS ON A FUTURE EDITOR** (*"do not X because Y"*) | **93** |
+
+⚠️ **THE FIRST NUMBER WAS 100% AND THAT IS NOT A FINDING, IT IS A BROKEN SWEEP** — this file's own rule.
+The control (three phrases known to be present) showed the matcher works, and the pre-cut comparison
+separated the two hypotheses: **I expected the SPRINT cut to have removed the second copies. It had not
+— only 30 of 654 were ever in it.** The comments were the ONLY copy from the start, which is worse than
+the compounding story I went looking for.
+📌 **AND 624 IS AN UPPER BOUND, NOT A COUNT:** 8-word exact-phrase matching cannot see a paraphrase, so
+the true orphan number is lower. **6b's independent hand-check found 2 of 3 on one file, which is the
+same order** — two instruments, different methods, no shared blind spot.
+
+### 🔑 WHY THEY LIVE HERE AND NOT BACK IN THE CODE
+The owner's policy (no comments) and `CLAUDE.md`'s NO-TOMBSTONES category 3 (*"Do not restore X because
+Y → **keep verbatim**. That is a live constraint on a future editor; deleting it reopens the bug it
+prevents"*) both bind, and they only conflict if a constraint has to be a COMMENT. **It does not.**
+⇒ **The comments go; the constraints move to where work is tracked.** This file is what people grep.
+⛔ **THIS IS NOT AN ARCHIVE AND MUST NOT GROW INTO ONE.** The 49,320 record lines were deleted on the
+owner's *"archiving is removing"*, and that stands. These 93 are not record — **each one forbids a
+specific future edit and names why.** A bare prohibition would be worse than none, so each carries its
+reason; where the reason ran past the extract, the file and symbol are named so it can be re-read.
+▶️ **WHEN A CONSTRAINT'S SUBJECT IS DELETED, DELETE THE CONSTRAINT.** That is the only maintenance this
+section needs, and it is the same rule as a tombstone.
+📌 Full prose for any of them: `git show 5a17e334:<file>`.
+**`BTCChannels.sol`**
+- ⛔ **DO NOT "FIX" THIS BY AUTO-CLAIMING INSIDE THE SHRINK.** That rebuilds the coupling §LAZY-OPEN removed — a claim leg that reverts on protocol-wide state, back on a path where the swapper's BTC has ALREADY moved. Anyone can call `registerChannelClaim` first; this only has to say so.
+- silent kind: the arming would write a key the recording path never reads. ⚠️ `abi.encode` (not `encodePacked`) so the 32-byte txid and the `uint32` vout are each padded to a word; the packed form of a 32-byte value followed by 4 bytes is ambiguous with other splits. `_useOutpoint` used `abi.encode`, so this preserves every key.
+- gate was never pinned, so it did nothing — and while it sat there, `openChannel` was the one hop entrypoint `_onlyHop()` did NOT guard. The gap was invisible precisely because a dead guard looks like a live one. `openChannel` now calls `_onlyHop()` like every other hop entrypoint, which is what §E166-3 assumes when the fleet RELAYS the LP's consent.
+- ⛔ **DO NOT RE-ADD A THIRD VERIFIED DIGEST WITHOUT RE-DERIVING THAT.** If a new one shares a hash AND an arity with an existing one, the separation is gone and something must restore it.
+- a gap marker. ⛔ DO NOT RESTORE THEM ON A "KEPT — tests call it" READING: that sentence stood here, and it was false.
+- ⛔ DO NOT RE-ADD A SEPARATE ROTATION ENTRYPOINT. Two paths that both rotate the outpoint and re-pin the pair are two places to get the ordering wrong, and §E153's *unretirable forever* regression was exactly a rotation that forgot to re-pin.
+- ⛔ **AND DO NOT READ *"the LP must sign"* AS *"the LP must be ONLINE"* — I wrote it that way once and it is wrong** (owner, 2026-08-31: *"there was something about an allowlist or allowed shape that gets set on evm so that everything can work even when the lp is offline?"*). **There is, and it is `ExitArming`.** `signedExitTx` is a FULLY-SIGNED CLTV.
+- and the refund is its backstop. Do not delete one as redundant.** ⛔ UNVERIFIED, and it is the load-bearing gap: NOTHING HAS EVER BROADCAST A MATURED UNCLAIMED DEPOSIT against this leaf (§BITCOIN-CENSUS 4j). Until that runs, "refundable trustlessly" is a design intention, not a measured property. (§T2) The floor is DERIVED from the committed rate and the proven sats — never supplied.
+
+**`Basket.sol`**
+- the wrong instance is this repo's recurring bug class — do not restore a fused reading in which Vault holds range + channels, or hosts both managers.
+
+**`BtcLevManager.sol`**
+- WBTC-mode withdraw the manager holds WBTC, not vBTC, so the burn reverts. Do not read the SAME-BTC comments on those two functions as covering this venue: they do not.
+- ⛔ DO NOT READ THIS AS "the LP's own WBTC". **AN LP CANNOT ARRIVE HERE** (owner, 2026-09-07: *"LPs are never allowed to LP in with WBTC. they must use their lightning btc"*). This branch exists so that a position which CAN be opened can also be closed — `openBtcLev` is permissionless and its WBTC branch only needs a `transferFrom`, so anyone holding WBTC can.
+
+**`Core.sol`**
+- ⛔ §FLOOR-IS-FAIL-SAFE — **DO NOT "FIX" THE `: 0` INTO A SIGNED NET FIGURE.** It looks like a clamp that hides information, and the instinct is that a range whose debt EXCEEDS its basket contribution should report a NEGATIVE claim rather than zero. Work out which way that moves the bound before touching it — I got it backwards first:.
+- both legs really is unmeasured. ⛔ Do not restore "None of them means measured, and calm".
+- @dev ⛔ IT MUST NOT READ `px`, EVEN THOUGH `px` IS THE ANCHOR TODAY. `Core.swap`'s `px` is `AUX.getTWAPforAsset`, which returns the RING's TWAP and only falls through to Chainlink while the ring is unusable — which is the state today and is exactly the state this change exists to end. Sampling `px` would therefore work now and quietly become.
+- ⛔ ABSENT BY DECISION, SO THEIR ABSENCE IS NOT AN OVERSIGHT — do not re-add: • §E253-mock — `mocks()`. A production getter whose only caller was a TEST (`UnificationControls._mockDust`), reporting a quantity that is structurally zero. • §ISBTC-SPLIT — the `if (IS_BTC) x; else x;` selectors. Both arms were IDENTICAL once `POOLED`/`POOLED_USD` became one field per instance; the branch decided nothing.
+- reference, so it never used that privilege — an unexercised grant, which is the kind that survives review because nothing fails when you remove it and nothing fails when you don't. ⇒ `RANGE` is THIS instance's range manager on BOTH: ETH `RANGE = v4`, BTC `RANGE = Vault` (pinned in `setBtcVault`). Gating on it is identical for ETH and strictly TIGHTER for BTC.
+- ⛔ Do not re-add a sweep here without re-adding the book, and read §OOR-TWO-DESIGNS-LIVE before doing either.
+- against it fresh — never revived from history.
+- @dev ⛔ **DO NOT RE-ADD A PERMISSIONLESS PUSH ENTRYPOINT.** One existed, bounded by a ±50 bps band against a fresh anchor, and the band could never constrain what it was there for: a cumulative-price ring exists to make an ENDOGENOUS, atomically manipulable price safe by forcing an attacker to HOLD a manipulated price across the window, and BOTH premises are.
+- observation source must have. §E345's "must not read `px`" warns against the RING's own TWAP (`AUX.getTWAPforAsset`); a raw feed read is the sanctioned path, not the banned one. ⚠️ NOT Curve's on-pool EMA (§E232's original pick): the only pool carrying ETH/USD is TriCrypto, which is removed from this codebase entirely — as a venue AND as a read.
+
+**`LevManager.sol`**
+- deletion — do not remove these two by symmetry with the cap.
+- ⛔ DO NOT RE-ADD A WETH-COLLATERAL BRANCH. Raw WETH is STRICTLY DOMINATED — identical delta and identical IL offset, minus the ether.fi ratchet (+2.46%/yr, measured) for every block it sits as collateral. It is a worse way to buy the SAME hedge, not a different hedge. ⚠️ Anything bought as WETH is minted straight into weETH (`LevMath._stableToWeeth`);.
+- **never reads the router's return value** — the outcome is a measured balance delta against a floor. That floor is **derived on-chain from the TWAP**, not taken from the caller (`_stableToWethSor:985` on the buy leg, `_wethStableFloor:1139` on the sell), which is why the keeper already encodes `minOuts` as all zeros and is not thereby trusted. ⇒ **a hostile or.
+- config — and do NOT delete the BTC sentence. ⛔ **IT IS `< debtBefore`, NOT `== 0`, AND THAT IS DELIBERATE — `== 0` IS NOT SATISFIABLE TODAY WITH MORE THAN ONE LP IN THE POOL.** `LevVenueBase._repayCreditingLp` takes its by-SHARES branch on a full repay (the branch whose whole purpose is to "land on ZERO"), but it then burns the LP's UNITS through `_burnUnits(sharesDown, …)`, which is the FLOOR.
+- which is a SEPARATE gap and is booked as such — do not read this `""` as "no route needed", read it as "mode 2 has no way to carry one yet".
+- ⛔ NOT AN ORPHAN — DO NOT DELETE. `tools/check-orphans.py` reports this as dead and it IS dead by the letter: ZERO Solidity callers, ZERO tests. It stays anyway. The §POOL-VENUE collapse replaced the per-LP walk that used to route 0-debt LPs here, so the CALL SITE went away — the HOLE DID NOT. `swapOutDeleverPooled` still no-ops when the pooled position has no debt, and the unlevered.
+- ⛔ Do not restore the read "for symmetry": two reads at two moments in one tx can disagree and the round trip absorbed the difference silently, and the old `px == 0` branch repaid the debt and delivered NOTHING. The remaining exposure is the single UPSTREAM read, which already BOUNDS the ask — so moving the price can only shrink what is asked for, never inflate what is withdrawn.
+
+**`Quid.sol`**
+- 🔴 **`internal`, AND THAT VISIBILITY IS THE SECURITY BOUNDARY — DO NOT WIDEN IT.** `QuidLib.offrampBody` ends `IERC20(c.weth).transfer(recipient, got)` with a CALLER-SUPPLIED `recipient`, sized only by this contract's weETH balance and the Curve pool's depth. As a `public` entrypoint that was an unauthenticated withdrawal.
+- ⛔ Do not restore a fallback to "be permissive": permissive here means a client calling a deleted entrypoint cannot tell success from a no-op.
+- of price risk is a measurement nobody has taken (E146); do not raise 1→47 as a reflex, it changes LP UX and the 4626 redeem semantics.
+- free-only withdraw never touches the lever). minOut=0 is BOUNDED: closeLev returns equity as UNSOLD collateral — only the debt-repay swap sells, and it self-floors to ≤MAX_SLIPPAGE_BPS via the flash- coverage requirement (the op reverts past it). The callback's syncLev re-entrancy is nonReentrant- BLOCKED under this withdraw lock (LevManager try/catches it → the slice stays stale for the tx), so.
+- `_burnInRange`: `CORE.modLP` takes deltas and a pledge, and never read them.
+- value became unused when the v4 price bounds left the burn path. Do NOT delete the call.
+- through `rangeETH()`/`pooled`, which never reads it. So a premium charged FOR THE LP'S INVENTORY RISK was accruing to QU!D holders. Every comment on the path said it *"accrues to LPs as backing"*; structurally it did not.
+- so a plain LP who never touches their position silently donates the compounding on their unclaimed fees to the rest of the pool.
+
+**`Vault.sol`**
+- ⚠️ **THAT DELETED GATE WAS ALSO SPELLED `onlyUs`, AND THE NAME IS LIVE AGAIN — DO NOT READ THIS PARAGRAPH AS SAYING THE MODIFIER BELOW IS DEAD.** §E301 removed an ETH-venue `onlyUs` that gated ZERO functions; the `onlyUs` modifier below is the BTC range's own gate, renamed here from `onlyUsBtc` (§FOLD-BLOCKER: one name per concept, two instances — the same direction as.
+- ⛔ KEEP THE MODIFIER — do not call `_onlyUs()` from each body: a modifier is positionally FIRST by construction, a body call can be reordered after a state read.
+- `WETH` immutable this contract never read; see the note above the `AUX` slot. It is kept in the signature so `DeployLib`'s `new Vault(core, aux, cfg.weth)` still binds. §ETHVENUE-GHOSTS — the docblock here previously described AAVE-v4 WETH resolution, an optional "venue 2", and ether.fi adapter wiring with standing approvals. The constructor did.
+- ⛔ Do not restore it. `receive()` is what bare ETH needs; a fallback is what hides a mistake.
+- `msg.sender`-scoped. So a passive BTC LP who never called it donated its fee compounding to the pool for as long as it stayed passive — the identical gap `Quid.compound` exists to close, on the side that had no crank.
+- ⛔ Do not re-add a book here. The thing to add is the intent.
+
+**`imports/BasketLib.sol`**
+- mutation, so they're never cached.
+- ⛔ **DO NOT RESTORE *"inside the rounding already here"* IN ANY FORM. THAT PHRASE WAS NEVER TRUE, INCLUDING AT ±0.2%.** The rounding here is the single truncated wei of the integer divide below; against a WAD price of ETH (~3e21) that is 3e-22 relative — SIXTEEN orders below even the old 1e-6 estimate it was offered as cover for. The gap is inside the.
+- ⚠️ NARROW, AND DELIBERATELY SO — do not read this as "mint drives detection". Its one call site sits behind TWO gates: `if (auth(msg.sender))`, i.e. the PROTOCOL-INTERNAL mint path only (fee mints, `Vault.creditSwapOut` swap-out reissuance, Quid fee distribution) and NOT user deposits; and `if (currentMonth() >= 12)`, so it is DORMANT FOR THE FIRST YEAR.
+- FROM actual delivery, never assumed ahead of it"*; here the CREDIT is derived from the actual BURN. `turn` burns MATURE QU!D only and returns how much it really took, so `funded6` is what the claim genuinely paid — never the caller's ask. ⚠️ **CAPPED, NOT REVERTED, and that is redeem's rule too:** a holder short of their.
+- estimate, no cap, no over-burn: burn is derived FROM actual delivery, never assumed ahead of it.
+
+**`imports/BitcoinTx.sol`**
+- 🔴🔴 **UNREACHABLE TODAY, AND DELIBERATELY LEFT THAT WAY — DO NOT WIRE A CALLER TO THIS MODE WITHOUT READING §R-P2MR-NEEDS-AN-AUTHORITY.** No caller passes this mode; there is no `findFundingOutput(…, allowP2mr)` and no `BTCChannels.p2mrEnabled`. ⛔ **AN EARLIER DRAFT OF THIS DOCBLOCK DESCRIBED BOTH AS IF THEY EXISTED.** They never did —.
+- NOT here. Do not read a passing structural check as "the LP has a working escape".
+
+**`imports/BtcLib.sol`**
+- range bears IL exactly like an ETH range -- the asset never changes the yield/vol tradeoff). The theta-shed remainder is still tracked as fee-earning share by the caller.
+- (§BOOKMARK-OMITS-THE-COMPOUNDED-FEE) RE-READ `LP.pooled`; do NOT use the caller's `weight`. `settleBtcLp` has already COMPOUNDED the BTC-leg fee into `pooled` (§E145), so `weight` is stale by exactly that amount — and `refreshBookmarks` stores `w·feesPerShare`, so a stale `w` leaves the LP with a bookmark BELOW its true position and the next settlement pays the.
+- parameter. `leverBorrow`/`repay` do not touch the collateral at all -- they move the venue's STABLE in and out -- which is why the BTC lever cycle survived the volatile venue's removal untouched while the ETH atomic path did not.
+
+**`imports/ChannelLib.sol`**
+- `vaultHealth` do not touch Aux's registry, and `safeTransferFrom` moves tokens, not config. ⛔ The `trancheTotal()` pair further down is NOT foldable the same way: `get_metrics(false)` sits between those two reads and is NOT view.
+- never calls it — it goes through `openChannelBody`/`_verifyAndLocate` and reaches the gate via `_proveFundingKeys`. The BINDING claim is true; the LOCATOR was not. The retired text named "the LP's lpAuth + off-chain MuSig2 keygen" as the binding; `lpAuth` no longer exists as a parameter anywhere (E149).
+- forever. `_finalizeClose` (`:689`) sees `claimed == false` and never calls `requestRedeem` either. ⇒ **a migrated channel would sit on the new deployment with real custody and permanently zero backing credit.** Migration therefore means redeploying the **Vault** too — the whole accounting stack — not just this contract.
+
+**`imports/FeeLib.sol`**
+- ⛔ Do not restore "Aux passes BR_MAX_MIN": `BR_MAX_MIN` exists only inside removal records, and the ONLY caller now is `Core` (`_decayed`/`_decayedBy`), passing `FLOW_MAX_MIN` for the 48h flow-EWMA decay.
+- never called, and is now deleted). The body is a single `grossUpForDepeg`. Renaming is an ABI change on an `external` library member, so it lands under `tools/check-client-abis.py` or not at all.
+- ⚠️ DO NOT READ THAT AS A CONTRAST WITH THE SINGLE-STABLE LEG — it used to be one and is not any more. The single-stable draw DOES move the mix and is ALSO uncharged: the yield-vs-baseline fee that priced it (`calcFeeL1`) was declared with zero production callers for its whole life and has been deleted. ⇒ **the cherry-pick externality is.
+
+**`imports/Interfaces.sol`**
+- per-LP since the position was pooled. Never call the second without the first.
+- `IERC20Min.transferFrom` (`amount`). Same selector, different meaning — do not merge them.
+- through `borrowRateRay`, which is already a pure rate.** Do not "fix" this into a single global unit: that would buy nothing and would put an oracle into every adapter. ⚠️ Both amounts are lifted to 18 decimals so the ratio has room, NOT because they are commensurable across venues.
+- ⛔ DO NOT RE-ADD `swapOutDelever(address,uint,address,uint)` HERE. §J2-LEV-ARITY was RESOLVED BY DELETION (see the block at `LevManager.sol` above `swapOutDeleverPooled`): the per-LP ETH form is GONE from the tree, superseded by `swapOutDeleverPooled(venue, …)`. Only the BTC 3-arg `swapOutDelever` on `ILevManagerDeliver` still has an implementation. A declaration of a.
+
+**`imports/LevBase.sol`**
+- four times the work it was doing when it landed. **Do not read a bps figure here as a constant: all three columns are functions of `RANGE_DELTA`, `g` and `C`, and only the shape — a cube root damped by a series with the headroom — is stable.** ⭐ The conversion is constant-folded (both operands are `constant`), so it costs no gas and.
+- justification written beside it — and RANGE never called it, so the slot was permanently 0 and every read fell through to the default regardless. The venue the range unwinds through. A function, not a bare constant, so the docblock above has a home and the call site keeps reading as a lookup rather than a magic number.
+- produce. Fail-safe direction; do NOT "fix" it by making this non-view to call `accrue()`.
+- ⛔ ENTRIES ARE NEVER REMOVED, deliberately, for the reason the pin exists: a venue can hold a residual remainder after its last LP closes, and dropping it would make the aggregates report 0 for a pool that is not empty — the exact silent under-report `poolVenue` replaced `pos[_openLps[0]].venue` to fix.
+- STANDALONE, DELIBERATELY — do not fold it into `LevBase` above. Morpho's marketId is `keccak256(abi.encode(MarketParams))` and `oracle` is one of those five fields, so the oracle's ADDRESS IS PART OF THE MARKET'S IDENTITY. Pointing the market at a manager would make a manager redeploy a *different market*, silently, orphaning the old one.
+
+**`imports/LevMath.sol`**
+- never remove it.
+- dispatcher — do not delete the tag on the strength of this paragraph. @dev §SESS-19 — `dex2` and `route` ride the SAME payload the other five fields do. The close leg could reach only the single-hop `unoswap` before this: `_delever` took all three and handed on `dex` alone, and even had it not, the payload had nowhere to put them.
+
+**`imports/LevVenueBase.sol`**
+- ⇒ Hoisting the six BODIES into abstract members SAVES ZERO BYTECODE. Do not read this file as evidence that a further dedup is available; it was read that way once and the dedup was refused on measurement (task #48). Nor is `AaveV3Venue` deletable in favour of a Morpho WBTC market: `DeployL1_s` keeps it on a DEPTH measurement (deepest WBTC/USDC book), which is.
+- the LP's own Morpho account, and can never touch another LP or the basket.
+- costs nothing now that both sides are on the same clock. Do NOT read this note as licence to tighten it to `d - repaid`.
+
+**`imports/OracleLib.sol`**
+- not a field (§ISBTC-SPLIT). ⛔ Do not restore *"Core runs TWO independent rings … each a `Observation[65535]` array"*: both numbers were wrong, and the address is invisible to a reader who trusts the header instead.
+- ⚠️ §E253-mock also deleted `deployMocks` and Core's four per-pool mocks. ⛔ Do not restore *"the ~3.9 KB of `mock` creation-code lives in THIS library's bytecode"* — it makes anyone sizing this library wrong by ~3.9 KB, and there is no `mock` string left in this file.
+- so grep by structure, not by name. ⛔ Do not restore *"the reference pools are still READ, deliberately"*, *"the orientation probes are CONSUMED HERE"*, or *"`wbtc` is passed in"* — all three described `prepRefs`, and `_feed18` applies the ×1e10 lift from a bool. @notice Deploy-time seed price for each range, read from CHAINLINK.
+- ⛔ **DO NOT "FIX" THIS WITH THE §E88 ONE-WEI FLOOR THAT `Core.anchorVarianceWad` USES. IT IS BOTH UNSAFE AND INERT, AND THE INERTNESS IS WHAT MAKES IT DANGEROUS TO TRY.** • UNSAFE: ⚠️ **THIS PARAGRAPH'S PREMISE IS GONE, AND THE CONCLUSION IS NOT.** It read *"this ring is PERMISSIONLESS — `Core.pushObservation` is `external` with no auth,.
+- 🔴 **DO NOT USE THIS FOR THE BTC CROSS.** There is no wrapper-free BTC spot on-chain at all — native BTC has no EVM presence — so `getRate(WETH, WBTC)` prices WRAPPED BTC and would reimport the basis §E221 exists to delete. **Measured: 1inch ETH/WBTC vs Chainlink ETH/BTC differ by 4.29 bps, and WBTC/BTC is 3.91 bps — the gap IS the wrapper.** Price BTC from the.
+
+**`imports/QuidLib.sol`**
+- and the sweep above finds nothing. ⛔ Do NOT read that as licence to drop the cap. The cap is not about where the excess CAME FROM — `inWETH` is this contract's WHOLE balance, and `rangeOp` / `deleverEthOnDelivery` each top it up and may each return MORE than asked, so an uncapped `withdraw(inWETH)` over-delivers from any source.
+- ⛔ SO DO NOT DELETE IT AS "ALWAYS ZERO". It is zero on every path WE drive, which is a different statement, and deleting it would strand donated WETH — counted by nothing, while `withdrawETH`'s sweep still hands it out. The term and that sweep are a MATCHED PAIR (counted ⇒ deliverable); remove one and you must remove the other.
+- (`test_RunSim_AllExit_Normal`). Do NOT "fix" this by rebuilding it as a ladder twin without first re-establishing a harm — the previous attempt to do so rested on a 19.4%-short figure that measurement showed to be stale (~3%, and DEFERRED not lost). @notice The ONE `withdrawable` definition for a WETH 4626 venue — what it can actually pay us.
+
+**`imports/SwapLib.sol`**
+- `if (twap == 0) return r` then left `didRepack == false` — so `addLiq` was never called and the range could never be re-paired (measured: 8 repacks during the crash, 0 addLiq, with $176,779 of basket surplus and 7.88 ETH of headroom sitting unused). No new logic is needed below: with price==0, `diff == ext18`, so the deviation test trips and.
+- parameters `applyFeeAndHaircut` never read. Deleting them deletes a whole 16-slot basket read per call on this path.
+- in `r.px`. Do not read the "5" this line used to carry as a reason to expect more.
+- ⛔ Do NOT read the deletion as permission: a resting intent is not a placement, and the tryPair idea would need one. (numbering kept so (1)/(3) still refer) (3) this body runs DELEGATECALL'd in Aux context; a mid-swap re-entry into Quid's onlyUs addLiq/unwindForRedeem on the SHARED range needs its reentrancy + price- impact interaction with the V4 unlock callback worked out.
+- ⛔ Do not restore the old calibration *"Γ fixed so skew(q=1, σ²=SIGMA_REF) = MAX_WELL_SKEW"* or the `tickVar·(SECS_PER_YEAR/THETA_STEP)·1e10` unit derivation. `SIGMA_REF`, `MAX_WELL_SKEW` and `tickVar` have ZERO CODE references in `evm/src` (every hit is a comment), the ×1e10 died with the ticks (a tick was 1 bp ⇒ 1e-8 × 1e18 = 1e10;.
+- suppressible leg can only ever raise the answer.** ⛔ Do NOT read that as "the vector is closed" — the anchor is a floor, not a proof, and the residual named in `Core`'s own §E345 note is the opposite direction: a PINNED ring source could still INFLATE σ² and widen the spread other traders pay. ⛔ THAT RESIDUAL IS NOT BOUNDED BY ANY BAND, AND THIS LINE USED TO.
+- never touches the variance path. The correction STRENGTHENS this guard for the same reason it strengthened that one: under the interpolation story a zero could come from a quiet but well-sampled ring, the one reading that would make charging the ceiling look punitive. ⛔ **BUT ITS TAIL — *"`Core.realizedVarianceWad` calls `OracleLib.ringVariance` DIRECTLY ….
+- zero at every drain size any more. ⛔ Do NOT read that as closing §E352 — **the residual booked here is the BRANCH-ORDER one, and it is untouched**: both arms still resolve ahead of the σ² sentinel, so "unmeasured" still costs whatever the first resolver says. What the depletion term does is bound the damage, not remove it: it is σ²-FREE, so at.
+- branch is a separate half — do not fix one and call it done."* Recorded at the site because the row is the half that goes unread. ⭐ **THE SHAPE IS THE ONE §E345 DELETED ELSEWHERE**: a sentinel whose meaning is decided by which of two resolvers is reached first, rather than by what the input means. 🔴 **AND THE TEST THAT IS CITED AS COVERING THIS CELL CANNOT SEE IT — MEASURED, NOT.
+- ⛔ DO NOT restore *"`realizedVarianceWad` calls `ringVariance` DIRECTLY"*, *"none of them means measured and calm"*, or *"under the real mechanism that reading does not exist"*. ⛔ DO NOT "repair" the asymmetry by flooring the ring leg to match the anchor's. It is INERT (the annualising `mulDiv` truncates a returned 1 back to 0 before any caller.
+- CALIBRATED — DO NOT RE-ADD IT WITHOUT SETTLING Γ's HORIZON FIRST. It DOES close the vector (chopper advantage → 0 bps at every delay), but against `nominalSecs = 12` it repriced ORDINARY same-block chopped flow 97× (28,829 → 2,802,810 usd6). 12s is the SETTLEMENT window; it is not the inventory-holding horizon Γ folded in, and any real gap dwarfs it.
+- split we want. ⇒ Do NOT restore it "for symmetry"; the asymmetry is the correctness.
+- into the POOLED mirror to match. ⛔ Do not restore *"stays in the basket as LP backing"* — that wording is pre-§E5 and IS the §E42 leak. `Core`'s copy of this warning was fixed first and this one was not, which left the wrong copy authoritative for whoever read this file first. @notice Plain (unlevered) net range equity = gross `pooled` minus the levered slice `lev`, zero-floored.
+
+**`imports/Types.sol`**
+- ⇒ **Half the time `lpPubkey` holds the HOP's key.** Do not read either name as an actor.
+
 ## 🔴🔴 §AUDITS-RE-RATED-2026-09-11 — **ONE OF THREE MOVED, AND NOT FOR THE REASON I BOOKED.**
 
 I recorded that `§NO-SELF-PROVISIONED-LPS` invalidated three ratings because *"the fleet can spend the
