@@ -482,6 +482,12 @@ pub struct OpenParams {
     pub funding_tx_index: u64,
     pub lp_pubkey: [u8; 33],
     pub hop_pubkey: [u8; 33],
+    /// 🔑 §LPETH-THIRD-FIELD — **THE LP'S OWN FUNDING KEY, UNSORTED.** `lp_pubkey`/`hop_pubkey`
+    /// above hold the BYTE-SORTED pair (required: `channelId` and the taproot funding SPK are
+    /// rebuilt from them), so **their names are not roles** — half the time `lp_pubkey` holds the
+    /// HOP's key. This field is the only one that says who the LP is, and the contract derives
+    /// `lpEth` from it. `openChannel` requires it to EQUAL one of the two above.
+    pub lp_identity_pubkey: [u8; 33],
     pub amount_sats: u64,
     /// SIMPLE-TAPROOT: the 32-byte x-only MuSig2 key-path aggregate `Q`. The
     /// channel funds a P2TR output `0x5120||Q`; the contract builds that script
@@ -603,6 +609,7 @@ impl OpenParams {
             Tok::Uint(U256::from(self.funding_tx_index)),
             Tok::Bytes(self.lp_pubkey.to_vec()),
             Tok::Bytes(self.hop_pubkey.to_vec()),
+            Tok::Bytes(self.lp_identity_pubkey.to_vec()),
             Tok::Uint(U256::from(self.amount_sats)),
             Tok::FixedBytes32(self.funding_taproot),
         ]
@@ -642,6 +649,9 @@ pub fn sort_funding_pubkeys(a: [u8; 33], b: [u8; 33]) -> ([u8; 33], [u8; 33]) {
 /// `keccak256(abi.encode(p.lpPubkey, p.hopPubkey, fundingTxId, vout))`
 /// (`ChannelLib.openChannelBody`). `funding_txid_internal` is the funding txid
 /// in internal byte order; `vout` is the 2-of-2 output index.
+// ⚠️ §LPETH-THIRD-FIELD: `channelId` is `keccak256(abi.encode(lpPubkey, hopPubkey, txid, vout))`
+// over the SORTED PAIR ONLY. `lp_identity_pubkey` is deliberately NOT part of it — the id must stay
+// a function of the funding output, and the contract recomputes it the same way.
 pub fn channel_id(
     lp_pubkey: &[u8; 33],
     hop_pubkey: &[u8; 33],
@@ -1037,10 +1047,15 @@ pub async fn build_open_params(
     esplora: &Esplora,
     funding_txid: &Txid,
     funding_vout: u32,
-    pubkey_a: [u8; 33],
-    pubkey_b: [u8; 33],
+    // ⚠️ §LPETH-THIRD-FIELD — THESE ARE ROLES, NOT AN ARBITRARY PAIR, AND THE ORDER MATTERS TO
+    // `lp_identity_pubkey` EVEN THOUGH IT DOES NOT MATTER TO THE SORT. In the hop's process
+    // `ChannelMonitor::funding_pubkeys()` returns `(holder, counterparty)` = (hop, LP), which is
+    // what `channel_funding_pubkeys` forwards. They used to be `pubkey_a`/`pubkey_b` — anonymous —
+    // and that anonymity is exactly how the LP's identity came to be read off a sort slot.
+    hop_pubkey_in: [u8; 33],
+    lp_pubkey_in: [u8; 33],
 ) -> anyhow::Result<(OpenParams, Vec<u8>, Vec<[u8; 32]>)> {
-    let (k0, k1) = sort_funding_pubkeys(pubkey_a, pubkey_b);
+    let (k0, k1) = sort_funding_pubkeys(hop_pubkey_in, lp_pubkey_in);
     let incl = tx_inclusion(esplora, funding_txid)
         .await
         .context("funding inclusion proof")?;
@@ -1066,6 +1081,7 @@ pub async fn build_open_params(
         funding_tx_index: incl.tx_index,
         lp_pubkey: k0,
         hop_pubkey: k1,
+        lp_identity_pubkey: lp_pubkey_in,
         amount_sats: out.value.to_sat(),
         funding_taproot,
     };
@@ -1124,6 +1140,7 @@ fn t_params() -> OpenParams {
         funding_tx_index: 0,
         lp_pubkey: [2u8; 33],
         hop_pubkey: [3u8; 33],
+        lp_identity_pubkey: [2u8; 33],
         amount_sats: 0,
         funding_taproot: [0u8; 32],
     }
@@ -1288,6 +1305,7 @@ mod tests {
             funding_tx_index: 0,
             lp_pubkey: lp,
             hop_pubkey: hop,
+            lp_identity_pubkey: lp,
             amount_sats: 1_000_000,
             funding_taproot: q,
         };
@@ -1329,6 +1347,7 @@ mod tests {
                     funding_tx_index: 0,
                     lp_pubkey: [2u8; 33],
                     hop_pubkey: [3u8; 33],
+                    lp_identity_pubkey: [2u8; 33],
                     amount_sats: 0,
                     funding_taproot: [0u8; 32],
                 },
@@ -1399,6 +1418,7 @@ mod tests {
             funding_tx_index: 7,
             lp_pubkey: [2u8; 33],
             hop_pubkey: [3u8; 33],
+            lp_identity_pubkey: [2u8; 33],
             amount_sats: 1_000_000,
             funding_taproot: [0u8; 32],
         };
@@ -1422,6 +1442,7 @@ mod tests {
             funding_tx_index: u64::MAX,
             lp_pubkey: [2u8; 33],
             hop_pubkey: [3u8; 33],
+            lp_identity_pubkey: [2u8; 33],
             amount_sats: u64::MAX,
             funding_taproot: [0u8; 32],
         };
@@ -1463,6 +1484,7 @@ mod tests {
             funding_tx_index: 0,
             lp_pubkey: [2u8; 33],
             hop_pubkey: [3u8; 33],
+            lp_identity_pubkey: [2u8; 33],
             amount_sats: 0,
             funding_taproot: [0u8; 32],
         };
@@ -1488,6 +1510,7 @@ mod tests {
             funding_tx_index: 9,
             lp_pubkey: [2u8; 33],
             hop_pubkey: [3u8; 33],
+            lp_identity_pubkey: [2u8; 33],
             amount_sats: 3_000_000,
             funding_taproot: [0u8; 32],
         };
@@ -1513,7 +1536,7 @@ mod tests {
     fn deliver_swap_out_onchain_selector() {
         let p = OpenParams {
             funding_block_hash_be: [0u8; 32], funding_block_height: 0, funding_tx_index: 0,
-            lp_pubkey: [2u8; 33], hop_pubkey: [3u8; 33], amount_sats: 0,
+            lp_pubkey: [2u8; 33], hop_pubkey: [3u8; 33], lp_identity_pubkey: [2u8; 33], amount_sats: 0,
             funding_taproot: [0u8; 32],
         };
         let cd = encode_deliver_swap_out_onchain([1u8; 32], [2u8; 32], &p, &[], &[], &[0x00, 0x14], &t_exits());
@@ -1630,6 +1653,7 @@ mod proptests {
                 funding_tx_index: tx_index,
                 lp_pubkey: lp,
                 hop_pubkey: hop,
+                lp_identity_pubkey: lp,
                 amount_sats: amount,
                 funding_taproot: q,
             }

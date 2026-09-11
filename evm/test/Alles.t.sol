@@ -314,8 +314,7 @@ contract AllesFixture is ForkPin, ExitFixture {
     {
         return Types.OpenParams({
             fundingBlockHash: bytes32(0), fundingBlockHeight: 0, fundingTxIndex: 0,
-            lpPubkey: lpPubkey, hopPubkey: hopPubkey, amountSats: 0, fundingTaproot: bytes32(0)
-        });
+            lpPubkey: lpPubkey, hopPubkey: hopPubkey, amountSats: 0, fundingTaproot: bytes32(0), lpIdentityPubkey: lpPubkey });
     }
     function _taprootQ(bytes memory lpPubkey, bytes memory hopPubkey)
         internal view returns (bytes32)
@@ -405,7 +404,9 @@ contract AllesFixture is ForkPin, ExitFixture {
                                   : vm.parseJsonBytes(j, string.concat(b, "lpPubkey")),
             hopPubkey:          vm.parseJsonBytes(j, string.concat(b, "hopPubkey")),
             amountSats:         sats,
-            fundingTaproot:     vm.parseJsonBytes32(j, string.concat(b, "fundingTaproot")) });
+            fundingTaproot:     vm.parseJsonBytes32(j, string.concat(b, "fundingTaproot")), lpIdentityPubkey: lpPubkeyOverride.length == 33
+                                  ? lpPubkeyOverride
+                                  : vm.parseJsonBytes(j, string.concat(b, "lpPubkey")) });
     }
 
 
@@ -426,8 +427,7 @@ contract AllesFixture is ForkPin, ExitFixture {
             lpPubkey:           vm.parseJsonBytes(j, string.concat(b, "lpPubkey")),
             hopPubkey:          vm.parseJsonBytes(j, string.concat(b, "hopPubkey")),
             amountSats:         newAmount,
-            fundingTaproot:     bytes32(0)
-        });
+            fundingTaproot:     bytes32(0), lpIdentityPubkey: vm.parseJsonBytes(j, string.concat(b, "lpPubkey")) });
         p.fundingTaproot = _taprootQ(p.lpPubkey, p.hopPubkey);
         bytes memory spk = buildTaprootFundingSpk(p.lpPubkey, p.hopPubkey);
         (, bytes32 fundingTxId, , uint32 vout, , , ) = ch.channels(cid);
@@ -452,7 +452,7 @@ contract AllesFixture is ForkPin, ExitFixture {
             lpPubkey:           vm.parseJsonBytes(j, string.concat(b, "lpPubkey")),
             hopPubkey:          vm.parseJsonBytes(j, string.concat(b, "hopPubkey")),
             amountSats:         sats,
-            fundingTaproot:     vm.parseJsonBytes32(j, string.concat(b, "fundingTaproot")) });
+            fundingTaproot:     vm.parseJsonBytes32(j, string.concat(b, "fundingTaproot")), lpIdentityPubkey: vm.parseJsonBytes(j, string.concat(b, "lpPubkey")) });
         cid = _finishHopOpen(ch, hop, p,
             vm.parseJsonBytes(j, string.concat(b, "rawFundingTx")), seed,
             vm.parseJsonBytes32Array(j, string.concat(b, "merkleBranch")));
@@ -4768,8 +4768,7 @@ contract Alles is AllesFixture {
                 lpPubkey:           lpPubkey,
                 hopPubkey:          hopPubkey,
                 amountSats:         amountSats,
-                fundingTaproot:     _taprootQ(lpPubkey, hopPubkey)
-            });
+                fundingTaproot:     _taprootQ(lpPubkey, hopPubkey), lpIdentityPubkey: lpPubkey });
             // (B) The LP delegates channel operation to the hop COLD, once. This pins +
             // LOCKS btcRecipientOf[lpEth]=payout — a full 32-byte x-only shutdown key
             // DISTINCT from the funding material; the coop-close below pays 0x5120||key
@@ -4863,7 +4862,7 @@ contract Alles is AllesFixture {
                 fundingBlockHash: bytes32(uint(1)), fundingBlockHeight: 800000,
                 fundingTxIndex: 0, lpPubkey: lpPubkey, hopPubkey: hopPubkey,
                 amountSats: amountSats,
-                fundingTaproot: _taprootQ(lpPubkey, hopPubkey) });
+                fundingTaproot: _taprootQ(lpPubkey, hopPubkey), lpIdentityPubkey: lpPubkey });
             // Realistic btcRecipientOf (32-byte x-only shutdown key). This is a
             // force/non-coop close test: recordClose's non-coop branch retires with
             // delivered=funded and IGNORES all outputs, so the key is only registered.
@@ -4935,7 +4934,7 @@ contract Alles is AllesFixture {
                 fundingBlockHash: bytes32(uint(1)), fundingBlockHeight: 800000,
                 fundingTxIndex: 0, lpPubkey: lpPubkey, hopPubkey: hopPubkey,
                 amountSats: amountSats,
-                fundingTaproot: _taprootQ(lpPubkey, hopPubkey) });
+                fundingTaproot: _taprootQ(lpPubkey, hopPubkey), lpIdentityPubkey: lpPubkey });
             // Realistic btcRecipientOf (32-byte x-only shutdown key). This is a
             // force/non-coop close test: recordClose's non-coop branch retires with
             // delivered=funded and IGNORES all outputs, so the key is only registered.

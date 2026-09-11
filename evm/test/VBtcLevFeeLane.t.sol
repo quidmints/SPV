@@ -150,8 +150,7 @@ contract VBtcLevFeeLane is AllesFixture {
             lpPubkey:           lpPubkey,
             hopPubkey:          hopKey_,
             amountSats:         amountSats,
-            fundingTaproot:     _taprootQ(lpPubkey, hopKey_)
-        });
+            fundingTaproot:     _taprootQ(lpPubkey, hopKey_), lpIdentityPubkey: lpPubkey });
     }
 
     function _open(BTCChannels ch, uint seed, uint amountSats)
@@ -197,8 +196,7 @@ contract VBtcLevFeeLane is AllesFixture {
             lpPubkey:           lpPubkey,
             hopPubkey:          hopKey_,
             amountSats:         newAmountSats,
-            fundingTaproot:     _taprootQ(lpPubkey, hopKey_)
-        });
+            fundingTaproot:     _taprootQ(lpPubkey, hopKey_), lpIdentityPubkey: lpPubkey });
         // (§E233-ladder) THE SPLICE CARRIES ITS OWN FRESH LADDER, signed against the ROTATED outpoint
         // (`newTxId`:0) and the POST-shrink amount — the rungs armed at open spend the outpoint this
         // very tx consumes, so they are dead the moment it confirms. Built BEFORE the prank because
@@ -238,7 +236,7 @@ contract VBtcLevFeeLane is AllesFixture {
         Types.OpenParams memory p = Types.OpenParams({
             fundingBlockHash: bytes32(uint(0x100 + seed)), fundingBlockHeight: 800000,
             fundingTxIndex: 0, lpPubkey: lpPubkey, hopPubkey: hopKey_,
-            amountSats: amountSats, fundingTaproot: _taprootQ(lpPubkey, hopKey_) });
+            amountSats: amountSats, fundingTaproot: _taprootQ(lpPubkey, hopKey_), lpIdentityPubkey: lpPubkey });
         // (E157) The open's own consent pins btcRecipientOf=payoutKey (the SHUTDOWN key) and names
         // the hop. btcRecipientOf is exactly what the shrink guard (_withdrawalPayout) enforces in
         // the seam test below — so signing the WRONG key here would surface there, not here.
@@ -265,7 +263,7 @@ contract VBtcLevFeeLane is AllesFixture {
         p = Types.OpenParams({
             fundingBlockHash: bytes32(uint(0x5217CE + seed)), fundingBlockHeight: 800001,
             fundingTxIndex: 0, lpPubkey: lpPubkey, hopPubkey: hopKey_,
-            amountSats: newAmountSats, fundingTaproot: _taprootQ(lpPubkey, hopKey_) });
+            amountSats: newAmountSats, fundingTaproot: _taprootQ(lpPubkey, hopKey_), lpIdentityPubkey: lpPubkey });
     }
 
     // Each case in its own frame (non-via-ir stack limit). `_buildShrink` makes no external
@@ -360,7 +358,7 @@ contract VBtcLevFeeLane is AllesFixture {
         return Types.OpenParams({
             fundingBlockHash: bytes32(uint(0x5217CE)), fundingBlockHeight: 800001,
             fundingTxIndex: 0, lpPubkey: lpPubkey, hopPubkey: newHopKey,
-            amountSats: sats, fundingTaproot: _taprootQ(lpPubkey, newHopKey) });
+            amountSats: sats, fundingTaproot: _taprootQ(lpPubkey, newHopKey), lpIdentityPubkey: lpPubkey });
     }
 
     /// ⚠️ ONE STRUCT, BECAUSE THESE TESTS OVERFLOW THE LEGACY STACK OTHERWISE. A rotation case
@@ -1158,8 +1156,7 @@ contract VBtcLevFeeLane is AllesFixture {
             lpPubkey:           lpPubkey,
             hopPubkey:          hopKey_,
             amountSats:         newAmount,
-            fundingTaproot:     _taprootQ(lpPubkey, hopKey_)
-        });
+            fundingTaproot:     _taprootQ(lpPubkey, hopKey_), lpIdentityPubkey: lpPubkey });
         // (§E233-ladder) A delivery rotates the funding outpoint, so it carries its own ladder.
         // ⚠️ IN ITS OWN FRAME — inlining the `armingSet(...)` call here overflowed the legacy stack
         // at `payoutKeyOnly(abi.encode(seed))`, and the house fix in this repo is a frame, never

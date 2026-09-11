@@ -201,8 +201,7 @@ contract BtcSelfManagedTest is AllesFixture {
                 // Use the REAL Q from the bundle (the live funding output is 0x5120||Q
                 // where Q is the genuine MuSig2 aggregate; the synthetic _taprootQ
                 // stand-in only matches the synthetic-funding fixtures, not a real tx).
-                fundingTaproot:     b.fundingTaproot
-            });
+                fundingTaproot:     b.fundingTaproot, lpIdentityPubkey: b.lpPubkey });
             // Realistic btcRecipientOf: a full 32-byte x-only shutdown key. NOTE: the
             // REAL coop-close guard (_lpFinalBalance validating the actual LDK close
             // output `0x5120||shutdownKey`) is exercised end-to-end by quid-bridge's

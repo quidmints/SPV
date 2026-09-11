@@ -82,8 +82,7 @@ contract BtcLpMintStress is AllesFixture {
             lpPubkey:           lpPubkey,
             hopPubkey:          hopPubkey_,
             amountSats:         amountSats,
-            fundingTaproot:     _taprootQ(lpPubkey, hopPubkey_)
-        });
+            fundingTaproot:     _taprootQ(lpPubkey, hopPubkey_), lpIdentityPubkey: lpPubkey });
     }
 
     /// (E128) Own frame. `_open` now holds the owned keys, the funding tx, the params AND the
@@ -514,8 +513,7 @@ contract BtcLpMintStress is AllesFixture {
             lpPubkey:           lpPubkey,
             hopPubkey:          _hopKeyOf[channelId],
             amountSats:         newAmountSats,
-            fundingTaproot:     _taprootQ(lpPubkey, _hopKeyOf[channelId])
-        });
+            fundingTaproot:     _taprootQ(lpPubkey, _hopKeyOf[channelId]), lpIdentityPubkey: lpPubkey });
         // (§E233-ladder) The rotated outpoint needs its own ladder — the rungs armed at open spend the
         // UTXO this tx consumes. Single-output splice ⇒ the new funding is vout 0. Built before the
         // prank: `_armFor` shells out over FFI and would consume a one-shot prank.
@@ -546,8 +544,7 @@ contract BtcLpMintStress is AllesFixture {
             lpPubkey:           lpPubkey,
             hopPubkey:          _hopKeyOf[channelId],
             amountSats:         newAmountSats,
-            fundingTaproot:     _taprootQ(lpPubkey, _hopKeyOf[channelId])
-        });
+            fundingTaproot:     _taprootQ(lpPubkey, _hopKeyOf[channelId]), lpIdentityPubkey: lpPubkey });
     }
 
     /// `creditSwapIn` draws POOLED_USD, so the pool needs dollars or the credit is
@@ -605,7 +602,7 @@ contract BtcLpMintStress is AllesFixture {
         Types.OpenParams memory p = Types.OpenParams({
             fundingBlockHash: bytes32(uint(0x999)), fundingBlockHeight: 800001, fundingTxIndex: 0,
             lpPubkey: lpPubkey, hopPubkey: _hopKeyOf[channelId], amountSats: 1_000_000,
-            fundingTaproot: _taprootQ(lpPubkey, _hopKeyOf[channelId]) }); // same total = not growing
+            fundingTaproot: _taprootQ(lpPubkey, _hopKeyOf[channelId]), lpIdentityPubkey: lpPubkey }); // same total = not growing
         vm.prank(makeAddr("hop"));
         vm.expectRevert(BTCChannels.SpliceUnchanged.selector);
         // (§E233-ladder) `stubLadder` — `SpliceUnchanged` fires before the rotation, so arming is
@@ -638,8 +635,7 @@ contract BtcLpMintStress is AllesFixture {
             lpPubkey:           lpPubkey,
             hopPubkey:          _hopKeyOf[channelId],
             amountSats:         newAmountSats,
-            fundingTaproot:     _taprootQ(lpPubkey, _hopKeyOf[channelId])
-        });
+            fundingTaproot:     _taprootQ(lpPubkey, _hopKeyOf[channelId]), lpIdentityPubkey: lpPubkey });
         // (§E233-ladder) The rotated outpoint needs its own ladder — the rungs armed at open spend the
         // UTXO this tx consumes. Single-output splice ⇒ the new funding is vout 0. Built before the
         // prank: `_armFor` shells out over FFI and would consume a one-shot prank.
@@ -791,8 +787,7 @@ contract BtcLpMintStress is AllesFixture {
             lpPubkey:           s.lpPubkey,
             hopPubkey:          _hopKeyOf[s.channelId],
             amountSats:         newAmount,
-            fundingTaproot:     _taprootQ(s.lpPubkey, _hopKeyOf[s.channelId])
-        });
+            fundingTaproot:     _taprootQ(s.lpPubkey, _hopKeyOf[s.channelId]), lpIdentityPubkey: s.lpPubkey });
         // (§E233-ladder) A delivery is the fifth rotation site and carries its own ladder.
         Types.ExitArming[] memory dex =
             _armAt(s.channelId, spliceTx, newAmount, s.lpPubkey);
@@ -1028,7 +1023,7 @@ contract BtcLpMintStress is AllesFixture {
         Types.OpenParams memory p = Types.OpenParams({
             fundingBlockHash: bytes32(uint(0x999)), fundingBlockHeight: 800001,
             fundingTxIndex: 0, lpPubkey: lpPubkeyB, hopPubkey: HOP_PUBKEY, amountSats: 1_000_000,
-            fundingTaproot: _taprootQ(lpPubkeyB, HOP_PUBKEY) });
+            fundingTaproot: _taprootQ(lpPubkeyB, HOP_PUBKEY), lpIdentityPubkey: lpPubkeyB });
         // ⚠️ A LITERAL, NOT `mkAuth`. `mkAuth` derives a real payout PoP over FFI (E138), and a
         // cheatcode call consumes the pending `expectRevert` — so the guard under test would never
         // be armed. The auth may be empty here because `OneChannelPerLp` is checked BEFORE both the

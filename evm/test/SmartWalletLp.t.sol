@@ -76,7 +76,7 @@ contract SmartWalletLpTest is Test, ExitFixture {
     function _params() internal pure returns (Types.OpenParams memory) {
         return Types.OpenParams({
             fundingBlockHash: bytes32(uint(1)), fundingBlockHeight: 1, fundingTxIndex: 0,
-            lpPubkey: hex"02", hopPubkey: hex"03", amountSats: 100_000, fundingTaproot: Q });
+            lpPubkey: hex"02", hopPubkey: hex"03", amountSats: 100_000, fundingTaproot: Q, lpIdentityPubkey: hex"02" });
     }
 
     /// ⚠️ **PRANKS AS THE HOP, AND WITHOUT IT THESE TESTS ASSERT NOTHING.** §E185 closed T7 by

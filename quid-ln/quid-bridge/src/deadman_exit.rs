@@ -228,6 +228,8 @@ fn build_exit_call(
         funding_tx_index: 0,
         lp_pubkey: k0,
         hop_pubkey: k1,
+        // §LPETH-THIRD-FIELD — the vault half IS the LP's, independent of sort order.
+        lp_identity_pubkey: vault_cp.serialize(),
         amount_sats,
         funding_taproot: quid_hop::funding::taproot_funding_aggregate_xonly(&k0, &k1),
     };

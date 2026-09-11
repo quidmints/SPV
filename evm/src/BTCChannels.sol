@@ -943,12 +943,24 @@ contract BTCChannels {
         // `openChannelBody` SPV-proves + taproot byte-matches (0x5120||Q) the funding, and
         // `btcRecipient` is pinned here as the sole payout — so no hop can redirect funds.
         _onlyHop();   // (E185) a real gate; this line used to be a no-op registry check
-        // (§E183 item 1) DERIVED FROM THE CHANNEL KEY, NOT SUPPLIED. Bitcoin and the EVM share
-        // secp256k1, so `p.lpPubkey` already states the LP's address; taking it as a parameter was
-        // accepting a fact the key proves. The KeyAgg gate below binds `p.lpPubkey` to the
-        // SPV-proven funding output, so a hop can only ever be credited for sats it truly funded
-        // under a key it controls. `address(0)` = malformed or off-curve key.
-        address lpEth = ChannelLib.lpEthOf(p.lpPubkey);
+        // 🔴 §LPETH-THIRD-FIELD (owner, 2026-09-11) — DERIVED FROM `lpIdentityPubkey`, NOT FROM THE
+        // `lpPubkey` SLOT. Bitcoin and the EVM share secp256k1, so an LP's own funding key states
+        // its address; what was wrong was WHICH key we read it from.
+        // ⛔ THIS LINE USED TO BE `lpEthOf(p.lpPubkey)`, and the comment here argued the KeyAgg gate
+        //   made that safe ("a hop can only ever be credited for sats it truly funded under a key it
+        //   controls"). **The gate does bind the PAIR to the funding output — it says nothing about
+        //   WHICH member is the LP.** `lpPubkey`/`hopPubkey` carry the BYTE-SORTED pair because
+        //   `channelId` and the funding SPK are rebuilt from them, so whenever the hop's key sorts
+        //   lower, `lpPubkey` WAS THE HOP'S and `lpEth` was an address the hop controlled — while the
+        //   honest relay path (the real LP's PoP over its real address) REVERTED. It failed OPEN:
+        //   no revert, a different identity.
+        // ⚠️ MEMBERSHIP IS THE WHOLE GUARD: `lpIdentityPubkey` must BE one of this channel's two
+        //   funding keys, so it cannot name a free-floating address. Combined with the PoP below —
+        //   whose digest commits to `lpEth` — the opener must hold the payout key AND point at a key
+        //   that actually funds this channel.
+        if (keccak256(p.lpIdentityPubkey) != keccak256(p.lpPubkey) &&
+            keccak256(p.lpIdentityPubkey) != keccak256(p.hopPubkey)) revert InvalidParam();
+        address lpEth = ChannelLib.lpEthOf(p.lpIdentityPubkey);
         if (lpEth == address(0)) revert InvalidParam();
         // ONE OPEN CHANNEL PER lpEth (see hasOpenBtcChannel): a 2nd open for an LP
         // that already has one would form the aggregate position the per-channel

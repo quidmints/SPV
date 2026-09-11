@@ -196,7 +196,7 @@ export const BTCCHANNELS_ABI = [
   // channel's hop). The recovered signer (not msg.sender) becomes lpEth. Compute
   // the digest on-chain via openChannelDigest so the client signs exactly what the
   // contract checks. OpenParams: 7 fields incl. hopPubkey + fundingTaproot.
-  'function openChannelDigest(tuple(bytes32 fundingBlockHash, uint64 fundingBlockHeight, uint fundingTxIndex, bytes lpPubkey, bytes hopPubkey, uint amountSats, bytes32 fundingTaproot) p, bytes rawFundingTx, address hop) view returns (bytes32)',
+  'function openChannelDigest(tuple(bytes32 fundingBlockHash, uint64 fundingBlockHeight, uint fundingTxIndex, bytes lpPubkey, bytes hopPubkey, bytes lpIdentityPubkey, uint amountSats, bytes32 fundingTaproot) p, bytes rawFundingTx, address hop) view returns (bytes32)',
   // openChannel takes lpBtcPayoutHash (5th arg) and is HOP-ONLY submit (§9b spoof
   // fix) — the hop relays it, not the user's wallet (full hop-mediated flow = task #8).
   // Close folded into ONE entrypoint: recordClose branches on the tx locktime
@@ -206,7 +206,7 @@ export const BTCCHANNELS_ABI = [
   // to tell a SPLICE from a CLOSE. Only those two fields are read; the rest may be zero.
   // (§B8-SLOP-FOLD) The close tx and its inclusion proof are ONE argument now:
   // TxProof(bytes rawTx, bytes32 blockHash, bytes32[] merkleProof, uint txIndex).
-  'function recordClose(bytes32 channelId, tuple(bytes32 fundingBlockHash, uint64 fundingBlockHeight, uint fundingTxIndex, bytes lpPubkey, bytes hopPubkey, uint amountSats, bytes32 fundingTaproot) p, tuple(bytes rawTx, bytes32 blockHash, bytes32[] merkleProof, uint txIndex) proof)',
+  'function recordClose(bytes32 channelId, tuple(bytes32 fundingBlockHash, uint64 fundingBlockHeight, uint fundingTxIndex, bytes lpPubkey, bytes hopPubkey, bytes lpIdentityPubkey, uint amountSats, bytes32 fundingTaproot) p, tuple(bytes rawTx, bytes32 blockHash, bytes32[] merkleProof, uint txIndex) proof)',
   // (E154) There is NO `recordSpliceOut`. It was declared here but has never existed on any
   // contract in recorded history — LP partial withdrawal is served by `splice`, which resizes the
   // position against the same SPV proof. The checker could not see it: an unmatched NAME was

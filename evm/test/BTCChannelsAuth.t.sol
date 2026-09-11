@@ -38,8 +38,7 @@ contract BTCChannelsAuthTest is Test, ExitFixture {
             lpPubkey:           hex"02aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899",
             hopPubkey:          hex"03a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0",
             amountSats:         100_000,
-            fundingTaproot:     bytes32(uint256(0x7a))
-        });
+            fundingTaproot:     bytes32(uint256(0x7a)), lpIdentityPubkey: hex"02aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899" });
     }
 
     /// 🔴 (E185) `openChannel` IS HOP-GATED — this test replaces the attested-registry one, and
@@ -112,8 +111,7 @@ contract BTCChannelsAuthTest is Test, ExitFixture {
             lpPubkey:           hex"020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
             hopPubkey:          hex"03a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0",
             amountSats:         1_000_000,
-            fundingTaproot:     bytes32(hex"2222222222222222222222222222222222222222222222222222222222222222")
-        });
+            fundingTaproot:     bytes32(hex"2222222222222222222222222222222222222222222222222222222222222222"), lpIdentityPubkey: hex"020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20" });
         bytes32 h = keccak256(abi.encode(p));
 
         // PREMISE: the pinned hash must actually COVER all seven fields. A hash match is
@@ -145,8 +143,7 @@ contract BTCChannelsAuthTest is Test, ExitFixture {
             lpPubkey:           p.lpPubkey,
             hopPubkey:          p.hopPubkey,
             amountSats:         p.amountSats,
-            fundingTaproot:     p.fundingTaproot
-        });
+            fundingTaproot:     p.fundingTaproot, lpIdentityPubkey: p.lpPubkey });
         if      (field == 0) t.fundingBlockHash   = bytes32(uint256(p.fundingBlockHash) ^ 1);
         else if (field == 1) t.fundingBlockHeight = p.fundingBlockHeight + 1;
         else if (field == 2) t.fundingTxIndex     = p.fundingTxIndex + 1;

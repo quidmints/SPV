@@ -84,8 +84,7 @@ contract OpenChannelE2ETest is Test, ExitFixture {
             lpPubkey:           vm.parseJsonBytes(json, ".lpPubkey"),
             hopPubkey:          hopPubkey,
             amountSats:         vm.parseJsonUint(json, ".amountSats"),
-            fundingTaproot:     vm.parseJsonBytes32(json, ".fundingTaproot")
-        });
+            fundingTaproot:     vm.parseJsonBytes32(json, ".fundingTaproot"), lpIdentityPubkey: vm.parseJsonBytes(json, ".lpPubkey") });
 
         // (§E183 item 1 / #21) The LP OWNS the channel regardless of who relays, and its address is
         // DERIVED from the channel key — `ChannelLib.lpEthOf(p.lpPubkey)`, the same call the
@@ -302,8 +301,7 @@ contract OpenChannelE2ETest is Test, ExitFixture {
             lpPubkey:           vm.parseJsonBytes(json, ".lpPubkey"),
             hopPubkey:          vm.parseJsonBytes(json, ".hopPubkey"),
             amountSats:         vm.parseJsonUint(json, ".splice.newAmountSats"),
-            fundingTaproot:     vm.parseJsonBytes32(json, ".fundingTaproot")
-        });
+            fundingTaproot:     vm.parseJsonBytes32(json, ".fundingTaproot"), lpIdentityPubkey: vm.parseJsonBytes(json, ".lpPubkey") });
         // (§E233-ladder) The splice rotates the funding outpoint, so the rungs armed at open are dead the
         // moment it confirms — the contract requires a fresh ladder in the same call. Built BEFORE
         // the prank (`signedExitFull` is an FFI cheatcode and would consume it).

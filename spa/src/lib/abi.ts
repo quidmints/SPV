@@ -189,8 +189,12 @@ export const BTCCHANNELS_ABI = [
   // declaration is removed here. The block that stood here described lpAuth: "the LP signs
   // openChannelDigest … the recovered signer becomes lpEth". NONE of that is true any more —
   // `OpenAuth` no longer carries `lpEth`/`lpSig`, the LP signs NOTHING on the EVM, and `lpEth` is
-  // DERIVED on-chain from `p.lpPubkey` via `ChannelLib.lpEthOf`. A client wanting the owner computes
-  // `ethers.computeAddress(lpPubkey)` locally — no call, no signature.
+  // 🔴 §LPETH-THIRD-FIELD (2026-09-11): DERIVED on-chain from `p.lpIdentityPubkey`, NOT from
+  // `p.lpPubkey`. `lpPubkey`/`hopPubkey` hold the BYTE-SORTED 2-of-2 pair (channelId and the taproot
+  // SPK are rebuilt from them), so their names are not roles and half the time `lpPubkey` is the
+  // HOP's key. A client wanting the owner computes `ethers.computeAddress(lpIdentityPubkey)`
+  // locally — no call, no signature. Computing it from `lpPubkey` gives the wrong address half the
+  // time, which is the bug this field exists to remove.
   // ⚠️ This declaration was an ORPHAN: `check-client-abis.py` flagged it because no contract has a
   // function of this name. That is the §E154-client-ghosts shape, and the gate is the ONLY
   // client-side check this tree can run (`spa/` has no `node_modules`, so `tsc` cannot run at all).
@@ -203,7 +207,7 @@ export const BTCCHANNELS_ABI = [
   // to tell a SPLICE from a CLOSE. Only those two fields are read; the rest may be zero.
   // (§B8-SLOP-FOLD) The close tx and its inclusion proof are ONE argument now:
   // TxProof(bytes rawTx, bytes32 blockHash, bytes32[] merkleProof, uint txIndex).
-  'function recordClose(bytes32 channelId, tuple(bytes32 fundingBlockHash, uint64 fundingBlockHeight, uint fundingTxIndex, bytes lpPubkey, bytes hopPubkey, uint amountSats, bytes32 fundingTaproot) p, tuple(bytes rawTx, bytes32 blockHash, bytes32[] merkleProof, uint txIndex) proof)',
+  'function recordClose(bytes32 channelId, tuple(bytes32 fundingBlockHash, uint64 fundingBlockHeight, uint fundingTxIndex, bytes lpPubkey, bytes hopPubkey, bytes lpIdentityPubkey, uint amountSats, bytes32 fundingTaproot) p, tuple(bytes rawTx, bytes32 blockHash, bytes32[] merkleProof, uint txIndex) proof)',
   // (E154) There is NO `recordSpliceOut`. It was declared here but has never existed on any
   // contract in recorded history — LP partial withdrawal is served by `splice`, which resizes the
   // position against the same SPV proof. The checker could not see it: an unmatched NAME was

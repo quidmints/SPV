@@ -528,6 +528,8 @@ pub async fn drive_close<R: JsonRpc>(cfg: Arc<BridgeConfig>,
         funding_tx_index: 0,
         lp_pubkey: k0,
         hop_pubkey: k1,
+        // §LPETH-THIRD-FIELD — the LP's OWN key, not the sort slot. `k0`/`k1` are byte-sorted.
+        lp_identity_pubkey: lp_pk,
         amount_sats: 0,
         funding_taproot: quid_hop::funding::taproot_funding_aggregate_xonly(&k0, &k1),
     };

@@ -209,8 +209,28 @@ library Types {
         bytes32 fundingBlockHash;
         uint64  fundingBlockHeight;
         uint    fundingTxIndex;
+        /// 🔴 §LPETH-THIRD-FIELD — **`lpPubkey`/`hopPubkey` ARE THE BYTE-SORTED 2-of-2 PAIR AND ARE
+        /// NOT ROLES, DESPITE THEIR NAMES.** `sort_funding_pubkeys` requires this order because
+        /// `channelId` AND the taproot funding SPK are rebuilt from the pair and byte-matched
+        /// (`0x5120||Q`) against the SPV-proven output — store them by role and that check fails.
+        /// ⇒ **Half the time `lpPubkey` holds the HOP's key.** Do not read either name as an actor.
         bytes   lpPubkey;
         bytes   hopPubkey;
+        /// 🔑 §LPETH-THIRD-FIELD (owner, 2026-09-11) — **THE LP'S OWN FUNDING KEY, UNSORTED. THIS IS
+        /// THE ONLY FIELD THAT SAYS WHO THE LP IS.**
+        /// Before this existed, `lpEth` was derived from the `lpPubkey` SLOT, so the LP's on-chain
+        /// identity was decided by BYTE ORDER: whenever the hop's key sorted lower, `lpEth` was an
+        /// address the HOP controlled, `hasOpenBtcChannel`/`btcRecipientOf`/the QU!D credit/the BTC
+        /// payout all keyed on it, and the honest relay path (a real LP's PoP over its real
+        /// registered address) REVERTED — so a self-consistent hop-controlled triple was the only
+        /// shape that passed. It failed OPEN: no revert, just a different identity.
+        /// ⛔ **A POSSESSION PROOF CANNOT SUBSTITUTE FOR THIS FIELD, and that was tried first.**
+        /// Possession of `lpEth` IS possession of whatever key sits in the slot, and the hop
+        /// legitimately holds that key half the time — so the proof passes for exactly the party it
+        /// was meant to exclude. **Two fields carried three facts; the third fact needed a field.**
+        /// ⚠️ `openChannel` REQUIRES this to equal `lpPubkey` or `hopPubkey`. It is the LP's half of
+        /// THIS channel's 2-of-2, never a free-floating address.
+        bytes   lpIdentityPubkey;
         uint    amountSats;
         bytes32 fundingTaproot;   // 32-byte x-only MuSig2 key-path aggregate Q
     }
