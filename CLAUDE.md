@@ -1763,7 +1763,17 @@ against whether the SWAP-OUT path and an LP WITHDRAWAL path have the same attrib
 ⇒ **A CROSS-REPO STALE RATIONALE**: SPV's contract justifies its own existence with a design the
 consuming repo has retired. Neither file knows about the other. Do NOT keep `VBtc` on privacy grounds,
 and do NOT delete it on those grounds either — **the surviving question is the OTHER blocker its header
-names: an open Morpho/Euler market, where a liquidator who seizes vBTC has no way to exit.** Settle THAT
+names: an open Morpho/Euler market, where ⛔ **THIS RATIONALE IS WRONG — OWNER, 2026-09-11: *"that was not the reason for deletion."*** It is left
+here only so the next reader does not re-derive from it, as I did: I reasoned from this sentence toward
+re-instating the vBTC market and had to be stopped. **The real reason §NO-VBTC-MORPHO-MARKET deleted the
+market is NOT RECORDED ANYWHERE IN THIS TREE — do not invent one, and do not restore the market on the
+strength of this paragraph.** ⇒ ask the owner. 📌 **And the related claim is also false: there is no vBTC
+redemption. Owner: *"there is no redeem really just swapout."*** `VBtc.redeemVBtc` validates a `p2trKey`,
+never passes it to `Vault.redeemVBtc(address,uint)` (which takes no script and merely resizes), and then
+names it as the payout destination in a `Redeemed` event — **a phantom exit with an event that asserts
+it happened.** See `TARGET-DESIGN.md` §PHANTOM-REDEEM. ⭐ **This is rule 20 arriving from the prose side:
+I discharged a design question from a paragraph in this file instead of from the code, and the paragraph
+was stale.** Settle THAT
 before deciding, and reconcile the two documents whichever way it goes.
 
 ⇒ ~~**Extra step, ordered FIRST:** extract ETH venue custody out of `Vault`.~~ ✅ **DONE** — see the

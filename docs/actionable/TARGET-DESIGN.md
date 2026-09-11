@@ -825,6 +825,83 @@ docblock, not the diff"* — a grep centres you on the symbol, and the disciplin
 usually **above** the centre. **A finding derived from a window is unverified until the window is the
 function.**
 
+### 🔑 §NO-7540 — **DOES ERC-7540 BUY US ANYTHING BUT STYLISM? NO.** (owner's question, 2026-09-11)
+**First, the state, because the question presumes a conformance we do not have: `7540` and `7575` have
+ZERO occurrences in `evm/src`.** Every `IERC4626` in the tree is us **consuming someone else's** vault
+(`FeeLib`, `ChannelLib`, `QuidLib` reading yield venues) plus `Quid`'s own `_deposit4626`/`_mint4626`.
+**The BTC leg does not implement 7540 today.** It is an aspiration, not a fact to preserve.
+
+⭐ **THE ONLY MATERIAL THING A TOKEN STANDARD CAN BUY IS THIRD-PARTY ACCEPTANCE — AND THE ACCEPTANCE WE
+ACTUALLY WANT IS NOT GATED ON THE INTERFACE.** The prize would be a money market taking the share token
+as collateral, because that is the one thing that would let a BTC depositor fund an IL hedge out of the
+position itself (§NO-BTC-IL-HEDGE below). **It does not work that way:**
+| venue | what it actually requires |
+|---|---|
+| **Morpho** | any **ERC-20** plus an **oracle**. It does not call `supportsInterface` |
+| **Aave v4** (the owner's stated borrow venue) | a **governance decision on a specific asset**. Interface conformance is not an input to that vote |
+⇒ the three real prerequisites are **an ERC-20 face** (`VBtc` already has one), **a price**, and **a
+liquidation exit that actually pays**. **7540 supplies none of the three.**
+
+💸 **AND THE COST IS THE BINDING CONSTRAINT IN THIS TREE, NOT AN ABSTRACTION.** Conformance means
+`pendingDepositRequest`, `claimableDepositRequest`, `requestRedeem`, `pendingRedeemRequest`,
+`claimableRedeemRequest`, `setOperator`, `isOperator`, `supportsInterface` — **~8 `external` functions,
+each a dispatch-table entry AND bytecode**, on a contract in a fleet whose tightest member has run to
+**102 bytes** of EIP-170 headroom. **Rule 23: do not create a function unless the job is impossible
+without it.** A conformance function is by construction one the job does not need.
+
+⛔ **AND THE DEEPEST OBJECTION IS THAT WE HAVE ALREADY REJECTED THE STANDARD'S CENTRAL ABSTRACTION.**
+§VBTC-IS-THE-SHARES (owner, 2026-09-09): *"there really is no `asset()` and shares dichotomy in the 4626
+sense. **the token is the shares.**"* 7540 is async **4626**; it is built on that dichotomy. ⇒ **adopting
+it would mean conforming to a standard whose core abstraction our own design denies, which is the
+definition of stylism.**
+
+✅ **THE ONE PART WORTH TAKING, AND TAKE THE PATTERN NOT THE STANDARD:** 7540's **operator/controller**
+idea — a keeper claiming on a user's behalf — is genuinely needed, because the BTC leg's settlement is
+asynchronous by **physics** (a channel funding confirms on Bitcoin; an exit is delivered on Bitcoin).
+**That is 1-2 functions we would write anyway, not 8.** The async SHAPE is forced on us; the async
+STANDARD is not.
+
+### 🔴🔴 §PHANTOM-REDEEM — **`redeemVBtc` CANNOT PAY ANYONE, AND IT EMITS AN EVENT SAYING IT DID**
+The owner: *"there is no redeem really just swapout."* **Confirmed in code, and it is worse than unwired:**
+```solidity
+function redeemVBtc(uint sats, bytes32 p2trKey) external returns (bool) {      // VBtc.sol:61
+    if (!BitcoinTx.isValidXOnlyKey(p2trKey)) revert BadPayoutKey();            // :62  validated…
+    IVBtcRange(VAULT).redeemVBtc(msg.sender, sats);                            // :63  …and NOT passed
+    emit Redeemed(msg.sender, sats, BitcoinTx.buildTaprootScriptPubKey(p2trKey));   // :65  only use
+}
+```
+`Vault.redeemVBtc(address holder, uint sats)` **takes no script**, and its body is
+`_resize(holder, sats, sats, false, 0)` — **a share burn and a range resize. No Bitcoin leaves.**
+⇒ **`p2trKey` is validated, dropped, and then announced in an event as the payout destination.** **No
+sats can ever reach that address through this function.** ⛔ **The event is the hazard: an indexer or a
+client reading `Redeemed(holder, sats, script)` will conclude a payout occurred to that script.** Same
+class as §VACUOUS-TEST — the NAME and the EVENT assert the property; the body does not have it.
+▶️ **REMOVAL IS THE POLICY AND THIS IS THE CLEAN CASE: delete both faces** (`VBtc.redeemVBtc`,
+`Vault.redeemVBtc`, the `IVBtcRange`/`Interfaces` member, `Redeemed`, `BadPayoutKey`) **and let swap-out
+be the single BTC exit for everyone.** That also answers the collateral question honestly rather than
+leaving a function whose name implies an exit that does not exist.
+
+### 🔴🔴 §NO-BTC-IL-HEDGE — **BTC DEPOSITORS ARE NOT PROTECTED FROM IL, AND THE REASON IS THE COLLATERAL**
+```solidity
+function openBtcLev(uint initialWbtc, ILevVenue venue) external nonReentrant {   // BtcLevManager.sol:49
+    …
+    IERC20Min(WBTC).transferFrom(msg.sender, address(venue), initialWbtc);       // :57
+```
+**The LP must already own WBTC and hand it over.** `BtcLevManager` is constructed
+`LevBase(aux, wbtc, gov, quid, wbtc, …)` — **collateral is WBTC**, and `leverUpBuyWbtc` borrows a stable
+and **buys more WBTC**, which is the correct direction for an IL hedge (it restores the exposure the
+range sold).
+🔑 **BUT A BTC DEPOSITOR'S ONLY ASSET IS SATS IN A LIGHTNING CHANNEL.** They hold no WBTC. ⇒ **they
+cannot fund their own hedge**, so the BTC hedge is **opt-in AND externally funded** — two independent
+contradictions with *"no IL for a passive LP"*, where the ETH leg has only the first.
+⇒ **YES: protecting BTC depositors automatically requires the protocol to post the pool's own BTC claim
+as collateral**, because that is the only asset the depositor has. ⛔ **AND I HAVE RESTORED NOTHING.**
+I began reasoning toward re-instating the vBTC market from CLAUDE.md's account of why it was deleted —
+*"a liquidator who seizes vBTC has no way to exit"* — and **the owner says that was not the reason.**
+⇒ **the real reason is not recorded anywhere I can read, so the decision is the owner's and it is
+booked, not taken.** ⚠️ **And §PHANTOM-REDEEM makes the exit question sharper, not softer:** whatever
+collateral rail is chosen, the liquidator's exit has to be **swap-out**, because there is no other one.
+
 ### ✅ AND ONE BOUND THAT IS FINE, checked so the absence is not read as unexamined
 `LevVenueBase._unitSlice(u, tot, bal) = fullMulDiv(u, bal + 1, tot + 1e6)` floors, and `_unitsFor` floors
 on the way in — so **collateral rounds against the LP at both ends (conservative) and debt rounds in the
