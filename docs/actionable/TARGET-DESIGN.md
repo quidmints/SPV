@@ -316,7 +316,8 @@ depends on my commit messages being read.
 | # | debt | evidence |
 |---|---|---|
 | 1 | **THE KEEPER HAS NO POOL-LEVEL DE-LEVER.** ✅ `LevManager.deleverToVault` is the pooled crash response (`repayPool` + `withdrawPool` + sell, O(1)) but it is RANGE-gated: `LevManager.sol:584` `if (msg.sender != RANGE && msg.sender != address(this)) revert NotGov()`. Only a redeem/swap-out settle can reach it. My own commit `acf8bb50` said *"the keeper's de-lever is now the pooled `deleverToVault`"* — **that is wrong as written**; the keeper cannot call it. | `deleverOne` is LP-only (`msg.sender != lp` → `Auth()`), so the keeper's surviving actuator is the permissionless per-LP `rebalance(address,uint256,uint256,uint256,bytes)`, which carries the down-leg. The Rust keeper now loops it, urgent first. O(N) txs where the pooled call would be one. |
-| 2 | **`_bandBps` IS A CONSTANT PLACEHOLDER.** ⭐ Its input is now measured: carry is **~4.3%/yr = 1.18 bps/day** on both Aave venues (§6 check 3), so a band is "how many days of drift before a rebalance pays for its round trip". At a ~17 bps round trip that is ~14 days of carry — the band must be derived from that, not from the literal `300`. ✅ `LevBase._bandBps` returns a literal `300`. §DERIVED-BAND derived it from `kLvrWad`, which is deleted with θ. The band must be re-derived from CARRY (owner: *"gas has nothing to do with lvr"*). | `LevBase.sol` — `function _bandBps(uint256, ILevVenue) internal pure returns (uint256) { return 300; }` |
+| 2 | ✅ **DERIVED 2026-09-11 — AND THE ANSWER IS THAT A CARRY-DERIVED BAND IS NOT A WIDTH, IT IS A DWELL.** See §11 below; the `300` placeholder stays for now because the instrument it should become already exists on the keeper. |
+| 2b | ~~**`_bandBps` IS A CONSTANT PLACEHOLDER.**~~ (superseded by the row above) ⭐ Its input is now measured: carry is **~4.3%/yr = 1.18 bps/day** on both Aave venues (§6 check 3), so a band is "how many days of drift before a rebalance pays for its round trip". At a ~17 bps round trip that is ~14 days of carry — the band must be derived from that, not from the literal `300`. ✅ `LevBase._bandBps` returns a literal `300`. §DERIVED-BAND derived it from `kLvrWad`, which is deleted with θ. The band must be re-derived from CARRY (owner: *"gas has nothing to do with lvr"*). | `LevBase.sol` — `function _bandBps(uint256, ILevVenue) internal pure returns (uint256) { return 300; }` |
 | 3 | **THE ENUMERATION MOVED TO LOGS.** ✅ `openLevCount`/`openLpAt` are gone, so both Rust keepers now build the open set from `Opened`/`Closed` events (`lev_keeper::open_lps_from_logs`, shared by the ETH and BTC keepers). Same-block open-then-close resolves as CLOSED, deliberately. | The events are declared on `LevBase` (`:260`, `:261`), so one helper serves both managers. |
 | 4 | **`SkewVsUniswapV3` MUST COME BACK AS AN ASSERTION.** ⏸️ It was deleted because it only LOGGED. The competitive ceiling in §4 is a requirement, and nothing currently falsifies it. | Rebuild as `ourCost ≤ theirs at every size we serve`. |
 | 6 | ✅ **FIXED 2026-09-11 — THE SPA SHOWED USERS A PRICING MODEL THE PROTOCOL NO LONGER IMPLEMENTS.** The user-facing copy said the cost was *"a small price lag, capped near 0.5%"* — ~12× the real charge. It now states the flat **0.042% (420 ppm)**, and the A–S block is re-labelled as a model of what a CONVENTIONAL DESK would quote, shown for contrast, with `K_LVR`/`CERTIFIED_THETA` marked ANALYTIC ONLY. ⚠️ `quant.ts`'s header note *"the deployed range is ±0.2%"* was ALSO wrong in the other direction (RANGE_DELTA was widened 20 → 200), and is corrected. ⏸️ Not type-checked — SPA deps are not installed in this tree. | ~~User-facing, so it is worse than a stale comment.~~ Booked as `§PLP-4` in SPRINT.md and never done; that row is cut, so the fix landed here. |
@@ -446,6 +447,55 @@ deciding one of:
 **I am not choosing this unilaterally, because B and C change where QU!D comes from.** That is the
 issuance model, not a swap detail. The primitive above is ready for whichever wins; per the repo's own
 standing rule 1 I have NOT landed it unreachable.
+
+---
+
+## §11 — ✅ WHAT A CARRY-DERIVED NO-TRADE BAND ACTUALLY IS: **A DWELL TIME, NOT AN LTV WIDTH**
+
+§6b debt 2 asked for `_bandBps` to be derived from carry rather than from gas (*"gas has nothing to do
+with lvr"*) or from LVR (which needs σ, now deleted). With carry measured, the derivation runs — and
+it lands somewhere other than a width.
+
+**THE ARITHMETIC.** A position off-target by `Δ` debt costs carry on debt it does not need:
+`Δ · carry · T`. Rebalancing costs a round trip on roughly the same notional: `roundtrip · Δ`.
+Rebalance when the first exceeds the second:
+
+```
+Δ·carry·T > roundtrip·Δ      ⇒      T > roundtrip / carry
+```
+
+⭐ **`Δ` CANCELS.** The condition has no size in it and no width in it — **it is purely temporal.** At
+today's numbers (carry 4.3%/yr = **1.18 bps/day**, §6 check 3; round trip ~17 bps, §4's competitive
+band) that is **T ≈ 14 days**.
+
+⇒ **This is why the two earlier derivations failed, and the failures were informative:**
+- **GAS** gives a width, because gas is a FIXED cost that does not scale with `Δ` — so `Δ` does not
+  cancel and you get a minimum size. That is `min_rebalance_usd` ($50), which already exists and is
+  the right instrument for gas. The owner's *"gas has nothing to do with lvr"* is exactly this.
+- **LVR** needs σ, which is deleted as gameable.
+- **CARRY** cancels `Δ` and yields a TIME. The keeper already has that instrument:
+  `DwellTracker::persisted(lp, out_of_range, now, dwell_secs)`.
+
+### 🔴 AND THE MEASURED GAP IS THREE ORDERS OF MAGNITUDE
+`LevKeeperConfig::default()` ships `dwell_secs` at **1800s (30 min)** against a carry-justified
+**~14 days** — a **670×** gap — and `target_range_bps: 300`, which mirrors the on-chain `_bandBps`
+placeholder. On the carry argument alone the keeper rebalances far more often than the round trips
+pay for.
+
+⚠️ **DO NOT ACT ON THAT NUMBER YET, BECAUSE THE MODEL OMITS A TERM AND I WILL NOT HIDE IT.** Carry is
+not the only cost of being off-target: an unrebalanced hedge also FAILS TO CANCEL IL while it drifts.
+That term is real, it pushes the threshold DOWN, and sizing it from a forecast needs σ — which is
+precisely the input §NO-GAMEABLE-BOUND forbids.
+⭐ **THE WAY OUT, AND IT IS THE SAME MOVE THE FLAT FEE MADE:** price the hedge error from the
+**OBSERVED** gap rather than a forecast. `debtDeltaToTarget(lp)` already returns the realised USD gap,
+so the rule becomes *"rebalance when the observed gap's carrying cost exceeds the round trip"* — ex
+post, not ex ante. A counterparty can still move price to force a rebalance, but moving price costs
+them the price move, which is the difference between an input that is manipulable and one that is
+FREE to manipulate.
+
+⏸️ **What is owed before changing either constant:** the ~17 bps round trip is quoted from §4's
+competitive band and has not been measured on our own rebalance path. That measurement is the same one
+§6b debt 4 needs (`SkewVsUniswapV3` as an assertion), so one piece of work closes both.
 
 ---
 
