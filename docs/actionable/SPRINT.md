@@ -46447,27 +46447,22 @@ file and `docs/actionable/TARGET-DESIGN.md`.
 `InfoTab.tsx` rendering an A–S inventory cost to users. `kLvrWad` is now DELETED on chain, so the SPA
 presents a pricing model the protocol does not implement. **Tracked in TARGET-DESIGN §6b.**
 
-## §PLP-5 🔴 DELIVERY: PHANTOM DEPTH, AND NO BUFFER BEHIND IT
+## §PLP-5 ✅ **ITS ASYMMETRY IS THE THING THE MODEL REMOVES**
 
-**There is no idle WETH.** `_rangeETH` counts WETH at Vault and Aux but the comments scope it —
-*"venue custody, evacuated remainders"*, *"transient swap/deposit legs"*. **Every ETH delivery sources
-from the offramp.**
-**`deliverableETH` is not a delivery guarantee.** Its docblock: *not load-bearing for delivery*, used only
-to cap `firstBurn`. ⇒ **A withdrawal DEFERS** (ladder rung 1 Curve ≤0.5%, rung 2 a multi-day wait NFT).
-**A swap cannot defer at all. That is the real asymmetry** — not a looser bound.
-⭐ **`_deliverVenueShortfall` already solves this ON THE WITHDRAW PATH** — serve what is there, re-credit
-the rest. **The swap path has no equivalent because it never asks.** Reusing it is cheaper than inventing
-a bound (§PLP-U option D).
-🔴 **`§STALE-BRANCH` is the live hole and `§M.1` owns it.** `swapOutDeliverUnlevered` has zero callers and
-zero tests; with no pooled debt, `swapOutDeleverPooled` no-ops and unlevered net-equity stays **phantom —
-priced in `POOLED`, undeliverable because its collateral sits in the venue.**
-⇒ **`POOLED()` and `deliverableETH()` do not reconcile and are not the same object.** Swaps bound on the
-second and deliver against the first.
-🔴 **BTC HAS NO ANALOGUE AT ALL.** `Vault.sol:373` is `CORE.POOLED() + AUX.rangeBTC()`, and
-`deliverVolatile` is a no-op. There is **no `deliverableBTC`**, so nothing on-chain bounds a BTC fill
-against channel or hop capacity. **A larger gap than ETH's, and unbooked.** 🔗 **Same object as §BTC-9c's
-`max`-not-`sum` ceiling, seen from the EVM side — settle them together.**
+> *"A withdrawal DEFERS (ladder rung 1 Curve ≤0.5%, rung 2 a multi-day wait NFT). **A swap cannot defer
+> at all. That is the real asymmetry** — not a looser bound."*
 
+⭐ **THAT SENTENCE IS THE PROBLEM STATEMENT FOR `TARGET-DESIGN` Part I §6.** The model gives the swap
+the same instrument the withdrawal already has: a dated claim on what it is owed, with the wait paid
+out of what the asset earns. **The asymmetry is not narrowed, it is removed.**
+✅ Its cheaper-than-inventing-a-bound point also survives and is now the shape: *"`_deliverVenueShortfall`
+already solves this ON THE WITHDRAW PATH — serve what is there, re-credit the rest. The swap path has no
+equivalent because it never asks."* **Serve what is there, defer the rest** is the rule, both sides.
+
+🔴 **THE LIVE HOLE IS UNCHANGED AND STILL OWNED BY `§M.1`:** `swapOutDeliverUnlevered` has zero
+production callers; with no pooled debt `swapOutDeleverPooled` no-ops and unlevered net-equity stays
+**phantom — priced in `POOLED`, undeliverable because its collateral sits in the venue.** Tracked in
+`tools/orphans-allow.txt` CLASS 3 as a known defect held open deliberately.
 ## §PLP-6 ✅ **THE LEG IS THE MODEL'S DRAIN-SIDE ABSORPTION, AND §PLP-6b's OWN FIX IS DONE**
 
 **The main claim stands and is now load-bearing.** `SwapLib.deleverEthOnDelivery`, delegatecalled by
@@ -46620,36 +46615,23 @@ a theorem**, not a workaround.
 skew — but it is **a two-sided toll, not a spread**: the pool never pays better than mid in either
 direction.
 
-## §PLP-13 ⭐ THE UP-LEG MAY NOT BE THE RIGHT INSTRUMENT AT ALL
+## §PLP-13 🪦 **ITS ALTERNATIVE IS DELETED — BUT ITS COST ARGUMENT IS WHY THE LEVER IS THE THIRD CHOICE**
 
-The book drifts toward unlevered because `ilTargetBps = 1 − √(entry/now)` RISES with price while the
-range **sheds ETH** as price rises — that shedding IS the concavity, and the lever exists to buy it back.
-**The two are opposed by construction**, which is why the up-leg needs a borrow, a venue, an aggregator
-route and a keeper: four dependencies to undo something the range did to itself.
-⭐ **θ is the same control with none of those dependencies.** Un-ranged ETH sits in weETH and holds
-**constant units** — a linear payoff. In-range ETH holds **√p** — concave. **So lowering the in-range
-fraction as price rises sheds less and needs less lever**, using a number this protocol already computes,
-on-chain, with no debt, no liquidation, no cascade, no route and no gas.
-**The comparison this turns on is the one §PLP-3 says θ's formula is missing:** in-range fee yield against
-`venueYield + borrowing cost + g + liquidation risk`. **Under the lever the last three are real and
-unmeasured; under θ they are zero.**
-⚠️ **A PARTIAL substitute, and the boundary is where it stops.** θ can only shed what is in range — once
-in-range is fully withdrawn, further linearity needs leverage. **Not established: whether θ can hit the
-exact `1 − √(entry/now)` target, or only track its direction.**
-**Third option, weaker but nearly free:** make the band ASYMMETRIC — rebalance down promptly (the
-down-leg is self-funding, atomic, routeless) and up lazily. Costs a wider `h` and a larger `C·K·σ²·h/2`;
-costs no new machinery.
-⚠️ **It assumes θ is a live knob. On ETH it is not** — `clampByBacking`'s physical headroom sizes the
-range today (§PLP-14). **The idea survives; the mechanism named for it is currently inert.**
+It proposed **θ instead of the up-leg**: *"lowering the in-range fraction as price rises sheds less and
+needs less lever … no debt, no liquidation, no cascade, no route and no gas."*
+🪦 **θ IS DELETED** (§NO-GAMEABLE-BOUND — `derivedThetaWad` drew all three inputs from observed flow),
+so the substitute is unavailable.
 
-▶️ **BOOKED 2026-09-06 AS GATE 2.5 — it was the open list's item 18 and had NO home in the master order.**
-It ranks as a **product ruling rather than a pricing item** because it can DELETE a machine, and **its
-only blocker is closed** (item 18 was gated on "the four cheap reads"; Q2.1 is resolved and Q2.3/Q2.4 are
-moot), so **it is decidable today.** ⚠️ **§PLP-6a's withdrawal changes the framing without dissolving the
-question** — the original form was *"18 may retire 8a rather than complete it"* and there is no dead leg
-left to retire, but **the comparison was never contingent on the leg being broken.** 🔑 **It must precede
-6e and 7a**, or `g` gets measured on a leg this ruling may scope down to the tail.
+🔴 **AND ITS PREMISE IS THE CFMM ASSUMPTION, WHICH IS WHY THE ROW READS AS A PARADOX.** It says *"the
+range **sheds ETH as price rises** — that shedding IS the concavity"*. **The range sheds when someone
+BUYS, not when price rises** (`TARGET-DESIGN` Part I §7: composition is a function of FLOW, not price;
+`soldFractionWad` is a literal constant, 0.5075). So the up-leg and the range are not *"opposed by
+construction"* — they are opposed by a formula that describes a curve we deleted.
 
+⭐ **WHAT SURVIVES IS THE COST ARGUMENT, AND IT IS LOAD-BEARING:** *"four dependencies — a borrow, a
+venue, an aggregator route and a keeper — to undo something the range did to itself."* **That is
+exactly why the model makes the lever the THIRD choice**, after serving now and after deferral, both of
+which need none of the four. §PLP-13 asked the right question and only its answer expired.
 ## §PLP-15 — FUZZ MATRIX
 
 | # | property | guards |
@@ -46704,79 +46686,44 @@ to QU!D holders.
 dollars cannot serve a sell-in. Under the model that is not a new mechanism — it is the same capacity
 question the tenor prices (Part I §6), arriving without a swap.
 
-## §PLP-R2 — "SHORTFALL" NAMES FIVE THINGS, AND THE FIFTH IS UNHANDLED
+## §PLP-R2 ✅ **THIS ROW IS WHERE §12 CAME FROM — THE OWNER PROPOSED IT AND IT NAMED THE MECHANISM**
 
-| use | what is short |
-|---|---|
-| `sharesForShortfall` vs `realInventory` | range ETH below claims |
-| `onShortfall` | that, plus the refusal to buy ETH to cover it |
-| `_deliverVenueShortfall` | the venue cannot deliver on a withdraw; re-credit |
-| `btcShortfall` | emits a hop request |
-| 🔴 **stables LENT OUT at utilisation, not withdrawable** | **handled by none of the above** |
+> *"Owner proposal: **pay the swapper in QU!D rather than deny service. No new primitive is needed —
+> two already exist.** … there is already a maturity tranche (`immatureBalanceOf`, with `MATURE ONLY`
+> gating redemption)."*
 
-**Owner proposal: pay the swapper in QU!D rather than deny service. No new primitive is needed — two
-already exist.** The redeem path's answer to the same condition is *"the un-served QU!D is RETAINED as a
-live deferred claim (redeems once liquid)"*, and there is already a maturity tranche
-(`immatureBalanceOf`, with `MATURE ONLY` gating redemption).
-⇒ **Pay in IMMATURE QU!D that matures when utilisation frees.** The double-mint question does not arise:
-nothing is minted against the locked stables — the claim is issued against **the ETH the swapper just
-delivered**, and it cannot be redeemed until the stables are actually there.
-✅ **Burn-on-direct-swap is the necessary symmetry.** QU!D is a claim on the basket; exchanging it for a
-volatile asset means the range's volatile leg pays, so the claim must be extinguished.
-**Four conditions before it is a mechanism:**
-1. **Price at `perShare`, never $1** — paying $1 when `perShare < 1` over-pays and **dilutes existing
-   holders**.
-2. ⚠️ **Cannot be the default for ROUTED flow** — `perShare` floats ⇒ the fill is inexact, colliding with
-   `Core.sol:1429`'s firm quote. A solver committed a **USDC** price to its end user. **Opt-in, like
-   `loadBalance` (§E308)** — and the same detect-vs-remediate split applies (§PLP-14).
-3. ⛔ ~~Cap utilisation~~ — **WITHDRAWN.** Basket stables sit in **external** lending markets; their
-   utilisation is set by **other people's borrowing.** There is nothing to cap. **A review draft treated
-   someone else's balance sheet as a policy lever.** ⇒ the condition is **not preventable**, so
-   pay-in-QU!D is **the primary answer to a constraint we do not control**, not a rare backstop.
-4. **Record the composition side-effect deliberately.**
+⭐ **`TARGET-DESIGN` Part I §6 IS THIS PROPOSAL, AND I RE-DERIVED IT RATHER THAN READING IT.** The row
+had already identified the maturity tranche as the instrument; what the model adds is the second half —
+**the waiter is PAID** (`calcMintYield`'s `yield × months`), which turns "rather than deny service" into
+something the counterparty may actually prefer. Credit where it belongs: the mechanism was found here.
 
-**What replaces the withdrawn cap.** **Read withdrawability LIVE** — `Aux.redeemableAmount()` already
-exists; a live read of what is actually pullable *now* informs the quote and tells the swapper **before**
-they commit. **Diversification is the only real mitigation, and it is already the structure**: 15 stable
-slots across venues, `_takePreferred` plus the pro-rata envelope.
-⚠️ **U1b — does `_takePreferred` sort on LIVE WITHDRAWABILITY or on composition weight?**
-✅ **PARTIALLY ANSWERED 2026-09-05 (§SESS-1).** `BasketLib:752-757` is `try aux.withdrawSelf(...) returns
-(uint s) { sent = s; } catch { sent = 0; }` with `remaining = needed > sent ? needed - sent : 0` — so it
-handles **both a throw AND a short return**, and the shortfall flows to the pro-rata leg rather than
-reverting. **But the ORDER is by preference, not by live withdrawability.** ⇒ **the draw order CAN pick a
-pinned venue while a free one sits beside it**, which is what U1b feared. **The 15-slot diversification is
-not wired to the constraint.**
-⭐ **AND IT MOVES COMPOSITION THE RIGHT WAY.** A swapper selling ETH for QU!D leaves the range **+ETH with
-its USD leg INTACT** — the opposite drift from a normal ETH-in swap. So on the ETH-short side this
-**helps §PLP-T**, and it partly offsets §PLP-T2's redemption-side dollar drain. **The first mechanism in
-this analysis that moves composition usefully WITHOUT PAYING ANYONE.** **Carry it into the class
-comparison.**
+✅ **ITS FIFTH SHORTFALL STANDS AND IS STILL UNHANDLED:** *stables LENT OUT at utilisation, not
+withdrawable* — handled by none of `sharesForShortfall`, `onShortfall`, `_deliverVenueShortfall` or
+`btcShortfall`. Under the model this is the clearest case for the dated claim: the stables exist, they
+are simply not liquid **now**, which is exactly the condition a tenor prices.
+## §PLP-R3 🔑 **IT CONTRADICTS §PLP-A, AND BOTH ARE RIGHT ABOUT DIFFERENT THINGS**
 
-## §PLP-R3 ⭐ THREE OF THE FIVE SHORTFALLS ARE NOT RESOURCE CONSTRAINTS
+**The contradiction, stated plainly:**
+- **§PLP-R3 (here):** shortfall (1) is a *"DENOMINATION CHOICE — claims are pro-rata on **value**, so
+  the pool owes no particular asset"*, and is therefore **eliminable** by settling in whatever is abundant.
+- **§PLP-A:** claims should be **DENOMINATED**, so *"the pool now **OWES ETH IT DOES NOT HAVE**"* — and
+  the model took that branch (Part I §7 sizes the hedge in kind, off `entryEquity`).
 
-| # | condition | why it exists | eliminable |
-|---|---|---|---|
-| 1 | range ETH below claims | **DENOMINATION CHOICE** — claims are pro-rata on **value**, so the pool owes no particular asset | ✅ **option F** |
-| 2 | `onShortfall` | exists **only to refuse to fix (1)** | ✅ **with (1)** |
-| 3 | venue cannot deliver on withdraw | **PHYSICAL** — weETH must be offramped; Curve is finite | 🟡 **option G** converts a SALE constraint into a BORROW constraint. Remainder irreducible  📌 **§SEQ-AUDIT: GATE 2 · lane L5. Owner trade-off with an admitted irreducible remainder** |
-| 4 | `btcShortfall` | **MISNAMED** — a dispatch signal, not a shortage | ✅ **rename** |
-| 5 | stables at external utilisation | **PHYSICAL AND EXOGENOUS** | ❌ **not preventable.** Read live, diversify, pay in QU!D |
+✅ **RECONCILED: THEY ARE ABOUT DIFFERENT OBLIGATIONS, AND THE DESIGN NEEDS BOTH.**
+| | denominated in | why |
+|---|---|---|
+| **SOLVENCY** — what the pool must be able to pay | **VALUE** | §PLP-R3 and §PLP-T are right: claims are pro-rata on value, so composition drift can never make us insolvent. It is a business problem, not a solvency one. |
+| **EXPOSURE** — what the LP must end up holding | **THE ASSET** | §PLP-A is right: *"preserve upside"* (Part I §1) fails if an ETH depositor is handed value. |
 
-🔴 **THIS MATERIALLY RAISES OPTION F.** It was scoped as a *delivery fix*. It is a **two-condition
-eliminator**: settle in whatever is abundant and (1) stops being a shortfall — it becomes a composition
-reading — and (2), which exists only to refuse (1), has nothing left to refuse. ⇒ **it retires
-`§4796-4812` entirely rather than answering it**, and removes `RangeLib.onShortfall` from §PLP-X's
-dead-code table **by making it unnecessary rather than dead.**
-⭐ **The unifying rule:** **a shortfall exists only where an obligation is denominated in an asset you must
-SOURCE. Value-denominated obligations settled in what you hold have no shortfall condition — and sourcing
-constraints you do not control are not defects, they are the market.**
-🔴 **OPTION F IS THE HIGHEST-LEVERAGE ITEM NOT GATED ON MEASUREMENT.** §PLP-T is harder but **open pending
-M1–M7**. F is decidable today, and **one decision retires four things**: shortfall (1), shortfall (2),
-`§4796-4812`, and a dead-code row. ⚠️ **And it is a PRODUCT question, not an engineering one** — *what is
-an ETH depositor owed?* **No code question is blocking it.**
-⇒ **A design test, not a patch list.** For each condition ask: *did the obligation have to be denominated
-that way?* (1), (2) and (4) fail it. (3) and (5) pass, and only (3) is reducible.
+⇒ **The hedge exists precisely because those two differ.** Settling in value is always SAFE and
+sometimes changes the LP's exposure; the hedge is what puts the exposure back. Reading either row
+alone produces a wrong design — R3 alone says "no problem, settle in anything", A alone says "we are
+structurally short and must always buy back".
 
+⇒ **Option F is therefore NOT a two-condition eliminator.** It eliminates the *solvency* framing of (1)
+and (2), which were never solvency problems, and leaves the *exposure* obligation untouched — which is
+the one that costs money (Part I §10). ⚠️ Its own table already says (5) is **not preventable**;
+under the model (5) is the cleanest case for a dated claim.
 ## §PLP-S2 — THE REDEMPTION PATH IS RUN-PROOF (an earlier reading was wrong on three counts)
 
 | claimed | actual |
