@@ -258,8 +258,26 @@ Each was carried as open, some in red, some for weeks.
    ⭐ **AND THE FORK IS READABLE FROM THIS MACHINE** — `~/.cargo/git/checkouts/rust-lightning-*/7c50bb5`
    is the pinned rev on disk. **Do not call fork claims unverifiable; read the checkout.** (Editing
    still requires the external repo.)
-**13. `§AUDIT-REENTRANCY-GAP`** — `Vault.creditSwapIn`/`creditSwapOut` lack `nonReentrant`; `Core` has
-   no `ReentrancyGuard` at all. Latent until a hookable stable lands.
+**13. `§AUDIT-REENTRANCY-GAP`** — ⚠️ **MEASURED 2026-09-11. THE ROW'S TWO FACTS ARE TRUE AND ITS
+   CONCLUSION DOES NOT FOLLOW. ⛔ DO NOT "FIX" IT BY ADDING THE TWO MODIFIERS — that is a clamp on a
+   path another lock already closes, and it would read as covered forever after.**
+   - ✅ **The BTC rail is closed AT THE CALLER, 4/4 sites.** `creditSwapIn`/`creditSwapOut` are
+     `onlyBTCChannels` (`Vault.sol:234,241`), and every reaching call — `BTCChannels.sol:624, 659, 677,
+     691` — sits inside an `external nonReentrant` (`:620, :650, :668, :682`). Re-entry must come back
+     through `BTCChannels`, where `_lock()` refuses. A second lock on `Vault` bounds nothing new.
+   - ✅ **`Core` has NO ungated external mutator.** Enumerated the whole non-view surface: every one is
+     `onlyUs`, or `DEPLOYER`-gated AND one-shot (`setBtcVault` reverts `BtcVaultPinned`; `setup` and
+     `setObservationSource` both `require(… == address(0))`). A hook cannot enter `Core` directly, so
+     `ReentrancyGuard` on `Core` guards an entrance that does not exist.
+   🔴 **WHAT IS GENUINELY OPEN IS NEITHER OF THOSE, AND IT IS WHY THE ROW SAID *"latent until a hookable
+   stable lands"*: CROSS-CONTRACT re-entry.** `BTCChannels`' lock is on `BTCChannels`. A transfer hook
+   fired inside `SwapLib.creditSwapInBody` runs while that lock is held, and `onlyUs` admits `Quid`,
+   `Vault` and `Aux` — so the question is whether any EXTERNAL MUTATOR on those three reaches `Core`
+   without a lock of its own. ▶️ **The check, and it is the only one that settles this:** enumerate the
+   external non-view functions of `Quid`/`Vault`/`Aux` and show each either carries `nonReentrant` or
+   cannot reach `Core`. Counted, not audited: `Quid` 11 `nonReentrant`, `Vault` 8, `Aux` 8 — **a count
+   is not coverage.** 📌 Same object as item 27 (`§BTC-10b`), which owns the settlement-layer audit;
+   do it there rather than twice.
 **14. `§MIN-CHARGE-MISSES-THE-SWAP-IN-RAIL`** — the BTC swap-IN is the **refill direction** and misses
    all four skew sites, so the owner's minimum charge never reaches it.
 
