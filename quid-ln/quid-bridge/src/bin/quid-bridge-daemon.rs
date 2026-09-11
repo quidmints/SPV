@@ -370,33 +370,40 @@ async fn main() -> anyhow::Result<()> {
     // ⇒ Derivation is the honest encoding of a single-custodian deployment, and the knob is gone
     // so nothing can claim otherwise. A REAL second half is a different party on a different
     // host passing its own seed to `boot_vault` — a topology, not a setting (§E175 remainder).
-    // 🔑 (§M1#2) THE FLEET NO LONGER CO-HOSTS A VAULT BY DEFAULT — THIS IS THE HOLE CLOSING.
+    // 🔴🔴 (§NO-SELF-PROVISIONED-LPS, owner 2026-09-11) THE FLEET ALWAYS CO-HOSTS THE VAULT, AND
+    // THE 2-of-2 IS NOMINAL BY DESIGN — NOT BY MISCONFIGURATION. READ THIS BEFORE "HARDENING" IT.
     //
-    // While this binary booted a vault unconditionally, ONE CUSTODIAN HELD BOTH HALVES of every
-    // 2-of-2, and `vault.rs` said so outright: *"one custodian, one secret … SO THE 2-of-2 IS
-    // NOMINAL IN THIS DEPLOYMENT, AND NOTHING SHOULD CLAIM OTHERWISE."* A compromised enclave could
-    // spend every channel's funding output, and no contract change reaches that — the Bitcoin UTXO
-    // does not care what Solidity believes. §E171's trichotomy is arithmetic: to stop a compromised
-    // fleet spending an LP's UTXO it must be UNABLE to produce a valid spend alone.
+    // This used to be `QUID_FLEET_COHOSTS_VAULT`, default FALSE, with the comment *"a security
+    // property that depends on remembering to disable something is not a property"* and a sibling
+    // binary `quid-lp-daemon` (phase 1b) as the real second half. **The owner has ruled there are no
+    // self-provisioned LPs. That binary and its deploy script are DELETED**, so the flag could only
+    // ever hold one value — and a knob with one reachable setting is a lie about the deployment
+    // plus a variable that rule 23 says should not exist. It is gone; the vault boots
+    // unconditionally.
     //
-    // ⚠️ THE FIX IS NOT A DIFFERENT SEED. The note below explains why derivation is the honest
-    // encoding of a co-hosted deployment: an independently-generated seed is not a function of
-    // `root_seed`, so it is ABSENT after an enclave rotation and every channel's vault half becomes
-    // unusable — and it buys nothing, since both seeds sit in one process's memory sealed to the
-    // same enclave. That reasoning is correct and stands. **The fix is the TOPOLOGY the same note
-    // names: "a different party on a different host passing its own seed to `boot_vault`."**
+    // ⚠️ WHAT THIS COSTS, STATED PLAINLY SO NO FUTURE READER HAS TO REDERIVE IT: one custodian holds
+    // BOTH halves of every channel's 2-of-2. The vault seed is `derive_vault_seed(&root_seed)` — an
+    // HKDF SIBLING of the hop seed — so this is not "two keys on one box", which key separation
+    // could address. It is ONE KEY WEARING TWO HATS, and no key-separation control reaches it.
+    // ⇒ A compromised enclave can spend every channel's funding output outright, and **no contract
+    // change reaches that**: the Bitcoin UTXO does not care what Solidity believes. Every exit,
+    // ladder and splice policy is therefore a guarantee against a party that has already agreed to
+    // be bound, not a constraint on one that cannot do otherwise.
+    // ⇒ **THE ENCLAVE IS THE WHOLE OF THE PROTECTION.** That is the accepted design, not a gap to
+    // file. §E171's trichotomy is arithmetic: to stop a compromised fleet spending an LP's UTXO it
+    // would have to be UNABLE to produce a valid spend alone, and under this ruling it always can.
     //
-    // ⇒ So the fleet simply STOPS BOOTING ONE. `quid-lp-daemon` (phase 1b) is that different party;
-    // `daemon::run` already accepts `None` (phase 1a). Default OFF, because a security property
-    // that depends on remembering to disable something is not a property. Set
-    // `QUID_FLEET_COHOSTS_VAULT=true` ONLY for a single-custodian deployment that has accepted, in
-    // writing, that its 2-of-2 is nominal.
-    let cohost_vault: bool = env_parse("QUID_FLEET_COHOSTS_VAULT", false)?;
-    let vault = if cohost_vault {
-        tracing::warn!(
-            "QUID_FLEET_COHOSTS_VAULT=true: this fleet holds BOTH halves of every 2-of-2. \
-             The multisig is nominal in this deployment (M1#2)."
-        );
+    // 📌 An independently-generated vault seed would NOT help and must not be proposed as a fix: it
+    // is not a function of `root_seed`, so it is ABSENT after an enclave rotation and every
+    // channel's vault half becomes unusable — while both seeds still sit in one process's memory
+    // sealed to the same enclave. Derivation is the honest encoding of a single-custodian
+    // deployment. The only real fix was a different party on a different host, and that topology is
+    // the thing that has been ruled out.
+    tracing::warn!(
+        "this fleet holds BOTH halves of every 2-of-2 (§NO-SELF-PROVISIONED-LPS). The multisig is \
+         nominal by design; the enclave is the whole of the protection."
+    );
+    let vault = {
         let vault_seed = quid_bridge::vault::derive_vault_seed(&root_seed);
         // (§BTC-2.1) This vault's OWN comparand resolver — a SEPARATE `MonitorCids` from the hop's,
         // because it is attached to a different node's monitor set. Sharing one would let a vault
@@ -458,12 +465,6 @@ async fn main() -> anyhow::Result<()> {
             env_parse("QUID_VAULT_POLL_SECS", 30u64)?,
         ));
         Some(vault)
-    } else {
-        tracing::info!(
-            "vault NOT co-hosted (M1#2): the LP half lives on the LP's own host via \
-             quid-lp-daemon. This fleet cannot unilaterally spend a channel's funding output."
-        );
-        None
     };
 
     daemon::run(
