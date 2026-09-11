@@ -560,6 +560,73 @@ paid for.
 
 ---
 
+## §14 — 🔑 **NO IL FOR A PASSIVE LP: WHERE IT COMES FROM, AND WHY IT IS NOT FREE**
+
+Owner: *"no IL for passive lp."* Traced to the exact line that creates it, then costed. **The honest
+answer is that it is deliverable, it is ONE accounting change, and it is not free — and the cheapest
+version makes the lever PROTOCOL-LEVEL rather than per-LP opt-in.**
+
+### THE LINE THAT CREATES IT — `Quid._pricingBacking()`
+```solidity
+total  = _auxRangeETH();                                   // the ETH still held
+uint px = _wethTwap();
+if (usd6 > base6) total += fullMulDiv((usd6 - base6)*1e12, 1e18, px);   // ← the USD leg, at TODAY's price
+```
+An LP's claim is denominated in ETH — the ETH still held, **plus the LP-owned USD converted back to ETH
+at the CURRENT oracle.** Worked:
+
+> Deposit **100 ETH** at $2,000. A drain sells 50 for $100,000 ⇒ `rangeETH = 50`, USD leg = $100,000.
+> Price doubles to $4,000 ⇒ claim = `50 + 100,000/4,000` = **75 ETH**. Holding was 100. **−25 ETH.**
+
+⇒ **That is the whole of our IL, and note what it is NOT.** No arb picked us off (no stale price, no
+LVR) and the sale was at the honest oracle. It is pure INVENTORY RISK: we sold at a fair price and the
+price moved after. An AMM's IL is that PLUS adverse selection; ours is the residue that survives
+deleting the curve.
+
+### THE FIX IS ONE CHANGE OF DENOMINATION: **THE LP LENT, IT DID NOT SELL**
+Value the USD leg at the price it was CREATED at, not today's. The LP that handed over 50 ETH is owed
+**50 ETH**, not $100,000. Their claim never changes denomination, so there is no IL by construction.
+
+### ⚠️ AND HERE IS WHAT THAT COSTS, BECAUSE IT DOES NOT VANISH — IT MOVES
+The pool then owes 100 ETH while holding 50 ETH + $100,000 (worth 25 ETH). **A 25 ETH deficit.** It has
+to come from somewhere, and there are exactly three candidates:
+| source | verdict |
+|---|---|
+| **the basket** | ⛔ **FORBIDDEN.** Basket depositors *"preserve dollar value"* (§1). Spending their dollars to buy ETH back for an LP is the cross-subsidy the whole design forbids. |
+| **flow reversal** | ✅ free, ⏸️ and not guaranteed. If a sell-in returns the ETH, the obligation clears at no cost. This is §12/§13's deferral, and it is the reason the term structure matters. |
+| **the lever** | ✅ **this is exactly what the IL-protect already does** — borrow dollars, buy the volatile back, restore delta-1. Costs carry: **~4.3%/yr** (§6 check 3). |
+
+### ⇒ THE ANSWER: THE LEVER BECOMES PROTOCOL-LEVEL AND AUTOMATIC, NOT PER-LP OPT-IN
+The pool is **structurally short volatile whenever it has sold LP inventory** — that is not a view any
+LP takes, it is a fact about the book. So hedging it is not an opt-in product, it is the protocol
+closing its own delta. Every LP, passive or not, then has no IL, and the carry is a PROTOCOL cost paid
+out of fee revenue.
+⭐ **THIS ALSO RELOCATES "OPT-IN" TO WHERE THE OWNER ALREADY PUT IT.** *"Defer should be opt-in."* The
+choice an LP makes is not *"do I want a hedge"* — it is *"will I wait to be paid in kind."* §13's
+primitive is the opt-in; the hedge is not.
+
+### THE BREAK-EVEN, so this is a number and not a hope
+Carry on levered notional `L` is `4.3%·L/yr`. Fee revenue is `4.2 bps × volume`. Break-even:
+```
+volume / L  =  4.3% / 0.042%  ≈  102× per year   ≈  2× per week
+```
+**The pool must turn over its levered notional about twice a week to pay for hedging it out of fees.**
+That is a demanding but ordinary number for a real venue — and it is the single measurement that
+decides whether protocol-level hedging is self-funding or a subsidy. ⏸️ **UNMEASURED. It is the most
+important open number in this document.**
+
+### WHAT SURVIVES OF "NO SLIPPAGE, NO LVR, NO IL"
+| claim | status |
+|---|---|
+| **no slippage** | ✅ **structural** — oracle settlement, one price for the whole size. Nothing to price away. |
+| **no LVR** | ✅ **structural** — we publish no stale price, so there is no free option to exercise. |
+| **no IL** | 🔧 **NOT structural — it is PURCHASED**, either with carry (the lever) or with time (deferral). The structural part is that ours is smaller than an AMM's, because the adverse-selection half is already gone. |
+
+⛔ **Do not claim "no IL" as a property of the architecture.** It is a property of the hedge, and the
+hedge has a price. Saying otherwise is the same overclaim §0b caught about the deletions.
+
+---
+
 ## §11 — ✅ THE NO-TRADE BAND IS **NEITHER A WIDTH NOR A DWELL — IT IS A REALISED-COST ACCUMULATOR**
 
 §6b debt 2 asked for `_bandBps` to be derived from carry rather than from gas (*"gas has nothing to do
