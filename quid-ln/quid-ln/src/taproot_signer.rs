@@ -26,10 +26,40 @@
 //! ```
 //!
 //! The 32-byte seed feeds conduition's `SecNonce` derivation
-//! (`SecNonce::build_with_pubkey(seed, ..)`), which additionally binds the
-//! aggregated pubkey, the signer's own pubkey, and (via the round) the message —
-//! so even an accidental seed collision would not by itself produce a reused
-//! `(nonce, message)` pair. We nonetheless guarantee seed uniqueness per height.
+//! (`SecNonce::build_with_pubkey(seed, ..)`), which additionally binds the aggregated
+//! pubkey and the signer's own pubkey. We also guarantee seed uniqueness per height.
+//!
+//! ⚠️ **MESSAGE BINDING IS PER-ROUND AND IS *NOT* UNIFORM. THIS PARAGRAPH USED TO SAY THE
+//! DERIVATION BOUND "(via the round) the message" FLATLY — THAT IS FALSE FOR THE HOLDER ROUND,
+//! WHICH PASSES `SecNonceSpices::new()`, i.e. NO SPICES.** Read all three constructors before
+//! reasoning about nonce reuse:
+//!
+//! | round | seed | spices | partial leaves the box? |
+//! |---|---|---|---|
+//! | [`KeyPathFirstRound::new`] (HOLDER) | untagged | **NONE** | **NO** |
+//! | [`KeyPathFirstRound::new_counterparty`] | `COUNTERPARTY_COMMITMENT_NONCE_TAG` | message + peer nonce | YES |
+//! | dead-man exit | `DEAD_MAN_EXIT_NONCE_TAG` | message | YES (bytes are published) |
+//!
+//! 🔑 **WHY THE HOLDER ROUND IS SAFE UNSPICED — IT IS A REASON, NOT AN OVERSIGHT: its partial is
+//! NEVER SENT TO THE PEER.** `finalize_holder_commitment` counter-signs our OWN commitment and
+//! consumes the partial locally. Funding-key recovery `x = (s1 − s2)/(e1 − e2)` needs **two
+//! observable partials** over different messages under one nonce; a path that emits none supplies
+//! no `s` at all.
+//! ⛔ **SO: DO NOT SPICE THE HOLDER ROUND "FOR CONSISTENCY"** — its nonce is pre-advertised via
+//! `next_local_nonce`, so changing it is an INTEROP change, not local hardening. **AND NEVER COPY
+//! ITS UNSPICED SHAPE INTO A ROUND WHOSE PARTIAL IS PUBLISHED** — that is the actual foot-gun this
+//! table exists to prevent.
+//!
+//! ⭐ **THE ATTACK THE SPICED ROUNDS CLOSE, recorded so nobody deletes the spicing as redundant:** a
+//! malicious peer rotates its nonce on `channel_reestablish` and induces us to re-sign the SAME
+//! `(root, height)` counterparty commitment — we retransmit `commitment_signed`. A secret nonce
+//! fixed ONLY by `(root, height)` would then be reused across two DIFFERENT challenges and leak the
+//! funding key. Binding message + peer nonce re-randomises it per session, **by construction and
+//! restart-safe**: it relies on no in-memory guard that an enclave restart would clear.
+//!
+//! 📌 **BLAST RADIUS IF IT EVER DID HAPPEN: ONE CHANNEL, NOT THE FLEET.** The seed is per-channel
+//! (`shachain_root`) and the funding key is per-channel; the root seed is upstream of an HKDF and is
+//! not recoverable from a leaked channel key.
 //!
 //! ## Why this, not random nonces
 //!
@@ -40,6 +70,10 @@
 //! signed at a given height is itself fixed; signing two *different* messages at
 //! the same height is a protocol violation handled at a higher layer (the height
 //! advances per state).
+//! ⚠️ **That sentence is the HOLDER round's argument ONLY, and it leans on a higher layer — which
+//! makes it the weakest link in this module.** It is precisely why the two rounds that PUBLISH a
+//! partial do not rely on it and bind the message directly. **If a holder partial ever becomes
+//! observable, this argument stops carrying the weight and that round must be spiced.**
 
 use bitcoin::hashes::{sha256, Hash, Hmac, HmacEngine, HashEngine};
 
