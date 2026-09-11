@@ -429,6 +429,52 @@ would be read as "routing is solved."**
 
 # PART III — OPEN DECISIONS (owner rulings)
 
+## 🔴 IS THIS DESIGN FINAL AND READY TO BUILD? **NO — AND HERE IS EXACTLY HOW FAR IT IS** (asked by the owner, 2026-09-11)
+
+The reorg's job was to finalize the design. **The MECHANISM is settled. The PARAMETERS and the
+WHO-PAYS questions are not, and two of the unsettled ones are load-bearing rather than cosmetic.**
+
+| | state |
+|---|---|
+| ✅ **SETTLED, and each replaced something gameable or forecast-based** | the flat 420 ppm (§5) · ONE deferral primitive in both directions (§6) · why the hedge exists at all (§6b) · drift instead of price (§7) · the shortfall is an artifact (§7c) · quote-both-and-let-them-pick (§8) · the realised-cost trigger (§9) · leverage as the THIRD choice (§11) · collateral is weETH/WBTC only (§12) |
+| 🔴 **NOT BUILT — and this is the whole of the new design** | drift-based hedging · `when` chosen from inventory · the tenor quoted · the keeper-callable pooled de-lever · the competitive-ceiling assertion |
+| 🔴 **OPEN DECISIONS** | **8 of the 9** in `SPRINT.md` §COMPOSITION-ORDER. Only D4 closed (by §12d). |
+
+### ⛔ THE THREE THAT BLOCK BUILDING, AS OPPOSED TO MERELY REMAINING OPEN
+1. **Decision 2 — who funds drift when flow does not reverse.** This is not a parameter. **If the answer
+   is "nobody", the lever does not exist in the steady state and §7's hedge is dead code**; if it is
+   "carry", the pool pays 183 bps/yr on the IL fraction; if it is "the waiter", §6's tenor has to be
+   priced to cover it. **Three different systems.** ⇒ building §7 before this is ruled is building one
+   of three.
+2. **Decision 5 — the competitive ceiling is UNMEASURED.** §5 states the 420 ppm's own validity
+   condition: it *"has to exceed adverse selection over the settlement window and stay under the
+   competing venue's all-in cost. If that band ever closes, this stops being a constant question."*
+   **Nobody has measured the ceiling.** ⇒ **the central pricing decision rests on a band whose upper
+   edge is unknown**, and the flat fee is the one thing every other section assumes.
+3. **§7c vs §7 — the model contradicts itself and I wrote both halves.** §7c says delete
+   `sharesForShortfall` and `realInventory`; §7's `drift_i` needs exactly those two reads
+   (`Quid.sol:1562` returns `totalShares()`, `:1567` returns `_auxRangeETH()`). **Reconciled in
+   `SPRINT.md` §LEVER-UP — the deletion is of the INTERPRETATION and the CONSUMER, never the
+   arithmetic — but this document still carries both sections as originally written.** ⇒ **they must
+   land as ONE change.** Splitting them is the rework the owner asked about.
+
+### ⚠️ AND ONE THING THE OWNER SHOULD SEE BEFORE THE v4 RULING IS FINAL
+Decision 4 below is retired by *"only borrow from Aave v4"* (§12d) — **but its measurement is evidence
+against the ruling, not for it.** $100M on USDC alone crosses the kink at **7.51%**; $50M+$50M across
+two Aave venues blends to **~4.37%** — **−314 bps ≈ \$3.1M/yr.** With v4 capped at **~\$369k of borrow
+capacity**, that saving is not merely forgone: **it is unreachable, because the entire lever book is
+capped below the size at which allocation starts to matter at all.**
+⇒ **The ruling is coherent and it is a launch-scale decision, not a routing one.** ⛔ Do not let §12d's
+*"nothing to allocate"* be read as *"allocation was worth nothing"* — it was measured at \$3.1M/yr.
+
+### ✅ WHAT "FINALIZED" CAN AND CANNOT MEAN FROM HERE
+**Eight of the nine open items are OWNER RULINGS, not analysis.** They are enumerated, each with its
+measurement or with an explicit note that the measurement is missing. ⇒ **the design is as final as it
+can be without those rulings, and that is a different claim from "ready to build."**
+▶️ **The two that are MINE and not the owner's, and therefore the honest remaining work:** measure
+decision 5's ceiling, and land §7c+§7 as one change. **Everything else waits on a ruling.**
+
+
 1. **The observation source.** ✅ Measured: `setObservationSource` has zero non-test callers, so
    `_observeIfSourced` feeds the ring from the **Chainlink anchor** and `twapResolve` then checks it
    against **Chainlink**. It fires on staleness and cannot fire on manipulation. §E222's
