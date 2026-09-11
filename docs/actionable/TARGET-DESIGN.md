@@ -18,6 +18,91 @@
 ---
 ---
 
+# PART 0 — THE ASSUMPTIONS AND GOALS, RESTATED — **AND A CORRECTION TO §7 THAT I GOT BACKWARDS** (2026-09-11)
+
+Owner: *"per lp opt in drift hedge doesnt seem right. restate the assumptions and design goals based on
+everything you know. how do you know we designed this right."*
+
+## 🔴 0a. THE CORRECTION FIRST — **OPT-IN IS WRONG, AND THE WAY I REACHED IT IS WORSE THAN THE ANSWER**
+I answered *"who funds the drift"* by reading `LevManager.openLev` (`external`, gated on `msg.sender`)
+and reporting **what the code does** as **what the design says**. ⛔ **This document's own header forbids
+exactly that:** *"THE CODE IS NOT THE AUTHORITY HERE. THE MODEL IS… there is no guarantee that what is
+currently in the code represents that version of the model."* I broke the first rule in the file, in the
+file, while answering a question about the file.
+
+**And opt-in contradicts the product in three independent ways:**
+| | |
+|---|---|
+| 1 | §2 claims **"no IL for a PASSIVE LP."** An opt-in hedge is precisely the one a passive LP does not get. **The claim fails for the exact population it names** |
+| 2 | Opt-in requires the LP to understand drift, monitor it, and act. That is a position manager, not **"a yield-bearing market-making vault"** (§PLP-U). The product's own positioning rules it out |
+| 3 | Opt-in + a pooled venue means **sophisticated LPs hedge and passive LPs carry their liquidation risk** — measured at 4,801 bps. **That is §1 violated**, and I wrote the measurement myself without noticing it refuted the mechanism I had just endorsed |
+
+✅ **THE RESOLUTION, AND IT NEEDS NO NEW PRIMITIVE: THE HEDGE IS AUTOMATIC, SIZED PER LP, AND CHARGED PER
+LP.** *Automatic* is what makes the passive claim true; *per-LP charged* is what keeps §1 intact. They are
+not in tension — the thing that made them look mutually exclusive was treating "who pays" and "who acts"
+as one question.
+📌 **Buildable from what already exists**, measured: `positionOf(lp)` slices **debt** by `debtUnits[lp]`
+(`LevVenueBase.sol:36-41`), so **carry is already attributed per-LP** — an LP's slice of pool interest
+grows with its own units. And `rebalance(address lp, …)` (`LevManager.sol:94`) **already takes an LP
+argument**: the keeper already acts *for* an LP rather than being called *by* it. ⇒ **the system is
+already automatic after opening. Only the OPENING is opt-in**, and an LP's collateral is already weETH in
+the venue, so there is nothing it must bring that it has not already deposited.
+
+---
+
+## 0b. THE ASSUMPTIONS, EACH GRADED BY HOW WE KNOW IT
+| # | assumption | grade |
+|---|---|---|
+| A1 | Settlement is at an oracle price against held inventory; there is no curve | ✅ **structural** — read from code |
+| A2 | Two constituencies, opposite preferences, **neither funds the other** | 📜 **owner axiom**, verbatim |
+| A3 | The pool sells volatile when someone buys it. **That is the service, not an accident** | ✅ structural |
+| A4 | An LP's claim is **pro-rata on value** (`Quid._convert`) | ✅ measured |
+| A5 | **LPs are PASSIVE.** A vault depositor does not manage a position | 📜 positioning (§PLP-U) — **and A5 is what kills opt-in** |
+| A6 | No charge or bound may derive from observed flow | 📜 owner axiom (§NO-GAMEABLE-BOUND), with two measured attacks behind it |
+| A7 | No forecasts — no timer, no dwell, no reversal assumption | 📜 owner axiom |
+
+## 0c. THE GOALS, AND WHAT EACH ACTUALLY RESTS ON
+| # | goal | rests on |
+|---|---|---|
+| G1 | LP preserves **upside** (the asset) | the hedge — **UNBUILT** |
+| G2 | Basket depositor preserves **dollar value** | A4 + the mint-side invariant. ✅ holds today |
+| G3 | **No slippage** | A1. ✅ structural — nothing to build |
+| G4 | **No LVR** | we publish no price. ✅ structural |
+| G5 | **No IL for a passive LP** | G1 **and** A5 ⇒ **automatic**, not opt-in |
+| G6 | Nothing gameable | A6. ✅ achieved by deleting the measurement, not bounding it |
+
+⇒ **G3 and G4 are free — they fall out of deleting the curve. G2 holds. G1/G5 are the entire remaining
+product**, and they are unbuilt.
+
+## 🔴 0d. HOW DO I KNOW WE DESIGNED THIS RIGHT? — **I DO NOT, AND HERE IS THE HONEST LEDGER**
+There is no proof. What can be offered is **what would falsify each claim, and whether that check has
+been run.** Anything in the bottom block is a belief, not a result.
+
+| claim | what would falsify it | run? |
+|---|---|---|
+| no slippage | find a curve, or a fill that is not at the oracle | ✅ yes |
+| no LVR | find a published price an arb can trade against | ✅ yes |
+| the charge is ungameable | find an input to it that a counterparty sets | ✅ yes — that is *why* it is a constant |
+| carry is 183 bps net | measure gross borrow minus the weETH ratchet | ✅ measured |
+| the venues can fund us | post collateral and read the cap | ✅ measured — and it found v4 caps the book at ~\$369k |
+| pooled liquidation is unfair | build the fixture and read the number | ✅ measured — 4,801 bps |
+| 🔴 **the 420 ppm exceeds adverse selection over the settlement window** | **measure realised adverse selection at our oracle cadence** | ⛔ **NEVER RUN** |
+| 🔴 the hedge actually cancels IL | build it and measure an LP's realised PnL across a round trip | ⛔ unbuilt |
+| 🔴 LPs accept 183 bps/yr for it | ask one | ⛔ never |
+| 🔴 counterparties accept a dated claim | ask one | ⛔ never |
+| 🔴 turnover supports the break-even | measure volume ÷ levered notional | ⛔ D6, unmeasured |
+
+⛔ **THE ONE THAT SHOULD WORRY US MOST IS THE FIRST RED, AND IT IS NOT THE HEDGE.** With the ceiling
+struck (§5), the **floor is the only surviving condition on the charge** — and it has never been measured.
+**If 420 ppm does not exceed adverse selection over our settlement window, the LP loses money on every
+trade and no hedge repairs that**, because the hedge addresses inventory drift, not mispricing. ⇒ **that
+measurement outranks building the hedge**, and it is the one thing in this document that could invalidate
+the product rather than delay it.
+⚠️ **AND THE SUITE CANNOT TELL US** — §THE-SUITE-DID-NOT-NOTICE: one test file references `wellSkew`, and
+the entire pricing kernel was deleted with 997 tests still passing.
+
+---
+
 # PART I — THE MODEL
 
 ## 1. The invariant everything serves (owner, verbatim)
@@ -167,14 +252,15 @@ were in".**
 `entryEquity_i` is stored at open, `rangeETH` is the volatile still held, `shares_i/lpShares` is this
 LP's fraction. **No price, no √, no variance, no forecast.**
 
-### ✅ WHO FUNDS IT — **THE LP THAT WANTS IT HEDGED, OUT OF ITS OWN CARRY. THIS IS NOT AN OPEN DECISION**
-It was carried as *"decision 2, the design's central cost"*. **Measured against the code, it is already
-answered and the answer needs nothing built:**
-`LevManager.openLev` is `external`, gated on `msg.sender`, and reverts `AlreadyOpen()` if that LP already
-has a position (`LevManager.sol:75-81`). `BtcLevManager.openBtcLev` is the same shape.
-⇒ **THE LEVER IS PER-LP OPT-IN. NO LP IS LEVERED WITHOUT ASKING, AND NO LP PAYS FOR ANOTHER'S HEDGE.**
-An LP that wants its delta restored opens its own position and pays its own 183 bps/yr; an LP that would
-rather keep the dollars does nothing and pays nothing.
+### 🔴 WHO FUNDS IT — **AUTOMATIC, SIZED PER LP, CHARGED PER LP. (CORRECTED — see Part 0a)**
+⛔ **THIS SECTION SAID "THE LP THAT WANTS IT HEDGED, OPT-IN" AND THAT WAS WRONG.** I read
+`LevManager.openLev`'s `msg.sender` gate and reported the CODE's behaviour as the DESIGN's answer, which
+this document's header forbids in its first paragraph. **Opt-in breaks §2's "no IL for a PASSIVE LP" for
+exactly the population it names**, requires the LP to manage a position the positioning says it does not
+manage, and — with a pooled venue — makes passive LPs carry the hedgers' liquidation risk, which is §1.
+✅ **THE ANSWER: the hedge runs for every LP without being asked, sized off that LP's own `drift_i`, and
+its carry is charged to that LP's own units.** *Automatic* makes the passive claim true; *per-LP charged*
+keeps §1 intact. They only looked mutually exclusive while "who pays" and "who acts" were one question.
 
 🔑 **SO THE THREE CANDIDATE ANSWERS COLLAPSE, AND §1 IS SATISFIED BY CONSTRUCTION RATHER THAN BY A RULING:**
 | candidate | verdict |
