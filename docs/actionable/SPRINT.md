@@ -837,11 +837,14 @@ meaningful**, which is the half that would have been silently wrong if the norma
 
 ▶️ **THE FIX IS NOW FULLY SPECIFIED AND NEEDS ONLY A VERIFICATION RUN:** in `Core._settleUsdSide`, capture
 `take`'s return and credit `request − sent` back to the range's USD side after it returns.
-⚠️ **Rule 15 — money path, not landed, no build run this session.** ⭐ **The control to quote is
-project-6b's pinned full-suite baseline: 1,185 passed / 26 failed**, of which **13** were the vBTC-collateral
-breakage its own `47759214` has since deleted; the rest are 2 `Slippage()` in `EthLevDeleverLegs`, 1
-`MintAtTheMark` incumbent-dilution assertion, and ~6 self-described fixture/market-state. **Anything outside
-that set is this change.**
+⚠️ **Rule 15 — money path, not landed, no build run this session.**
+⭐ **THE CONTROL TO QUOTE, RE-MEASURED BY project-6b AFTER ITS OWN FIX LANDED: 1,198 passed / 13 failed.**
+Its earlier 1,185 / 26 is **stale in our favour** — `47759214` removed all 13 `InsufficientChannelBtc()`
+failures, and 6b then discharged its rule-15 debt on the ported tests (`VBtcLevFeeLane` 16/0).
+**The surviving 13:** 2 `Slippage()` in `EthLevDeleverLegs` · 1 `MintAtTheMark` incumbent-dilution · ~6
+self-described market-state/fixture (G7, PLP6 ×2, FLOOR ×2, RUN-HAPPENED) · the balance in
+`DeleverEthBacking` / `DrainAtomicity` / `LevCascade`, **unattributed — so do not read those three as
+pre-existing without checking.** ⇒ **Anything outside that set is this change.**
 📌 **NOT DECISION-GATED** (§COMPOSITION-ORDER): it is a settlement defect, not downstream of D1-D9.
 ⚠️ **Money path ⇒ rule 15: it needs a verification run before it lands, and no build has been done.**
 
