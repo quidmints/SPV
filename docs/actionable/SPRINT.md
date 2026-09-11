@@ -743,13 +743,46 @@ names that shape: a guard that makes the symptom disappear while breaking the pa
 side by the FULL amount** — and only then calls `take`, which may send less. **The range must be debited
 by `sent`, not by the request.** That is one change in one place and it makes all three call sites correct,
 because the discarded return stops being information nobody has.
-⚠️ **ONE SUB-QUESTION REMAINS AND IT IS AN ORDERING HAZARD, SO DO NOT JUST SWAP THE TWO LINES:**
-`take` calls `_finalBacking` → `checkBacking()`/`tryCheckBacking()` internally, which compares committed
-against liquid. **Calling `take` BEFORE the range is debited makes `checkBacking` run against a different
-balance sheet than it does today**, and a backing check that passes or fails for the wrong reason is worse
-than the divergence it replaces. ▶️ **Price both forms — (a) take-then-debit-`sent`, (b) debit-full-then-
-credit-back-the-shortfall — against what `checkBacking` sees in each.** Rule 9: the regression is always on
-the axis nobody measured, and here that axis has a name.
+### ✅ THE ORDERING SUB-QUESTION IS ANSWERED TOO — **FORM (b), AND FORM (a) WOULD REINTRODUCE THE REGRESSION**
+Raised by this row, answered by project-6b from code and **verified independently here** (rule 13: a
+dismissal is a conclusion and needs its own evidence). **No fork run was needed.**
+
+`Aux.sol:1390` is the whole invariant: **`if (committedSum > totalLiquid) revert OverCommitted();`**
+and `BasketLib.backingCoreBody:599-601` says which quantity is which — `totalLiquid = deposits[15]`
+(the BASKET's TVL slot), `committedSum = ICore(core).committedUsd18()` (the RANGE's committed USD).
+**They are two different balance sheets and the two operations hit one each:** `_poolUsdInRange(x, false, …)`
+moves **committedSum** down; `take` moves **totalLiquid** down, by `sent`.
+
+| form | committedSum at the check | totalLiquid at the check | effect on `committedSum > totalLiquid` |
+|---|---|---|---|
+| today — debit full, then take | reduced by the FULL request | reduced by `sent` | the current behaviour |
+| **(a) take, then debit `sent`** | **not yet reduced** | reduced by `sent` | 🔴 **STRICTLY MORE LIKELY TO REVERT** |
+| **(b) debit full, then credit back `request − sent`** | reduced by FULL, as today | reduced by `sent`, as today | ✅ **identical to today** |
+
+⛔ **SO (a) IS THE SAME MISTAKE AS THE REVERT, ONE LEVEL DOWN:** a take that is legitimate today would
+fail `OverCommitted()` purely because the debit had not landed yet. **Two liveness regressions were
+available on this fix and both look like tidying.**
+✅ **AND (b) LEAVES THE INVARIANT EXACTLY AS WELL SATISFIED AS BEFORE, by arithmetic rather than by
+argument.** With request `X`, delivered `Y ≤ X`: today ends at `committed = C₀−X`, `liquid = L₀−Y` — the
+divergence this row is about. **(b) ends at `C₀−Y` and `L₀−Y`, so the original gap `C₀−L₀` is preserved
+exactly**, and the credit-back lands AFTER the check, which therefore ran on a *stricter* state than the
+final one. Nothing is left violated: the shortfall's tokens never left the basket.
+
+📌 **AND THE CAVEAT 6b FLAGGED AS UNVERIFIED IS DISCHARGED — THE TWO SIDES ARE THE SAME UNIT.** It was the
+right thing to doubt: this repo's *"decimal bases are the single most common source of bugs here"*, and
+`§BASKET-SLOTS` had widened that array. **Measured: `BasketLib._valueStable:188-193` ends
+`if (dec < 18) { uint scale = 10 ** (18 - dec); balance *= scale; … }`, reading `dec` from
+`IERC20(stable).decimals()` at `:155` — never from a slot index.** So `deposits[15]` is **USD-18** and
+`committedUsd18()` is **USD-18**. ⇒ **the ordering argument holds AND the magnitude of the gap is
+meaningful**, which is the half that would have been silently wrong if the normalisation were missing.
+
+▶️ **THE FIX IS NOW FULLY SPECIFIED AND NEEDS ONLY A VERIFICATION RUN:** in `Core._settleUsdSide`, capture
+`take`'s return and credit `request − sent` back to the range's USD side after it returns.
+⚠️ **Rule 15 — money path, not landed, no build run this session.** ⭐ **The control to quote is
+project-6b's pinned full-suite baseline: 1,185 passed / 26 failed**, of which **13** were the vBTC-collateral
+breakage its own `47759214` has since deleted; the rest are 2 `Slippage()` in `EthLevDeleverLegs`, 1
+`MintAtTheMark` incumbent-dilution assertion, and ~6 self-described fixture/market-state. **Anything outside
+that set is this change.**
 📌 **NOT DECISION-GATED** (§COMPOSITION-ORDER): it is a settlement defect, not downstream of D1-D9.
 ⚠️ **Money path ⇒ rule 15: it needs a verification run before it lands, and no build has been done.**
 
