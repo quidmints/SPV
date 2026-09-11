@@ -509,11 +509,20 @@ protocol's cost is zero because it is paying out yield it would not otherwise ha
 | # | site | asset | dated? | paid for the wait? |
 |---|---|---|---|---|
 | 1 | **QU!D vintages** — `Basket.mint(…, when)`, `balanceOf[holder][when]` | dollars | ✅ `when` | ✅ `calcMintYield`: `yield × months` |
-| 2 | **`waitNft`** — `QuidLib.waitNft` → ether.fi `requestWithdraw` | volatile | ✅ the NFT's own queue | ✅ eETH staking yield accrues to the holder |
+| 2 | **the offramp's LAST RUNG** — `QuidLib.offrampBody` tries **Curve weETH/WETH first**; `waitNft` → ether.fi `requestWithdraw` is the FALLBACK | volatile | ✅ the NFT's own queue | ✅ eETH staking yield accrues to the holder |
 | 3 | 🔴 **`usd_owed`** — `Quid.sol:543-551`, `:822`, `:974` | dollars | ❌ **undated** | ❌ **nothing** |
 
 ⇒ **1 and 2 ARE ALREADY THE SAME MECHANISM** — one for each asset, each paying that asset's own yield.
-They look different only because one is ours and one is ether.fi's. **`usd_owed` is the outlier:** a
+They look different only because one is ours and one is ether.fi's.
+🔴 **AND THE ASYMMETRY THE OWNER NAMED (2026-09-11: *"waitnft is a fallback if we want use curve"*)
+IS THE IMPORTANT PART, NOT A DETAIL.** The volatile side does NOT defer by choice: `offrampBody` tries
+**Curve weETH/WETH first** and only falls through to the dated claim when that route cannot serve.
+⇒ **The two directions are not yet symmetric, and the asymmetry is the right way round.** Deferral is
+the LAST RESORT on the volatile side and would become the FIRST response on the dollar side under §12.
+Collapsing them means adopting the volatile side's ordering everywhere: **try to serve now; defer only
+when serving now is worse for the counterparty than waiting.** On a sell-in that means: pay from
+dollar inventory if it is there, and offer the dated claim only when paying now would mean selling
+something at a bad price — which is exactly when a swapper would rather wait and be paid for it. **`usd_owed` is the outlier:** a
 deferral that pays the deferred party *nothing*, tracked in a bespoke per-LP register instead of the
 vintage ledger that already exists. Its docblock calls it *"a deferred, unrealized claim — strictly
 conservative, no mint"*, and conservative is exactly right about SUPPLY and exactly wrong about the LP,
