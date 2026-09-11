@@ -1717,7 +1717,7 @@ impl TaprootChannelSigner for ValidatingChannelSigner {
         // final key-path Schnorr sig that can broadcast this holder commitment.
         let PartialSignatureWithNonce(_cp_partial, cp_nonce) = counterparty_partial_signature;
         let cp_nonce_bytes = cp_nonce.serialize();
-        let (partial, our_pubnonce) = crate::taproot_signer::our_key_path_partial(
+        let (partial, our_pubnonce) = crate::taproot_signer::our_key_path_partial_holder_local(
             key_agg,
             our_index,
             counterparty_index,
@@ -1856,7 +1856,7 @@ impl TaprootChannelSigner for ValidatingChannelSigner {
         // re-supplies a fresh closer nonce via the handler; the deterministic
         // derive is re-derivable + crash-safe.
         let cp_nonce_bytes = cp_nonce.serialize();
-        let (partial, our_pubnonce) = crate::taproot_signer::our_key_path_partial(
+        let (partial, our_pubnonce) = crate::taproot_signer::our_key_path_partial_counterparty(
             key_agg,
             our_index,
             counterparty_index,
@@ -1920,7 +1920,7 @@ impl TaprootChannelSigner for ValidatingChannelSigner {
                 .map_err(|_| ())?;
         let message: [u8; 32] = *sighash.as_ref();
         let cp_nonce_bytes = counterparty_nonce.serialize();
-        let (partial, our_pubnonce) = crate::taproot_signer::our_key_path_partial(
+        let (partial, our_pubnonce) = crate::taproot_signer::our_key_path_partial_counterparty(
             key_agg,
             our_index,
             counterparty_index,
@@ -1944,7 +1944,17 @@ impl TaprootChannelSigner for ValidatingChannelSigner {
 /// channel splices many times, each over a DIFFERENT tx; reusing a nonce across two
 /// distinct splice messages leaks the funding key (the closing-reuse class).
 /// Each splice spends a DISTINCT prior funding output, so keying on `prev_funding_txid`
-/// guarantees distinct nonces; it is re-derivable from chain state (crash-safe). The
+/// guarantees distinct nonces; it is re-derivable from chain state (crash-safe).
+/// 🔴 **THAT ARGUMENT IS ABOUT DISTINCT SPLICES AND DOES NOT COVER TWO CANDIDATE TRANSACTIONS
+/// WITHIN ONE SPLICE — which is why this height alone was NOT sufficient (fixed 2026-09-11).**
+/// `prev_funding_txid` is CONSTANT across a single negotiation, so an RBF, a fee change or a
+/// revised contribution produces a second, DIFFERENT message at the SAME height. Under the
+/// unspiced derivation that is one nonce over two messages: `x = (s1 − s2)/(e1 − e2)`.
+/// ⇒ The caller now derives through `our_key_path_partial_counterparty`, which spices the secret
+/// nonce with `(counterparty_nonce, message)`, so a different message re-randomises it **by
+/// construction**. This height keeps doing its job — domain-separating splices from commitments
+/// and from each other — it is simply no longer the ONLY thing standing between a re-signed
+/// splice and the funding key. The
 /// window `[2^48, 2^56+2^48)` is disjoint from the commitment range (`<2^48`) and the
 /// closing range (top of `u64`). Mirrors `lightning::sign::splice_nonce_height`.
 fn splice_nonce_height(prev_funding_txid: &bitcoin::Txid) -> u64 {

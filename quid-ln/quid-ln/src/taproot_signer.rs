@@ -360,7 +360,7 @@ impl KeyPathSecondRound {
 }
 
 /// Derive **our** deterministic public nonce for `height` exactly as the signing
-/// path ([`our_key_path_partial`]) will — i.e. through the same conduition
+/// path ([`our_key_path_partial_holder_local`]) will — i.e. through the same conduition
 /// `FirstRound` derivation (which binds the aggregated pubkey + signer index +
 /// spices into the secret nonce). This MUST be used to advertise the nonce we
 /// will later sign with (`next_local_nonce` / `shutdown_nonce`); deriving it via
@@ -397,7 +397,29 @@ pub fn local_pubnonce(
 /// `ctx` is the cached per-channel KeySorted+taproot-tweaked [`KeyAggContext`];
 /// `our_index`/`counterparty_index` are the slots from [`channel_key_agg_ctx`].
 #[allow(clippy::too_many_arguments)]
-pub fn our_key_path_partial(
+/// 🔴 **HOLDER-LOCAL ONLY. ITS PARTIAL MUST NEVER BE SENT TO THE PEER — THE NAME IS THE GUARD.**
+///
+/// This derives through the UNSPICED [`KeyPathFirstRound::new`], so its secret nonce is fixed by
+/// `(shachain_root, height)` ALONE. That is safe here and only here, because
+/// `finalize_holder_commitment` counter-signs our OWN commitment and consumes the partial locally:
+/// funding-key recovery `x = (s1 − s2)/(e1 − e2)` needs two OBSERVABLE partials over different
+/// messages, and this path publishes none.
+///
+/// ⛔ **IT WAS CALLED `our_key_path_partial` AND TWO PUBLISHING CALLERS REACHED FOR IT — that is
+/// the bug this rename exists to prevent (fixed 2026-09-11).** `partially_sign_closing_transaction`
+/// and `partially_sign_splice_shared_input` both send their partial to the peer and both used this
+/// function. The splice case was the sharp one: `splice_nonce_height` is a hash of
+/// `prev_funding_txid`, CONSTANT across one negotiation, so an RBF or a revised contribution signs
+/// a second DIFFERENT message under the SAME nonce.
+/// ⚠️ **A runtime guard did exist — `PolicyState::bind_nonce` — but `nonce_bindings` is an
+/// IN-MEMORY `HashMap`, so an enclave restart clears it.** The counterparty path had already been
+/// hardened structurally and its docblock says why: it *"relies on no in-memory guard that an
+/// enclave restart would clear."* The same reasoning had simply never been carried across.
+///
+/// ⇒ **IF YOU NEED A PARTIAL THAT LEAVES THIS PROCESS, USE
+/// [`our_key_path_partial_counterparty`]** — it spices the nonce with `(counterparty_nonce,
+/// message)`, so two different messages can never share a secret nonce regardless of height.
+pub fn our_key_path_partial_holder_local(
     ctx: KeyAggContext,
     our_index: usize,
     counterparty_index: usize,
@@ -413,7 +435,7 @@ pub fn our_key_path_partial(
     Ok((r2.our_partial_signature(), our_pubnonce))
 }
 
-/// Counterparty-commitment variant of [`our_key_path_partial`]: derives the secret nonce
+/// Counterparty-commitment variant of [`our_key_path_partial_holder_local`]: derives the secret nonce
 /// via [`KeyPathFirstRound::new_counterparty`], which is domain-separated from the holder
 /// nonce AND bound to `(counterparty_nonce, message)` — so a peer that rotates its nonce on
 /// reconnect and induces a re-sign of the same (root, height) commitment CANNOT extract the
@@ -729,7 +751,7 @@ mod tests {
 
     /// LOAD-BEARING (M5): the live per-signer flow used by the
     /// `TaprootChannelSigner` bodies — each side independently runs
-    /// [`our_key_path_partial`] (deriving its own deterministic nonce, receiving
+    /// [`our_key_path_partial_holder_local`] (deriving its own deterministic nonce, receiving
     /// the peer's pubnonce, partial-signing), then one side
     /// [`aggregate_key_path_partials`] both partials + both pubnonces into the
     /// final BIP340 key-path Schnorr sig that **verifies against the tweaked Q**.
@@ -761,11 +783,11 @@ mod tests {
         // Each side produces its partial via the live single-party helper.
         let (lp_ctx2, _) = channel_key_agg_ctx(&lp_pub, &hop_pub, &lp_pub).unwrap();
         let (hop_ctx2, _) = channel_key_agg_ctx(&lp_pub, &hop_pub, &hop_pub).unwrap();
-        let (lp_partial, lp_pn2) = our_key_path_partial(
+        let (lp_partial, lp_pn2) = our_key_path_partial_holder_local(
             lp_ctx2, lp_idx, hop_idx, lp_sec, &lp_root, height, hop_pn.clone(), msg,
         )
         .unwrap();
-        let (hop_partial, hop_pn2) = our_key_path_partial(
+        let (hop_partial, hop_pn2) = our_key_path_partial_holder_local(
             hop_ctx2, hop_idx, lp_idx, hop_sec, &hop_root, height, lp_pn.clone(), msg,
         )
         .unwrap();
@@ -840,7 +862,7 @@ mod tests {
     /// FUNDING-KEY-LEAK GUARD: the holder and counterparty commitment
     /// transactions are signed at the SAME commitment height (both numbers count
     /// down from `INITIAL_COMMITMENT_NUMBER` in lockstep). Without domain
-    /// separation, `our_key_path_partial` (holder finalize) and
+    /// separation, `our_key_path_partial_holder_local` (holder finalize) and
     /// `our_key_path_partial_counterparty` would derive the SAME secret nonce at
     /// that height, and signing the two different commitment sighashes under one
     /// nonce leaks the funding key (`x = (s1 - s2)/(e1 - e2)`). Assert the two
