@@ -764,6 +764,8 @@ symbols — `recordForceClosePenalty`, `termsLeaf`, `closeChannel` — that **ne
   Assign an owner explicitly before starting it.
 
 ### ⛔ §ACCEPTOR-ITEMS-ARE-IN-THE-FORK — not workable from this tree
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): superseded by §ACCEPTOR-SPLICE-GREEN; its zero-callers half is expected state. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
+
 `§ACCEPTOR-CONTRIBUTION-FEES` and `§ACCEPTOR-SPLICE-TEST-IS-RED` both live in
 `quid-ln/lib/rust-lightning`, now the external `quidmints/rust-lightning`. The settling run is
 `cargo test -p lightning --lib splicing_tests::test_acceptor_contributed_splice_out` **in that fork**.
@@ -1067,6 +1069,8 @@ copy of lines 163–40,468. **929 of 1,175 distinct `##` headings appeared twice
 offsets DRIFTED (41,354 / 41,362 / 41,459 / 41,474 / 41,485 / 41,527) — which is the tell: the first
 copy kept being edited and the second never was. Only **24 lines out of 41,315** were not already
 present verbatim in the first copy, and **15 of those 24 were the OLD text of a line the first copy
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): CidRegistry is DELETE-not-build; channelId is computable. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
+
 had since rewritten** (e.g. §T9-REGISTRY-HAS-NO-WRITER's and §SPLICE-ROTATES-BOTH-FUNDING-KEYS's
 pre-retitle headings).
 ⚠️ **THIS IS WHAT TRAP 2 ABOVE WAS DESCRIBING** ("a census that counted marker instances returned 390
@@ -1273,6 +1277,8 @@ All 150 row slots, 137 sections, 19 check-rows and six clusters have been read a
 ⛔ **SUPERSEDED — the 150 was taken 2026-08-30, before §BTC-9's 49 items and §PLP's list folded in, so
 it was never the denominator it claims to be here. ~~The open set is 213.~~ **The open set is 220** (re-measured 2026-09-08 after §DEDUP-2026-09-08 and after that day's booking pass; it was 226 between the two, and the 213 was measured on the DOUBLED file). See `§CENSUS-2026-09-07`.**
 
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): retracted by bf5aa5ff before it was executed. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
+
 ⛔ **`§FRESHNESS-RECOMMENDATION` — RETRACTED 2026-08-30 BEFORE IT WAS EXECUTED (owner: *"are you
 sure we are not giving up anything important with this deletion?"*). WE ARE. DO NOT DELETE IT.**
 
@@ -1380,6 +1386,8 @@ showed. It does NOT cover `§HOP-RCE-3` — on the LN rail the hop still NAMES t
 binds that to whoever paid. That needs the seller-signed intent (`§M1-RESIDUAL-100` residual 1), and
 no amount of address verification substitutes for it.
 
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): the reserve is deleted. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
+
 ✅ **`§RESERVE-HAS-NO-RETURN-PATH` — DISSOLVED 2026-08-30: the reserve it describes no longer exists (`§FLEET-FRONTS-THE-WINDOW`). Kept because the lesson is not.** ~~A HOLE I INTRODUCED THIS SESSION (found 2026-08-30 by
 auditing my own commits against the owner's *"there should be no holes possible"*). IT MUST BE FIXED
 OR REVERTED BEFORE THE LN RAIL IS RELIED ON.**
@@ -1403,6 +1411,8 @@ precisely how `_releasePoolSats` could hook it. **The reserve is the hop's own w
 can spend it silently, with no event the contract sees.** So the cap is backed by a balance the
 contract cannot observe and can never reduce. ⇒ **The gap grows without bound: conjurable value =
 (cumulative proven) − (current reserve), and only the first term is tracked.**
+
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): built then deleted by 32168f74. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
 
 ⚠️ **IT IS ONLY LIVE BECAUSE I MADE THE RAIL WORK.** Before `§LN-RESERVE-FUNDER` the allowance had no
 funder at all, so every LN swap-in reverted and no phantom was reachable. **I did not widen an
@@ -1460,6 +1470,8 @@ reserve, no bond, no timelock, no return path, and no seller-signed intent neede
 `provenSatsAvailable`, `InsufficientProvenSats`, `SwapInPartialRejected`, `proveHopReserve`,
 `hopReserveScript`/`setHopReserveScript`, `ChannelLib.reserveSats`, `SIG_PROVE_HOP_RESERVE`,
 `encode_prove_hop_reserve`, and `reconcile_hop_reserve`. It also dissolves
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): the pool-backed LN rail is dissolved. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
+
 `§RESERVE-HAS-NO-RETURN-PATH` (no reserve), `§LN-SWAPIN-RAIL-BROKEN` (no rail to break), and
 `§HOP-RCE-3`'s buffered-rail half — **the hop naming the seller stops mattering, because on the
 proven rail naming yourself requires proving your own deposit.**
@@ -1475,6 +1487,8 @@ proven rail naming yourself requires proving your own deposit.**
 4. **Partial fills move off-chain**: `requireFull` existed because the LN rail cannot refund. The
    fleet now decides what to pay its own counterparty, and the pool sees only a proven deposit.
 ▶️ **THE ONE OWNER DECISION LEFT is whether the fleet is willing to be the principal on the LN leg.**
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): only reachable if the fleet is NOT principal on the LN leg; owner ratified that it IS. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
+
 If yes, this is strictly less code and no holes. If no, fall back to `§HOP-BOND` below.
 
 ~~✅ **`§HOP-BOND` — THE BETTER FIX, AND IT CLOSES RATHER THAN BOUNDS.**~~ *(kept as the fallback if
@@ -1509,7 +1523,11 @@ untangle it are gone: `parkProvenSats`, `poolOwnedSats`, `poolSatsParker`, `_rel
 | item | how it closed |
 |---|---|
 | `§AUDIT-POOLPARKER-PHANTOM` | **DISSOLVED.** It was entirely `poolSatsParker` being overwritten by a second parker. There is no parker. |
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): poolColdScript was deleted 2026-08-31. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
+
 | `§POOL-SCRIPT-DESTINATION-REOPENED` | **DISSOLVED.** Pool sats never enter a channel, so an exit has no second output to place and no destination to choose. |
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): poolColdScript was deleted 2026-08-31. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
+
 | `§POOL-SCRIPT-DONE`'s `poolColdScript` | Deleted rather than left as a stub. |
 | the `lpEntitled` clamps + `PoolSatsLeftWithLp` | The pool subtraction is gone; **the over-payment clamps SURVIVE**, renamed `PayoutExceededChannel`, because a close or withdrawal splice can still pay `btcRecipientOf` more than the channel held from other inputs. Deleting them with the pool concept would have been the easy mistake. |
 
@@ -1976,6 +1994,8 @@ pins its payee rather than accepting it**:
 - `refundExpiredSwapOut` — `msg.sender != so.swapper` reverts. **Self-service, needs no fleet.**
 ✅ **AND THE RESUME I ADDED TODAY INHERITS ALL OF IT** — it re-enters `deliverSwapOutOnchain`, so the
 watcher cannot redirect a delivery and cannot double-pay (`swapInUsed[swapId]`).
+
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): needs an LP-side LDK node producing justice packages. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
 
 🔴🔴 **`§NO-PENALTY-WATCHTOWER` — THE ONE SERIOUS GAP, AND IT IS EXACTLY THE OWNER'S INTERSECTION
 (LP OFFLINE × FLEET COMPROMISED).**
@@ -2933,6 +2953,8 @@ fork question:** the vendored LDK already carries SIMPLE-TAPROOT CHANNELS — Mu
 `to_local`/`to_remote`/anchors, splice key-path sighashes — which is a **far larger** protocol addition
 than this. A patch here is normal work, not an exotic step.
 
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): needs an LP that can initiate a splice, i.e. a node. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
+
 🔑 **AND IT IS MUCH SMALLER THAN §DELIVERY-MUST-BE-LP-INITIATED IMPLIES, BECAUSE THE PLUMBING IS
 ALREADY THERE. Measured:**
 | piece | state |
@@ -3010,6 +3032,8 @@ wires a path no test covers.
 📌 **§SEQ-AUDIT: GATE 5 · lane L2. BLOCKED FOR THIS LANE 2026-09-09 — BOTH HALVES LIVE OUTSIDE IT.** `test_acceptor_contributed_splice_out` and `register_acceptor_splice_contribution` are both inside **`quid-ln/lib/rust-lightning`**, which is now the external repo `quidmints/rust-lightning` and is off-limits to the `quid-ln` lane — so neither the red test nor the capability can be touched from here. ▶️ **THE RUN THAT SETTLES THE RED HALF:** `cargo test -p lightning --lib splicing_tests::test_acceptor_contributed_splice_out` in that fork at the current pin, against the same run at `73233fd`; until it reports, *"pre-existing red"* is a claim carried forward, not a measurement of today's tree. ⭐ **THE ZERO-CALLERS HALF IS NOT A TEST QUESTION AND IS ANSWERED HERE:** the capability's only intended consumer is the delivery rework, which is `§MASTER-ORDER` 4b and unbuilt ⇒ **zero external callers is the EXPECTED state at this point in the order, not a defect** — and it must not be read as *"§ACCEPTOR-CONTRIBUTION is done"*, which is the mistake this section exists to prevent.**
 
 ## 🔴 §DELIVERY-MUST-BE-LP-INITIATED — **STEP 1 OF THE REWORK IS IMPOSSIBLE IN THIS LDK. THE FORK IS THE OWNER'S.**
+
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): its subject QUID_FLEET_COHOSTS_VAULT is deleted. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
 
 Measured 2026-09-01, and it retires the plan in `§COHOST-FLAG-IS-NOT-THE-WORK` step 1
 (*"`drive_swap_out_onchain` initiates the splice from the HOP's `channel_manager`"*). **It cannot.**
@@ -9304,6 +9328,8 @@ strictly safer than BOTH the status quo and my pool-outpoint proposal, and effic
 **A two-out-of-three win, honestly counted, is a better answer than a three-out-of-three that was wrong
 about custody.**
 
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): its 'remaining EVM half, 29 sites' is the deleted pool-inventory family. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
+
 ## ⭐⭐ **§BTC-SCOPE-SYNTHESIS — the segregation fix, the unwired sweep, and the jury question are ONE item** (2026-08-26, owner)
 
 Owner asked: is anything else in the BTC scope fixable in light of this, and is the shape really more
@@ -9360,6 +9386,8 @@ is discharged, so the remaining work is the EVM half alone: `poolOwnedSats` (11 
 ⚠️ **AND THE CLAUDE.md RULE THAT NAMES THIS FUNCTION IS NOW HISTORICAL TOO** — its `dead_code`
 warning must be GONE; if it returns, that is a regression, not a marker. Updated there in the same
 pass so the two do not disagree.
+
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): pool inventory is deleted; grep evm/src returns zero. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
 
 ## 🔴🔴 **§POOL-SATS-SEGREGATION — the shape of the fix, and a CORRECTION to how the gap was described** (2026-08-26)
 
@@ -9431,6 +9459,8 @@ feature but keeps the shared UTXO, so `poolOwnedSats` survives and must stay cor
 ⛔ **(3) is not a fix.** Listed only so it is rejected explicitly rather than re-proposed.
 ▶️ **THE TEST, AFTER THE DECISION:** park a non-zero amount, arm+broadcast a dead-man exit, record it,
 assert **`PoolSatsLeftWithLp` is NEVER emitted**. That single assertion is the whole property, and it
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): the subject is deleted; its own tail already says DO NOT WRITE THE TEST. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
+
 fails today. (§POOL-SATS-STRANDING-IS-UNTESTED has the fixture gap: 0 of 6 dead-man tests park.)
 
 ## 🔴🔴 **§POOL-SATS-STRANDING-IS-UNTESTED — the exposure has ZERO coverage, and the fixtures cannot reach it** (2026-08-25)
@@ -13755,6 +13785,8 @@ worktree.
 `classifyRegime`** — one design decision, then a deletion), `§MINT-SITE-COUNT`, `§UNIT-*` cluster.
 
 ### 🔴 Owner decisions — **blocked on a person, not on work**
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): retracted in full; the ladder stays. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
+
 `§LP-SEED-ENTROPY`, `§LADDER-REMOVAL`, `§A.51`, `§A.19b` (`redeemVBtc` — and see `CLAUDE.md`: ibiza
 analysed it as cross-LP theft), `§NO-REJECT`, `§PHASE-ORDER`, `§MSIG-NOT-SAFE`.
 
@@ -16152,6 +16184,8 @@ view added, `Core` has 28 bytes). Both words come back **byte-identical**:
 ⇒ `slow >= fast` at every read ⇒ **`min` is unconditionally the fast leg. The §E55 defence does not
 operate, and the §UNIT-B self-inflation is undamped.** The docblocks at `:188-196` and `:249` describe
 a property the code does not have.
+
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): family/individual daemons are ruled out: one enclave, LP runs nothing. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
 
 | **E162-rekey-CORRECTED** | ⛔ **I CALLED `newLp == oldLp` *"the prevention"*. IT PREVENTS INHERITANCE, NOT COMPROMISE — and the compromise it does not reach is the whole vault exposure (owner: *"but not what happens to the old image… can still be drained?"*, 2026-08-10).** ⛔ **TWO ROUTES BY WHICH A COMPROMISED **OLD** IMAGE STILL DRAINS: ① **BEFORE ANY ROTATION** — it holds BOTH halves for vault channels, so a compromise today drains today; rekeying is a future event and does nothing retroactively. ② **THROUGH THE ROTATION ITSELF** — `newLp == oldLp` forces the LP half to stay and the attacker ALREADY HOLDS IT; nothing constrains the hop half's destination, so it splices to `(oldLp, attackerHop)` with both halves in its own control. **The contract sees a perfectly valid rotation.**** ✅ **WHAT THE RULE ACTUALLY BUYS, STATED NARROWLY: it bounds what a malicious UPGRADE TARGET inherits. It protects against the Safe whitelisting a bad new image and that image receiving WORKING keys. That is real and it is small.** 🔴 **⇒ THE HONEST POSITION, UNSOFTENED: FOR VAULT CHANNELS, COMPROMISE OF THE RUNNING IMAGE IS UNMITIGATED. Every route explored is closed — covenants (no L1 support: §E159-research), MPC (owner: no), family plans (custody rationale dissolved, §E158-why-self-hosted), bonding/fraud proofs (owner: no), cold vault + key deletion (owner: no), rekey splice (does not reach it, this entry). **The residual is CODE REVIEW plus the sealing guarantee that a DIFFERENT measurement cannot unseal.**** ⛔ **PROCESS: this is the same over-claim shape as §E158-trust-root and §E158-both-halves — a mechanism described by what it is FOR rather than by what an adversary retains after it. **State the attacker's residual capability, not the mechanism's intent.**** | ✅ **CLOSED 2026-09-09** — rekey bounds inheritance only and a compromised running image drains regardless; that residual is now *recorded in the code* (`vault.rs:31-33`) and every remedy is owner-closed, so the row is a finding, not a task  ✅ **CLOSED 2026-09-09 (§SEQ-AUDIT — verified against code): A RECORDED FINDING WITH NO BUILDABLE ITEM LEFT.** The row's own body enumerates every route — covenants (no L1 support), MPC (owner: no), family plans (rationale dissolved), bonding/fraud proofs (owner: no), cold vault + key deletion (owner: no), rekey splice (does not reach it) — and each is closed by an owner decision, leaving *"CODE REVIEW plus the sealing guarantee"*, neither of which is a row. ⚠️ **AND IT IS SCOPED SMALLER THAN IT READS:** the *"both halves in one image"* exposure exists ONLY in the co-hosted Option-B deployment, and **`quid-ln/quid-bridge/src/vault.rs:31-33` already declares it AT the opt-in** — *"In THAT deployment one custodian holds both halves and the 2-of-2 is NOMINAL"*, and `quid-bridge-daemon` *"says so at the opt-in and refuses to imply otherwise"*. The honest-statement-of-residual this row asks for is in the code; §E158-upgrade-authority's proposed fix for it is separately owner-refuted.** |
 
@@ -51668,209 +51702,41 @@ it is shared config and mutating it was outside what this thread could do unatte
 finished — that scope has its own backlog at `docs/actionable/TODO.md` (owner, 2026-09-07). Verified:
 zero such paths in any commit of this session.
 
-## §PLP-6-MEASURED — **THE LEG IS REACHABLE AND EXERCISED. IT RETURNS 0 IN EVERY OBSERVED CALL. THE CORRECTNESS OF THAT 0 IS NOT ESTABLISHED.** (2026-09-07)
+## ✅ §PLP-6-TRAIL — **THE `deleverEthOnDelivery` INVESTIGATION, COLLAPSED. Five successive rows, one answer.**
 
-§PLP-6 carried `SwapLib.deleverEthOnDelivery` as **UNVERIFIED (forge OOM)** pending fork tests. Two
-separate facts, and they must not be merged:
+🪦 **COLLAPSED 2026-09-11 from `§PLP-6-MEASURED` · `§PLP-6a REOPENED` · `§PLP-6-PROBE` ·
+`§PLP-6-EXERCISED` · `§PLP-6-BACKING-DELTA` · `§PLP-6-SIBLING`** — successive states of ONE
+investigation, each superseding the last. This is the narrative-log shape the `UNIT STATUS INDEX`
+warns about in its own header (*"read the LAST row of a chain, never the first"*), and it had five
+rows where it needs one.
 
-✅ **THE VERIFICATION IT WAITS ON WAS NEVER WRITTEN.** `DeleverEthBackingProbe` — the probe the row
-names — **does not exist as a test file, and the name appears in no test.** Nor does
-`testReal_DeleverEthBacking_SwapOutTapsLeveredSlice`, which a `QuidLib.sendEth` comment claimed
-fork-proved the leg (that comment was corrected in today's pass). ⇒ The row is not "verified and
-failing"; it is "the check was never run", and those are different states.
+### What was established, in order
+1. ✅ **The probe now exists** — `evm/test/DeleverEthBacking.t.sol`, the file §PLP-6 had named since it
+   was written and which did not exist. 23/23 green in `LevCascade`'s suite.
+2. ✅ **The redeem path delivers.** A 20-share redeem reporting `assets = 20.0605` pays the recipient
+   **20.0582 WETH**.
+3. ✅ **The de-lever leg RUNS and skips on dust** — driven with free depth deliberately small (10 ETH)
+   and the levered LP withdrawing `type(uint).max`.
+   ⚠️ **The fixture lesson, which generalises:** the first attempt deposited 25 ETH and withdrew 80% as
+   a PLAIN LP, so `rangeETH` (~32.5) covered every ask and the shortfall branch never ran. **Copying a
+   state known to reach the code beats inventing one that looks reasonable.**
+4. ✅ **The $2,774.60 gap is ACCOUNTING LAG, not a value leak** — a stale push between
+   `committedUsd18()` and `basketUsd − debt`, measured rather than argued.
+5. ⏸️ **The live residual is the SIBLING term**: `test_PLP6_SiblingTermIsStaleAcrossADeleverOnTheOtherRange`
+   shows the other range's term goes stale across a de-lever — a two-range staleness, quantified at
+   $2,774.60 understated, still open.
+6. 🪦 **`§PLP-6a`'s three-layer chain is moot** — a finding, its withdrawal, and the withdrawal's
+   unstated "different reason", all about `_batch`/`_poolSwap`/`rebalanceMany`, which have zero
+   references in `evm/src`. See §PLP-Z.
 
-⭐ **MEASURED 2026-09-07 by TRACE, not by reading** — `BufferSwapDrain.t.sol` at `-vvvv`, gate passed
-first (0 compiler errors, 24 `[PASS]`, 38 MB of trace):
-  · `deleverEthOnDelivery` is **REACHED — 16 invocations.** ⛔ It is NOT dead. Nothing here revives
-    §PLP-6a.
-  · Two profiles: **10,222 gas** (early out) and **594,773 gas** — the expensive one walks the real
-    gating chain, reading `LevManager.poolVenue()` → `MorphoEscrowVenue`, `stable()`, and
-    `totalDebt()` returning **557,797,513 = $557.80** against a LIVE Morpho position.
-  · **`deliveredEth == 0` on ALL SIXTEEN**, including every 594,773-gas call.
+### 🔴 AND ONE FINDING BEARS ON THE MODEL, NOT JUST ON THIS LEG
+> *"The leg runs, skips on dust, and **is not what repays a material shortfall.**"*
 
-🔴 **WHAT IS NOT ESTABLISHED, AND MUST NOT BE ASSERTED: whether 0 is CORRECT here.** `BufferSwapDrain`
-may simply never construct a state with deliverable freed collateral, in which case 0 is right and
-the gas is the gating chain doing its job. ⚠️ **This is E70's exact shape** — consume-and-deliver-
-nothing looked like a bug there too, and the resolution was that delivery worked and the FIXTURE was
-mis-sized (§REFILL-SIZE). ⛔ Do not book "the delever leg is broken" off this row.
-▶️ **NEXT MEASUREMENT, and it is the whole remaining question:** construct a state with known
-deliverable collateral (a levered position with headroom above the target LTV) and assert
-`deliveredEth > 0` at the RECIPIENT. If it is still 0 there, that is a defect and it outranks the
-pricing work. That test is `DeleverEthBackingProbe`, and writing it is what closes §PLP-6.
-📌 ~595k gas to decide "nothing" is worth a glance on its own, independent of correctness.
-
-## ⛔ §PLP-6a REOPENED — **THE CONCLUSION STANDS ON A PREMISE THAT WAS DELETED, AND NO REPLACEMENT WAS EVER WRITTEN.**
-
-The chain: §PLP-6a claimed the up-leg was dead → **§PLP-Z Q2.1 withdrew it** on the ground that the
-leg reaches `_poolSwap` → **`_poolSwap` has 0 code occurrences** (§C2.1 deleted it) → the withdrawal
-note says *"the conclusion survives for a different reason"* and **that reason is never stated.**
-⇒ Carried as settled, it asks the next thread to re-derive three layers to discover there is no
-fourth. project-a0 (who owns that lane) states plainly they do not know the different reason and
-will not guess. **Status: conclusion withdrawn, ground deleted, no replacement argument recorded.**
-🔴 **BOTH OF MY CLAIMS IN THIS ROW WERE WRONG. RETRACTED 2026-09-07, prompted by the owner asking
-whether I was closing things that are not closed.**
-  1. **I said the "different reason" was never written down. IT IS — at SPRINT.md:50517**, in the
-     stale-comment table rather than in this block: *"`LevManager._batch:346` … ✅ MEASURED LIVE
-     2026-09-05 — it selects the single-hop form of `_aggSwap`. The comment is accurate; the RESIDUAL
-     is that `rebalanceMany` cannot reach the two-hop path at all."* ⇒ The hardcoded `""` does NOT
-     refuse the route, it selects the single-hop form. That is the replacement argument, and it is a
-     MEASUREMENT. My "three layers and no fourth" reading was wrong because I searched the §PLP-6a
-     block and not the table that answers it.
-  2. **I closed §PLP-6a with evidence about the WRONG FUNCTION.** §PLP-6a is about the **UP-leg** —
-     the BUY side, `_batch` → `_aggSwap`. My 16 invocations were of `deleverEthOnDelivery`, the
-     **DOWN** leg. That measurement says nothing about the buy side. ⛔ A trace of one function does
-     not close a claim about another, however adjacent they look.
-⇒ **§PLP-6a stands WITHDRAWN on §PLP-Z Q2.1's conclusion, for the reason recorded at :50517** — not
-for anything I measured. The only thing my trace establishes is that `deleverEthOnDelivery` is
-reached, which was never what §PLP-6a disputed.
-⚠️ **THE LESSON, and it is the one the owner named:** two claims about neighbouring legs of the same
-feature, and I matched them by topic instead of by symbol. That is the same failure as grepping a
-bare name instead of `IFace(...).member` — **adjacency is not identity.**
-
-## §PLP-6-PROBE — **`DeleverEthBackingProbe` IS WRITTEN. IT DELIVERS ONE ANSWER, REFUSES TWO, AND NAMES WHAT IS LEFT.** (2026-09-07)
-
-`evm/test/DeleverEthBacking.t.sol` — the probe §PLP-6 has named since it was written and that had
-never existed. 23/23 green in `LevCascade`'s suite.
-
-✅ **THE REDEEM PATH DELIVERS.** On a 20-share redeem reporting `assets = 20.0605`, the recipient
-receives **20.0582 WETH**. ⚠️ **AND THE WAY THAT WAS NEARLY MISSED IS THE POINT:** measuring
-`address(this).balance` alone reported **0 native ETH**, which reads as *"consumed shares, delivered
-nothing"* — the payout is in **WETH**. That is §4a's own warning ("read the transfer log, do not
-infer") arriving as a FALSE NEGATIVE in the instrument rather than in the code, and it is the second
-time today a confident zero came from measuring the wrong thing. The probe now measures BOTH legs so
-it cannot recur.
-
-⛔ **THE DELEVER LEG WAS NOT EXERCISED BY THIS PROBE, AND IT SAYS SO OUT LOUD.** `rangeETH` ≈ 32.57
-ETH covered the ~20 ETH ask, so `sendEth` never fell through to the shortfall branch and
-`DeliverDeleverSkipped` count is 0. **A green tick here proves nothing about the leg** — the probe
-emits `NOT EXERCISED` rather than letting the pass imply coverage it does not have. ▶️ To exercise
-it the ask must EXCEED `rangeETH`; `BufferSwapDrain`'s buffer-consuming swaps already do (16
-invocations, measured today).
-
-🔴 **§PLP-6-BACKING-DELTA — RECORDED, DELIBERATELY NOT ASSERTED.** Across the redeem the backing
-identity separates: `committedUsd18` = **34,092.24** against `basketUsd − debt` = **38,751.17**, a
-**$4,658.93** gap, while `totalDebtUsd` is UNCHANGED at $557.80 either side. The identity HOLDS at
-both earlier checkpoints (seed deposit, levered open + rebalance) and holds throughout
-`BufferSwapDrain`'s swap paths, so the formula is right for those states. ⇒ Either a redeem
-legitimately has a transient the identity does not model, or something moves value without moving
-the debt term — **which is the failure §PLP-6 is actually about.** ⛔ Not asserted, because asserting
-it would bake in whichever guess I made; ▶️ the next step is to determine which, and that is now a
-one-fixture question rather than an open-ended one.
-
-📌 **WHAT §PLP-6 STILL NEEDS, precisely:** drive an ask that exceeds `rangeETH` so the leg runs with
-a MATERIAL shortfall (today's trace only ever gave it $0.0035 of dust, where it funded the venue,
-then `swapOutDeleverPooled` reverted `ERC20: transfer amount exceeds balance` and skipped with
-`takeFailed: false`), and assert `deliveredEth > 0` at the recipient. ⛔ Do NOT close §PLP-6 on this
-probe alone.
-
-## ✅ §PLP-6-EXERCISED — **THE LEG RUNS, SKIPS ON DUST, AND IS NOT WHAT REPAYS A MATERIAL SHORTFALL.** (2026-09-07)
-
-`DeleverEthBackingProbe` now drives the state §PLP-6 asks for — `test_G7`'s shape: free depth kept
-SMALL (10 ETH) and the LEVERED LP withdrawing `type(uint).max`, i.e. past free depth. 23/23 green.
-⚠️ My first version deposited 25 ETH and withdrew 80% as a PLAIN LP; `rangeETH` (~32.5) covered every
-ask, so the shortfall branch never ran. **Copying a state known to reach the code beats inventing one
-that looks reasonable** — the same lesson as §REFILL-SIZE, where the fixture's numbers WERE the
-experiment.
-
-**MEASURED (fresh pin, run-happened gate passed, both payout legs measured):**
-
-| | |
-|---|---|
-| lev debt before / after | **$554.78 → 0** |
-| `rangeETH` / `deliverableETH` | 17.54 / **12.02 ETH** — deliverability is the binding cap, not the claim |
-| LP received | **5.0394 WETH** (0 native — the payout leg is WETH) |
-| `deleverEthOnDelivery` invocations | **2** |
-| `DeliverDeleverSkipped` | **1** — `fundUsd = $0.0035`, caught at **`swapOutDeleverPooled` (delivery)** |
-
-🔴 **THE STRUCTURAL FINDING: THE MATERIAL SHORTFALL DOES NOT ROUTE THROUGH THIS LEG.** Debt goes to
-zero on the withdraw, but by the **LevManager's own unwind** — `deleverEthOnDelivery` is the
-`sendEth` FALLBACK and it only ever ran during SETUP, with **$0.0035** of dust, where it funded the
-venue (`takeFailed: false`) and then `swapOutDeleverPooled` reverted `ERC20: transfer amount exceeds
-balance`. ⇒ **"UNVERIFIED" was hiding a leg that is exercised but never load-bearing in this
-fixture.** Whether any production path gives it a material ask is now the open question, and it is a
-narrower one than the row has carried for weeks.
-
-⚠️ **AND A CONTROL FAILURE WORTH MORE THAN THE RESULT.** `vm.recordLogs()` sat immediately before the
-withdraw and reported `skips: 0` — correct for that window and badly misleading overall: the leg runs
-at trace lines **2488/4450** while recording started at **17085**. A `-vvvv` trace then showed "3
-DeliverDeleverSkipped", which was also wrong — **two of those three were my own log lines echoing the
-count.** ⇒ **A recording window that opens after the event is a control failure, not a result**, and
-a grep that matches your own instrumentation is not evidence. The window now opens on line one.
-
-📌 **STILL OPEN — §PLP-6-BACKING-DELTA.** Post-withdraw, `committedUsd18` = **19,015.30** against
-`basketUsd − debt` = **21,789.91**: a **$2,774.60** gap, with `totalDebtUsd` now **0**. It holds at
-the earlier checkpoints and throughout `BufferSwapDrain`. Recorded, not asserted — the probe does not
-guess whether a withdraw legitimately has a transient the identity does not model.
-
-## ✅ §PLP-6-BACKING-DELTA — **CLOSED. IT IS A STALE PUSH, NOT A VALUE LEAK — AND THE RESIDUAL IS THE SIBLING TERM.** (2026-09-07)
-
-The $2,774.60 separation between `committedUsd18()` and `basketUsd − debt` after the de-lever is
-**accounting lag, not missing value.** Measured, not argued:
-
-| | reported | live (`basketUsd·1e12 − debt`) | gap |
-|---|---|---|---|
-| after the withdraw | **19,015.32** | 21,789.88 | **2,774.60** |
-| after ANY mint/burn (a 1-ETH deposit) | **24,260.16** | 24,260.16 | **0** |
-
-🔑 **WHY.** `committedUsd18()` is NOT computed live — it returns `AUX.committedTotal()`, i.e.
-`committedOf[CORE] + committedOf[BTC_CORE]`, the last figures **PUSHED** by `_reportEquity()`. That
-push fires at exactly two sites, both arms of `_poolUsdInRange`. The de-lever moved `basketUsd` UP
-by 2,219.82 and debt DOWN by 554.78 — summing to the gap exactly — through a path that does not
-route through the reporting site, so the aggregate simply had not been told. Decomposed per range,
-**the whole gap sat on ETH** (BTC reported 0 / live 0), which is what ruled out a value leak.
-
-⛔ **AND THE BACKING GATE NEVER READS ITS OWN STALE FIGURE**, so this is not the over-permissive bug
-it first looks like: `_reportEquity()` runs on the line BEFORE
-`require(committedUsd18() <= haircutTvl, "backing")` — deliberately, per §BACKING-DEAD, *"so the gate
-sees THIS range's new equity, and the sibling's last pushed figure."*
-
-⚠️ **THE RESIDUAL, STATED NARROWLY:** the SIBLING term can be stale. Range B's backing gate reads
-range A's LAST PUSH, which lags a de-lever on A until A's next mint or burn. While stale the figure
-is LOW (19,015 vs 21,790), so the sum under-states commitment and the gate is MORE permissive than
-the live state warrants. **Not exercised here** — BTC was 0 throughout this fixture, so there was no
-sibling to be stale against. ▶️ To exercise it: an active BTC range, a de-lever on ETH, then a BTC
-mint before ETH re-pushes. That is a two-range fixture and it does not exist yet.
-📌 Now asserted in `DeleverEthBackingProbe`, so a future change that stops the re-push fails loudly.
-
-## §PLP-6-SIBLING — **THE RESIDUAL IS EXERCISED AND QUANTIFIED: $2,774.60 UNDERSTATED. AND WHAT IT DOES NOT SHOW.** (2026-09-07)
-
-The two-range fixture the previous row said did not exist now does —
-`test_PLP6_SiblingTermIsStaleAcrossADeleverOnTheOtherRange`. Active BTC leg, a de-lever on ETH, a
-BTC mint before ETH re-pushes. **Measured:**
-
-| | usd18 |
-|---|---|
-| BTC reported (fresh) | 15,750.16 |
-| ETH reported (**stale**) | 19,015.39 |
-| ETH live | 21,790.00 |
-| `committedUsd18()` — what the gate reads | **34,765.55** |
-| live total | **37,540.16** |
-| **understatement** | **2,774.60** |
-
-⇒ The exposure §BACKING-DEAD's own comment implies (*"the gate sees THIS range's new equity, and the
-sibling's LAST PUSHED figure"*) is real and material: a sibling mint completes against an aggregate
-understated by $2,774.60. `committedTotal` is read **69** times and `Aux::report` fires **31** times
-in that trace, so the gate genuinely consumes this number.
-
-🔴 **I HAD TO REWRITE THIS TEST BECAUSE THE FIRST VERSION WAS OVERFIT — worth recording, because the
-failure is subtle and it passed.** Its headline assertion was
-`assertEq(ethAfterBtcMint, ethStale)` — "a BTC mint does not refresh ETH's term". **That cannot
-fail:** `Aux.report` writes `committedOf[msg.sender]`, so only the reporting range's slot can ever
-move. It restated the source as a measurement and would have gone green whether or not the staleness
-mattered. ⇒ **A test whose assertion is guaranteed by the code's structure measures nothing.** It is
-now logged as mechanism, and the assertion is the understatement being MATERIAL (>1000 usd18), which
-depends on the de-lever having actually moved value off the reporting path.
-⭐ **PROVED NON-VACUOUS BY INJECTION:** inserting an ETH re-push before the measurement makes it FAIL
-at `PREMISE: ETH's pushed term must actually be stale here` — it refuses to measure a state it did
-not reach rather than reporting a zero gap.
-
-⛔ **WHAT IS STILL NOT ESTABLISHED, AND THE ROW MUST NOT BE READ AS SAYING IT: no gate was shown to
-PASS WHEN IT SHOULD HAVE FAILED.** That needs `liveTotal > haircutTvl >= committedUsd18()` — the
-understatement straddling the bound. Under-stating commitment makes the gate MORE permissive, so the
-direction is unfavourable; whether any reachable state crosses the bound is a separate question and
-is NOT claimed here. ▶️ That is the next measurement, and it is now a bounded one: drive basket TVL
-down (or commitment up) until `haircutTvl` falls between the two figures above.
-
+`TARGET-DESIGN` Part II lists `deleverEthOnDelivery` as the **drain-side absorption**, on the strength
+of §PLP-6's description of the mechanism. **This row says the mechanism is real but small.** ⇒ the
+model's drain half may be weaker than Part II claims, and the open question is not *"does the leg
+work"* (it does) but *"what serves a MATERIAL drain when free depth is gone"* — which is the same
+question deferral answers on the sell-in side. **Booked against Part II rather than left here.**
 ## §NO-VBTC-MORPHO-MARKET-2026-09-07 — ⛔ STANDING RULING, CLOSED BY DELETION
 
 **Owner, 2026-09-07:** *"idk if IL protect should be doable by using our lightning bitcoin as
