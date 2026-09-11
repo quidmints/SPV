@@ -43,7 +43,7 @@ These replace the committed **dev placeholders**. Generate on an air-gapped/HSM 
 
 - [ ] Build WITHOUT via_ir/optimizer crutches (`forge build --sizes`; libs must fit EIP-170 — see [[headStart bisect method]]).
 - [ ] Confirm **feed pins**: 10/11 basket stables have a Chainlink USD feed (BOLD has none — proxy-only RLUSD/USDG/AUSD resolve via data.eth ENS); all pinned at deploy ([[quid-stable-feed-coverage]]). Feeds/forwarder should be constructor-immutable ([[quid-cre-feed-trust-surface]]).
-- [ ] Deploy: `cp deploy/deploy.env.example deploy/deploy.env` (edit), then `BROADCAST=1 deploy/deploy-l1.sh deploy/deploy.env` (wraps `evm/src/DeployL1_s.sol`). SPVGateway anchored at a Bitcoin checkpoint; BTCChannels `hopNode = HOP_NODE_OPERATOR`.
+- [ ] Deploy: `cp deploy/deploy.env.example deploy/deploy.env` (edit), then `BROADCAST=1 deploy/deploy-l1.sh deploy/deploy.env` (wraps `evm/src/DeployL1_s.sol`). SPVGateway anchored at a Bitcoin checkpoint; BTCChannels pins `HOP_MAIN` / `HOP_FALLBACK` at construction (the hop enclave's derived address — provision the hop first).
 - [ ] **Record printed addresses** → they feed the hop/LP env (`QUID_BTC_CHANNELS`, `QUID_BTC_VAULT`, `QUID_SPV_GATEWAY`, `QUID_CHAIN_ID`, `QUID_RPC_URL`).
 
 ---
@@ -70,8 +70,7 @@ These replace the committed **dev placeholders**. Generate on an air-gapped/HSM 
 
 ## Phase 4 — LP onboarding
 
-- [ ] LPs self-host `quid-lp-daemon`: **own SGX** (build for the SGX target, born-in-enclave) OR **own laptop** (plain build, local `QUID_SEED`, mock seal — their risk; needs a watchtower). Same binary, dual-compiled. No cross-attestation needed.
-- [ ] LP runs the `lpAuth` responder (signs each on-chain open the hop drives; the LP EVM key only ever signs the off-chain `lpAuth` digest, never sends txs — hop pays gas). Channel funding = BTC to the P2TR 2-of-2 `0x5120‖Q` (both funding pubkeys enclave-born).
+- [ ] ⛔ **No LP runs a daemon** (§NO-SELF-PROVISIONED-LPS, `8faddbb1`): the LP half of every 2-of-2 is the fleet-hosted VAULT, derived from the same enclave seed (`derive_vault_seed`). The LP's own device SIGNS only its own refund/exit leaves (ibiza `schnorr.ts`); there is no `lpAuth` responder — per-open/per-splice `lpAuth` is retired (`BTCChannels.sol:65`). Channel funding = BTC to the P2TR 2-of-2 `0x5120‖Q` (both funding pubkeys enclave-born).
 
 ---
 
@@ -80,7 +79,7 @@ These replace the committed **dev placeholders**. Generate on an air-gapped/HSM 
 - [ ] **NEVER ship a single-enclave-no-backup custody key.** A 2-of-2 cannot be moved by one party, and the seal is MRENCLAVE+machine-bound, so an enclave/hardware loss with no backup LOCKS funds forever (spec §11 gotcha — applies to BOTH the hop's key and each LP's key). Therefore:
   - [ ] **Cold floor:** one-time, attested, LP-/operator-initiated backup of *their own* seed (shown once, never persisted unsealed; reuse `sealed_seed.rs`).
   - [ ] **Hot standby:** attested enclave→enclave **replication** to ≥1 standby (same MRENCLAVE) so a single hardware loss doesn't strand funds.
-- [ ] **LP availability is a HARD requirement** (separate from the SGX-vs-plain key choice): a swap-serving LP must be **always-on** — its key co-signs swap-out splices in real time. The hop routes swap-outs only through *connected* LPs (`select_delivery_channel` filters on LDK `list_usable_channels()`), so an offline LP is skipped (no global DoS) but serves nothing while down. Run LPs on always-on hardware, not sleeping laptops.
+- [ ] **LP availability is NOT a delivery requirement any more** (§NO-SELF-PROVISIONED-LPS): the vault co-signs swap-out splices in-process, so a delivery never waits on an LP device. What the LP's device is still needed for is its OWN refund/exit spends.
 - [ ] **Watchtower** (keyless, hostable public good) for any node that can go offline — defends against revoked-state broadcast while a node is down ([[project-quid-ln-attack-surface]]).
 - [ ] **Bitcoin Core anti-eclipse**: supply `asmap.dat` + real `addnode=` peers per [`quid-ln/ops/README.md`](../quid-ln/ops/README.md) (bitcoind fails-closed without asmap).
 

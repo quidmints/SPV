@@ -178,15 +178,10 @@ library DeployLib {
         // later, and no configuration under which it talks to another one.
         Basket quid = new Basket(address(ETH), address(aux), LZ_ENDPOINT_V2);
 
-        // Reference V4 PoolKeys — Core reads their slot0 ticks at setup and seeds
-        // VANILLA_ETH / VANILLA_BTC at live market prices (built in its own frame).
-        // §V4-CUT — THE DEPLOYER READS THE REFERENCE POOLS, NOT `Core`. This lookup is a read of
-        // pools we do not own and is needed exactly ONCE, to seed each range's ring; keeping it
-        // inside `Core` forced that contract to carry an IPoolManager and two PoolKeys forever for
-        // a deploy-time question. Each instance now receives its seed PRICE.
-        // ⚠️ SCOPED (`via_ir = false`): the two PoolKeys and two seed prices are dead the moment
-        // both setups have run, and this frame is already at the stack limit -- MEASURED, it
-        // overflowed at `_newVault` before the block was added.
+        // Seed each range's ring at the live Chainlink price (§V4-ZERO: no reference pool is read).
+        // ⚠️ SCOPED (`via_ir = false`): the two seed prices are dead the moment both setups have
+        // run, and this frame is already at the stack limit -- MEASURED, it overflowed at
+        // `_newVault` before the block was added.
         {
         (uint seedEth, uint seedBtc) = OracleLib.seedPrices(cfg.ethFeed, cfg.btcFeed);
         core.setup(address(ETH), address(aux), address(quid), seedEth);   // ETH range manager IS Quid
@@ -325,8 +320,6 @@ library DeployLib {
         ch = address(c);
     }
 
-    /// @dev The two reference PoolKeys (ETH/USDT + USDC/WBTC), built in their own
-    ///      frame to keep `deployQuidStack`'s stack shallow (no via_ir).
     // §V4-ZERO — `_refKeys` DELETED. It built two `PoolKey`s naming Uniswap pools this protocol does
     // not own, trade on, or validate, purely so a deploy could read their `slot0` once. The seed now
     // comes from the same Chainlink feeds every runtime TWAP is anchored against.

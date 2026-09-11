@@ -316,15 +316,11 @@ contract Deploy is Script {
         uint256 checkpointWork = vm.envUint("BTC_CHECKPOINT_WORK");
         require(checkpointHeader.length == 80, "BTC_CHECKPOINT_HEADER: 80 bytes");
         require(checkpointHeight > 0, "BTC_CHECKPOINT_HEIGHT: required");
-        // Operator hop node: the public half of a standard secp256k1 keypair the
-        // operator generates on their own signing machine. Every BTCChannels fn is
-        // permissionless (sigs gate them), so the hop's per-channel LDK funding key
-        // is supplied per open; this is just the address that may rotate the hop.
-        address operatorHop = vm.envOr("HOP_NODE_OPERATOR", deployer);
         // (E164) The two addresses that may operate a channel, pinned at construction and never
-        // settable. Defaulting the fallback to the deployer is a DEV convenience — on mainnet both
-        // must be real, separately-keyed operator addresses, or the fallback protects nothing.
-        address mainHop_ = vm.envOr("HOP_MAIN", operatorHop);
+        // settable. HOP_MAIN is the hop enclave's DERIVED EVM address (born-in-enclave seed; no
+        // operator-held hot key in prod). Defaulting either to the deployer is a DEV convenience —
+        // on mainnet both must be real, separately-keyed addresses, or the fallback protects nothing.
+        address mainHop_ = vm.envOr("HOP_MAIN", deployer);
         address fallbackHop_ = vm.envOr("HOP_FALLBACK", deployer);
 
         DeployLib.StackAddrs memory A = DeployLib.deployQuidStack(DeployLib.StackConfig({

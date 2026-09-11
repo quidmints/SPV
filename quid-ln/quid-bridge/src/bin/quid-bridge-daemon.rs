@@ -31,7 +31,7 @@
 //!   QUID_LSP_ADDR           LP p2p addr host:port
 //!   QUID_START_BLOCK        EVM block to seed the log cursors (decimal)
 //! Optional (sane defaults): QUID_MIN_CONFIRMATIONS, QUID_MAX_FEE_PER_GAS,
-//!   QUID_MAX_PRIORITY_FEE, QUID_GAS_LIMIT, QUID_LP_FEE_RATE_SAT_VB, the poll
+//!   QUID_MAX_PRIORITY_FEE, QUID_GAS_LIMIT, the poll
 //!   intervals, QUID_RELAY_BATCH_MAX, QUID_RELAY_REORG_LOOKBACK.
 
 use std::path::PathBuf;

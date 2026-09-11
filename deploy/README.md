@@ -4,8 +4,8 @@
 > is [`PRODUCTION-LAUNCH.md`](./PRODUCTION-LAUNCH.md)** — start there. This file is
 > the quick command/env reference it builds on. NOTE: prod/staging run the
 > daemons **inside SGX** and the hop seed is **born-in-enclave** (so `QUID_SEED`
-> is optional — see PRODUCTION-LAUNCH.md); the plain `run-hop.sh`/`run-lp.sh`
-> flow below is the host/dev path.
+> is optional — see PRODUCTION-LAUNCH.md); the plain `run-hop.sh` flow below is
+> the host/dev path.
 
 Operational scripts to deploy the L1 contracts and run the two off-chain
 services: the **hop** (the protocol's Lightning↔EVM node, one instance) and the
@@ -16,8 +16,8 @@ Provisioning order:
 
 1. **Deploy the L1 contracts** — `deploy/deploy-l1.sh` (wraps
    `evm/src/DeployL1_s.sol:Deploy`). Deploys the full topology incl. SPVGateway
-   (anchored at a Bitcoin checkpoint) + BTCChannels (with `hopNode` =
-   `HOP_NODE_OPERATOR`). Record the printed addresses.
+   (anchored at a Bitcoin checkpoint) + BTCChannels (hop addresses pinned from
+   `HOP_MAIN` / `HOP_FALLBACK`). Record the printed addresses.
 2. **Run the hop** — `deploy/run-hop.sh` (wraps `quid-bridge-daemon`). The hop
    drives swap-in/out settlement, the SPV header relayer, and the BTC-channel
    driver (`openChannel`/`recordClose`) + reconciler. Its hot key must equal the
@@ -41,9 +41,6 @@ Copy the `*.env.example` templates, fill them in, and pass the path:
 
     cp deploy/hop.env.example deploy/hop.env         # edit (addresses from step 1)
     deploy/run-hop.sh deploy/hop.env
-
-    cp deploy/lp.env.example deploy/lp.env           # edit
-    deploy/run-lp.sh deploy/lp.env
 
 `*.env` files (your filled-in secrets) are git-ignored; only the `*.example`
 templates are tracked.
