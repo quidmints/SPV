@@ -205,6 +205,37 @@ mod tests {
         assert_eq!(swap_in_floor_usd(50_000_000, price, 20_000), U256::ZERO);
     }
 
+    /// §FLOOR-HAS-NO-CROSS-LANGUAGE-VECTOR — **THE OTHER HALF OF A PAIR. DO NOT CHANGE EITHER
+    /// CONSTANT ALONE.**
+    ///
+    /// `BitcoinTx.settleFloorUsd` computes this same quantity on-chain, and the chain's answer is
+    /// the one that BINDS: `settleSwapInProven` recomputes the floor from the seller's signed
+    /// `terms` and ignores whatever this function produced. So a drift here cannot under-deliver —
+    /// it quotes the seller one floor and enforces another, or makes the hop accept a swap the
+    /// contract then reverts.
+    /// ⚠️ **THE TWO SIDES WERE PINNED TO DIFFERENT INPUTS AND NEVER TO EACH OTHER** until
+    /// 2026-09-11 — Solidity asserted 742_500_000 at 1.5M sats, Rust asserted $24,750 at 50M sats,
+    /// and each agreed only with itself. That is exactly how `test_openparams_abi_ground_truth` sat
+    /// RED for weeks. This test uses the SOLIDITY fixture verbatim so the pair cannot drift apart.
+    ///
+    /// Mirror: `evm/test/btc/SwapInDeposit.t.sol::test_theFloorIsDerivedFromTheCommittedRate`.
+    #[test]
+    fn floor_matches_the_solidity_vector() {
+        // `_terms()` in the Solidity test: pricePerBtc = 50_000 * 1e6, slippageBps = 100.
+        let price = U256::from(50_000u64) * U256::from(1_000_000u64);
+        // 1,500,000 sats x $50,000/BTC / 1e8 = $750.00; less 100 bps = $742.50, 6-dec.
+        assert_eq!(
+            swap_in_floor_usd(1_500_000, price, 100),
+            U256::from(742_500_000u64),
+            "drifted from BitcoinTx.settleFloorUsd — ONE of the two implementations moved",
+        );
+        assert_eq!(swap_in_floor_usd(0, price, 100), U256::ZERO, "no sats, no floor");
+        // The saturation boundary is where the two are most likely to drift: Solidity writes
+        // `slippageBps >= 10_000 ? 0 : 10_000 - slippageBps`, Rust writes
+        // `10_000.saturating_sub(min(10_000))`. Same answer, different mechanism — so pin it.
+        assert_eq!(swap_in_floor_usd(1_500_000, price, 10_000), U256::ZERO, "100% tolerance");
+    }
+
     #[test]
     fn decode_swap_out_onchain_log() {
         let swapper = Address::from([0x42u8; 20]);

@@ -633,7 +633,13 @@ Each was carried as open, some in red, some for weeks.
    has. It is booked because it is CHEAP to remove on-chain and because item 0 is meant to end exactly
    this class of delegation; a floor the daemon authors would survive item 0 unless it is fixed here.
 
-**14c. `§FLOOR-HAS-NO-CROSS-LANGUAGE-VECTOR`** — `BitcoinTx.settleFloorUsd` and
+**14c. ✅ `§FLOOR-HAS-NO-CROSS-LANGUAGE-VECTOR` — CLOSED 2026-09-11.** Both sides now pin the SAME
+   vector: Rust's `floor_matches_the_solidity_vector` asserts `742_500_000` from the Solidity
+   fixture verbatim, and `test_theFloorIsDerivedFromTheCommittedRate` names it as half of a pair.
+   **The saturation boundary is pinned on both sides too**, because the two reach it by DIFFERENT
+   mechanisms — Solidity branches `slippageBps >= 10_000`, Rust uses
+   `10_000.saturating_sub(min(10_000))` — and agreeing today is not agreeing by construction.
+   *(original row:)* `BitcoinTx.settleFloorUsd` and
    `quid_hop::swap::swap_in_floor_usd` compute the SAME quantity and are logically identical
    (`sats*price/1e8`, then `(10_000 − slippageBps)/10_000`, both flooring to 0 at ≥ 10_000 bps). **They
    are pinned to DIFFERENT vectors and never to each other:** Solidity asserts `742_500_000` at
@@ -715,7 +721,15 @@ Each was carried as open, some in red, some for weeks.
    **The single highest-value test in the Bitcoin scope**, and still **half-covered**: the freshness
    script exists, nothing broadcasts a matured exit. ⚠️ **Until it runs, "refundable trustlessly" is
    a design intention, not a measured property.**
-**26b. 🔴 RAIL B's e2e CANNOT PASS UNTIL THE HARNESS PRODUCES VAULT-SIGNED CONSENT.** `driver_e2e.rs:448-456`
+**26b. ✅ CLOSED 2026-09-11 — RAIL B's e2e PASSES END TO END, 5/5.** `swap_out_onchain_delivery_on_real_evm`:
+   open with the vault ladder, a 648,111-sat curve fill, the vault's splice-out negotiated, signed,
+   broadcast and LOCKED on a real node, `deliverSwapOutOnchain` SPV-verified and landed,
+   `pendingOnchainSwapOut` cleared. ⚠️ **THE EVIDENCE IS project-e9's RUN, NOT MINE** — I did not
+   re-run the regtest harness, and this row is closed on their measurement (`origin/main` 01e69680).
+   Three defects had to clear first, all found BY the e2e rather than by review: the MuSig2
+   advertise==sign split (§NONCE-TWO-RULES), `deliverSwapOutOnchain` demanding the pre-splice key
+   pair while `_verifySplice` needed the post-splice one, and a raw 2M gas send that was mined OOG.
+   *(original row:)* RAIL B's e2e CANNOT PASS UNTIL THE HARNESS PRODUCES VAULT-SIGNED CONSENT. `driver_e2e.rs:448-456`
    says it in terms: `drive_open` refuses without `consent_for_funding` (an `OpenAuth` + `ExitArming`
    ladder), the harness only binds funding, so `swap_out_onchain_delivery_on_real_evm` stops at PROOF 1 —
    and the delivery step needs a SECOND ladder for the rotated outpoint (`swap_out_onchain.rs:368`). Its

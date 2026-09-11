@@ -155,9 +155,24 @@ contract SwapInDepositTest is Test {
     ///    calldata — a hop could quote the seller one floor and settle against another. Now the
     ///    address commits the RATE and the chain applies it to SPV-proven sats.
     ///    1,500,000 sats × $50,000/BTC ÷ 1e8 = $750.00; less 100 bps = $742.50 (6-dec).
+    /// 🔑 §FLOOR-HAS-NO-CROSS-LANGUAGE-VECTOR — **742_500_000 IS HALF OF A CROSS-LANGUAGE PAIR.**
+    /// `quid_hop::swap::swap_in_floor_usd` computes the same quantity for the QUOTE the seller is
+    /// shown, and `floor_matches_the_solidity_vector` asserts this exact constant on that side.
+    /// Until 2026-09-11 the two were pinned to DIFFERENT inputs and never to each other, so each
+    /// agreed only with itself — the shape that left `test_openparams_abi_ground_truth` red for
+    /// weeks. **Change one constant and you must change both, or the pair has stopped meaning
+    /// anything.**
     function test_theFloorIsDerivedFromTheCommittedRate() public view {
         assertEq(BitcoinTx.settleFloorUsd(_terms(), 1_500_000), 742_500_000, "floor = sats*price/1e8, less slippage");
         assertEq(BitcoinTx.settleFloorUsd(_terms(), 0), 0, "no sats, no floor");
+
+        // The saturation boundary, pinned on both sides because the two implementations reach it by
+        // DIFFERENT mechanisms: this one branches `slippageBps >= 10_000`, Rust saturates through
+        // `10_000.saturating_sub(min(10_000))`. Agreeing today is not the same as agreeing by
+        // construction.
+        Types.Terms memory full = _terms();
+        full.slippageBps = 10_000;
+        assertEq(BitcoinTx.settleFloorUsd(full, 1_500_000), 0, "100% tolerance floors to zero");
     }
 
     function test_termsCommitmentIsPinned() public view {
