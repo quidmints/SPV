@@ -17715,68 +17715,37 @@ by COMPOUNDING rather than per-share accrual, which is the timing question §E22
 
 ---
 
-## 🟡 §E281 — **WE REINTRODUCED IDLE CAPITAL THROUGH THE OOR BOOK, WHICH IS THE ONE THING THE ORACLE-SETTLED DESIGN EXISTS TO ABOLISH**
+## 🪦 §E281 — **RESOLVED BY §OOR-BOOK-DELETED. The idle category no longer exists.**
 
-Settling at oracle against `POOLED` means **every dollar of pooled inventory is quotable at every
-price** — there is no out-of-range capital by construction, and §E58 goes further by counting levered
-depth as range depth (*"in the range is in the range alike"*). That is the structural answer to
-concentrated liquidity leaving most supply unused, and it is the strongest claim this architecture has.
+Its claim: *"settling at oracle against `POOLED` means every dollar of pooled inventory is quotable at
+every price — there is no out-of-range capital by construction … **But `selfManaged` positions are
+idle until price touches their trigger, and they are absent from `Quid.totalSupply()`.**"*
 
-**But `selfManaged` positions are idle until price touches their trigger, and they are absent from
-`Quid.totalSupply()`.** §E258's `fillOOR`/`sweepOor` now consumes them ON TOUCH, so they are no longer
-permanently stranded — but between placement and touch they are exactly the category the design
-claims to have removed.
-⚠️ **CORRECTED 2026-08-23: this used to end *"and §E255 still has to settle whether they count as
-supply"*, naming `oorShares` as the quantity.** There is no `oorShares` (0 references) and no
-aggregate OOR share count at all — the book is per-order (`selfManaged`/`positions`/`oorBook`), so
-"do they count as supply" is answered BY CONSTRUCTION (they do not) and is not a §E255 decision.
+✅ **`selfManaged` has ZERO code references tree-wide.** The on-chain OOR book was replaced by a
+signature (`fillIntentBody`), and a resting intent is **not custodied** — so there is no capital to be
+idle. The category the row identified is gone rather than fixed.
 
-▶️ **AND THERE IS A SECOND, UNMEASURED AXIS: VALUED ≠ DELIVERABLE.** `_skewBasis:1211` prices off
-`ICore(core).POOLED()`, while `QuidLib.deliverableETH:727` applies partial-liquidity haircuts and
-`Quid.sol:715` records that it can be **~0**. If those diverge we quote as flush while unable to
-deliver — a revert to a solver that has already committed a price, which is the worst failure shape
-for the RFQ counterparty §E272/§E275 assume. **I did not trace whether the swap path can reach that
-state; that trace is the task.**
+⭐ **ITS POSITIVE CLAIM SURVIVES AND IS WORTH KEEPING, because it is the strongest thing the
+architecture has:** *every dollar of pooled inventory is quotable at every price — there is no
+out-of-range capital by construction*, and §E58 counts levered depth as range depth (*"in the range is
+in the range alike"*). **That is the structural answer to concentrated liquidity leaving most supply
+unused**, and it is now unqualified: the one exception this row named has been deleted.
+## 🔴 §E282 — **STILL TRUE, NOW LOAD-BEARING, AND THE MODEL NAMES ITS FIX**
 
----
+> *"Nothing unwinds the IL hedge when borrow cost exceeds fee yield."* Measured across the whole `Lev`
+> family: `LevManager` 0, `BtcLevManager` 0, `LevMath` 0, `LevBase` 1, `LevVenueBase` 4 — **all five
+> surviving hits are prose or a Morpho enum.** Structural, not an absence.
 
-## 🟡 §E282 — **NOTHING UNWINDS THE IL HEDGE WHEN BORROW COST EXCEEDS FEE YIELD**
-
-`grep -n "borrowRate\|carry\|interest"` over `LevManager.sol` and `LevMath.sol` returns **zero hits**
-(2026-08-21). ⚠️ **AN EMPTY GREP PROVES NOTHING ABOUT THE TREE** — this is a bounded claim about the
-two files that would carry it, not an assertion that no such logic exists anywhere.
-
-✅ **RE-RUN AND WIDENED 2026-08-22, AND THE FINDING SURVIVES IN A STRONGER FORM — IT IS NOW STRUCTURAL,
-NOT AN ABSENCE.** The original grep was bounded to two files and the row said so; the whole `Lev`
-family now measures: `LevManager.sol` 0, `BtcLevManager.sol` 0, `LevMath.sol` 0, `LevBase.sol` 1,
-`LevVenueBase.sol` 4. **All five surviving hits are prose or a Morpho enum** — `LevBase.sol:259`
-("carrying it" = a function signature), `LevVenueBase.sol:122/:177/:178` (three `@dev` notes on why a
-`view` cannot `accrueInterest`), `LevVenueBase.sol:212` `VARIABLE_RATE = 2` (Aave's
-`interestRateMode` selector, not a rate). **No file in the tree re-evaluates the hedge against what
-the debt costs.**
-🔴 **AND THE NEAR-MISS IS THE PART WORTH KEEPING, because it makes this un-fixable by a one-line call:
-the IRM ADDRESS IS HELD AND NEVER ASKED ANYTHING.** `LevVenueBase.sol:88` stores
-`address private immutable IRM`, `:96` assigns it from `m.irm`, and `:102` hands it straight back to
-Morpho inside `MarketParams` — required by the venue's API, so it is **plumbed through, never read**.
-There is **no `interface IIrm`, no `borrowRate`, no `borrowRateView`** declared anywhere in
-`evm/src` (0 hits repo-wide, control: `accrueInterest` and `totalBorrowAssets` ARE declared in
-`Interfaces.sol:61`/`:71`, so the sweep can see Morpho's surface when it exists). ⇒ **The protocol
-cannot read its own borrow rate today.** Answering this row's question with "unwind on negative carry"
-therefore costs a new interface declaration plus a keeper read — not a comparison against a number
-already in hand, which is what the row's shape implies.
-⚠️ `MORPHO.accrueInterest` IS called (`LevVenueBase.sol:126`, `:132`), which is why "interest" appears
-at all: **the position pays and settles interest correctly, and simply never prices it.** Accrual is
-not observation — reading one as the other is how this looks handled.
-
-The hedge borrows the venue stable to restore ETH the range already sold. In a flat, low-volume regime
-the position pays borrow interest while the range generates little fee income, so net carry goes
-negative and nothing observed here re-evaluates it: `debtDeltaToTarget` targets `E0·soldFractionWad`,
-which is a function of the RANGE's sold fraction alone and is blind to what the debt costs.
-▶️ Settle whether that is a deliberate non-requirement (the hedge is a tracking obligation, priced
-however it costs) or a gap. **State which, with a reason — a dismissal is a conclusion (rule 13).**
-
----
-
+⭐ **THE MODEL TURNS THIS FROM A GAP INTO A SPECIFIED RULE.** `TARGET-DESIGN` Part I §9: *act when the
+carry ALREADY PAID on the excess debt exceeds the round trip it would cost to fix it.* That is the
+unwind condition this row says does not exist, stated without a forecast — and it is symmetric: the
+same accumulator that says **hedge** says **unwind**.
+📌 **AND THE NUMBERS EXIST NOW.** Part I §10: net carry is **183 bps/yr** (4.30% gross − the 2.46%
+weETH ratchet the collateral earns while posted), and the hedge is sized by drift rather than by the
+whole book. This row could not be actioned when written because neither term was measured.
+⏸️ **What is still owed is the other side of the comparison:** fee yield per unit of levered notional,
+which is Part III decision 6 (turnover). **The unwind rule is specified; one of its two inputs is not
+yet measured.**
 ## ✅ §E285 — **SHIPPED, SAME COMMIT (`94d94899`). CLOSED 2026-08-23: the inventory-residual bound it specifies is built as `_fillableDrain`. Kept below as the derivation.**  **§E278-partialfill IS NOT BLOCKED ON §E276. THE BOUND THE PDFs SPECIFY IS AN INVENTORY RESIDUAL, AND IT IS INVARIANT TO SPREAD-vs-SHIFT.**
 
 **Owner asked whether the refill trigger the other thread wired matches the design in `plan.pdf` /
@@ -21083,50 +21052,22 @@ close to free; wide dispersion ⇒ it is not.
 
 ---
 
-## 🟠 §E339 — **THERE ARE NO "MULTIPLE ENTRIES" TO WEIGHT: TOP-UPS ARE FORBIDDEN. `openPos` IS A LATENT LANDMINE FOR THE DAY THEY ARE NOT.**
+## 🟠 §E339 — **THE LANDMINE IS LIVE AND THE MODEL MAKES IT SHARPER, NOT SAFER**
 
-Owner: *"entry should be a weighted average by the way over multiple entries."* **Checked. The
-capability that premise assumes does not exist — and the code that would implement it wrongly is
-already written.**
+> *"There are no multiple entries to weight: **top-ups are forbidden**. `RangeLib.openPos` does a
+> wholesale overwrite — `pos[lp] = p;` — so a second open would REPLACE `ilBasisPx` outright, not
+> blend it. Unreachable today because `openLev` reverts `AlreadyOpen`."*
 
-### 1. ✅ NO BUG TODAY — BUT ONLY BECAUSE TOP-UPS ARE REFUSED
-`RangeLib.openPos` (`:444`) does a **wholesale overwrite**: `pos[lp] = p;`, with the `lpIdx` guard
-covering only the index push, not the position. A second open would therefore **replace `ilBasisPx`
-outright**, not blend it. It is unreachable: `LevManager.openLev:242` is
-`if (pos[msg.sender].open) revert AlreadyOpen();`.
-⇒ **One position, one entry, and the only way to add is close-and-reopen — which REALISES the IL and
-re-anchors at the current price.** That is a real product limitation and it is nowhere stated as a
-decision; it falls out of a guard.
-
-### 2. 🔴 THE LANDMINE, AND IT CUTS BOTH WAYS
-The moment a top-up path is added — and *"entry should be a weighted average"* is a request for one —
-`openPos`'s `pos[lp] = p` silently resets the basis. Both directions are wrong and one is an attack:
-- **top up after a RISE** ⇒ basis re-anchors UP ⇒ the LP **destroys its own protection** on the whole
-  position (protection is `0` at/below entry);
-- **dust top-up at a local LOW** ⇒ basis re-anchors DOWN ⇒ `1 − √(entry/now)` inflates across the
-  **entire** position ⇒ **the protocol pays protection the LP never bought.**
-▶️ **Any top-up feature must blend `ilBasisPx` size-weighted at the same commit that opens the path.**
-Book it against `openPos`, not against the caller: the overwrite is the defect.
-
-### 3. ⭐ AND THIS REFINES §E338 — WEIGHTED-AVERAGE ENTRY *IS* THE POOLING APPROXIMATION, AT SMALLER SCALE
-§E338 argued against pooling because `1 − √(entry/now)` is concave, so a position sized on an AVERAGE
-entry under-hedges the sum of per-entry obligations. **A weighted-average entry within one LP is the
-same approximation.** Measured — one LP with 100 units at 2,000 and 1 at 4,000, price 5,000:
-| | protection |
-|---|---|
-| per-tranche (exact) | 0.364951 |
-| weighted-average entry | 0.364421 |
-| **error** | **−5.3 bps of notional** |
-⇒ **So the owner's proposal implicitly accepts the concavity cost — and once accepted within an LP, the
-objection to accepting it ACROSS LPs is one of DEGREE, not of kind.** §E338's Jensen argument therefore
-does not rule pooling out; it prices it. **The deciding number is dispersion:** tranches within one LP
-are usually close (5.3 bps here), entries across all LPs need not be (40 bps in §E338's two-LP case, and
-wider as the book ages). ▶️ **Measure `ilBasisPx` dispersion across open positions — that single number
-decides pooled-vs-per-LP, and it is cheap to compute off-chain from the existing `openLpAt` accessor.**
-
-
----
-
+✅ **Still exactly true** (`RangeLib.openPos:195-202` carries the same warning in the code).
+🔴 **AND THE MODEL RAISES THE STAKES, because it makes the overwritten field MORE load-bearing, not
+less.** Part I §7 replaces the price-based `ilBasisPx` with **`entryEquity`**, which `openPos` also
+overwrites wholesale. ⇒ **the landmine survives the field change and moves to the field that replaces
+it.** A top-up path added later would destroy an LP's `entryEquity` and therefore its entire measured
+drift — silently, and in the direction that erases the hedge it is owed.
+⭐ **THE ROW'S OWN PRESCRIPTION IS THE RIGHT ONE AND SHOULD BE WRITTEN IN THE SAME COMMIT AS ANY
+TOP-UP:** blend size-weighted at the assignment, *"the defect is this assignment, not its caller."*
+⚠️ Note the model does NOT need blending to be solved first — with top-ups forbidden there is nothing
+to blend. It needs the guard to stay, and the blend to land **with** the capability, never after.
 ## ⏸️ §E340 — **RETIRED BY `#1`, IN FLIGHT (2026-08-24).** Its question — how to measure the entry dispersion a pooled hedge would cost — is answered inside `#1` and answered AGAINST measuring it: *"⇒ **Monitor POSITION AGE, not dispersion** — it is observable from day one."* §E342 records the same verdict from the other side (the dispersion line *"drifted away from"* the real problem). ⛔ **NOT CLOSED** — the age monitor is not built. *(original booking below)*
 ### §E340 — **§E339'S "MEASURE THE DISPERSION" CANNOT BE MEASURED. WHAT IS DERIVABLE IS THE GAP'S FORM, AND THAT IS VALIDATED.**
 
