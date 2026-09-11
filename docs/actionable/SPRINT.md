@@ -2697,6 +2697,8 @@ reasoning one level short, so this is booked as a finding and the fix is not lan
 fails before it and passes after. **The test that decides it:** settle with `tokR > 0`, add NO new
 fees, then assert `pendingFor == 0`. Today it returns `tokR·fps/WAD`.
 
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): `CidRegistry` is DELETE-not-build; `channelId` is computable. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
+
 ## 🟡 §T9-REGISTRY-HAS-NO-WRITER — ✅ **STEP 1 DONE 2026-09-08: `CidRegistry` HAS A WRITER.**
 
 ⛔ **SUPERSEDED 2026-09-08 — THIS ROW ASKS FOR THE OPPOSITE OF THE STANDING VERDICT, AND I BUILT WHAT IT
@@ -3003,6 +3005,8 @@ Owner, 2026-09-11: *"what are you doing about the deactivate swapin or swapout r
 
 ▶️ **WHAT ACTUALLY GATES RAIL B NOW — one env flag whose precondition looks met.** `daemon.rs:420` `onchain_rail_enabled(QUID_SWAPOUT_ONCHAIN, has_vault)`; `has_vault` is now always true. The flag's own comment says *"OFF by default until the LP-side correlation (2b.3c.3) lands + is harness-verified"* — `run_vault_delivery_correlator` exists (`vault.rs:838`) — and `SPRINT.md` §E-list says *"explicitly wants a real bitcoind e2e first"* — `driver_e2e.rs::swap_out_onchain_delivery_on_real_evm` exists, driven by `regtest/driver-e2e.sh` (which downloads a pinned `bitcoind`). **Next: run that e2e; if it lands PROOF 4/5, the flag's precondition is discharged and — under the owner's "no awkward variables" ruling — the flag should go the way `QUID_FLEET_COHOSTS_VAULT` went, with the rail simply ON.** ⚠️ Flipping a money rail on by default is the owner's call; the e2e result is the engineer's.
 
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): superseded by `§ACCEPTOR-SPLICE-GREEN`; zero-callers is expected state. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
+
 ## 🔴 §ACCEPTOR-SPLICE-TEST-IS-RED — **THE CAPABILITY LANDED, ITS OWN TEST DOES NOT PASS, AND NOTHING OUTSIDE LDK CALLS IT (2026-09-08)**
 
 **Two separate facts, booked together because either one alone reads as "§ACCEPTOR-CONTRIBUTION is done" and neither supports that.**
@@ -3016,6 +3020,8 @@ time bisecting a merge that is innocent.** ⇒ **The failure is in the capabilit
 ⛔ **SO STEP 2 OF §ACCEPTOR-CONTRIBUTION'S SCOPED PATCH IS *WRITTEN*, NOT *WORKING*.** That section's table marks
 `ChannelManager::internal_splice_init` as *"the ONLY blocker"*; the hardcoded `0i64` is gone and the plumbing is in — but the one test that
 proves the inverted shape completes end-to-end does not pass. **Do not mark §ACCEPTOR-CONTRIBUTION done, and do not build
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): needs an LP that can initiate a splice, i.e. a node. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
+
 §DELIVERY-MUST-BE-LP-INITIATED's replacement rail on top of it, until this is green.**
 
 🔴 **2. `register_acceptor_splice_contribution` HAS ZERO CALLERS OUTSIDE `lib/rust-lightning`.** Verified by grep over every `.rs` in
@@ -3070,6 +3076,8 @@ whether the online LP **initiates** or merely **signs**.
 deleted. Deleting it removes Rail B with no replacement. **Leave it default-OFF and documented**, and
 treat `§E162`'s residual as *scoped to a non-default mode* — which is exactly what the threat model
 below already says.
+
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): its subject `QUID_FLEET_COHOSTS_VAULT` is deleted. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
 
 ## 🔴 §COHOST-FLAG-IS-NOT-THE-WORK — **DELETING `QUID_FLEET_COHOSTS_VAULT` TURNS OFF RAIL B. FINISHING THE SECOND HALF MEANS MOVING DELIVERY TO THE LP'S NODE.**
 
@@ -9330,6 +9338,8 @@ about custody.**
 
 > ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): its 'remaining EVM half, 29 sites' is the deleted pool-inventory family. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
 
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): its 'remaining EVM half, 29 sites' is the deleted pool-inventory family. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
+
 ## ⭐⭐ **§BTC-SCOPE-SYNTHESIS — the segregation fix, the unwired sweep, and the jury question are ONE item** (2026-08-26, owner)
 
 Owner asked: is anything else in the BTC scope fixable in light of this, and is the shape really more
@@ -9388,6 +9398,8 @@ warning must be GONE; if it returns, that is a regression, not a marker. Updated
 pass so the two do not disagree.
 
 > ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): pool inventory is deleted; grep evm/src returns zero. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
+
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): pool inventory is deleted; `grep evm/src` returns zero. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
 
 ## 🔴🔴 **§POOL-SATS-SEGREGATION — the shape of the fix, and a CORRECTION to how the gap was described** (2026-08-26)
 
@@ -9462,6 +9474,8 @@ assert **`PoolSatsLeftWithLp` is NEVER emitted**. That single assertion is the w
 > ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): the subject is deleted; its own tail already says DO NOT WRITE THE TEST. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
 
 fails today. (§POOL-SATS-STRANDING-IS-UNTESTED has the fixture gap: 0 of 6 dead-man tests park.)
+
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): subject deleted; its own tail says DO NOT WRITE THE TEST. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
 
 ## 🔴🔴 **§POOL-SATS-STRANDING-IS-UNTESTED — the exposure has ZERO coverage, and the fixtures cannot reach it** (2026-08-25)
 
@@ -31512,6 +31526,8 @@ reading the EVM anti-rollback counter, which was per-channel from the day it was
 different thing. `§T3-FIX-IS-INEXPRESSIBLE-WITHOUT-PHASE-3` warns about exactly this conflation by
 name.
 
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): retracted in full; the ladder stays. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
+
 ### ✅ ③ THE LADDER IS LOAD-BEARING — `§LADDER-REMOVAL`'s RETRACTION IS CORRECT
 
 `LadderTooShallow` is live in `_armLadder`: `exits.length < 2` reverts, and a second revert requires
@@ -41245,6 +41261,8 @@ they use different denominators and answer different questions:
 **§UNIT-B (here)** → then the two-sided curve, with §UNIT-C-BAR deciding whether it is needed.
 *"Building the signed side before §UNIT-B ships an exploit."* §UNIT-C is GATED, not next.
 
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): family/individual daemons are ruled out: one enclave, the LP runs nothing. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
+
 | **E158-why-self-hosted** | 🔑 **FAMILY/INDIVIDUAL DAEMONS: THE CUSTODY RATIONALE IS THAT THEY ARE THE ONLY NON-CUSTODIAL CONFIGURATION (owner asked *"why are familyplan or individual daemons necessary at all. anonymity?"*, 2026-08-10).** ✅ **VERIFIED, `BTCChannels.sol:859-860`: *"Self-hosted LPs must co-sign the splice and would see it; **IN FLEET MODE THE OPERATOR HOLDS BOTH HALVES (E94) AND CAN DO IT ALONE.**"*** ⇒ **a self-hosted LP holds a REAL funding half, so the 2-of-2 actually binds and the fleet cannot move its BTC alone. It also does not need the dead-man exit: it holds commitment txs and can LDK force-close, which is what `recordForceClosePermissionless` serves.** 🔑 **THIS PARTITIONS THE ENTIRE TRUST DISCUSSION: image upgrades, seed inheritance, and the shared freshness kill switch (§E158-freshness-killswitch) apply **ONLY TO VAULT LPs**. ⇒ **REMOVING FAMILY/INDIVIDUAL DAEMONS MAKES THE SYSTEM ENTIRELY CUSTODIAL** — that, not anonymity, is what would be lost.** ⛔ **AND IT REFUTES THE PASSIVE FORM OF §E158-no-seed-migration (owner: *"we cant let the old channels drain under the old image because it might have a vulnerability"*): **the upgrade is often FOR the vulnerability**, so leaving channels on the old image leaves them exposed to the very bug being fixed.** ✅ **REFINEMENT THAT SURVIVES: LPs migrate by CLOSING AND REOPENING, not by seed transfer. Voluntary, per-LP, no authority decision, always available (the exit is armed at open, §E156; self-hosted LPs can force-close with no counterparty at all). Exposure is bounded to channels still on the old image, and each LP picks its own window.** 🔑 **AND THE SHARPER STATEMENT OF WHY INHERITANCE WAS THE TARGET: inheritance is not intrinsically bad — it REQUIRES AN AUTHORIZATION DECISION (which image may inherit), and that decision is exactly what a 4-of-7 compromise attacks. Remove inheritance and there is nothing left to compromise.** | 🔑 self-hosted = the only non-custodial config; enclave risk is vault-only; migrate by close+reopen |
 
 | **E158-worst-case** | 🔴🔴🔴 **BLAST RADIUS OF A COMPROMISED IMAGE, ENUMERATED AGAINST THE CODE — AND THE WORST PATH IS SWAP-**IN**, NOT SWAP-OUT (owner asked *"what is the worst that can happen"*, 2026-08-10).** 🔴 **(1) SHARED POOL, UP TO `POOLED_USD_BTC` — THE SYSTEMIC ONE. `SwapLib.creditSwapInBody:640-641`: *"the curve (POOLED_USD_BTC liquidity) bounds the payout — the old BtcInflowCap is gone; over-supply just slips / partial-fills"*. ⇒ **a compromised hop attests swap-ins for BTC THAT NEVER ARRIVED, sells phantom BTC into the shared pool and takes stables/QU!D out. Bounded by POOL LIQUIDITY, NOT by the hop's own locked sats** — exactly what `settleSwapIn:1345-1349` concedes: *"Per-hop bounding of pool drainage vs a hop's OWN locked sats is a tracked refinement"*. 🔑 **IT HITS EVERY LP AND TOUCHES NO CHANNEL — so LP vigilance is IRRELEVANT to it, and every mitigation resting on LPs closing/reopening (§E158-no-seed-migration's refinement) MISSES THE MAIN RISK.** ⇒ **THE PER-HOP DRAINAGE BOUND IS NOT A REFINEMENT, IT IS THE PRIMARY MITIGATION FOR ENCLAVE COMPROMISE. Re-rank it.** 🔴 **(2) ITS OWN CHANNELS' BTC — TOTAL LOSS, VAULT FLOW ONLY. Both halves in one process ⇒ key-path spend of the funding UTXO to anywhere; nothing on-chain prevents it (`:859-860`, E94). **Self-hosted LPs are IMMUNE** — they hold a real half (§E158-why-self-hosted).** ✅ **(3) WHAT IT CANNOT DO — VERIFIED, NOT ASSUMED: • NOT swap-OUT — `deliverSwapOutOnchain:1518-1524` pins `keccak256(swapperScript) == so.swapperScriptHash` (committed by the SWAPPER at request) AND requires the splice to actually pay ≥ `so.sats` to it, SPV-verified ⇒ proceeds cannot be redirected. • NOT another hop's channels — per-channel `channel.hop` gate. • NOT an LP's EVM-side close payout — `btcRecipientOf` pinned.** ⇒ **SUMMARY: it cannot move channel proceeds OUT THROUGH THE PROTOCOL. It can steal its own channels' BTC directly on Bitcoin, and — far worse — MINT AGAINST BTC THAT NEVER EXISTED up to pool liquidity.** | 🔴🔴🔴 worst = phantom swap-in draining POOLED_USD_BTC; swap-out is pinned; per-hop bound is THE mitigation  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT wave 2): STALE: settleSwapIn DELETED; settleSwapInProven is the only credit path** |
@@ -47794,105 +47812,39 @@ asks"* is right about the ladder specifically, and the swap path is not unprotec
 🔗 **This also bounds §SESS-6's gas result:** the offramp measurement is about the withdraw/redeem path, so
 GATE 2.4's ruling does not touch swap-out delivery at all.
 
-## §SESS-8 — THE DELEVER SURFACE, AND IT REOPENS §PLP-Y2 (recovered 2026-09-06)
+## §SESS-8 🔴 **KEPT FOR THE PROCESS FINDING, WHICH IS THE MOST REUSABLE THING IN THE CLUSTER**
 
-🔴 **THIS SECTION WAS LOST AND IS BEING RESTORED, WHICH IS ITSELF THE FINDING.** Commit `283efd31`
-("Close GATE 1e with a pure sweep, and enumerate the delever surface (§S8)") carried all of the below in
-its MESSAGE and touched **only `evm/test/RebalanceBandRepeat.t.sol`** — `SPRINT.md` was never updated. Two
-citations (`§SESS-7`'s 1d/1e lines) pointed at a section that did not exist. **That is standing rule 12's
-exact failure — *"lift a finding to a task IN THE SAME TURN, or it does not exist"* — committed by the
-turn that was enforcing it.** Found by checking every `§`-tag citation against its definition site, not by
-remembering.
+> *"THIS SECTION WAS LOST AND IS BEING RESTORED, WHICH IS ITSELF THE FINDING."* Commit `283efd31` carried
+> the whole of it in its **message** and touched **only `evm/test/RebalanceBandRepeat.t.sol`** —
+> `SPRINT.md` was never updated. Two citations pointed at a section that did not exist. **That is
+> standing rule 12's exact failure — *"lift a finding to a task IN THE SAME TURN, or it does not
+> exist"* — committed by the turn that was enforcing it.**
+> **Found by checking every `§`-tag citation against its definition site, not by remembering.**
 
-### ⭐ THE BAND GATES THE KEEPER PATH ONLY — RE-VERIFIED IN CODE 2026-09-06
-`_bandFor` is reachable from **exactly two** computation sites, and nothing else in the tree consults it:
-| site | reached by | band-gated? |
-|---|---|---|
-| `LevBase.debtDeltaToTarget:113` → `LevBase._rebalance:345` | `rebalance` · `rebalanceOne` · `rebalanceMany` | ✅ |
-| `LevManager.deleverRepayUsd:558` (`LevMath.deleverRepay(e0, debtNow, target, _bandFor(…))`) | `deleverOne` · `cascadeDelever` | ✅ |
-| — none — | `deleverToVault:592` · `swapOutDeleverPooled:678` · `deleverBook:707` | 🔴 **NO** |
-| — none — | `closeLev:485` · `closeLevFor:504` | 🔴 **NO** |
+⭐ **THIS IS WHY FINDINGS GO IN FILES, NOT IN COMMIT MESSAGES OR IN CONVERSATION.** A commit message is
+not a location anyone greps; a dangling `§`-citation is invisible until someone follows it. The
+detector it implies — **check every `§`-tag citation against a definition site** — is cheap, mechanical
+and has already caught one loss.
+⚠️ **AND THE SAME FAILURE HAS A MODEL-LEVEL TWIN, RECORDED 2026-09-11:** reconciliation findings were
+being written into rows and into conversation while `TARGET-DESIGN` — the document that is supposed to
+accumulate them — was not updated. Same shape, different file. **A finding not in the document that
+owns it did not happen.**
+## §SESS-9 🪦 **RESOLVED BY DELETION — BUT ITS METHOD FINDING IS THE ONE TO KEEP**
 
-⇒ **"The band rate-limits delevers" is TRUE of the keeper path and FALSE of the demand paths.** The
-demand family fires when a redeem, a swap-out delivery, a redemption shortfall or a withdraw asks it to —
-none of which consult a band, because none of them are trying to reach a target.
+Q2.7 asked whether a 300-bps-off `RANGE_ANCHOR` produces a first-order skew error. 🪦 **Moot: there is
+no skew.**
 
-### 🔴 SO §PLP-Y2's CLOSING LINE IS TOO BROAD, AND Y2 STAYS OPEN ON ITS OWN TERMS
-§PLP-Y2 concludes *"Exposure is slip on rebalances that were going to happen anyway, bounded by crossing
-frequency. **The band does economic limiting AND rate limiting.**"* ✅ **That is correct for the keeper
-path and Q2.6 does close it there.** ⛔ **It does not generalise**: a caller who can trigger a demand-path
-delever pays the same `TWAP − MAX_SLIPPAGE` bleed with **no band in the way**, so "bounded by crossing
-frequency" is not the bound on that surface. **Whether the demand paths are reachable often enough to
-matter is a separate, unmeasured question** — the bleed is per-call and the call needs a real redeem or
-swap-out behind it, so this is a rate question, not a free-money one. ⚠️ **Do not read this as "Y2 is
-exploitable"** — read it as *"Q2.6's result was applied wider than it holds."*
-
-### 🔑 AND FAMILY 2 IS LTV-PRESERVING WHERE FAMILY 1 CHANGES LTV
-`deleverToVault` repays `ΔD = extractUsd·debt/netEq` and withdraws the paired collateral — a
-**proportional** shrink that leaves LTV where it was. Family 1 MOVES LTV to a target. ⇒ **§PLP-6c's `g`
-term models family 1 only**, and applying it to an extraction would attribute a leverage change that did
-not happen.
-
-### ⇒ 1d IS ISOLATED: `swapOutDeleverPooled` IS THE ODD ONE OUT
-Of the five state-changing delever paths, **four reconcile the range** (`deleverBook` transitively, via
-`deleverToVault`) and **`swapOutDeleverPooled` is the only one that does not.** §SESS-7 booked this as a
-question on the grounds that `A.16b` prefers the RECORDED term; with the enumeration in hand it is an
-**odd-one-out rather than a design choice**, and `deleverToVault`'s own docblock states the expectation.
-⇒ **Re-booked as a PROBABLE DEFECT needing `§M.1`'s fork test.** ⛔ **Explicitly NOT a one-line patch** —
-`A.16d` records the neighbouring change being reverted at **69% under-pricing**, which is what a
-plausible-looking correction on this surface cost last time.
-
-## §SESS-9 — GATE 1f / Q2.7 CLOSED: the anchor error is **NOT** first-order, and §PLP-V names the wrong victim
-
-### 🔴 FIRST, THE PREMISE IS WRONG — THE SKEW DOES NOT READ THE BOUNDS AT ALL
-§PLP-V books the repack's only residual as *"it mis-prices the **premium** — `q` computed against a
-wrong band."* **`SwapLib.skewWad(poolVolUsd, flowUsd, sigmaSqWad, Risk rk, drainUsd6)` takes no
-`lo`/`hi`/anchor parameter**, and `poolVolUsd` is a **balance** (`POOLED`), not a bounds-derived
-quantity — §V4-CUT removed the concentrated position that would have made it one.
-⇒ **A wrong anchor cannot reach `q` or the premium through the bounds.** What it actually feeds is
-`updateBounds` → `loPrice`/`upPrice` → **`QuidLib.kLvrWad`** ⇒ **θ's denominator and `ilTargetBps`'s
-band** (§PLP-3, Q5.3). ⇒ **it mis-sizes the RANGE and the LEVER TARGET, not the swap premium.**
-**Same magnitude question, different victim — and §PLP-V's row should say so.**
-
-### ⭐ AND THE MAGNITUDE: **~5 bps of K error, SATURATING.** `kLvrWad` clamps the price into the band.
-`QuidLib.sol:171` — `uint p = priceWad < loPrice ? loPrice : (priceWad > upPrice ? upPrice : priceWad);`
-Measured (`evm/test/AnchorSkewSensitivity.t.sol`, pure):
-
-| anchor offset | K (WAD) | error |
-|---|---|---|
-| honest | 125.0623 | — |
-| **25 / 50 / 100 / 200 / 300 bps** | **125.1249** (identical at every offset) | **5 bps** |
-
-🔑 **THE FLATNESS IS THE FINDING.** `RANGE_DELTA` is ±20 bps, so **any** anchor error above 20 bps puts
-spot outside the band, `p` pins to the nearest EDGE, and K becomes the edge value **regardless of how
-far off the anchor is.** ⇒ **the error saturates at ~5 bps and is independent of magnitude beyond the
-band half-width.** ⇒ **NOT first-order. Q2.7 is answered: NO.**
-✅ **CONTROL (§VACUOUS-BOUNDS — "K barely moves" is worthless if K never moves):** widening the BAND
-moves K **125.06 → 12.56, a 10× swing.** So K is sensitive to what it should be sensitive to, and the
-anchor sweep is measuring a live function. 📌 **That 12.56 / 125.06 pair independently reproduces
-§PLP-4's `1/4δ` figures for ±2% vs ±0.2%**, which were previously only asserted.
-
-⚠️ **HONEST LIMITS ON THIS RESULT, both worth stating:**
-1. **Only POSITIVE offsets were swept.** A negative anchor error clamps to the UPPER edge instead; by
-   symmetry it should behave identically, **but I did not run it.**
-2. **The file is a REPLICATION, not the function.** `kLvrWad` is `public view` and reads `poolStats()`
-   off a `core`, so exercising it directly needs a deployed range and rule 5 forbids mocking one. The
-   six lines are copied verbatim from `QuidLib.sol:170-177` so the copy can be diffed by eye.
-   🔴 **AND THE REPLICATION HAZARD FIRED IMMEDIATELY, WHICH IS WHY IT IS LABELLED:** `QuidLib:172` uses
-   **solmate's `sqrt` with solady's `fullMulDiv`** — two different libraries in one expression. My first
-   copy used solady for both and would have measured **a function the tree does not have.** Caught by
-   the compiler only because the import path differed; had both libraries been in scope it would have
-   compiled and produced a confidently wrong number.
-⇒ **The CLAMP was established by READING `QuidLib:171`. The test only quantifies it.**
-
-### ⇒ GATE 1 IS NOW FULLY CLOSED — all seven reads
-1a ✅ (and it re-scopes A4/A5) · 1b ✅ (unblocks GATE 5 item 22) · 1c ✅ (verifies §BTC-2.2, corrects
-§BTC-7 to 10 citations) · 1d ✅ **re-booked as a probable defect** (§SESS-8: `swapOutDeleverPooled` is the
-only delever path that does not reconcile) · 1e ✅ (§SESS-8) · 1f ✅ (here) · 1g ✅ (§SESS-7).
-▶️ **NOTHING IN GATE 1 REMAINS. The next blocking work is GATE 2's product rulings**, which are the
-owner's: **option F**, then the **§PLP-T class** (gated on M1–M3 + M7), then the **position token**, then
-**ERC-7540**.
-
+⭐ **WHAT SURVIVES IS THE CORRECTION IT MADE TO §PLP-V, WHICH WAS RIGHT AND IS STILL INSTRUCTIVE.**
+§PLP-V booked the repack's residual as *"it mis-prices the **premium** — `q` computed against a wrong
+band."* §SESS-9 checked the signature and found **the skew took no `lo`/`hi`/anchor parameter at all**,
+and that `poolVolUsd` was a **balance**, not a bounds-derived quantity. ⇒ *"A wrong anchor cannot reach
+`q` or the premium through the bounds."*
+**It traced where the anchor error actually went instead:** `updateBounds` → `loPrice`/`upPrice` →
+`kLvrWad` ⇒ **θ's denominator and the lever target's band.** *"It mis-sizes the RANGE and the LEVER
+TARGET, not the swap premium."*
+🪦 Both of those destinations are now deleted too (θ and `kLvrWad`), so the error has nowhere left to
+land — **but the method is the point: it read the SIGNATURE rather than the neighbouring prose**, and
+that is what turned a booked residual into a wrong attribution. §PLP-9 and Q6's rule, executed.
 ## §SESS-10 — THE ARCHIVE ENDPOINT IS LIVE (2026-09-05), AND WHAT IT UNBLOCKS
 
 **Owner supplied a live Ankr key.** Banked as `ANKR_RPC_URL` in **`evm/.env`** (gitignored, mode 600;
