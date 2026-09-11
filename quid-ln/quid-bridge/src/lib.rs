@@ -73,6 +73,7 @@ pub mod store;
 /// not the code. Mirrors the seed export's operator-Safe authorization.
 pub mod sweep;
 pub mod swap_in;
+pub mod pp_relay;
 pub mod swap_in_api;
 pub mod swap_in_onchain;
 pub mod swap_out_onchain;

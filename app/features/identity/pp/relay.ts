@@ -17,12 +17,12 @@
 // The escape hatch survives: a user who is being censored can still set `processooor` to their own
 // address and submit directly, paying full gas themselves. That is `buildSelfWithdrawal` below.
 
-// `ContractRunner` and `BytesLike` are TYPE-only exports of ethers v6, so both must be imported as
-// types. Node's TypeScript stripping erases `import type` but leaves a plain named import in place,
-// and the runtime then fails to resolve it — so with `ContractRunner` imported as a value this
-// module could not be loaded by `node --test` at all, which is why nothing here had tests.
-import { AbiCoder, Contract, keccak256 } from "ethers";
-import type { BytesLike, ContractRunner } from "ethers";
+// `BytesLike` is a TYPE-only export of ethers v6, so it must be imported as a type. Node's
+// TypeScript stripping erases `import type` but leaves a plain named import in place, and the
+// runtime then fails to resolve it — a value import here made this module unloadable by
+// `node --test`, which is why nothing here had tests.
+import { AbiCoder, keccak256 } from "ethers";
+import type { BytesLike } from "ethers";
 
 /** BN254 scalar field — `context` is reduced into it because it is a circuit public input. */
 export const SNARK_SCALAR_FIELD =
@@ -48,12 +48,6 @@ export interface Withdrawal {
 
 const RELAY_DATA_TUPLE = "(address recipient,address feeRecipient,uint256 relayFeeBPS)";
 const WITHDRAWAL_TUPLE = "(address processooor,bytes data)";
-
-// @contract Entrypoint
-const ENTRYPOINT_ABI = [
-  "function relay((address processooor,bytes data) _withdrawal, (bytes proof,uint256[8] pubSignals) _proof, uint256 _scope) external",
-  "event WithdrawalRelayed(address indexed _relayer, address indexed _recipient, address indexed _asset, uint256 _amount, uint256 _feeAmount)",
-] as const;
 
 /** ABI-encode RelayData for `Withdrawal.data`. */
 export function encodeRelayData(data: RelayData): string {
@@ -86,8 +80,8 @@ export function withdrawalContext(withdrawal: Withdrawal, scope: bigint): bigint
  * (`InvalidProcessooor`), because it is the Entrypoint that calls `PrivacyPool.withdraw` and then
  * splits the proceeds between recipient and fee recipient.
  *
- * Generate the withdrawal proof with the returned `context` as public input [7], then hand the
- * withdrawal + proof to any relayer. The relayer needs no trust beyond submitting it.
+ * Generate the withdrawal proof with the returned `context` as public input [6], then hand the
+ * withdrawal + proof to the relayer (`requestRelay`). It needs no trust beyond submitting it.
  */
 export function buildRelayedWithdrawal(
   entrypointAddress: string,
@@ -126,33 +120,85 @@ export interface WithdrawProof {
 }
 
 /**
- * Submit a relayed withdrawal. Called by the RELAYER (it pays gas), not by the withdrawing user.
- *
- * Fails fast on a context mismatch rather than burning gas on a revert: a relayer that has been
- * handed a proof built for different RelayData would otherwise pay for a guaranteed failure.
+ * The relayer is the fleet hop's enclave (`quid-bridge/src/pp_relay.rs`), reached at the same base
+ * URL as the swap-in API. Routes and field names below are TRANSCRIBED from that file — there is no
+ * shared schema, see `chain/hop.ts` for why casing must not be tidied.
  */
-export async function submitRelayedWithdrawal(
-  entrypointAddress: string,
-  runner: ContractRunner,
+const RELAY_ROUTE = "/pp/relay";
+
+/**
+ * The address a proof must name as `RelayData.feeRecipient`. Asked of the relayer rather than read
+ * as `MAIN_HOP` from chain, because the relayer is whichever hop serves the API: a proof naming any
+ * other address is refused (it would pay gas for someone else's fee). `null` when the relayer is
+ * not deployed, so the caller falls back to `buildSelfWithdrawal`.
+ */
+export async function relayerFeeRecipient(hopUrl: string): Promise<string | null> {
+  try {
+    const r = await fetch(`${hopUrl}${RELAY_ROUTE}`);
+    if (!r.ok) return null;
+    const body = (await r.json()) as { fee_recipient?: string };
+    return body.fee_recipient ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** What `requestRelay` answers — the status is what the UI branches on. */
+export type RelayOutcome =
+  | { status: "relayed" }
+  /** 402 — the fee does not cover the gas; `detail` carries the numbers. Raise `relayFeeBPS` and re-prove. */
+  | { status: "fee_too_low"; detail: string }
+  /** 400 — refused before any tx (binding, shape, or a simulated revert named in `detail`). */
+  | { status: "refused"; detail: string }
+  /** 409 — mined but reverted: the state moved under the proof. Re-prove against current state. */
+  | { status: "stale"; detail: string }
+  /** 503 / network — no relayer; the escape hatch is `buildSelfWithdrawal`. */
+  | { status: "unavailable"; detail: string };
+
+/**
+ * Hand a relayed withdrawal to the relayer. Fails fast on a context mismatch rather than round-
+ * tripping a request the relayer will refuse for the same reason.
+ */
+export async function requestRelay(
+  hopUrl: string,
   withdrawal: Withdrawal,
   proof: WithdrawProof,
   scope: bigint,
-): Promise<string> {
+): Promise<RelayOutcome> {
   const expected = withdrawalContext(withdrawal, scope);
-  if (proof.pubSignals[7] !== expected) {
+  // ProofLib.context is pubSignals[6]; [7] is the blacklist root.
+  if (proof.pubSignals[6] !== expected) {
     throw new Error(
-      `submitRelayedWithdrawal: context mismatch — proof carries ${proof.pubSignals[7]}, ` +
+      `requestRelay: context mismatch — proof carries ${proof.pubSignals[6]}, ` +
         `withdrawal implies ${expected}. The proof was built for different RelayData; ` +
         "submitting it would revert with ContextMismatch.",
     );
   }
-
-  const entrypoint = new Contract(entrypointAddress, ENTRYPOINT_ABI, runner);
-  const tx = await entrypoint.relay(
-    [withdrawal.processooor, withdrawal.data],
-    [proof.proof, proof.pubSignals],
-    scope,
-  );
-  const receipt = await tx.wait();
-  return receipt?.hash ?? tx.hash;
+  const body = JSON.stringify({
+    withdrawal: { processooor: withdrawal.processooor, data: withdrawal.data },
+    proof: { proof: proof.proof, pubSignals: proof.pubSignals.map((s) => s.toString(10)) },
+    scope: scope.toString(10),
+  });
+  let r: Response;
+  try {
+    r = await fetch(`${hopUrl}${RELAY_ROUTE}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+  } catch (e) {
+    return { status: "unavailable", detail: String(e) };
+  }
+  if (r.ok) return { status: "relayed" };
+  const detail = await r.text();
+  switch (r.status) {
+    case 402:
+      return { status: "fee_too_low", detail };
+    case 400:
+      return { status: "refused", detail };
+    case 409:
+      return { status: "stale", detail };
+    default:
+      return { status: "unavailable", detail: `${r.status}: ${detail}` };
+  }
 }

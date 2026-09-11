@@ -69,6 +69,16 @@ frames for mode 3 → find the triple whose `verification_key_hash` equals the p
 calldata journal → compare to `data_hash` → `true`. `FRAMEPARAM` is 2 gas; `FRAMEDATACOPY` prices as
 `CALLDATACOPY`. Block validity is what makes "present in the frame" mean "proven". Replay is closed by
 the journal's own content (the pool spends the nullifier), not by who declared the dependency.
+**Two hard limits from the spec's constants and Rationale that the statement design must respect
+(re-read 2026-09-11):** `MAX_STARKS_PER_TX = 1` — a transaction declares AT MOST ONE leanSTARK
+dependency, so a flow needing two proofs composes them client-side into one (recursion is allowed:
+*"wrap them client-side in a STARK, and then reuse the leanSTARK route"*; user vkeys *"may
+potentially have unlimited recursion depth"*); and the proof is fixed-cost because it is fixed-size —
+*"KoalaBear field, fixed trace width … the `2**24` trace length limit"* — so a statement above ~16.7M
+rows does not fit one leanSTARK. The pool statements fit. **`register` (RSA-2048/P-256 in a zkVM,
+tens of millions of cycles) does not**: it is proven as segments plus a client-side recursive
+wrapper, which is exactly the delegated-proving load the "proving location" decision below is about.
+The port estimate assumes the recursion tooling is the lean stack's, not ours.
 **Residual unknowns, all contained in the adapter:** (a) the hash behind `pub_input_hash` is
 *"unspecified … currently leading choice is BLAKE3"* — no precompile, so a Solidity BLAKE3 over a
 ~200-byte journal unless one ships; (b) users must submit withdrawals as frame transactions (type
@@ -115,8 +125,8 @@ relayer cannot redirect the payout or change the fee; `relay` has no caller gate
 the fee is deducted from the withdrawn ASSET, so a fresh recipient needs no ETH; `relayFeeBPS ≤
 assetConfig[asset].maxRelayFeeBPS`. Self-withdrawal (`processooor = self`) survives as the censorship
 escape hatch. Client: `app/features/identity/pp/relay.ts` builds the relayed withdrawal and
-`recipient.ts` derives fresh recipients; `submitRelayedWithdrawal` is written for THE RELAYER to call with
-a funded signer.
+`recipient.ts` derives fresh recipients; `requestRelay` POSTs to the relayer (was `submitRelayedWithdrawal`,
+written for the relayer to call with a funded signer — deleted, the relayer is Rust now).
 **What does not.** Nothing runs as the relayer. No endpoint accepts `(withdrawal, proof, scope)`, nothing
 holds an ETH float, `IdentityScreen.tsx` points at `https://relayer.example`. So the only reachable path
 is "be the processooor yourself", which requires the recipient to hold ETH for gas — funding a fresh
@@ -132,7 +142,7 @@ address is the linking transaction the pool exists to prevent.
 2. **`POST /pp/relay`, public, no bearer token** — a relayer with a key on the door is not a relayer. The
    door is protected by REFUSING, never by paying: (a) `processooor == ENTRYPOINT` and
    `feeRecipient == self`; (b) the context re-derived from `(withdrawal, scope)` equals
-   `pubSignals[7]`, else 400 before any RPC; (c) `eth_call` the exact `relay` calldata — a revert is
+   `pubSignals[6]` (`ProofLib.context`; `[7]` is the blacklist root — `relay.ts:142` compared `[7]` and would have refused every proof), else 400 before any RPC; (c) `eth_call` the exact `relay` calldata — a revert is
    refused with its selector, so a bad proof costs the relayer one RPC call and never a tx; (d) the fee
    covers the gas: `relayFeeBPS × withdrawnValue` in the asset ≥ `estimate × gasPrice × ETH/USD` (the
    `Aux.assetPrice(WETH)` anchor) × a margin, else 402 with the number, so the app can raise the fee and
@@ -155,9 +165,10 @@ Entrypoint and the relayer is whoever submits — neither is the person. **Judge
 it is the only address in the withdrawal that is the withdrawer's, and it is already inside the proof's
 context. Recommendation; owner to confirm before the circuit term is written.
 
-- [ ] `quid-hop/evm_codec`: `encode_relay(withdrawal, proof, scope)` for `relay((address,bytes),(bytes,uint256[8]),uint256)` (needs an inline fixed-array token) + `withdrawal_context()` — one encoder, mirrored against `relay.ts`'s `withdrawalContext` by a fixture.
-- [ ] `quid-bridge/pp_relay.rs`: `POST /pp/relay` per (2); config `QUID_PP_ENTRYPOINT` + `QUID_PP_RELAY_LISTEN`; served by the daemon.
-- [ ] `app/features/identity/pp/relay.ts`: `requestRelay(url, withdrawal, proof, scope)` replacing the `relayer.example` placeholder; surface a 402 as "raise the fee".
+- [x] `quid-hop/evm_codec`: `encode_pp_relay` + `pp_withdrawal_context` (`Tok::StaticWords` for the `uint256[8]`), pinned against `relay.ts`'s fixture value (6c056782).
+- [x] `quid-bridge/pp_relay.rs`: `GET`/`POST /pp/relay` on the swap-in API router (no second listener — one door, the route is public by having no token check); `QUID_PP_ENTRYPOINT` mounts it and joins `hop_allowed_contracts`; `SIG_PP_RELAY` chained into the tx policy and `check-signer-allowlist.py` reads it. Checks: processooor/feeRecipient/context (unit-tested), native-pool `ASSET()`, `eth_estimateGas` as the simulation (a revert names its selector), fee ≥ 110% of `gas×price` else 402, estimate+25% gas, ETH-float warn at < 10 relays. **No oracle**: the only deployed pool is native, so fee and gas are both wei; an ERC-20 pool is refused rather than compared in different units.
+- [x] `app/features/identity/pp/relay.ts`: `relayerFeeRecipient(hopUrl)` + `requestRelay(hopUrl, …) → RelayOutcome` (`relayed | fee_too_low | refused | stale | unavailable`); `submitRelayedWithdrawal` deleted. ⚠️ `relayer.example` in `IdentityScreen.tsx` is the RARIME registration relayer URL, not this — it stays a placeholder of the passport flow.
+- [ ] Wire `requestRelay` into the withdraw flow's submit step (`withdrawFlow.ts` stops at the proof today) and the UI branch per `RelayOutcome`; the hop URL is `HOP_API.url`.
 - [ ] The float: the relayer's ETH balance is an operational input; alarm below N relays' worth. Fees accrue in the asset at the hop address.
 
 ### BACKEND — the queue

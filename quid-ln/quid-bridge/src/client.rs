@@ -255,7 +255,7 @@ impl<R: JsonRpc, S: TxSigner> JsonRpcEvmClient<R, S> {
     /// Network-suggested gas price (`eth_gasPrice`), the base for our fee. Used so
     /// a base-fee spike escalates the fee toward the ceiling instead of leaving a
     /// statically-priced tx stuck in the mempool.
-    fn suggested_gas_price(&self) -> anyhow::Result<u128> {
+    pub fn suggested_gas_price(&self) -> anyhow::Result<u128> {
         let v = self.rpc.call("eth_gasPrice", json!([]))?;
         let s = v.as_str().ok_or_else(|| anyhow::anyhow!("eth_gasPrice: no result"))?;
         Ok(u128::from_str_radix(s.trim_start_matches("0x"), 16)?)

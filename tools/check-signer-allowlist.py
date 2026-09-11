@@ -155,6 +155,8 @@ def parse_codec_sigs() -> set[str]:
     if not m:
         sys.exit("FATAL: HOP_BTCCHANNELS_SIGS not found in evm_codec.rs")
     names = re.findall(r"SIG_[A-Z_0-9]+", m.group(1))
+    # Plus any codec const the policy chains in by name (§PP-RELAYER: `SIG_PP_RELAY`).
+    names += re.findall(r"evm_codec::(SIG_[A-Z_0-9]+)", SIGNER_RS.read_text())
     missing = [n for n in names if n not in consts]
     if missing:
         sys.exit(f"FATAL: HOP_BTCCHANNELS_SIGS names consts with no string: {missing}")

@@ -66,7 +66,7 @@ export async function ensureTrustedSetup(
  * prover output: that slicing convention is Plonk-specific in this binding and unconfirmed for
  * Honk. The caller already holds them — `buildWithdrawalWitness` returns `pubSignals` alongside the
  * circuit inputs, in the exact ProofLib order `PrivacyPool.withdraw` expects. Pair them with
- * `submitRelayedWithdrawal` from ./relay.
+ * `requestRelay` from ./relay.
  */
 export async function proveWithdrawal(
   witness: WithdrawWitness,

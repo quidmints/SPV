@@ -18,6 +18,8 @@
 //!   hop never settles, the sender reclaims via the CLTV refund leaf after `cltv_height`.
 //!   Enabled only when the on-chain rail is running (else 503).
 //!
+//! POST /pp/relay          (§PP-RELAYER, PUBLIC — no bearer token) — see `pp_relay.rs`.
+//!
 //! POST /lp/onboard        ((B) LP onboarding) — the QU!D app calls this to start an open.
 //!   Allocates the vault-wallet DEPOSIT ADDRESS the LP funds its channel from and starts
 //!   watching it (the open orchestrator opens once the deposit buries). Idempotent per lpEth.
@@ -622,6 +624,7 @@ pub async fn serve(
     onboard: Option<OnboardIngrid>,
     consent: Arc<crate::vault::VaultRegistry>,
     gate: Option<Arc<quid_hop::liveness::RoutingGate>>,
+    pp_relay: Option<Arc<crate::pp_relay::PpRelayIngrid>>,
 ) {
     let onchain = onchain.map(|o| {
         // Restart-safe: resume the per-swap index ABOVE any persisted registration, so a
@@ -650,7 +653,11 @@ pub async fn serve(
         // at all before this — the gate could be bound and read but never FED, so the book stayed
         // empty and, failing closed, made every channel unroutable.
         .route("/lp/heartbeat", post(lp_heartbeat))
-        .with_state(state);
+        .with_state(state)
+        // (§PP-RELAYER) The one public route: its checks are the gate (see the module doc).
+        .merge(Router::new()
+            .route("/pp/relay", axum::routing::get(crate::pp_relay::who).post(crate::pp_relay::relay))
+            .with_state(pp_relay));
     let listener = match tokio::net::TcpListener::bind(&listen).await {
         Ok(l) => l,
         Err(e) => {

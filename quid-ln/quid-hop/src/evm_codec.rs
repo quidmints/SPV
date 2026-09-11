@@ -967,6 +967,10 @@ pub fn encode_register_channel_claim(channel_id: [u8; 32]) -> Vec<u8> {
 /// `btcRecipientPoPDigest(msg.sender, bytes32(0))`. `requestSwapOutOnchain` refuses a caller
 /// without one (`BadBtcRecipient`), because the swapper's payout script is DERIVED as
 /// `0x5120‖btcRecipientOf[msg.sender]`, never supplied.
+/// `Entrypoint.relay` — the privacy-pool relayer's one write. The enclave's tx policy derives its
+/// selector from THIS (`evm_validating_signer.rs`), as it does for [`HOP_BTCCHANNELS_SIGS`].
+pub const SIG_PP_RELAY: &str = "relay((address,bytes),(bytes,uint256[8]),uint256)";
+
 /// `PrivacyPool.Withdrawal` as the relayer receives it: `processooor` (the Entrypoint, for a
 /// relayed withdrawal) and `data` (the ABI-encoded `RelayData`).
 #[derive(Clone, Debug, PartialEq)]
@@ -1029,7 +1033,7 @@ pub fn pp_withdrawal_context(w: &PpWithdrawal, scope: U256) -> U256 {
 pub fn encode_pp_relay(w: &PpWithdrawal, proof: &[u8], pub_signals: &[U256; 8], scope: U256) -> Vec<u8> {
     let words: Vec<[u8; 32]> = pub_signals.iter().map(|v| v.to_be_bytes::<32>()).collect();
     encode_call(
-        "relay((address,bytes),(bytes,uint256[8]),uint256)",
+        SIG_PP_RELAY,
         &[
             Tok::Tuple(vec![Tok::Address(w.processooor), Tok::Bytes(w.data.clone())]),
             Tok::Tuple(vec![Tok::Bytes(proof.to_vec()), Tok::StaticWords(words)]),

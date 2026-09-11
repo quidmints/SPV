@@ -49,6 +49,8 @@ pub type DaemonEvm = JsonRpcEvmClient<DaemonRpc, LocalSigner>;
 fn hop_allowed_contracts(cfg: &BridgeConfig) -> Vec<Address> {
     let mut v = vec![cfg.btc_channels, cfg.spv_gateway, cfg.btc_vault];
     for var in [
+        // (§PP-RELAYER) The privacy-pool Entrypoint the relayer sends `relay` to.
+        "QUID_PP_ENTRYPOINT",
         "QUID_LEV_MANAGER",
         "QUID_RANGE",
         "QUID_BTC_LEV_MANAGER",
@@ -501,8 +503,20 @@ pub async fn run(
                 rpc: rpc.clone(),
                 btc_channels: cfg.btc_channels,
             });
+            // (§PP-RELAYER) The fleet enclave is the privacy-pool relayer: it already holds the
+            // funded hot key and the nonce-serialised sender. `QUID_PP_ENTRYPOINT` mounts it.
+            let pp_relay = match std::env::var("QUID_PP_ENTRYPOINT") {
+                Ok(s) => {
+                    let entrypoint = s.trim().parse::<Address>().context("QUID_PP_ENTRYPOINT")?;
+                    info!(%entrypoint, "pp relay: open at /pp/relay");
+                    Some(Arc::new(crate::pp_relay::PpRelayIngrid {
+                        evm: evm.clone(), rpc: rpc.clone(), entrypoint,
+                    }))
+                }
+                Err(_) => None,
+            };
             set.spawn(crate::swap_in_api::serve(listen, invoicer,
-                token, onchain_ingrid, onboard_ingrid, api_vault_registry, lp_gate.clone()));
+                token, onchain_ingrid, onboard_ingrid, api_vault_registry, lp_gate.clone(), pp_relay));
         }
         (Some(_), None) => {
             anyhow::bail!(

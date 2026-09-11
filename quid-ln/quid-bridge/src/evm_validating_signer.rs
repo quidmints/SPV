@@ -120,6 +120,8 @@ impl EvmTxPolicy {
         let allowed_selectors = HOP_SIGNED_FN_SIGS
             .iter()
             .chain(quid_hop::evm_codec::HOP_BTCCHANNELS_SIGS.iter())
+            // §PP-RELAYER — `Entrypoint.relay`, derived the same way.
+            .chain(std::iter::once(&quid_hop::evm_codec::SIG_PP_RELAY))
             .map(|sig| {
                 let s = selector4(sig);
                 [s[0], s[1], s[2], s[3]]
