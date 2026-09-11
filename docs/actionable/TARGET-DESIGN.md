@@ -242,7 +242,7 @@ used (the ratchet survives if you do not sell — §10's net carry); only the in
 | One pooled venue position | `repayPool`/`withdrawPool`, `poolLtvBps`, `totalDeliverableDollars`. |
 | Per-LP targeting inside it | `debtUnits[lp]`/`collUnits[lp]`, `repay(lp)`/`withdraw(lp)`, `debtDeltaToTarget(lp)` — O(1), exact, no aggregate needed. |
 | The redeem-side de-lever | `BasketLib._deleverBookForRedeem` → `deleverBook` → `deleverToVault`. |
-| The **drain**-side absorption | `QuidLib.sendEth` → `SwapLib.deleverEthOnDelivery` → repay pool debt → `withdrawPool` → deliver. A swap-out that exceeds inventory DOES de-lever to serve itself. |
+| The **drain**-side absorption ⚠️ **REAL BUT SMALL** | `QuidLib.sendEth` → `SwapLib.deleverEthOnDelivery` → repay pool debt → `withdrawPool` → deliver. A swap-out that exceeds inventory DOES de-lever to serve itself. 🔴 **BUT `§PLP-6-TRAIL` measured it and found the leg *"runs, skips on dust, and is **not what repays a material shortfall**"*.** ⇒ the drain half is weaker than "built" suggests: the open question is not *does it work* (it does) but **what serves a MATERIAL drain once free depth is gone** — which is the same question deferral answers on the sell-in side. |
 | The deferral ledger | `Basket.mint(…, when)`, `calcMintYield`, `balanceOf[holder][when]`, `matureSupply()`. |
 
 ### 🔴 Not built
