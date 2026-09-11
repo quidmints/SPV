@@ -702,6 +702,51 @@ in a fixture** — that is the next step, and it is a premise-asserting test: dr
 back up with a levered book open, assert the venue balance returns to its start, and assert
 `venueFeesPerShare` **did not move**. It will.
 
+### 🔴🔴🔴 BREAK 11: **`_onExit` HAS TWO CALLERS. ONLY ONE PAYS `usd_owed`. THE OTHER DELETES IT.**
+Not a redirection like BREAKS 8-10 — **a claim is destroyed.**
+
+**The withdraw path (`Quid.sol:399`) pays first, then exits:**
+```solidity
+if (LP.pooled == 0 && LP.usd_owed > 0) { uint owed = LP.usd_owed; LP.usd_owed = 0; _mintQuid(recipient, owed); }
+_onExit(LP, msg.sender);
+```
+**The reconcile path (`Quid._doReconcile:441-453`) has no such guard, and its ORDER is the defect:**
+```solidity
+_settlePending(LP, lp, address(0));     // :446  mintRecipient == 0  ⇒  LP.usd_owed += usdR   (:279)
+… QuidLib.reconcileLegs(…)              // :447  burnedNet can take LP.pooled to ZERO
+_onExit(LP, lp);                        // :453  pooled == 0  ⇒  delete autoManaged[lp]
+```
+`Types.Deposit` is `{ pooled, usd_owed, fees_tok, fees_usd }` (`Types.sol:50-54`), so **`delete` zeroes
+`usd_owed` along with the rest.** ⇒ the accrual is booked at `:446` and erased at `:453`, seven lines
+later, **with no revert, no event and no payout.**
+
+⭐ **AND THE ORDER IS NOT INCIDENTAL — IT IS WHAT MAKES THE LOSS REACHABLE.** `_settlePending` opens
+`if (LP.pooled == 0) return;`, so a position already at zero accrues nothing and loses nothing. **The
+loss requires `pooled > 0` at `:446` and `pooled == 0` at `:453` — exactly what `reconcileLegs` does in
+between.** A full delever or a liquidation that burns an LP's whole plain position is the trigger, which
+is **precisely the moment the LP most needs the fees they had already earned.**
+
+🔑 **THE CLASS IS THE ONE THIS TREE KEEPS PRODUCING: TWO CALLERS OF ONE EXIT, ONE GUARD.** §THE-MERGE
+found four declaration/use splits the same way. The guard lives at the CALL SITE instead of inside
+`_onExit`, so adding a second caller silently opts out of it — and nothing in the signature says a
+caller owes a payout first.
+▶️ **THE ROOT FIX, per rule 17 — and it makes the previous fix DELETABLE rather than adding a second
+one:** move the settle-and-pay inside `_onExit`, so no call site can forget. The `:399` block then
+deletes. ⛔ **Do NOT add the same guard to `_doReconcile`** — that is the clamp, it is the second patch
+for one class, and rule 18's worked example is this exact shape.
+
+⚠️ **WHAT I HAVE NOT ESTABLISHED:** whether `reconcileLegs` can in practice drive `pooled` to zero while
+`usdR > 0` on the same call. The code permits it; I have not built the fixture. **Booked as the test
+that settles it, and it is a premise-asserting one** — assert `usd_owed > 0` after `:446` and
+`pooled == 0` after `:447` as the PREMISE, before asserting the balance is gone. Without those two the
+test proves nothing, which is how §VACUOUS-BOUNDS is born.
+
+### ✅ AND ONE SHARPENING OF BREAK 10, which BREAK 9 supplies for free
+BREAK 9 establishes `feesPerShare` is structurally zero, so `pendingFor`'s `tokReward` is always 0.
+`_pendingFor` then returns `tokReward = 0 + (venueOwed − venueBm[user])`. ⇒ **100% of every `tokReward`
+payout in this system is the venue ratchet**, and every one of them mints shares against no asset. The
+ratchet is not *a* source of the token-fee leg. **It is the only one.**
+
 ### ✅ AND ONE BOUND THAT IS FINE, checked so the absence is not read as unexamined
 `LevVenueBase._unitSlice(u, tot, bal) = fullMulDiv(u, bal + 1, tot + 1e6)` floors, and `_unitsFor` floors
 on the way in — so **collateral rounds against the LP at both ends (conservative) and debt rounds in the
