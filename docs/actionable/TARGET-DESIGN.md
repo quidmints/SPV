@@ -306,6 +306,96 @@ not WETH. When it was wired anyway, every exit reaching that rung delivered the 
 while taking their weETH (three tests, *"delivered ETH: 0"*). Its ECONOMIC point is right and already
 used (the ratchet survives if you do not sell — §10's net carry); only the instrument is unavailable.
 
+## 12. What the lever posts, and what it borrows — answered from code, 2026-09-11
+Owner: *"do our borrowing needs require using lightning btc as collateral? for all purposes of
+inventory management we should be able to not depend on that and still get the il protection and all
+other properties we need. do we ever use the basket stables as collateral? assume in the final design
+that we only borrow from aavev4."*
+
+### ✅ 12a. LIGHTNING BTC IS NEVER COLLATERAL, AND NEVER WAS — the property is already free
+**Measured, every venue the deploy actually constructs:**
+| range | venue | **collateral** | debt |
+|---|---|---|---|
+| ETH | Morpho escrow | **weETH** | RLUSD |
+| ETH | Morpho escrow | **weETH** | PYUSD |
+| ETH | `AaveV3Venue` | **weETH** | USDT |
+| BTC | `AaveV3Venue` | **WBTC** | USDC (`AAVE_V3_WBTC_DEBT`, env) |
+
+`DeployL1_s.sol:591` builds the BTC array as `address[] memory vsB = new address[](1); vsB[0] = wbtcV;`
+— *"WBTC only"* — and `BtcLevManager.sol:102` **enforces it at runtime**:
+`if (ILevVenue(address(p.venue)).COLLATERAL() != WBTC) revert BadTarget();`
+⇒ **the BTC hedge posts WBTC ERC-20 and nothing else. LN-custodied sats are posted nowhere.**
+
+🔑 **AND THE WBTC IS *BOUGHT*, NOT DRAWN FROM CUSTODY** — `LevMath.leverUpBuyWbtc(venue, lp, stable,
+usd, minOut, WbtcCfg(...))` (`BtcLevManager.sol:114`) borrows the dollar and buys WBTC through the
+`_hop1B`/`_hop2B` stable→WBTC route. `Aux.sol:71` holds the resulting balance (*"accumulator of WBTC
+ERC20 (BitGo) held by Aux"*), and `:565` bumps it into the `rangeBTC` accumulator — **there is no vault,
+and no channel, in that path.**
+✅ **`grep` for a vBTC collateral market returns ZERO** — §NO-VBTC-MORPHO-MARKET deleted it (`3440c742`),
+so the one construct that would have coupled the hedge to channel custody does not exist.
+
+⇒ **THE ANSWER IS THAT THE INDEPENDENCE THE OWNER WANTS IS ALREADY STRUCTURAL, NOT A THING TO BUILD.**
+IL protection, inventory management and the drift hedge run entirely on two ERC-20s — **weETH and WBTC**
+— either of which can be sourced, posted and liquidated with the Lightning side completely dark.
+⚠️ **The one real coupling that remains is DELIVERY, not COLLATERAL**: a BTC swap-out is served from
+channel capacity (§CLAUDE.md's *"redemption and swapouts do actually draw on the same sats"*). That is a
+liquidity question the §6 tenor prices, and it never reaches the lever.
+
+### ✅ 12b. BASKET STABLES ARE NEVER COLLATERAL — and the escrow makes it unconstructible
+**In all four venues a stable is the LOAN token, never the `collateralToken`.** The lever's relationship
+to stables is that it **owes** them.
+🔑 **AND IT CANNOT HAPPEN BY ACCIDENT, WHICH IS THE PART WORTH KEEPING:** every Aave borrow runs inside a
+**dedicated `AaveV3Escrow`, created per venue** (`LevVenueBase.sol:264-306`). Its constructor approves
+exactly `coll` and `stable`; `supplyColl` calls `setUserUseReserveAsCollateral(COLLATERAL, true)` for
+that one asset; and it is `onlyVenue`. **The basket's own supplies live at a different address entirely,
+so they are not in the account the lever borrows against.** Rule 17's shape: the bad state is
+unconstructible rather than merely avoided.
+
+⚠️ **THE BASKET DOES SUPPLY — AND THAT IS A DIFFERENT VERB.** `BasketLib.sol:280`/`:737` do
+`IERC4626(vault).deposit(...)` and `ChannelLib.sol:134` does `IAaveV4Spoke.supply(...)` for GHO/USDG.
+That is **yield parking in the basket's own account**, not collateral for a protocol borrow.
+🔴 **SO ONE INVARIANT MUST BE WRITTEN DOWN AND KEPT, BECAUSE AAVE'S ACCOUNT MODEL IS WHAT MAKES IT
+FRAGILE: on Aave, an asset supplied into an account is collateral FOR THAT ACCOUNT.** The basket's v4
+supply sits in `Aux`'s account. Nothing borrows from `Aux` today. ⛔ **THE INVARIANT: the account that
+parks basket stables must never borrow.** The moment it does, basket depositors' dollars are backing an
+LP's hedge — which is §1's *"neither subsidises the other"* violated in the sharpest possible way.
+
+### ⏸️ 12c. "ONLY BORROW FROM AAVE v4" — buildable, and it caps the book at ~$369k until the cap moves
+**Accepted as the direction. The one number that has to be stated with it, measured 2026-08-30 by
+actually posting collateral on the live spoke rather than by reading liquidity:**
+| | Aave v4 hub | Aave v3 |
+|---|---:|---:|
+| weETH supplied / cap | **3,832.5 / 4,000** | 1,211,945 / 1,350,000 |
+| **collateral headroom** | **167 weETH ≈ \$461k** | 138,055 weETH ≈ \$381M |
+| borrow capacity | ~\$369k (CF 8000) | ~\$295M (LTV 7750) |
+⇒ **v4 is 0.12% of v3's collateral capacity — and the binding constraint is the SUPPLY CAP, not depth.**
+⛔ **A 100 weETH supply REVERTS `0xde3fc6ae(0xfa0)`.** So "only v4" is not a routing preference; it is a
+**hard ceiling on the whole lever book** until Aave raises the cap. **State it as a launch constraint or
+the first real hedge reverts.**
+
+✅ **THE INTEGRATION IS MOSTLY THERE, WHICH IS WHY THIS IS CHEAP DESPITE THE ABOVE.** v4 is already wired
+on the **supply** side — `IAaveV4Spoke`/`IAaveV4Hub`, `getAssetId` → `getReserveId`
+(`Aux.sol:365-372`), `getUserSuppliedShares`/`getUserSuppliedAssets` (`:1561`) — and the probe confirmed
+**weETH IS collateral on v4 at CF 0.8e18**. What is missing is one `AaveV4Venue` + `AaveV4Escrow` pair
+mirroring the v3 one.
+⛔ **AND ONE TRAP THAT MUST NOT BE COPIED:** `Amp.sol`'s `UserAccountData` declares **3 fields** while the
+live spoke returns **7 words**. Decoding 7 as 3 reads word[2] — `type(uint).max` on an empty account —
+into `avgCollateralFactor`. **Copy the ladder, not the struct.**
+
+### ⭐ 12d. AND SINGLE-VENUE BORROWING RETIRES *D4* — four of the ten rows it gates
+`SPRINT.md` §COMPOSITION-ORDER books **D4 — the allocator's objective** as the decision gating ten core
+rows. **"Only Aave v4" answers it by deletion: with one borrow venue there is nothing to allocate.**
+| retired by the ruling | survives it |
+|---|---|
+| `§POOL-VENUE-IS-PINNED-BY-FIRST-CALLER` — *"a second venue is unreachable"* is the DESIGN now, not a defect | `§SESS-61` (which hub) |
+| `§SESS-55` — add a USDT venue | `§SESS-75` / `§SESS-60` (1inch client) |
+| `WHAT GENUINELY GETS HARDER` — the allocator objective | `§SESS-47` / `§SESS-49` (route planning) |
+| `THE FIX, AND WHY IT IS NOT LANDED` — byte-blocked multi-venue | `C15` (1inch migration) |
+⚠️ **THE SIX THAT SURVIVE ARE NOT BORROW-VENUE SELECTION — THEY ARE SWAP ROUTING**, and the lever still
+has to buy weETH/WBTC with the borrowed stable however few venues it borrows from. **Collapsing the
+borrow side does not collapse the aggregator side, and conflating them is how "we only use one venue"
+would be read as "routing is solved."**
+
 ---
 ---
 
