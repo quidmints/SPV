@@ -437,7 +437,18 @@ V4**, §BTC-7) and *"Hop node listens and executes on-L1"* (**nothing listens**)
 **how the sats would be produced is nowhere specified** — splice-out, hop wallet or purchase — so no
 mechanism should be inferred from the words "on-L1".
 
-### 🔴 RULE-15 DEBT CARRIED BY `47759214` — BOOKED SO IT SURVIVES THIS SESSION
+### ✅ RULE-15 DEBT ON `47759214` — **DISCHARGED, MEASURED 2026-09-11**
+`tools/forge-test.sh --match-path 'test/VBtcLevFeeLane.t.sol'`:
+**`VBtcLevFeeLane` 16 passed / 0 failed** — all 13 `InsufficientChannelBtc()` failures gone, all **5
+ports** green, including `test_BtcLevVenueGate_InitRejectsNonWbtcCollateral`'s new second half (the
+regression test for the ruling itself). **`EthLevDeleverLegs`** — the **1 moved** test,
+`test_RepayFor_PermissionlessReducesLpDebt`, **passes**; its 2 `Slippage()` failures are the same two
+in the control, i.e. pre-existing rather than port damage.
+⇒ **Suite-wide 26 → 13 failures, and the 13 removed are exactly the ones this commit targeted.**
+📌 The row below is kept as the record of what the debt WAS and how the control was used to tell a
+regression from the pre-existing set — that method is the reusable part.
+
+#### (WAS) 🔴 RULE-15 DEBT CARRIED BY `47759214`
 `§VBTC-COLLATERAL-DELETED` shipped with **5 tests ported to the Aave-WBTC fixture and 1 moved to
 `EthLevDeleverLegs`, none of which have been RUN.** Both builds are green; a green build is not a green
 suite. ▶️ **Run `tools/forge-test.sh --match-path 'evm/test/VBtcLevFeeLane.t.sol'` and confirm against
