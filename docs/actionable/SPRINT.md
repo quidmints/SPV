@@ -5401,6 +5401,23 @@ blocker — it is the actual task.
 
 ## 🔴🔴🔴 **§POOL-VENUE-IS-PINNED-BY-FIRST-CALLER — THERE IS NO VENUE SELECTION AT ALL, AND A SECOND VENUE IS UNREACHABLE. THIS BLOCKS EVERY FALLBACK ASKED FOR.** (2026-08-30)
 
+> 🔗 **§DESIGN-2026-09-11 — STILL OPEN, AND THE RESOLUTION PATH IS NOW NAMED (TARGET-DESIGN §9).**
+> Re-checked against code: **three of the four pieces an allocator needs already exist** —
+> `borrowRateRay(size)` on both venue classes (and it REFUSES an unfundable draw rather than
+> flattering it), `poolVenues[]` iterated at FOUR sites written for heterogeneous venues
+> (`LevBase:499/:661/:748` + `poolVenueCount`), and the `isPoolVenue[]` registry populated on every
+> open. **The blocker is this section's subject and nothing else:** `LevBase.sol:384-385`
+> `else if (poolVenue != address(venue)) revert VenueNotPooled()`.
+> ⚠️ **AND LIFTING IT IS NOT A ONE-LINE CHANGE, which this row understates:** `swapOutDeleverAmt`,
+> `deleverToVault`, `deleverBook` and `_sourceRepayFree` each resolve THE venue via singular
+> `poolVenue`. With N venues each must choose WHICH — and the right choice differs between a repay
+> (dearest debt first) and a withdraw (venue with spare collateral). **That routing decision is the
+> allocator's real body; the rate maths is the easy half.**
+> ✅ **THE ALLOCATION RULE IS SETTLED BY MEASUREMENT:** equalise MARGINAL rates; never rank on
+> `borrowRateRay(0)`, which picks the lowest base rate and therefore the worst venue at size (RLUSD
+> is cheapest at +$5k and unfundable at $25M). ⏸️ Owner 2026-09-11: *"allocation reduces the cost and
+> increases the gas … dont get distracted by that right now. its just another task."*
+
 Owner asked for two fallbacks — WBTC v4↔v3, and RLUSD/PYUSD Morpho↔Aave-v4-spoke *"use morpho if
 it's cheaper: more liquidity/lower utilisation"*. **Neither is expressible against the current
 design, and the reason is one line.**
@@ -6943,6 +6960,18 @@ exactly why the defect survived — the suite proves the mechanism works when wi
 about whether deployment wires it. **A test-only caller is how a production hole looks covered.**
 
 ## ⏸️ **§RING-LAGS-ORACLE — CONFIRMED 2026-08-28 BY AN INDEPENDENT MEASUREMENT; 1 OF 2 FAILURES FIXED** (2026-08-24)
+
+> 🪦 **§DESIGN-2026-09-11 — HALF OF THIS ROW'S SUBJECT IS DELETED, AND THE SURVIVING HALF GOT SHARPER.**
+> ⛔ *"The push path is not missing, only unwired … `pushObservation` is PERMISSIONLESS … the ring CAN
+> be fed by a keeper, or by any caller."* **`pushObservation` NO LONGER EXISTS** — it was removed with
+> `OBS_PUSH_MAX_BPS`, and `Core`'s only ring writer is `_observeIfSourced` behind `onlyUs`. There is no
+> permissionless feed to wire, and re-adding one is explicitly prohibited at that call site.
+> ✅ **BUT THE OTHER HALF — *"nothing in deployment points `observationSource` at a source"* — IS STILL
+> TRUE AND IS NOW MORE LOAD-BEARING, NOT LESS.** With σ² deleted, the deviation guard is §E222's ONLY
+> remaining consumer, so the ring being Chainlink-fed means `twapResolve` compares Chainlink with
+> Chainlink: it fires on STALENESS and cannot fire on MANIPULATION. Booked with the full chain of
+> evidence at **TARGET-DESIGN §6c**, where it is an owner ruling — pin a genuinely independent source,
+> or name Chainlink the trust root and delete the ring.
 ✅ **THE LEAD IS NO LONGER A LEAD.** This row says `Quid._corePrice()` reads
 `obsState.lastPrice` — the RING's last observation, not the oracle — so a fixture that mocks the
 Chainlink feed moves the ORACLE while range spot stays put. **Measured independently this session,
