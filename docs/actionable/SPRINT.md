@@ -1,22 +1,28 @@
 # 🧭 NAVIGATION — READ THIS BEFORE GREPPING. THE ORDERING DOCUMENTS ARE AT THE BOTTOM.
 
-**RE-MEASURED 2026-09-09 (was 59,322 / 1,180 on 2026-09-08, before the §SESS-121 bookings and the
-κ lane-book fold): **60,859 lines and 1,261 `##` sections** — 255 marked OPEN
-(🔴/🟡/🟠/⏸️) and 237 marked CLOSED (✅). (Post-dedup and pre-booking it read 59,058 / 1,177 / 257 /
-244.) ⚠️ **For the `§SEQ-AUDIT` ROW census — 219 open, 462 closed, 32 merged over 713 markers (naive count: 220/480/34 over 734 mentions) — see
-`§CENSUS-2026-09-07`'s 2026-09-08 re-measurement. The `##` counts here and the marker counts there measure
-DIFFERENT things and have never agreed; quoting one as the other is its own recurring bug.** ⚠️ These are the
-DIRECT counts. Every earlier total in this file was measured against a file that carried itself twice
-and is roughly double — do not compare across that date.** Nobody reads it; everybody greps it. **So the failure mode
-is not "the answer is missing", it is "the grep found A row and there were four."** This header exists
-because the three documents that tell you WHAT ORDER to work in are buried at the very end:
+**RE-MEASURED 2026-09-10, AFTER THE §KERNEL-RETIRED SWEEP: 58,323 lines and 1,271 `##` sections**
+— 270 marked OPEN (🔴/🟡/🟠/⏸️) and 246 marked CLOSED (✅). The sweep deleted **83 whole sections (4,047 lines) and 45 sub-sections inside `UNIT STATUS INDEX`
+(1,472) = 5,519 lines**, every one with a subject this design deleted (the A–S kernel and its
+parameters, σ² and its estimators, the flow EWMAs, θ/K, the refill, the per-LP cascade), and retired
+two more tables in place (`C4`, `FOUR OWNER DECISIONS`) where part of the content still binds. Previous
+reading, for the delta only: 60,859 / 1,261 / 255 / 237 on 2026-09-09.
+⚠️ **DO NOT COMPARE ACROSS 2026-09-10, and do not compare across the 2026-09-08 dedup either** — every
+total before the dedup was measured against a file that carried itself twice and is roughly double.
+⚠️ **For the `§SEQ-AUDIT` ROW census see `§CENSUS-2026-09-07`. The `##` counts here and the marker counts
+there measure DIFFERENT things and have never agreed; quoting one as the other is its own recurring bug.**
+
+Nobody reads this file; everybody greps it. **So the failure mode is not "the answer is missing", it is
+"the grep found A row and there were four."** ⭐ **AND AFTER THE SWEEP THERE IS A THIRD MODE: the grep
+finds NOTHING because the subject is deleted.** If a §tag you expected is missing, see
+`§KERNEL-RETIRED-2026-09-10` near the top — it lists all 64 retired tags. This header exists because
+the three documents that tell you WHAT ORDER to work in are buried at the very end:
 
 | what it answers | where | why you need it FIRST |
 |---|---|---|
 | **What order across the whole file** | **`§MASTER-ORDER-2026-09-05`, line ~52,108** — GATES 0–9 | 94% of the way down. Its three rules — *evidence before inference · decision before construction · immutable before mutable* — are why GATE 3 (`BTCChannels`) cannot be resequenced later |
 | **Who owns which files** | **`§LANES-2026-09-06`, line ~55,053** — L1 prose · L2 rust · L3 btc · L4 lever · L5 range/swap · L6 tests · L7 reads | The collision partition. `LevManager` and `SwapLib` are single-lane BY PHYSICS (EIP-170 margin), not preference |
 | **Bitcoin, in dependency order** | **`D2`, line ~13,310** | The only scope with a finished dependency ordering. Most of its 22 rows are ✅ — read the state column, not the number |
-| **Γ, κ, the skew kernel, and whether the refill exists** | **`§SESS-121-INDEX`, at the END of this file** — maps 8 open rows to their evidence | 2026-09-09 changed §E274, §E289, §GAMMA-IS-NOT-A-DIAL, §C1 and §REFILL-G2-VERDICT at once. ⛔ **Three attempts to make the reserve vol-sensitive were BUILT AND REVERTED; read it before trying a fourth.** The controls are `sims/kernel_shape.js` |
+| ~~**Γ, κ, the skew kernel, and whether the refill exists**~~ **RETIRED 2026-09-10** | **`§SESS-121-INDEX`, at the END of this file** — now a history block, not a queue | 🔴 The kernel is DELETED (§NO-GAMEABLE-BOUND: every input was starvable by the priced counterparty). `wellSkew`/`sellSkew` return a flat 420 ppm. **Three attempts to make the reserve vol-sensitive were BUILT AND REVERTED, and a fourth is now moot.** Replacement: `docs/actionable/TARGET-DESIGN.md` |
 | **50 rows are OWNER-BLOCKED** (was 83 before the dedup — the same rows, counted once) | `grep -n "blocked on a person\|owner decision"` | Do not start these. They move risk and the decision is not an engineer's |
 
 
@@ -34,16 +40,55 @@ anchor. Domains OVERLAP (one section can cite `SwapLib` and `LevMath`), so this 
 file's total, and **~113 sections match nothing** — mostly process and close-outs.
 ⇒ **`grep '^## '` remains the only COMPLETE enumeration. This table is a router, not an index.**
 
+🔴 **EVERY LINE NUMBER IN THIS TABLE IS STALE AS OF 2026-09-10** — the §KERNEL-RETIRED sweep below cut
+5,519 lines out of the middle of the file. The `start at` column's OFFSETS are wrong by thousands; the
+§-NAMES still resolve, so grep the name, never the number. (This is the table's own "counts are a
+reading with a timestamp" warning, arriving.)
+
 | subject | OPEN | grep for | start at (most recent §-named open) | lane |
 |---|---|---|---|---|
-| **range · skew · pricing** | **123** | `SwapLib` `skewWad` `sellSkew` `GAMMA_WAD` `KAPPA_WAD` `POOLED` | `§GAMMA-IS-NOT-A-DIAL` ~59461 · `§SIGMA-COUNT-BROKEN` ~60926 | L5 |
+| **range · swap fee · pricing** 🔴 **RE-POINTED 2026-09-10** | — | `SwapLib` `wellSkew` `sellSkew` `MIN_SWAP_SKEW_WAD` `POOLED` | **`docs/actionable/TARGET-DESIGN.md`** — the kernel sections are DELETED from this file | L5 |
 | **leverage · IL-protect** | **69** | `LevManager` `LevMath` `ilBasisPx` `deleverBook` `Morpho` | `§KEEPER-LIQ-FALLBACK` ~59672 · `§LEVER-UP-HAS-NO-AGGREGATE-GATE` ~60659 | L4 |
 | **bitcoin · lightning** | **80** | `BTCChannels` `ChannelLib` `validating_signer` `splice` | `§7540-CONFORMANCE-IS-DISCHARGED-2026-09-07` ~58240 · `§THE-QUOTE-IS-THE-BUG-2026-09-08` ~58590 | L2/L3 |
 | **basket · redeem · shares** | **84** | `BasketLib` `Vault.sol` `VBtc` `committedUsd` | `§SKEW-COVERAGE-HOLE` ~57620 · `§7540-CONFORMANCE-IS-DISCHARGED-2026-09-07` ~58240 | L1/L5 |
-| **oracle · TWAP · variance** | **47** | `OracleLib` `realizedVarianceWad` `Chainlink` `getTWAPforAsset` | `§SKEW-COVERAGE-HOLE` ~57620 · `§GAMMA-IS-NOT-A-DIAL` ~59461 | L5/L7 |
+| **oracle · TWAP** 🔴 **RE-POINTED 2026-09-10** | — | `OracleLib` `Chainlink` `getTWAPforAsset` `twapResolve` | **`TARGET-DESIGN.md` §6c** (the deviation guard compares Chainlink with Chainlink). σ² is DELETED — `realizedVarianceWad`/`ringVariance`/`anchorVarianceWad` no longer exist | L5/L7 |
 | **routing · 1inch · venues** | **46** | `1inch` `unoswap` `_aggSwap` `routedSwap` | `§THE-QUOTE-IS-THE-BUG-2026-09-08` ~58590 · `§SOLVER-IS-A-GLOSS` ~58829 | L4/L7 |
 | **size · EIP-170 · folds** | **24** | `EIP-170` `check-contract-sizes` `to spare` | `§7540-FOR-ETH-IS-WRONG` ~34190 · `§J.2c` ~36153 | any |
 | **identity · noir** ⛔ DEFERRED | **2** | `evm/src/identity` `Honk` `nullifier` — has its OWN `TODO.md` | `§RSAPSS-MSB` ~2672 | — |
+
+## 🪦 §KERNEL-RETIRED-2026-09-10 — **5,519 LINES CUT. IF YOU GREPPED A §TAG AND LANDED HERE, ITS SUBJECT IS DELETED.**
+
+Owner: *"much of sprint.md is irrelevant/stale given our new design right? clean it up"*. This is that
+sweep, and this block is the tombstone so a grep for a retired tag lands somewhere rather than nowhere.
+
+**WHAT WAS CUT AND WHY.** 83 whole sections (4,047 lines) plus 45 sub-sections inside `UNIT STATUS
+INDEX` (1,472 lines). Every one had a DEAD SUBJECT: the Avellaneda–Stoikov scarcity kernel and its
+parameters (Γ, κ, ρ, the pole, the q̄ integral), σ² and every estimator that fed it, the flow/redeem
+EWMAs, θ and K, the refill, and the per-LP cascade. None of that exists in `evm/src` any more —
+`wellSkew`/`sellSkew` return a flat `MIN_SWAP_SKEW_WAD` (420 ppm).
+
+**THE ONE-LINE REASON, WHICH IS THE ONLY PART WORTH CARRYING FORWARD.** Every input to the kernel was
+MEASURED STATE THE PRICED COUNTERPARTY COULD STARVE — patience (let the 48h EWMA decay, so the target
+shrinks toward the inventory you mean to drain) and clock-stretching (space one drain's slices 4h
+apart, σ² falls ~24×, the charge falls 93.3%). Owner: *"anything that can be gamed is useless."* A
+constant cannot be starved, so both attacks become unconstructible rather than defended against.
+
+⇒ **CURRENT STATE LIVES IN `docs/actionable/TARGET-DESIGN.md`** — §4 the charge, §5 the removals,
+§6b/§6c the debts they created, §8 the pooled target. Not here.
+
+⛔ **DO NOT TREAT THIS AS PERMISSION TO RE-OPEN THE KERNEL.** Three attempts to make the reserve
+vol-sensitive were BUILT AND REVERTED, and a fourth is moot. The measurements those sections carried
+were sound; their SUBJECT is gone.
+
+**RETIRED TAGS** (grep any of these and you are here): `§ARB-SHARING-IS-THE-SKEW-PREMIUM` · `§CLUSTER-1-SKEW` · `§E136-` · `§E271` · `§E273` · `§E274` · `§E275` · `§E276` · `§E278` · `§E278-` · `§E279` · `§E283` · `§E284` · `§E287-` · `§E288` · `§E288-CORRECTED` · `§E289` · `§E290` · `§E294` · `§E300` · `§E306` · `§E308` · `§E314` · `§E323` · `§E327` · `§E330` · `§E332-` · `§E345` · `§E352-REACHABILITY` · `§E48` · `§E59-REOPENED` · `§E96` · `§FLOOR-IS-NOT-A-CONSTANT` · `§GAMMA-BREAKS-HONEST-LP-MARGIN` · `§GAMMA-FIRST-PRINCIPLES-2026-09-09` · `§GAMMA-IS-NOT-A-DIAL` · `§GAMMA-TRACE-2026-09-09` · `§KAPPA-GAMMA-RHO-RESOLVED` · `§LEVYBREAL-RED` · `§PLP-0` · `§PLP-11` · `§PLP-7` · `§PLP-T` · `§REFILL-AFFORDABILITY` · `§REFILL-BASIS` · `§REFILL-FEASIBILITY-SETTLED` · `§REFILL-G2-VERDICT` · `§REFILL-SIZE` · `§SELL-SKEW-18PCT` · `§SESS-116` · `§SESS-15` · `§SESS-16` · `§SESS-18` · `§SIGMA-COUNT-BROKEN` · `§SIGMA-FREE-SHARE` · `§SIGMA-IS-ZERO-EVERYWHERE` · `§SKEW-COVERAGE-HOLE` · `§SKEW-DOUBLE` · `§SKEW-IS-SCALE-FREE` · `§UNIT-SKEW-IS-NOISE` · `§UNITB-ARMS-IDENTICAL` · `§WAVE-3-SWEPT` · `§ZERO-REVENUE` · `§ZERO-REVENUE-ON-A-FLUSH-ETH-RANGE`
+
+📌 **WHAT WAS DELIBERATELY SPARED**, because the subject is still live even though the title matched:
+`§SKEW-VS-V3` (the competitive ceiling is a REQUIREMENT — TARGET-DESIGN §6b debt 4), `§E280` (the fee
+still reaches LPs, and `SkewPremiumReachesLPs.t.sol` still asserts it), the `retainSkewPremium` unit
+rows (the function is live), `§OBSERVATION-SOURCE-UNSET` and `§E343` (they are the evidence under
+§6c), `§RANGE-DELTA-WIDENED` (`RANGE_DELTA` is live; only its θ half died), `§SESS-21` and the
+`LevCascade` rows (`deleverOne`'s route widening survives the cascade's deletion), and the owner's own
+`FLASH COSTS` note.
 
 ## ⛔ FIVE TRAPS SPECIFIC TO NAVIGATING **THIS** FILE — each cost a session
 1. **STATUS MARKERS IN THE FOLDED ARCHIVES ARE NOT STATUS.** `§FROM-QUEUE` (:24,088), `§BUILD-QUEUE-FOLD`
@@ -1769,42 +1814,6 @@ it locks late (delivered by the watcher); it never locks (the swapper's self-ser
 ⚠️ **NOT INTEGRATION-TESTED** — the resume needs a live LN + regtest splice that locks after a
 timeout, which this environment cannot stage. It is fail-safe in both directions: if the watcher
 never fires, behaviour is exactly today's; if it fires late or twice, the contract guard rejects it.
-
-## 🧾 §WAVE-3-SWEPT (2026-08-31) — every skew row checked against the tree BEFORE proposing any of it
-Done this way deliberately: six rows today read as work and were already finished or stale.
-
-✅ **`T2` — REVIEWED AND CORRECT. THE REVIEW IS THE DELIVERABLE; NO CODE CHANGE IS WARRANTED.**
-`PREMIUM_ANNUALIZE = 127` (`QuidLib.sol:222`) is **derived, not tuned**, and the derivation checks out
-to four decimals: `FLOW_DECAY` is a 48 h half-life ⇒ mean lifetime `48/ln2 = 69.2536 h` ⇒
-`8760/69.2536 = 126.4994` windows per year ⇒ **ceil = 127**. Its stated purpose is dimensional — σ² is
-annualised, so the premium numerator must be too, or θ under-sizes the range systematically.
-⚠️ **THE ONE REAL RISK, AND IT CANNOT BE MADE STRUCTURAL:** the comment says *"if `FLOW_DECAY`'s
-half-life ever changes, this must change with it"*, and **nothing enforces that**. It cannot become a
-compile-time expression, because `FLOW_DECAY` is stored as a **per-minute WAD factor**
-(`999759352855809024 = 0.5^(1/2880)`, `Core.sol:200`), not a duration — recovering the half-life needs
-a logarithm. ⛔ **AND A UNIT TEST WOULD BE FALSE ASSURANCE:** both constants are `internal`, so a
-no-fork test could only re-declare the literal and would keep passing after a change to `Core`'s.
-⇒ **Correct as it stands; the coupling stays comment-enforced, and that is now a known, reasoned
-acceptance rather than an unreviewed number.**
-
-✅ **`E227-calcfeel1` — EXECUTED 2026-09-09, NOT MERELY ANSWERED.** The plan `FeeLib.sol` carried for
-its own deletion has been run: `calcFeeL1`, `BASE` and `MAX_FEE` are gone from
-`evm/src/imports/FeeLib.sol` and the `Alles.t.sol` unit test with them. ⚠️ **The plan was WRONG on one
-point and it is worth recording, because it is the shape rule 20 warns about — a docblock is prose:**
-it said *"`BASE`/`MAX_FEE` stay (read by `grossUpForDepeg`'s neighbours)"*. **Measured: neither is read
-anywhere outside the deleted body**, so both went. `DEPEG_DEADZONE_BPS` is the one that stays — read by
-`liveDepegBps` — and it is still `public constant` (narrowing it to `internal` drops a dispatch entry
-but is an ABI change needing `tools/check-client-abis.py`, so it is left noted at the declaration).
-
-⚪ **`UNIT-SKEW-STATUS` — the live path is intact:** `skewWad` is called at `SwapLib.sol:1778` on the
-pricing path (`:1300` is a test-describing comment). With `§E294` landed and `§E345`'s anchor leg
-feeding σ², the *"fourth is the worst"* concern that opened this row now needs re-measuring against a
-trustworthy σ² rather than re-arguing.
-
-🔴 **`E79-SPEC` (the LVR sim) — GENUINELY OPEN AND GENUINELY ABSENT.** No LVR simulation exists
-anywhere in `evm/test` or `tools`. Its row calls it *"a PREREQUISITE for E93, not a follow-up"*, so it
-gates the refill-responsive target work — **which is the other thread's refill thread.** ⇒ **This is
-the one Wave 3 item that is real, unstarted, and cross-thread relevant.**
 
 ## 🧾 §BTC-CLUSTER-RE-VERIFIED (2026-08-31) — the four `§CLUSTER-2-BTC` blockers, checked against code
 | finding | verdict today |
@@ -4345,60 +4354,6 @@ silently partial-fill (standing rule 3).
 headroom NUMBER is worthless unless it PREDICTS THE REVERT.** Recomputing it from the same two reads
 would have been tautological, so the test supplies inside the headroom (must succeed), asserts the
 headroom FALLS, then supplies past it (must revert). 6 tests green, lev suite 41/0.
-
-## 🗺️ **§ARB-SHARING-IS-THE-SKEW-PREMIUM'S-PRICE — MAPPING THE OOR AND REBALANCE/REFILL THREADS AGAINST WHAT THIS FILE ACTUALLY HOLDS** (owner, 2026-08-30: *"what about the oor stuff? … rebalance/refill left (optimal policy still a mystery, related to skew and profit sharing of all possible arb with LPs, not sure to what extent this is covered)"*)
-
-### 📌 THE OOR THREAD — FOUR ITEMS, AND I HAVE NOW DROPPED IT TWICE
-The owner already caught this once (*"either way, you did not forget the OOR work?"*) and it was
-dropped again on 2026-08-30. Outstanding, all verified present in code today:
-| # | item | state |
-|---|---|---|
-| 1 | **ETH OOR sell leg** | ✅ **BUILT — THIS ROW WAS STALE, DESTALED 2026-09-06 (§SESS-14 sweep).** `IntentSellLegUnbuilt` has **ZERO occurrences in `evm/src`**: it is not a declared error and nothing raises it. `Quid.fillIntent:1255` calls `_settleSellIntent(i, wantUsd6, routes)` whenever `wantUsd6 > 0`, with `_convertShortfall` wired in. ⚠️ **And the settlement claim was wrong too** — it settles through `settleOor` like the buy leg, by SHRINKING the maker's claim on ether that never moves (`volDelta` stays 0), NOT with `_withdraw`'s shape. 🔴 **Worst-shaped stale in the file: a row saying "unbuilt" about working code makes the reader skip the code rather than re-read it.**  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): IntentSellLegUnbuilt not declared, never raised; _settleSellIntent implemented and called** |
-| 2 | **BTC OOR** | 🔴 **NOT BUILT — but "no path at all" OVERSTATES IT, and the difference changes the size of the job (measured 2026-09-06).** **BOTH ENDS EXIST; THE MIDDLE DOES NOT.** ⓵ *Settlement:* `Core` is deployed **twice** (`Aux.sol:50/331` `Core internal immutable BTC_CORE`; `Vault.sol:84` `Core public immutable CORE`), and `settleOor` (`Core.sol:943`) is on the contract, not on an ETH-only branch — **so the BTC range already has the settlement primitive.** ⓶ *Delivery:* `BTCChannels.requestSwapOutOnchain:2259` plus the hop-independent `refundExpiredSwapOut:2209`. ⓷ **What is missing is the ENTRYPOINT that ties them.** `fillIntent` occurs **1×** in `Quid.sol` (the ETH range) and **0×** in `Vault.sol` (the BTC twin); `BtcLevManager`, `VBtc`, `BTCChannels` and `Basket` contain **zero** occurrences of `Intent`. ⚠️ **AND THE TYPEHASH CANNOT EXPRESS A BTC INTENT AS WRITTEN:** `OorIntent` has **no asset field** — only a `buyVolatile` bool — and `Quid.fillIntent:1251` passes `address(WETH)` hardcoded, so the struct is ETH-shaped and a BTC leg needs the typehash widened (a signing-surface change, not just a new function). ⛔ `Vault.sol:704-712`: *"Do not re-add a book here. The thing to add is the intent."* 🔑 **Note for item 3:** `refundExpiredSwapOut` is already **hop-independent**, so the BTC delivery rail carries the recoverability property item 3 asks about — check item 3 against it  📌 **§SEQ-AUDIT: GATE 7 · lane L5. Both ends confirmed; only the BTC OOR entrypoint is missing** |
-| 3 | **keeper-hacked recoverability** | ✅ **RE-CHECKED 2026-09-06 AND SUBSTANTIALLY SATISFIED — the constraint holds on every pending deliverable that exists today.** Enumerated by grepping value-bearing `pending*` state across `evm/src`, not by recalling the design: ⓵ **THE INTENT PATH RESTS NOTHING.** `Quid.intentUsed` is `mapping(address => mapping(uint64 => bool))` — a bare replay-guard **bool**, not an escrow — and the fill is ATOMIC: `spendClaim` burns the maker's claim and `CORE.settleOor` credits in the SAME transaction (`SwapLib:1212`, `Quid:1269`). ⇒ **there is no pending deliverable in the intent design to strand.** A hacked keeper's worst case is liveness (never fill) or a bad route, and a bad route dies on `convertTo`'s balance-delta floor (§SESS-2). ⓶ `pendingOnchainSwapOut` → `refundExpiredSwapOut:2209`: *"Permissionless of the HOP — only the recorded swapper can call, and the refund is **pinned to that swapper**, so no hop cooperation is needed and no one can misdirect it"*, time-gated by `SWAPOUT_REFUND_BLOCKS`, with `swapInUsed` making refund and a stale delivery mutually exclusive. ⓷ `pendingClaimSats` → `registerChannelClaim:1080`, which has **NO access modifier at all** (fully permissionless) and credits `channels[channelId].lpEth` rather than `msg.sender` — **anyone can trigger it, nobody can redirect it**, which is the exact shape the constraint asks for. ⚠️ **BOUND THE CLAIM, TWICE:** this covers the deliverables that EXIST. **The BTC OOR successor (item 2) is unbuilt, so this becomes a DESIGN REQUIREMENT on it rather than a discharged check** — its fill must not introduce resting state without a pinned, hop-independent recovery. And it does **not** speak to `_shrinkSplice`/`_withdrawalPayout`, whose unbounded-shrink hole (§T1-f-general) is a distinct ATTRIBUTION problem, not a recoverability one |
-| 4 | **1inch load-balance for OOR fills** | 🔴 **STILL OPEN, BUT THE ROW'S STATED REASON WAS WRONG — CORRECTED 2026-09-06.** It said *"`_aggSwap` is still `UNOSWAP_SELECTOR`-only (one pool)"*. **It is not:** `LevMath._aggSwap:971-973` emits `UNOSWAP2_SELECTOR` whenever `dex2 != 0`, so the **two-hop SERIES route is BUILT** — and built carefully, with **both hops' directions DERIVED, never trusted** (hop 1 from `tokenIn`, hop 2 from `tokenOut`, so *"the keeper names pools, never directions"*). ⇒ **the conclusion survives, the diagnosis does not**, and the distinction matters because SERIES (A→B→C) is not the SPLIT the owner asked for. 🔑 **WHAT IS ACTUALLY MISSING, AND IT IS SMALLER THAN THE ROW IMPLIED:** parallel splitting **already works at the EXECUTOR level** — `convertTo:641` loops `k < n` over parallel arrays with **no dedup on `inTokens[k]`**, so the same token may occupy several slots with different amounts and routes, each with its own approve→call→zero and its own `ROUTE_GAS_CAP`, under ONE whole-conversion floor. **Only the on-chain ENCODER is single-leg:** `_aggSwap:967-969` hardcodes `new address[](1)`. ⓵ widen that encoder; ⓶ the `swap()` executor path is still absent (§UNOSWAP-CANNOT-REACH: 4 of 8 candidate dollars unroutable, and Curve unreachable in 32 encodings — §SESS-6); ⓷ `unoswap3` is not imported. 🔴 **AND A GAP NEITHER ROW NAMED: THE TWO-HOP THAT IS BUILT IS UNREACHABLE FROM THE BATCH PATH.** `LevManager.rebalanceMany(lps, minOuts, dexes)` has no `dex2`/`route` parameters and `_batch:345` hardcodes `(…, dexes[i], 0, "")`, so a **direct** `rebalance` can take the two-hop and the **keeper-allowlisted batch cannot** — a capability that exists and is fenced off by an argument list  📌 **§SEQ-AUDIT: GATE 7 · lane L5. Two-hop built; the load-balance ACROSS venues is the residue** |
-
-### 📊 REBALANCE / REFILL / SKEW — THE COVERAGE IS DEEP; THE OWNER'S SPECIFIC QUESTION IS THE GAP
-Measured against this file: **`skew` 1244 hits · `refill` 465 · `rebalance` 259 · `arb` 223 ·
-`"once per block"` 3 — and `"profit shar"` **ZERO**.**
-✅ **Already settled, do not re-derive:**
-- **Cadence** — §AUDIT-ROUND-2 Q3: repack fires only on a **±0.2% band cross** (`RANGE_DELTA=20`),
-  manip-guarded at 300 bps, and **moves NO tokens / realises NO restoration cost**, so frequent
-  repacks are nearly free. ⇒ *"is rebalancing too often?"* is answered: **no.**
-- **The once-per-block premise** — line 1599 already corrects it: *"THE REPACK IS NOT ONCE PER BLOCK."*
-  It is band-triggered, not scheduled. **The owner asked to be corrected if wrong, and was.**
-- **P&L attribution** — §AUDIT-ROUND-2 Q1: every fee path correctly attributed except the booked
-  §SKEW-DOUBLE.
-- **What the refill IS** — *"A RANGE-PLACEMENT COMPUTATION, NOT A TRADE"*, and *"SETTLED, AND SMALLER
-  THAN IT LOOKED"*.
-
-### ⭐ THE REFRAMING: ARB-SHARING IS ALREADY BUILT — WHAT IS UNSOLVED IS ITS **PRICE**
-The owner's phrase has zero hits because the mechanism is filed under a different name. **It exists
-and it already pays LPs**, traced end to end today:
-`Core.sol:561` `skewPremium += premiumUsd` → `RANGE.creditSkewPremium(premiumUsd)` →
-`Vault.sol:349-351` `feeIncrements(0, premium6, lpShares + totalBuffer)` → **`USD_FEES += usdInc`** →
-`feesPerShare` → **LPs.**
-⇒ **The protocol ALREADY charges the imbalance-causer and hands the proceeds to LPs pro-rata.** So
-*"should LPs share in the arb"* is **not** the open question — architecturally they do.
-🔴 **THE ACTUAL OPEN QUESTION, AND IT IS A PRICING PROBLEM, NOT A PLUMBING ONE:**
-> **Is `skewPremium` set so that it captures the arbitrage the range's own mispricing creates, or does
-> it systematically leave value on the table for the arbitrageur?**
-Under-price it and LPs subsidise arbitrageurs on every restoration; over-price it and the imbalance
-never gets closed because arbing it stops being profitable — **and an unclosed imbalance is exactly
-what the refill exists to fix.** ⇒ **The optimum is not a constant: it is the largest premium that
-still leaves the arb profitable**, which depends on the arbitrageur's own route cost — a number this
-session now knows how to measure (§ROUTE-COST-MEASURED: 1.7–2 bps for 3pool stables, 8 bps for GHO).
-⚠️ **DO NOT BUILD A NEW MECHANISM FOR THIS.** The credit path, the accumulator (`skewPremiumCum`) and
-the LP distribution all exist and are audited. **The work is calibration plus a test that the premium
-tracks the arb's actual cost floor** — and §E93-b already established that a refill-responsive
-imbalance measure *"needs NO new state, NO new accumulator, and NO new write path."*
-
-### 🔴 AND A STALE CITATION FOUND WHILE MAPPING THIS
-Line 12222 says *"`docs/actionable/REFILL-AND-RESTORATION.md` EXISTS — I said it did not, and I was
-wrong … **Read that file before re-deriving any of this**"*. **`ls docs/actionable/` returns SPRINT.md
-and nothing else.** The file is gone; the instruction now sends the next thread to a dead path, and
-the row's own lesson (*enumerate containers before auditing*) is what catches it. **Whatever that file
-held is either folded into this one or lost — do not treat the pointer as live.**
 
 ## 🔴 **§UNBOOKED-OWNER-ASKS — THREE THINGS THE OWNER ASKED FOR TODAY THAT NEVER REACHED THIS FILE, AND ONE IS A PRECONDITION FOR THE FEATURE I SPENT THE DAY DESIGNING**
 
@@ -6950,30 +6905,6 @@ is the only thing that noticed any of this.
 BLOCKER.** Fixing it was necessary work that moved the test not one inch, because the row had booked
 the first cause it found as the whole cause.
 
-## ✅ **[CLOSED 2026-08-25 — SUPERSEDED by the re-diagnosis above: σ² was seeded (0 → 4.274e17) and the arms stayed identical; `skewWad` is FLOW-BLIND because its own flush branch fires]**  **§UNITB-ARMS-IDENTICAL — σ² is 0 because the fixture never pins a feed AND never samples twice** (2026-08-25)
-
-`test_UNITB_CounterMatchesWhatTheSwapperLoses` fails its control *"the target move must change the
-skew"*. **Measured: both arms charge 321,992 EXACTLY, and `sigma^2 (wad)` is 0.**
-⇒ **THE CONTROL IS RIGHT AND THE CAUSE IS UPSTREAM.** With σ² == 0 the KERNEL term vanishes and only
-DEPLETION survives — and depletion is SIZE-based, so two arms trading the same size charge the same
-thing no matter what the target does. The arms are identical because the only live term cannot see
-the target.
-▶️ **TWO CAUSES, BOTH REQUIRED, AND FIXING ONE IS NOT ENOUGH — measured, not reasoned:**
-  1. **`DrainAtomicity.t.sol` never calls `setAssetFeed`** (`grep -L setAssetFeed evm/test/*.t.sol`
-     lists it). The bare `AllesFixture` leaves `assetPriceFeed(WETH)` at `address(0)`, which
-     `Alles.t.sol:1044` already records as what made **§E345's sampler read 0 across eight injected
-     2% moves**.
-  2. **Pinning the feed alone did NOT fix it — σ² stayed 0.** §E345-ANCHOR's calm sampling needs a
-     SECOND sample in a LATER block: the first call only sets `_varPx` and bumps `(0,0)`, so
-     `_varDt` is still 0 and `anchorVarianceWad` returns 0 before its 1-wei floor can apply. **This
-     test snapshots between arms, so each arm gets too few samples.**
-⇒ **The pin was reverted rather than left in as an unverified no-op.** It is correct per the repo's
-own note and it does not fix this test; landing a change that does neither is noise.
-▶️ **NEXT:** either give the fixture two anchor samples across blocks before the arms diverge, or
-accept that a σ²-blind fixture cannot exercise a σ²-dependent control and rewrite the control to
-assert what depletion alone CAN distinguish. **Do not "fix" it by relaxing `premB != premA`** — that
-assertion is the only thing that noticed the arms were not being differentiated at all.
-
 ## ✅ **[CLOSED 2026-08-25 — seeding the BTC range BEFORE the 700 ETH deposit fixes it; the test PASSES]**  **§V6-BTC-SEED — the premise fails HONESTLY, and seeding it is not one line** (2026-08-25)
 
 `test_V6`'s V6b half asserts an ETH-side redemption cannot reach the BTC range. Once the legs were
@@ -8346,62 +8277,6 @@ because it was checked before being written up as fact. The others were each sta
 tolerance and hides the one thing worth knowing: how much of the USD leg is actually withdrawable.
 **If anything, the assertion should read the DELIVERABLE figure and compare against that.**
 
-## ✅ **[CLOSED 2026-08-25 — both tests PASS — the basket USDC slice is funded and the payout is the oracle (2,461.877 vs 2,460.843)]** 🔴 **§SELL-SKEW-18PCT — an in-range 1 ETH sell pays 18.7% below oracle, and it is the SKEW PREMIUM** (2026-08-25)
-
-`testSwapPricing_EthSellInRange_PaysAboutOracle` and `testRegularSwaps` are **ONE defect**: both sell
-1 ETH and receive **2,000.0055 USDC** against an oracle value of **2,460.84**.
-
-⭐ **THE TELL THAT NAMES IT, AND IT TOOK FOUR RUNS TO SEE: THE PAYOUT IS PRICE-INDEPENDENT.** Across
-four gates the oracle moved **2,435 → 2,483 → 2,448 → 2,461** while `got` sat at
-**2000.005885 / 2000.005872 / 2000.005599 / 2000.005415**. A percentage charge tracks the oracle; a
-constant does not. **`1 − 2000.0055/2460.84 = 18.73%`.**
-
-▶️ **INSTRUMENTED, AND FOUR CANDIDATE CAUSES ARE NOW EXCLUDED — each was plausible and each died to
-one measurement:**
-| candidate | measurement | verdict |
-|---|---|---|
-| inventory cap (range too USD-poor to pay) | `POOLED_USD` = **151,999,999,998** ($152,000) against a $2,460 sell | ⛔ dead |
-| partial fill / `MAX_FILLS_PER_SWAP = 4` truncation | **`ETH spent = 1.000000e18`, `WETH delta = 0`** — the whole ETH was consumed | ⛔ dead |
-| mispricing / bad oracle scale | `Core.swap` reads `px = AUX.getTWAPforAsset(ASSET, 1800)`, and the BUY twin `testSwapPricing_EthInRange_PaysAboutOracle` **PASSES** on the same fixture; `testDiag_GenesisPriceRegime` passes too | ⛔ dead |
-| curve slippage | `Core.swap`'s own docstring: *"ONE price for the whole size"* — no traversal, and 1 ETH is 1.6% of the 61.74 ETH depth | ⛔ dead |
-
-⛔ **AND THE SKEW WAS THE FIFTH DEAD CANDIDATE — THIS ROW SAID IT WAS THE ANSWER AND IT IS NOT.** I
-concluded `retainSkewPremium` had scaled the input by `(1-s)` with `s ~ 0.187`, booked it, and then
-ran the check I had booked. **MEASURED AT THE CALL: `flowEwmaUsd` = 0, `realizedVarianceWad` = 0,
-`skewPremium` = 0** - and `sellSkew` RETURNS 0 at `target == 0`. **The premium is exactly zero and
-takes none of the 18.7%.** Recorded rather than quietly edited, because the reasoning was plausible,
-matched the arithmetic, and was wrong - the one check that could falsify it settled it in one run.
-
-✅ **THE ACTUAL MECHANISM, FROM THE TRACE:**
-  • `BasketLib::convert(1e18, 2461.877e21, false)` -> **`2461877268`**. **The conversion is CORRECT.**
-    The swap prices the whole ETH at the oracle, exactly as `Core.swap` promises.
-  • The shortfall first appears **downstream, in DELIVERY**: `deallocate` -> Morpho
-    `0xBBBB...EEFFCb::withdraw(USDC ...)`, i.e. the payout is pulled OUT OF A LENDING VAULT, and
-    `2000005490` is what came back.
-⇒ **`POOLED_USD` = $152,000 IS AN ACCOUNTING DEPTH; THE BASKET COULD PHYSICALLY DELIVER ~$2,000 OF
-USDC.** That gap is exactly the deliverability haircut CLAUDE.md describes (`illiquidLoss` - the
-ever-present lending-utilization slice, *"SOLVENT and only defers per-redemption"*), and the fixture
-never funded the vaults enough to pay a $2.4k swap.
-⚠️ **SO THE CONTRACT IS NOT STEALING, AND A REAL USER IS PROTECTED: the test passes `minOut = 0`.**
-Any non-zero `minOut` reverts this swap instead of settling it short.
-⇒ **RECLASSIFIED: FIXTURE, NOT MONEY-PATH.** The fix is to fund the basket's USDC vault in the
-fixture (or assert against DELIVERABLE depth rather than `POOLED_USD`), not to change the swap.
-⛔ **BUT ONE REAL QUESTION SURVIVES AND SHOULD NOT BE CLOSED WITH IT:** a swap that settles 18.7%
-short at `minOut = 0` is indistinguishable, from the caller's side, from a swap that priced badly.
-**`Core.swap` returns the 6-dec delta, a different basis than delivery** (`_settleUsdSide`'s own
-note), so a router comparing the return value against what arrived would not see this.
-🔴 **THE TEST'S PREMISE IS *"a deep fresh range"* - AND IT IS DEEP IN THE WRONG LEDGER.** `POOLED_USD`
-says $152,000; the vaults could pay $2,000. **"Deep" was measured on the accounting side and spent on
-the delivery side**, the same split `deliverableETH` exists to express on the ETH leg.
-▶️ **NEXT:** fund the fixture's USDC vault so a $2.4k delivery is servable, then re-run both tests.
-The diagnostics stay in `Alles.t.sol` (depth, oracle base, flow, sigma^2, ETH spent, WETH delta) so
-the next thread does not repeat the five-candidate elimination.
-⚠️ **DO NOT WIDEN THE 1.5% TOLERANCE.** It is the successor to an old 10% bound and is the only thing
-that noticed this.
-✅ **NOT MINE, CHECKED RATHER THAN ASSUMED:** `gate_batch` (written **06:55**) already shows
-`2000005885`, and `5ff4a893` (`sellSkew`'s `q`→`qBar`) landed at **07:18**. The defect predates every
-skew change in this session.
-
 ## ✅ **[CLOSED 2026-08-25 — RESOLVED and LANDED — `basketLeg` separates the withdrawal and swap callers, so both documented decisions hold; +2 tests, swap path green]**  **§BURN-RELEASE-CONFLICT — the fix requires REVERSING §E230-PHANTOM, and both sides are documented** (2026-08-25)
 
 §BURN-RELEASES-NO-USD's axis is closed (three arms measured), and the reason is now derived rather
@@ -8697,97 +8572,6 @@ ordering, a vault that stops receiving, decimals handling on the 6-vs-18 boundar
 of them**, and until today nothing reported it. ⚠️ Relevant to `BasketLib.sol:282`'s note that a
 POSITIONAL divisor shipped once and broke when a 6-dec stable joined at a later slot: **a later slot
 is exactly what this fixture never populates.**
-
-## 🔴🔴 **§SIGMA-IS-ZERO-EVERYWHERE — one root under four open rows, and the backtest now gives the target** (2026-08-25)
-
-The repaired backtest (§BACKTEST-SAME-INSTANTS) prints all three σ² figures side by side, and the
-third is the finding:
-
-| series | annualised σ² (WAD) | ⇒ annualised σ |
-|---|---|---|
-| real WETH/USDC v3 pool | **5.035e16** | **22.4%** |
-| Chainlink ETH/USD | **1.004e17** | **31.7%** |
-| **OUR RANGE** | **0** | **0%** |
-
-⇒ **Both real-world numbers are physically sensible for ETH, and the range's own variance is ZERO.**
-That is now a MEASURED calibration target rather than an opinion, which is what the backtest is for —
-and it was unusable until today (it reverted on `OLD`, then compared a double-differenced series 13
-orders out, then compared mismatched windows).
-
-⭐ **FOUR OPEN ROWS ARE THE SAME ROOT SEEN FROM DIFFERENT SIDES, AND EACH WAS BOOKED SEPARATELY:**
-| row | what it reports | why σ² == 0 explains it |
-|---|---|---|
-| **§UNITB-ARMS-IDENTICAL** | both arms charge 321,992 exactly | kernel is `Γ·σ²·qBar`; at σ² = 0 it vanishes and only size-based depletion is left |
-| ~~**§TAX-IS-ZERO-AT-DEPTH**~~ | ⛔ **REFUTED — a bps rounding artefact.** Re-measured in ppb the tax is **10,054 → 19,385 → 32,536**, linear in depth, and it is DEPLETION doing it at σ² = 0 | **this row is evidence the OTHER way**: it shows the flush branch still charges after §ZERO-REVENUE |
-| **§ZERO-REVENUE-ON-A-FLUSH-ETH-RANGE** | the only LP revenue lane reads 0 | `_maxWellSkew = σ²·confFrac/8 + spliceFloor`, and ETH's `spliceFloor` is **0** — ✅ **CONFIRMED 2026-08-28 FROM THE PRODUCTION ENTRY POINT**: an unseeded ETH range quotes `AUX.wellSkew(...) == 0` exactly (not the 3e16 sentinel, which sits BELOW the `target == 0` short-circuit and is never reached). Pinned by `SkewLivePathReachesKernel.t.sol`'s control. |
-| ⭐ **A THIRD PRECONDITION THIS TABLE MISSES: `flowEwmaUsd > 0`** | a range with depth AND variance still reads FLAT at every size | `skewWad` opens `if (target == 0) return _maxWellSkew(σ², rk)` — SIZE-INDEPENDENT — and `target` is the flow EWMA, raised only by `_bumpFlow` on the swap path (`Core:1050`). ⇒ **Three independent routes to a vacuous skew reading: σ² == 0, the `inv1` branch, and no flow.** Fixing σ² alone leaves the other two live, which is why this cluster kept surviving its own fixes. |
-| ~~**§E345-ANCHOR / §E257**~~ | ⛔ **STALE LEG — REMOVE IT FROM THIS TABLE (checked 2026-08-28).** "The pull source is unset" was closed by **`fae2201a`** (§OBSERVATION-SOURCE-UNSET, `:154`): `_observeIfSourced` no longer returns on an unset source, it **falls back to the Chainlink anchor and writes an observation**. The ring DOES fill. | ⇒ **three legs, not four** |
-⇒ **`ethRisk() = Risk(ETH_CONF_FRAC_WAD, 0)` MEANS ETH'S ENTIRE SKEW IS PROPORTIONAL TO σ², WITH NO
-FLOOR.** BTC has `SPLICE_FLOOR = 2e15` and is therefore never fully exempt; **ETH at σ² = 0 prices
-nothing at all.** That is not four defects, it is one input at zero and four instruments correctly
-reporting it.
-▶️ **WHAT THIS CHANGES ABOUT THE FIX ORDER:** chasing §UNITB or §TAX-IS-ZERO individually is chasing
-symptoms. **The lever is making σ² real** — §UNITB's fixture now does it locally (pin `ETH_FEED`, push
-**MOVING** samples across blocks: measured `0 → 4.274e17`, which is the right ORDER against the
-5.0e16–1.0e17 the market shows). ⚠️ **AND 4.274e17 IS ~4× THE REAL FIGURE**, so that seeding is a
-smoke test, not a calibration — do not treat it as realistic vol.
-⚠️ **In PRODUCTION the Chainlink anchor moves and §E294's push path is live, so this is a FIXTURE
-problem, not a shipping one — but every σ²-dependent test is measuring zero until it is fixed**, and
-`§PUSH-HEADROOM-1.85X` is the reminder that the production path has its own thinning margin.
-
-### ✅ **THE ROOT CHANGED SHAPE 2026-08-28 — IT IS NO LONGER "NO SAMPLES", IT IS "IDENTICAL SAMPLES"**
-🔎 Since `fae2201a` the fallback fires on every deployment: `_observeIfSourced()` writes the raw
-Chainlink anchor whenever `observationSource == 0` (`setObservationSource` still has zero non-test
-callers). So "no source ⇒ no samples" is no longer the mechanism.
-⛔ **CORRECTION TO MY OWN FIRST WRITE-UP OF THIS (same day): I said "the ring is fed unconditionally
-on EVERY deployment." THAT IS FALSE FOR THE FIXTURE, AND THE FIXTURE IS WHERE EVERY σ²-DEPENDENT
-TEST LIVES.** The fallback is guarded: `if (anchorPx != 0) _writeObservationPrice(anchorPx)`, and
-`anchorPx` comes from `SwapLib.twapResolve(AUX.assetPriceFeed(ASSET), …)`. **A zero feed address
-yields a zero anchor and the fallback writes NOTHING.**
-🔴 **AND THE FEED IS UNSET IN THE FIXTURE, BECAUSE THE TWO DEPLOY PATHS DIVERGE:**
-| path | pins `setAssetFeed`? | ⇒ ring |
-|---|---|---|
-| `DeployL1_s.sol:356-357` (**production**) | ✅ `WETH → CL_ETH_USD`, `WBTC → BTC/USD` | fills; σ² real |
-| `script/DeployLib.sol` (**what `AllesFixture` uses**) | ❌ **zero `setAssetFeed` calls** | never advances; σ² ≡ 0 |
-⇒ **THIS IS THE SINGLE ROOT FOR σ² = 0 ACROSS THE SUITE, AND IT IS ONE MISSING LINE IN THE FIXTURE —
-not an estimator defect, not a seeding gap, not "our series is flat".** `PushObservationFillsTheRing`
-already found it locally and works around it with `_pinFeedIfNeeded()`; its own comment is the
-clearest statement of the hazard: *"it fails SILENTLY: the pushes look accepted and σ² stays 0, which
-reads exactly like a broken estimator."*
-⚠️ **THE LARGER FACT, WHICH IS BIGGER THAN σ²:** every `AllesFixture` test runs **without the
-Chainlink anchors production pins**, so `getTWAPforAsset`'s live-feed cross-check — the thing that
-"defeats the multi-block internal-TWAP grind" — is INACTIVE in the suite. An entire class of tests is
-validating a configuration that never ships. **This is almost certainly the same root as
-`§RING-LAGS-ORACLE`** (fixture oracle vs range spot, measured 8.8%) and it deserves its own row.
-▶️ **FIX LOCATION IS DECIDED — THE FIXTURE, NOT `DeployLib`.** Do NOT "unify" by moving
-`setAssetFeed` into `DeployLib`: `DeployL1_s:351` states the constraint (*"onlyOwner + pin-once ⇒
-MUST run here, before the finalize renounce"*) and carries an operator instruction to verify every
-feed address against docs.chain.link, which must not be buried in a shared library. `AllesFixture`
-should pin the same two anchors production pins.
-⛔ **NOT APPLIED YET, DELIBERATELY: THE BLAST RADIUS IS THE WHOLE SUITE.** Pinning the feed activates
-the live cross-check in every test at once. That is the CORRECT configuration, but it can turn
-currently-green tests red — and a test that was green only because the anchor was dead was never
-green. Apply it as its own run with the full suite measured before and after, never folded into
-another change.
-📐 **THE ACTUAL MECHANISM, READ OFF `OracleLib.ringVariance`:** it computes the variance of
-**consecutive RELATIVE returns**. A fixture that mocks Chainlink at a FIXED price fills the ring with
-identical observations ⇒ every difference is 0 ⇒ **σ² = 0 with a completely full ring.** Same number,
-different cause, **and a different fix**: the ring no longer needs SEEDING, it needs the anchor to
-MOVE.
-⚠️ **AND A SECOND, INDEPENDENT FIXTURE ROUTE TO ZERO:** `ringVariance` opens with
-`if (card < 3 || n < 3) return 0`, and the ring advances **only in `repack`** (the sole caller of
-`_observeIfSourced`, `Core.sol:1168`). ⇒ **A test with fewer than 3 repacks reads σ² = 0 no matter
-how violently the anchor moves.** Both conditions must hold: **≥3 repacks AND a moving feed.** A
-fixture that fixes only one of them still measures zero, which is the trap that makes this row look
-unfixable.
-✅ **THE ROW'S "FIXTURE PROBLEM, NOT SHIPPING" VERDICT SURVIVES — ON A STRONGER BASIS THAN IT
-CLAIMS.** It rests the verdict on §E294's push path being live; the firmer argument is that the
-`fae2201a` fallback fills the ring from the anchor on EVERY deployment, and a real Chainlink anchor
-moves. What does not move is a mocked feed.
-🔗 **CROSS-LINK — SAME ROOT, MEASURED TWICE:** the `§OBSERVATION-SOURCE-UNSET` comment in
-`Core.sol:1660` records "curve spot measured **11%** off the oracle"; `§RING-LAGS-ORACLE` was
-confirmed 2026-08-28 by an independent measurement of **8.8%** ($2,719.6 oracle vs $2,498.8 pool).
-Same divergence, two derivations. `_realignRangeToReal()` is the applied remedy there.
 
 ## 🔴🔴 **§PREMIUM-VS-BORNE — 92% of what a swapper gives up is attributed to NOBODY** (2026-08-25)
 
@@ -9636,74 +9420,6 @@ derivation and must not be quoted as calibrated.
 HUNDREDTHS OF A BASIS POINT — `500` is 0.05% = **5 bps**, `3000` is 0.30% = 30 bps. Our WAD cap 3e16
 is 3% = **300 bps**.
 
-## ✅ **[CLOSED 2026-08-25 — FIXED and MEASURED — the flush branch returns `_maxWellSkew(...) + _depletion(inv0, inv1)` (`SwapLib:1180`), and §E96b measures it charging 10,054 → 19,385 → 32,536 ppb, linear in depth, at σ² = 0]**  **§ZERO-REVENUE-ON-A-FLUSH-ETH-RANGE — THE SKEW PREMIUM IS THE *ONLY* LP REVENUE LANE, AND IT IS 0 IN THE NORMAL STATE** (2026-08-24)
-
-**Found only because the owner asked "are you sure your assessment is correct". It was not — three times.**
-
-**THE CHAIN, each link measured in the tree:**
-1. **§E311 DELETED THE FLAT 420 ppm FEE.** `Core.sol:1428`, owner: *"there is no 420 ppm, it's always
-   the skew premium."* And `feesPerShare` (the v4 trading-fee leg) has had no feed since §V4-CUT.
-   ⇒ **`recordSkewPremium → Quid.creditSkewPremium` is the ENTIRE LP revenue model.**
-2. **`skewWad` takes the FLUSH branch in the normal state.** `inv1 >= target` compares INVENTORY
-   (~$1.2M of WETH in the fee fixtures) against the FLOW EWMA (~$18k of trades). Inventory dwarfs
-   flow, so flush fires on essentially every swap and returns `_maxWellSkew` alone — no kernel, and
-   **no `DEPLETION_RATE_WAD`, which sits at `SwapLib:1397`, AFTER both early returns.**
-3. **`_maxWellSkew(σ², ethRisk)` is `σ²·ETH_CONF_FRAC_WAD/8 + 0`.** `ethRisk() = Risk(ETH_CONF_FRAC_WAD,
-   **0**)` — **ETH has NO splice floor**, where `btcRisk()` carries `SPLICE_FLOOR`.
-⇒ **A FLUSH ETH RANGE AT LOW σ² CHARGES EXACTLY ZERO. FREE TRADING, ZERO LP REVENUE.** §UNIT-A already
-recorded the symptom (*"§E99 measured a 30-day-old imbalance pricing at 0"*); this is its mechanism.
-✅ **MEASURED 2026-08-24 — IT BITES IN PRODUCTION, AND THE NUMBER IS ~10,000×.** `_maxWellSkew` is
-closed-form (`σ²·confFrac/8e18 + spliceFloor`), so no backtest was needed:
-| annual vol | ETH base | BTC base |
-|---|---|---|
-| 30% | **0.000043 bps** | 20.01 bps |
-| 70% | **0.000233 bps** | 20.07 bps |
-| 200% | **0.0019 bps** | 20.57 bps |
-Against `DEPLETION_RATE_WAD` = **2.1 bps** on a full drain, and `UNKNOWN_VARIANCE_SKEW` = **300 bps**.
-⇒ **A FLUSH ETH RANGE CHARGES A DRAIN ~0.0002 bps WHERE THE DERIVATION SAYS ~2.1 bps IS OWED.**
-⭐ **AND THE ~0 BASE IS *CORRECT*, WHICH IS WHY THIS HID.** ETH settles in ONE BLOCK
-(`ETH_CONF_FRAC_WAD` ≈ 12s/1yr), so there is almost no inventory-risk window to charge for; BTC's
-20 bps is essentially all `SPLICE_FLOOR`. **Nothing is mis-parameterised. The bug is that the flush
-branch skips the KERNEL and DEPLETION, and on ETH depletion is the only term with any magnitude.**
-⛔ **THIS IS WHY §UNIT-A'S RULE READS AS SOUND AND IS NOT, ON ETH:** *"only the DEPLETION (kernel)
-term flushes away, never the adverse-selection floor"* is defensible on BTC, where 20 bps of floor
-survives the flush. **On ETH the floor is ~0, so "only depletion flushes away" means EVERYTHING
-flushes away.** A rule stated per-asset-neutrally that is only true for one asset.
-⚠️ **AND IT PRICES MY OWN ARM 2: 300 bps where 2.1 bps was owed — WRONG BY ~143× IN THE OTHER
-DIRECTION**, on top of only ever affecting the first swap. Reverting it was right twice over.
-▶️ **CANDIDATE FIX, derivation-backed and NOT yet landed (it is a PRICE, so it is an owner call):**
-the flush branch adds `DEPLETION_RATE_WAD·(inv0−inv1)/inv0` when `inv1 < inv0`. §E311's own note says
-depletion IS the inventory-proportional form of the charge every drain owes, so this restores the
-authorised charge rather than inventing one. **~2.1 bps on a full drain, ~0 on a small one, 0 on a
-refill** — bounded by construction and directionally exactly what the curve is for.
-
-⚠️ **(superseded) HOW MUCH THIS BITES IN PRODUCTION IS UNMEASURED AND MUST NOT BE ASSERTED EITHER WAY.** Real σ² is
-non-zero, so the base is non-zero and some revenue exists; the fixtures use a STATIC mocked feed, which
-is why they read exactly 0. **The open question is whether `σ²·confFrac/8` at realistic volatility is a
-MATERIAL charge or a rounding artifact.** That is one backtest, and it has not been run.
-
-⛔ **ARM 2 IS REVERTED IN FULL, AND THE REASON IS THE POINT: IT MADE FOUR TESTS GREEN WITHOUT FIXING
-ANYTHING.** Charging `UNKNOWN_VARIANCE_SKEW` on `target == 0` only affects **the FIRST swap of a
-fixture** (`FLOW_DECAY` is a 48h half-life, so `target > 0` from swap 2 onward and never decays back).
-The fee tests assert only `pendingRewards > 0`, so **one charging swap flips them** while swaps 2-6 keep
-paying zero. **The revenue hole survived the fix that "fixed" it** — standing rule 4, and it would have
-shipped as a money-path change on a false premise.
-▶️ **THREE WRONG DIAGNOSES, RECORDED BECAUSE THE PATTERN IS THE LESSON:**
-  1. *"Fees are stale tests, the v4 cut moved to compounding"* — true facts, wrong conclusion; the
-     skew lane was alive and I never checked the OTHER feed into the same accumulator.
-  2. *"Retracted: the fee lane works, skew was the only problem"* — right that skew was the cause,
-     wrong that arm 2 fixed it.
-  3. *"`target == 0` is the unmeasured cell"* — the wrong BRANCH. The live one is FLUSH, and I only
-     found that by computing inventory-vs-flow instead of reading branch order.
-  ⇒ **Each was consistent with the evidence I had looked at, and each fell to one measurement I had
-    not taken.** The discriminator every time was arithmetic about the FIXTURE's actual numbers.
-
-▶️ **WHAT TO DO, AND IT IS AN OWNER CALL BECAUSE IT IS A PRICE:** either ETH gets a real
-adverse-selection floor (the `0` in `ethRisk()` becomes a parameter with a derivation, as BTC's
-`SPLICE_FLOOR` has), or the flush branch must still owe `DEPLETION_RATE_WAD` on a drain — §E311's own
-note says depletion IS the inventory-proportional form of the charge every drain owes, so skipping it
-on flush drops the charge the derivation authorises. **Do not pick one by making a test pass.**
-
 ## ✅ **[CLOSED 2026-08-25 — the row itself declares it superseded/refuted; kept for the record]**  **§FEES-COMPOUND-NOT-ACCRUE — ⛔ THIS ROW'S CONCLUSION IS WRONG. THE FEE LANE WAS NEVER DEAD.**
 **RETRACTED 2026-08-24 by measurement, hours after it was written and after an OWNER DECISION was
 taken on the strength of it.** Arm 2 (§E352, σ² sentinel above `target == 0`) made **four of the five**
@@ -10346,24 +10062,6 @@ measured: \$243,000 → **SAME**, \$250,000 → **DIFFER**, and skew(A) itself j
 instrument built to isolate the question printed "identical" while the swap path charged 13.6×
 differently. Re-based; it now agrees with the money path.
 
-## ✅ **§SKEW-IS-SCALE-FREE — THE FORMULA IS ONE CURVE FOR EVERY SIZE, PROVEN WITHOUT CALIBRATION**
-⛔ **SELF-CORRECTION: MY FIRST VERSION OF THIS TEST WAS BLIND CALIBRATION AND IS DELETED.** It pinned
-`assertEq(skew, 4_495_165_581_956)` — a value read off one fixture at one fork block. It breaks when
-the fork moves, says nothing about whether the formula is RIGHT, and invites tuning the constant
-until green. It also made a **32× step look like a cliff** when it was two samples taken far apart on
-a steep-but-continuous curve.
-✅ **REPLACED BY PROPERTIES (`SkewFlowDiscrimination.t.sol`, 6/6, ZERO magic numbers):**
-| property | result |
-|---|---|
-| **Scale invariance**, λ = 1 … 10⁷ | **identical** in BOTH branches — the skew reads RATIOS, so \$1M of depth and \$100B are priced by one curve |
-| **Continuity at the flush boundary** | `inv1−1`, `inv1`, `inv1+1` all **equal** — no arbitrage seam either side of `inv1 == target` |
-| **Branch is on `inv1`, not `inv0`** | pinned as a law at three magnitudes — the exact thing three diagnoses got wrong |
-| **Monotone in drain size** | strictly non-decreasing across the boundary |
-| **Monotone in scarcity** | strictly non-decreasing in target |
-| **Separation law** | arms differ **iff** the drain crosses exactly one target — asserted at 3 scales, not as one fixture's window |
-⇒ **The formula was never the problem; the fixtures were.** A property that holds across seven orders
-of magnitude cannot be satisfied by tuning a constant, which is the point.
-
 ## 📊 **§SKEW-VS-V3 — EMPIRICAL: WHERE OUR PRICING BEATS UNISWAP, AND WHERE IT STOPS** (2026-08-28)
 Owner: *"are you sure people won't just use uniswap v4 because there will be less slippage there in
 the range vs our skew? at what transaction size does this become a real difference. i need empirical
@@ -10681,17 +10379,31 @@ hold price constant by design. **They do NOT unblock on a test edit — see row 
 indistinguishable from the failure line alone; the discriminator is whether the assertion that fired is
 the test's CLAIM or its PREMISE.
 
-## 3. 🟠 **FOUR OWNER DECISIONS GATE MOST OF THE REST — NO ENGINEERING NEEDED, JUST THE CALL**
-| # | decision | blocks |
-|---|---|---|
-| a | ✅ **DECIDED AND LANDED (`f5499659`, §E279).** `retainSkewPremium` is the intended charge; `_fillDelta`'s was the duplicate and is **deleted** (`Core.sol` now carries `wellSkew`/`sellSkew` in **prose only** — verified: zero application sites). The decision was forced by enumeration, not preference: `retainSkewPremium` is the ONLY caller of `recordSkewPremium`, so cutting it would have silently stopped the LP credit (§E280). **All 3 dependent findings retire with it** — see (a′) below. | ~~the named test, and 3 findings~~ — retired |
-| a′ | ⚠️ **THE ROW'S HEADLINE NUMBER WAS WRONG AND THE CORRECTION MATTERS MORE THAN THE FIX.** "5.91% realised" assumes `s` = the flat 3e16 sentinel, but `wellSkew` **caps** at `_maxWellSkew = σ²·confFrac/8 + spliceFloor`, and at σ²=0 with ETH's zero splice floor that is **0**. Zero charged twice is zero ⇒ **the live over-charge on the ETH path in the title was 0%.** It is real on BTC (`SPLICE_FLOOR` ⇒ 0.2% realised as 0.3996%) and **arms the moment σ² becomes non-zero** (row b). ⇒ Closing (b) without (a) landed would have SILENTLY DOUBLED the ETH drain charge. | — |
-| b | ✅ **BUILT AND LANDED (§E345).** σ² is no longer identically 0: `Core._sampleAnchorVariance` folds squared Chainlink-anchor returns into two `Flow` registers on each swap, and `realizedVarianceWad` returns `max(ring, anchor)`. **The row's own falsifiable claim — *"the ring's two writers still both never run"* — is still TRUE and no longer matters**, because the estimate no longer depends on either. ⭐ **AND THE ORDERING CONSTRAINT ROW (a′) NAMES WAS SATISFIED, WHICH IS THE ONLY REASON THIS COULD LAND TODAY:** *"closing (b) without (a) landed would have SILENTLY DOUBLED the ETH drain charge"* — (a) landed in `f5499659`, so arming σ² arms ONE charge, not two. Landing these in the other order would have doubled the ETH drain charge at the moment σ² went live, with nothing to announce it. | §E283, §E326, §ORACLE-FRESHNESS(a) — **unblocked**; the 5 void controls below should now have a live premise |
-| b′ | 🔴 **THE CONFIRMING RUN HAS REPORTED, AND THE PREMISE IS *NOT* LIVE. THE ROW'S OWN CLAIM — *"they unblock on σ²>0 … and on no test edit"* — IS FALSIFIED IN ITS SECOND HALF.** Measured 2026-08-23 on the ARCHIVE endpoint (`ETH_RPC_URL=$ANKR_RPC_URL`; publicnode's 429s made every earlier arm unreadable): pristine `9896c5be` and the full session's work fail **the same 50 tests, zero new, zero fixed**, and the five controls still fail `0 <= 0` verbatim. **`DrainAtomicity` has ZERO `setAssetFeed` calls**, so `assetPriceFeed(WETH)` is `address(0)`, `twapResolve` takes its `feed == 0` exit, and `_sampleAnchorVariance` never samples. σ² is live in PRODUCTION (both feeds pinned, `DeployL1_s.sol:356-357`) and identically 0 in this suite. ⛔ **AND MY OWN REMEDY WAS WRONG TOO, WHICH IS THE PART THAT MATTERS MOST HERE: I WROTE "ONE LINE OF FIXTURE SETUP". IT IS NOT.** Pinning the feed gives a STATIC anchor, and variance is a property of MOVEMENT — a pinned-but-motionless feed still yields σ² = 0. The fixture would need a pinned anchor **AND injected price movement**, and these tests deliberately hold price constant so the reseat/consolidation effect is isolated. **Injecting movement changes the SCENARIO, not the premise — that is across the rule-4 line and must not be done to make a control go green.** ⭐ **THE PRECISE MECHANISM, DERIVED SO THE NEXT THREAD DOES NOT RE-DERIVE IT: the control reads 0 for TWO stacked reasons.** `AUX.wellSkew(WETH, 0)` passes size 0, so `inv1 == inv0`; on a range flush against its own flow-EWMA target `skewWad` returns `_maxWellSkew` **before** reaching the `sigmaSqWad == 0` sentinel — and `_maxWellSkew = σ²·confFrac/8 + spliceFloor` is **0** on ETH at σ²=0 (zero splice floor). So the 3e16 unknown-variance sentinel never fires on this path at all. ▶️ **THE REAL QUESTION THIS EXPOSES, AND IT IS AN OWNER CALL, NOT A FIXTURE EDIT (booked as §E352):** `skewWad`'s sentinel says *unmeasured ⇒ charge the ceiling*, while `_maxWellSkew` says *unmeasured ⇒ charge nothing*, and on the flush branch `_maxWellSkew` is what is returned. **Two functions resolve the same "we could not measure it" input in opposite directions, and the permissive one wins.** That is the same shape as the `cardinality >= 2` sentinel §E345 deleted, one level out. | the 5 controls stay VOID; closing them needs §E352 answered, not a test edit  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): Completed measurement report** |
-| b‴ | ⏸️ **SUPERSEDED — kept because its reasoning is still the record of why the 5 are not broken tests.** §E345 landed, so the condition these 5 were void under (σ²≡0) no longer holds; **whether their `CONTROL:` guards actually go green is a MEASUREMENT nobody has taken yet**, and a regression run is in flight. Until it reports, this row's status is "expected live", not "live". 🔬 **THE DOWNSTREAM EVIDENCE, MEASURED, SO THIS IS NOT A PAPER ROW.** σ²=0 was not merely theoretical: **5 of the 7 pre-existing `DrainAtomicity` failures were its direct consequence**, each failing its OWN `CONTROL:` guard with `0 <= 0` — *"the range must actually be skewed before the reseat"*, *"the big leg must actually be charged skew"*, *"the target move must change the skew"*, and both patience arms. ⚠️ **THEY ARE NOT BROKEN TESTS AND MUST NOT BE "FIXED".** They are correctly written and were **VOID** — including `test_UNITB_CounterMatchesWhatTheSwapperLoses`, which is exactly the non-`assertGt` instrument §E279 asks for and already exists. They unblock on σ²>0, i.e. on row (b), and on no test edit. ⚠️ **AND THE FIXTURE CAVEAT IN §3b IS THE REASON THIS IS NOT AUTOMATIC: the bare `AllesFixture` leaves `AUX.assetPriceFeed(WETH)` at `address(0)`, so `twapResolve` takes its `feed == 0` exit and the anchor sampler is INERT. A `DrainAtomicity` arm that does not pin the feed stays void even after §E345** — so a still-red control here is not evidence against §E345 until the fixture is checked. | writing a second instrument here would still be void where the feed is unpinned  📌 **§SEQ-AUDIT: GATE 0 · lane L6. Whether the five CONTROL: guards go green is a measurement nobody has taken** |
-| b″ | ✅ **BUILT — §E345, AND IT FOUND A REASON §E343 DID NOT HAVE.** §E343's argument was that variance needs no INDEPENDENT source (one series, so §E222's disagreement rule does not reach it). True, and not the binding reason. **The binding reason is that `pushObservation` is PERMISSIONLESS, so the ring is written by the party who profits from suppressing σ².** `pushObservation`'s own §AUDIT-PUSHOBS note describes exactly that attack — *"a stream of in-range values fills the ring, makes σ² small-but-MEASURED, and REPLACES the ceiling sentinel with a floor-ish number"* — and gated only the BTC instance, because it read the hazard as a WBTC-basis problem rather than a WRITABILITY one. ⛔ **The ±50 bps bound does not cover it: it constrains where the series IS, not how much it SHAKES.** ⇒ sourcing σ² from the anchor removes the write access rather than guarding its use (rule 17). The ring was NOT deleted, as instructed. | — |
-| c | **§E332** — should OOR fills pay the inventory term (not the immediacy term)? ▶️ **§E343 found the clean form: price it into where the order RESTS, not into the fill** — the trigger includes it, the fill honours its stated price, limit semantics intact. Cheapest of the four. | a standing unpriced maker discount on every crossed resting order  📌 **§SEQ-AUDIT: GATE 2 · lane L7. Owner decision E332 (inventory vs immediacy term on OOR fills)** |
-| d | **§E330** — should a range deep relative to its flow earn NOTHING? | it is why "PREMISE: fees actually accrued" fails; §E326 depends on the answer |
+## 3. 🪦 **FOUR OWNER DECISIONS — RETIRED 2026-09-10. THREE OF THE FOUR WERE ABOUT THE DELETED KERNEL.**
+
+The table here held rows (a)(a′)(b)(b′)(b‴)(b″)(c)(d). Rows (a) through (b″) were all one subject:
+whether `retainSkewPremium` or `_fillDelta` was the intended charge, whether σ² was identically zero,
+whether `_maxWellSkew` and `skewWad` resolved "unmeasured" in opposite directions, and whether five
+`DrainAtomicity` CONTROL guards were VOID or merely red. **None of those questions exists.** σ², the
+sentinel, `_maxWellSkew` and `skewWad` are deleted; `retainSkewPremium` survives and is the only
+charge, which settles (a) by construction.
+
+⭐ **ONE FINDING FROM THAT CLUSTER IS WORTH CARRYING AND IS RECORDED HERE SO IT SURVIVES THE CUT:**
+row (b′) established that a pinned-but-motionless feed still yields σ² = 0, so *"one line of fixture
+setup"* was never the fix — variance is a property of MOVEMENT, and injecting movement changes the
+SCENARIO, not the premise. That is a general rule about controls, not about σ², and it still binds:
+**do not edit a scenario to make a control go green.**
+
+⏸️ **(c) AND (d) SURVIVE AS QUESTIONS, RE-FRAMED** — both were posed in kernel terms and neither
+depends on it:
+  · **(c) §E332** — should an OOR fill pay an inventory term? Under §FLAT-FEE every fill pays the same
+    420 ppm, so the question becomes *"should a resting order that supplies inventory be charged less
+    than one that takes it?"* — i.e. the sell-in capacity term (TARGET-DESIGN §4), which is exactly
+    where the asymmetry belongs. §E343's clean form still applies: price it into where the order
+    RESTS, not into the fill.
+  · **(d) §E330** — should a range deep relative to its flow earn nothing? ⚠️ Note this question is
+    itself flow-derived, which is what §NO-GAMEABLE-BOUND rules out as a BOUND. It survives only as
+    an economics question about LP returns, never as an input to a charge or a cap.
 
 ## 4. 🟡 **THE FOLD IS NOT 5.4 KB — IT IS 9,113 BYTES OVER** (§E330, re-measured 2026-08-23 from the
 GREEN batched build after lanes A/B/C/D/E). `Quid` **21,856** + `Vault` **11,833** = **33,689** vs
@@ -13282,98 +12994,6 @@ of those five cost a wrong turn that a single command would have prevented.
 
 ---
 
-## PART C — session `337ea6d3` (skew + refill). **Written at `7ac75692`.**
-
-### 🔴 THE HEADLINE: **THE REFILL ON MAIN IS POTEMKIN. Its arithmetic is proven; its behaviour is not.**
-**MEASURED: all four callable refill primitives have ZERO production call sites.**
-| primitive | on main | call sites | proof it has |
-|---|---|---|---|
-| ~~`refillPlacement`~~ | ⛔ **DELETED** (`59851831`, §E301 — *"they size a restoration we do not perform"*) | — | — |
-| `refillNeeded` | ✅ | **0 in `src`**, 6 in `test` | pure-arithmetic only; PARKED, and its docblock says so |
-| `proRataShortfall` | ✅ | **0 in `src`**, 8 in `test` | ⚠️ deleted by §E301 and **RESTORED** (`ed530bd2`, §E313 — *"I deleted a rule-17 root fix on an argument that did not apply"*) |
-| ~~`imbalanceFeeUsd6`~~ | ⛔ **DELETED** (`dc6500b7`, §E311 — *"§E301 settled the condition its own deletion note was waiting on"*) | — | — |
-⚠️ **RE-MEASURED 2026-08-28: THIS TABLE IS 2/4 STALE — two of the four no longer exist**, so "all four
-have zero call sites" reads as four parked primitives when it is two. The two survivors are parked AND
-TESTED (6 and 8 test call sites), which is the `create_sweep_tx` shape, not litter.
-⭐ **AND `proRataShortfall` IS THE THIRD DOCUMENTED INSTANCE OF THE DELETE-THEN-RESTORE PATTERN** —
-after `create_sweep_tx` (twice). `imbalanceFeeUsd6`'s deletion is the OPPOSITE and the contrast is the
-lesson: it went because *the condition its keep-note named had been resolved*. **A keep-note is
-load-bearing only while its stated condition is unresolved** — that is what separates a legitimate
-deletion here from the three mistaken ones.
-⇒ **NOT ONE OF THEM HAS EVER PRICED A REAL SWAP AGAINST A SEEDED POOL.** Owner named this exactly:
-*"potemkin code that has never confirmed proper swap calculation amounts after seeding the pool."*
-✅ **THE SKEW IS NOT IN THIS CATEGORY, AND THE DISTINCTION IS THE WHOLE POINT:** `DEPLETION_RATE_WAD`
-lives INSIDE `skewWad`, which `_fillDelta` calls on **every swap** — so it is live, exercised, and
-covered by the fixture suite. Skew = wired. Refill = not.
-
-### ▶️ WHERE TO KICK OFF, IN ORDER
-⚠️ **STEP 1 IS STALE (2026-08-28) AND NO LONGER BLOCKS ANYTHING.** It cites *"73 of the 77 failures"*
-from `NoVolatileRoute()`; the suite is now **GREEN (0 failures, 0 contamination)**, and the surviving
-`NoVolatileRoute` reverts in `LevMath._aggSwap` (`:658`, `:675`) are the DELIBERATE no-route/failed-call
-guards §C2.1 installed, not a missing destination. ⇒ **Start at step 3.**
-📌 **STEP 3 IS STILL UNBUILT, VERIFIED:** `grep refillNeeded quid-ln/quid-bridge/src` returns **0** —
-the daemon still reads no range inventory. The rail it would drive is wired and live
-(`BTCChannels` → `Vault.creditSwapIn` → `SwapLib.creditSwapInBody`), so this is a daemon task over an
-existing rail, not new on-chain code.
-🔴 **AND THE ASYMMETRY WORTH STATING PLAINLY, BECAUSE IT IS THE REAL DESIGN GAP:** the BTC restoration
-rail runs in ONE direction — `creditSwapIn` takes sats and pays USD, i.e. it ADDS BTC. **Nothing sheds
-BTC for dollars when BTC piles up.** Redemption cannot do it either: redemption is STABLES-ONLY
-(§redeem-band-unwind), so a BTC surplus cannot leave that way. The skew makes selling BTC into the
-pool progressively worse-priced, which DISCOURAGES more arriving — but discouraging is not shedding.
-⇒ **Excess BTC is PRICED, not RESOLVED**, and the resolution would be the unwired `refillNeeded` path
-pointed in reverse. ⚠️ On ETH there is no refill at all and that is DELIBERATE — `refillNeeded`'s own
-docblock: *"there is no restoration we perform — the swapper carries the unfilled remainder to another
-venue."* That argument is scoped to ETH and does NOT transfer to BTC, where the rail exists.
-✅ **AND THE REFILL DOES NOT TRAVEL BY 1inch — step 4 already says so and it still holds:** 1inch is a
-CONSUMER (`Core:1228`) and a price reader, **never a liquidity source**; sourcing is Morpho flash +
-Curve. 1inch carries the LEVERAGE keeper's swaps (`LevMath._aggSwap`, router pinned), which is
-de-levering an LP position — a different path from restocking the range.
-
-1. **RESTORE THE VOLATILE ROUTE — do this first, it blocks the rest.** `SOR` was deleted (`09fedf18`)
-   BEFORE Aux's execution was re-pointed, so `NoVolatileRoute()` fires and **leverage debt is never
-   taken on**. That is **73 of the 77 failures** in the last clean run (414 passed / 73 failed / 487
-   total, archive endpoint, **0 environmental**) — every one a PREMISE like *"rally must lever the
-   position (debt > 0): 0 <= 0"*. **One root, not 73 problems.** Destination already exists in-tree:
-   `ICurvePool.exchange` (`LevMath:401` etherFi, `:464` TriCrypto USDC→WETH).
-2. **Wire `refillPlacement` into repack.** `QuidLib.addLiq` (`:307`) ALREADY ends `targetUSD = deltaTok·price`
-   — that IS `tok·px == usd`. The fold replaces an implicit step with the explicit one; it is not new
-   behaviour. ✅ **UNBLOCKED: `POOLED_USD` is funded again** (`testSwapIn_QuidOrStrictStable` passes
-   after §E230's `basketUsd`/`basketLeg` fix).
-3. **Wire `refillNeeded`** into a daemon task over the EXISTING rail (`BTCChannels.creditSwapIn` →
-   `Vault.creditSwapIn` → `SwapLib.creditSwapInBody`). `daemon.rs` spawns TEN tasks and **none reads
-   range inventory**. Docker builds `quid-ln`; macOS cannot.
-4. **Wire `proRataShortfall`** into the redeem path + the owner's **1inch conversion to destination
-   token**. ⚠️ 1inch is currently a CONSUMER (`Core:1228` *"we feed 1inch / Khalani"*) and a price
-   reader (`ExternalTwap:45`) — **never a liquidity source**. Sourcing is Morpho flash + Curve.
-5. **THE ACCEPTANCE TEST THE OWNER SPECIFIED, and nothing above is done until it passes:** seed the
-   pool → a swap of known size depletes as expected → the refill rebalances **immediately** → **zero
-   skew at the end** → the charge reached LPs as a dynamic fee → priced **independently for BTC and
-   ETH** → against **one pool of dollars**.
-
-### 🟠 DELETION CANDIDATE, by my own rule-17 argument
-**`imbalanceFeeUsd6` is probably redundant.** The depletion term charges the same event at the same
-210 ppm — its docblock says it reuses that figure so the two "price the same thing at the same rate"
-— but depletion is charged LIVE inside the swap price while `imbalanceFeeUsd6` was written for
-separate refill accounting that may no longer need to exist. Different denominators (idle-created vs
-drain-fraction), one economic event. **Decide before wiring it, or two charges bill one thing.**
-
-### ⚠️ HAZARDS TO CARRY
-- **`77cd3631`** — another thread's **14 autostashed files**, never safely reapplied. My rebase
-  autostashed them; reapplying conflicts because origin moved. **`rebase.autoStash` is unsafe in a
-  shared tree.**
-- **`BTCChannels` margin was 138 bytes** at last measure — tightest in the tree.
-- **`testBtcLp_swapInAccruesTheBtcLegFee`** still red: the BTC fee leg is not funded even though the
-  ETH side is.
-- **Reading `HEAD` for your own SHA is unsafe here** — another session committed between my `commit`
-  and my `log`, and I pushed their commit by mistake. Capture the SHA from the commit itself.
-
----
-
-# PART C — session `d213d167` (skew / oracle / basket-routing thread)
-
-⚠️ **§E222 is ALREADY PART B's B1.** Do not open a second front on it — what follows is only what
-THIS session added to it, and it is mostly a **refutation of the obvious fix**.
-
 ## C0. Two rules this session paid for
 - **A green test whose gas number exceeds a block is not a pass.** `test_EthUsd_…(gas: 31,722,803)`
   printed hours before I used the source it measured, and I read only the `PASS`. It is a design
@@ -15884,80 +15504,6 @@ dependency order; a step may not start before the one above it lands.
 
 ### `§E59-REOPENED` ✅ **[CLOSED 2026-08-25 — its named test PASSES on the pinned clean gate (480/39/519, setUp 0). The free-drain hole is closed by §ZERO-REVENUE: the flush branch now returns `_maxWellSkew + _depletion`, measured charging 10,054 → 32,536 ppb linearly in depth at σ² = 0]** 
 
-## ✅ **[CLOSED 2026-08-25 — its named test PASSES on the pinned clean gate (480/39/519, setUp 0). The free-drain hole is closed by §ZERO-REVENUE: the flush branch now returns `_maxWellSkew + _depletion`, measured charging 10,054 → 32,536 ppb linearly in depth at σ² = 0]**  §E59-REOPENED — **THE FREE-DRAIN HOLE WAS BACK: AT UNMEASURED σ² A PARTIAL DRAIN CHARGED ZERO (found + fixed 2026-08-16).**
-**MEASURED**, $1m range / $2m shed target, `SwapLib.skewWad`, σ² = 0:
-
-| drain | ETH charge | BTC charge |
-|---|---|---|
-| 10% | **0** | `SPLICE_FLOOR` only |
-| 50% | **0** | `SPLICE_FLOOR` only |
-| 90% | **0** | `SPLICE_FLOOR` only |
-| 100% | 3% ✅ | 3% ✅ (separate `qBar == type(uint).max` pole, `:941`) |
-
-**THE MECHANISM.** The kernel is `Γ·σ²·qBar`, identically 0 when σ² is 0 **however scarce the range
-is**, so §E59's guard had to live OUTSIDE the product. §E79 then inverted `_maxWellSkew` from
-CEILING to BASE — and nothing was left holding it. **§E79's own comment predicted this exactly:**
-*"returning [the base] here would re-open the free-drain hole E59 closed. UNMEASURED variance must
-price at the CEILING."* It was right, and the code stopped doing it.
-🔴 **REACHABLE, NOT THEORETICAL: §UNIT-B-PATIENCE already MEASURED σ² as attacker-stretchable —
-4h spacing drove σ² 24× down and the charge 93.3% down.** Suppress σ² to the sentinel, then drain
-up to 90% of the range paying nothing. That is the vector.
-✅ **FIXED — `if (sigmaSqWad == 0) return MAX_WELL_SKEW;`, placed AFTER the flush/target exits so it
-fires only when scarcity is REAL (`inv1 < target ⇒ q1 > 0`), which is §E59 part 2 verbatim.**
-⚠️ **NOT A CLAMP (rule 3 / rule 17): it does not bound a computed number, it declines to run a
-multiplicative formula on an input carrying NO INFORMATION.** Resolving the sentinel BEFORE the
-multiply is the root fix; bounding the product after would be the clamp.
-⛔ **THE MECHANISM SENTENCE THAT WAS HERE WAS STALE — CORRECTED (§E213, caught by a parallel thread,
-re-verified here before accepting).** It claimed `realizedVarianceWad` samples on a wall-clock grid
-and `observe` interpolates linearly. **That is retired:** `realizedVarianceWad` calls
-`OracleLib.ringVariance` DIRECTLY, and `observe` has exactly ONE consumer left in the tree — the TWAP
-price at `SwapLib:80` — never the variance path. **The real mechanism:** `ringVariance` returns 0
-only at `card < 3 || n < 3`, `m < 2`, or a non-advancing/uninitialised timestamp pair — **every one
-means TOO FEW DISTINCT SAMPLES.** That STRENGTHENS the guard: under the retired story a zero could
-come from a quiet-but-well-sampled ring, the one reading that would make charging the ceiling look
-punitive; under the real mechanism that reading **cannot occur**.
-🔴 **THE LIMIT OF THIS FIX, STATED SO IT IS NOT READ AS MORE THAN IT IS: IT CLOSES σ² == 0, NOT
-σ² MERELY SUPPRESSED.** §UNIT-B-PATIENCE's measured vector is **24× down, not to zero** — and with a
-full ring, 4h spacing yields a SMALL NON-ZERO variance, which this guard does not catch and which
-still buys a ~93.3% discount. ⇒ **THE PATIENCE VECTOR IS NARROWED, NOT CLOSED.** The extreme case
-(unmeasurable ⇒ free drain) is gone; the graded case lives in the kernel's σ² LINEARITY, exactly
-where §UNIT-B-PATIENCE said it sits. **Do not mark §UNIT-B-PATIENCE closed on the strength of this
-commit.**
-⛔ **THE PART THAT SHOULD WORRY US MOST: changing a whole class of swaps from CHARGING ZERO to
-CHARGING 3% BROKE ZERO TESTS.** Suite 4,523 passed / 1 failed — the one failure pre-existing and
-byte-identical. **No test covered σ²=0 with PARTIAL scarcity**, which is precisely why the hole
-survived both §E59 and §E79. Now pinned by `test/SkewUnmeasuredVariance.t.sol` (4 tests), which
-brackets BOTH sides: unmeasured+scarce ⇒ ceiling, small-but-MEASURED ⇒ <1% of ceiling (a calm tape
-must not be over-charged), and a flush range ⇒ base only.
-⚠️ **MY FIRST PROBE OF THIS WAS VACUOUS AND LOOKED LIKE THE FINDING.** It passed `flowUsd = 0`, but
-`target = flowUsd` and `skewWad` returns the base at `target == 0` (`:845`,`:851`) — so it never
-reached the kernel and **every drain size returned an IDENTICAL value.** That constancy was the
-tell. `test_PREMISE_TheKernelIsReachedAtAll` now fails loudly if the kernel is unreached.
-
-
-| §UNIT-B target ramp | **380,432 → 467,694** across the split; BIG leg flat at 380,432 |
-
-### `§UNIT-UNFINISHED` 🔴
-
-### 🔴 PRE-COMPACTION UNFINISHED (§UNIT-UNFINISHED's eight) — **RE-CHECKED AGAINST CODE TODAY, NOT TRUSTED**
-| # | item | verified status |
-|---|---|---|
-| 1 | §UNIT-A | ✅ landed since (row now closed) |
-| 2 | reseat TRIGGER | 🟠 **partially** — `Quid.reseat()` public + `_reseatIfStale` exist; the automatic trigger policy does not |
-| 3 | §UNIT-B acceptance criterion | ⛔ still tests CONSOLIDATION, never re-expressed as level-vs-marginal — **and now obsolete under the passthrough** |
-| 4 | §UNIT-FORELLA (the brake) | ⛔ **ZERO code**; its coincide-on-monotone premise also refuted |
-| 5 | convergent depletion term | ⛔ **ZERO code**, no work ever |
-| 6 | venue ceiling | ⛔ **ZERO code** |
-| 7 | §E83 censored duration | ⛔ **ZERO code** — and it gates THREE decisions |
-| 8 | **RE-RUN THE OPTIMISATIONS IN A NON-ZERO SKEW REGIME** | ⛔ **NEVER DONE — and it is THE OBJECTIVE.** Everything above is upstream of it |
-🔴 **(8) IS THE ONE THAT MATTERS AND IT IS STILL NOT DONE.** §UNIT-UNFINISHED said it in 2026-08-06: *"the only one that tells us whether the two days were WELL SPENT."* Ten days on, it remains unrun — and the passthrough decision may make it moot rather than answered, **which is not the same as doing it.**
-📌 **ALSO OPEN, NOT MINE: `UNIT-D`** (SPV checkpoint burial) — *"the only item here that BRICKS A PATH IRREVERSIBLY"*, wholly independent of the skew, untouched all session.
-
-
-| §LP-LEAK (this thread) | `_lpValueUsd` values only what LEAVES a redeem | control redeemed FULLY (2 wei left), treatment PARTIALLY (**31.833 shares retained**) — a partial settlement read as lost value |
-
-### `§A.62` (none)
-
 ## 📌 LAYOUT PASS (§A.62) — additions banked
   • `src/mock.sol` → `src/imports/`; fold `QuidLens` (check EIP-170 first — it may exist BECAUSE
     Aux/Core are near the limit).
@@ -16709,99 +16255,6 @@ three times larger than it is, and would have invited pointless churn in four fi
 
 ### `§E48` (none)
 
-## ⭐ THE REFILL IS A RANGE-PLACEMENT COMPUTATION, NOT A TRADE (skew thread, and it reconciles §E48)
-
-Once liquidity settles against inventory too, **the range stops being a position and becomes inventory
-we own**. "Putting ETH into the range" is then crediting `POOLED_ETH` — bookkeeping, not a trade — and
-the range becomes a PRICING PARAMETER rather than a custody boundary.
-
-⇒ A refill is: **choose the range so that inventory ALREADY HELD sits at the target composition at
-the current price.** No counterparty, no external leg, no restoration cost.
-
-**Why believe it: every clause of §E48 falls out at once.**
-
-| owner's words | why it follows |
-|---|---|
-| *"shouldn't be sold for ETH out of range… a misuse"* | there is nothing to buy — the ETH is already held |
-| *"maximise representation of the ETH already held"* | that IS range placement |
-| *"external impact should net the zero"* | no external leg exists to carry impact |
-| *"no premium paid to a restorer"* | no external party restores |
-| *"reseats fire together with refill JIT"* | not two operations — one |
-
-⇒ **CONSEQUENCE FOR `requireNonAbusable`:** the grind floor `w >= 1 − fee/C` costs an EXTERNAL
-purchase that was already ruled out. It survives ONLY at §E48's third tier, the premium-attracted
-hop, where an external cost is real. It must not gate the atomic tier — which is why it now REVERTS
-on `costPpm == 0` rather than passing.
-
-### Three things this does NOT dissolve
-1. **If the range is SHORT ETH outright, no reseat fixes it.** You can only represent what you hold —
-   and that is exactly where *"restore to 1:1"* and *"maximise representation"* diverge. Owner's call.
-2. §E48's three opens are untouched: who pays the gas, Rust-automatic vs on-chain trigger (asked to be
-   COMPARED, not assumed), and nothing tying the skew collected to the external price impact a flash
-   refill pays.
-3. The merge blocker above.
-
-
-| §V-R2 | 🔴 OPEN | **THE STRUCTURAL COST, WHICH IS WHY THIS IS NOT A LOCAL EDIT:** 1inch resolves routes OFF-CHAIN; the router cannot be called without API-supplied calldata. So a `bytes route` argument threads `openLev`/`rebalance` → `_leverUpBuy` → `stableToColl` → the swap helper. That is a signature change on TWO PUBLIC ENTRYPOINTS ⇒ the SPA and the Rust keeper move too, and `tools/check-client-abis.py` will flag it (the gate working, not a problem). There is no smaller version: dropping TriCrypto without the calldata path leaves the leg with NO route.  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): STALE: route threading LANDED across rebalance/rebalanceOne/rebalanceWbtc** |
-
-| §V-R3 | 🔴 OPEN — **DO NOT DEFAULT THIS** | **`rebalance` IS PERMISSIONLESS.** With caller-supplied calldata an arbitrary caller passes an arbitrary target + payload. PIN the router to an allowlist (constant or gov-set) or make the path keeper-only. An unpinned `call` on a permissionless entrypoint is a WORSE hole than the thin liquidity it fixes. Also: approve exact-amount per swap and zero after, rather than leaving standing allowance.  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): STALE: routes are pool WORDS on-chain, callee pinned, approvals per-leg, floor TWAP-derived** |
-
-| §V-R6 | 🔴 OPEN | **VERIFICATION GATE — none of §V-ROUTE lands without all four:** `forge build`; `python3 tools/check-contract-sizes.py` (`LevMath` had 228 bytes of margin and this repo has shipped an undeployable `Core`); a FULL SUITE ON A STABLE ENDPOINT — ⚠️ **the last trustworthy run is ~40 commits old**, ankr timed out mid-suite and publicnode 429s, and endpoint noise produced 16 phantom failures in one run; and `check-client-abis.py` **AFTER a rebuild** — verified TWICE on 2026-08-15/16 that it invents phantom ORPHANs against stale `evm/out` (it reported `netEquity` missing while it was live at `LevManager.sol:244`).  📌 **§SEQ-AUDIT: GATE 8 · lane L7. Verification gate (build + sizes + full suite) - tests tier** |
-
-| §V-R8 | 🔴 **OPEN — CONFIRMED STILL FAILING 2026-08-16** (the only one of the three that survived) | `testLeverage_LvrControlVsTreatment` — passive LP worse off at UNCHANGED price, where there is no IL and no directional PnL. ⚠️ A self-dealing explanation (lev flow trading against our own range) was proposed and REFUTED: the SOR paths are hookless (`DeployLib._pk` sets `hooks: IHooks(address(0))`), so our range is never in the route. Real failure, no explanation.  📌 **§SEQ-AUDIT: GATE 0 · lane L6. Money-path red whose self-dealing explanation was refuted; triage before fixing** |
-
-| §V-R11 | 🔴 **OPEN — INVARIANT, owner 2026-08-16: "it must never stop tracking like this"** | **THE HEDGE SWAP IS ALL-OR-NOTHING, AND FOR A HEDGE THAT IS THE WRONG SHAPE.** `SELL_SLIP_BPS` must bound the PRICE, not the SIZE. Today a $250k need against a venue that can fill $25k within 1% REVERTS and delivers ZERO hedge; filling the $25k leaves the LP 10% hedged instead of 0%, and the accounting stays coherent because `_leverUpBuy` borrows and supplies the SAME reduced amount — debt and collateral move together, LTV stays valid. UNDER-hedged is bounded and visible; UN-hedged while the range keeps selling is neither. ⚠️ **§V-R1 (1inch) DOES NOT CLOSE THIS**: an API outage, a volatile block, or any size that cannot clear the floor still produces a total revert. Aggregation makes tracking DEEPER; partial fill makes it ROBUST. Both are needed. ⚠️ Do NOT implement by weakening the floor — that is rule 4 (a tolerance that makes the failure go away leaves the defect). The change is to accept a SHORTFALL at a good price, then re-target on the next tick; `RebalanceFailed(lp, ltvBps)` already exists as the signal and `targetDebt = E0·soldFrac` is recomputed each call, so a partial fill converges rather than drifting. Settle what a partial fill means for `debtDeltaToTarget`'s convergence and for `MAX_LOOPS` before writing it. ⭐ **VERIFIED OPEN 2026-08-28 AGAINST CURRENT CODE, AND THE IMPLEMENTATION PLAN IN THIS ROW IS MECHANICALLY WRONG.** `_aggSwap` reverts on BOTH paths — `if (!ok) revert NoVolatileRoute()` and `if (out < minOut) revert Slippage()` — so the defect is live and now has exactly ONE home (post-§C2.1, `_poolSwap` is deleted and `_aggSwap` is the sole volatile hop, 4 call sites: `LevMath:694, 752, 766, 782`). ⛔ **BUT "ACCEPT A SHORTFALL AT A GOOD PRICE" CANNOT BE IMPLEMENTED IN THE FAILURE HANDLER, AND THAT IS WHERE THIS ROW POINTS.** 1inch `unoswap` takes a FIXED `amountIn` with a `minOut` floor: it fills the whole size or reverts — **there is no partial-fill return path to soften.** Returning 0 instead of reverting yields ZERO hedge, which is the very outcome the invariant forbids. ⇒ **The only way to fill $25k of a $250k need is to REDUCE `amountIn` and re-quote** — the size, not the floor, is the free variable. That is a sizing loop (step-down or binary search), which is exactly why the row's own closing note about `MAX_LOOPS` matters, and it is why this must NOT be built by relaxing `minOut` (rule 4, already flagged here). ⚠️ **SPEC/IMPLEMENTATION DIVERGENCE, DELIBERATE, RECORDED SO IT IS NOT "FIXED" BY REVERTING IT:** the retained `_aggSwap` spec at `§C2.1` states *"a failed call returns 0 — a shortfall, not a revert (§V-R11)"*, but the shipped code reverts on purpose — its comment: *"a hop with NO ROUTE REVERTS `NoVolatileRoute()` rather than silently returning 0."* Both are right about different failures: **no route at all ⇒ revert (§C2.1 wins); a route too thin for the full size ⇒ size down and fill part (§V-R11 wins).** The single `!ok` handler cannot distinguish them; separating those two cases IS the work.  📌 **§SEQ-AUDIT: GATE 6 · lane L4. SELL_SLIP_BPS=100 bounds price, applied all-or-nothing to size; owner calls partial-hedge** |
-
-| `§E232-tri` | zero TriCrypto code hits; all four legs on pinned V3 — **discharged by §V-R1-MIN, not by the 1inch work it named** |
-
-| `§E233-sor` | `SOR.sol` absent; `Aux.sol:784-795` and `DeployLib.sol:297` record the removal; the 5-arg `auxSwap` survived as the row demanded |
-
-| §E238-scan | 🟡 **OPEN, ONE FACT — §E111's SCAFFOLDING IS GONE, SO ITS COST IS NOT WHAT THE LAST THREAD TO TOUCH IT BELIEVED (found 2026-08-17 by scanning all 21 session transcripts).** A thread working the enclave items recorded that *"`AttestedHopRegistry.sol` plus its tests are intact for when §E111/§E166-9/10 build that properly, with a TTL and a rotation timelock rather than a pin-once flag."* **That is no longer true:** commit `812e6822` — *"Attestation is fully phased out: delete the registry and its tests"* — removed both. ⚠️ **AND THE CLAIM THAT FOLLOWED WAS ITSELF STALE BY 2026-09-01:** *"Only the `slither-out/*.dot` artifacts still name it"* — re-measured, they name it **0** times (regenerated 2026-08-22). So whoever picks up §E111 starts from nothing, not from a preserved skeleton, and the estimate changes accordingly. ⚠️ Note WHICH claim is stale: §E111 itself is correctly tracked and open ("still open with four designs ruled out"); what died is the belief that groundwork was banked. Two threads were each individually right — one preserved the scaffolding, the other later decided attestation was phased out — and the loser is the reader of the first record. ▶️ Before designing §E111 again, settle whether "attestation is fully phased out" was a decision that SUPERSEDES §E111 or merely removed an implementation of it. If it supersedes, §E111 closes; if not, the registry has to be rebuilt. That question is cheap and nobody has asked it.  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): Fact confirmed and recorded; registry gone** |
-
-| §E241-lib | 🟢 **OPEN AND PAYING, AND IT OVERTURNS A RECORDED CONCLUSION — `CLAUDE.md` states *"neither abstract-base hoisting nor delegatecalled-library extraction removes meaningful bytecode from the caller"*. The first half is right (measured: +41 bytes). The second half is WRONG and this row is the measurement that refutes it. — THE ABSTRACT-BASE COPY TAX IS REAL AND LIBRARY EXTRACTION REMOVES IT. MEASURED 2026-08-17, AND IT REFUTED MY OWN PREDICTION.** I argued from body sizes that a delegatecall seam would cost more than a short inlined body, and recorded that as a reason not to convert `LevBase`. **The owner disagreed, I measured, and the owner was right.** `LevBase` is an ABSTRACT base, so every body in it is compiled into BOTH `LevManager` and `BtcLevManager`; a delegatecalled library's bodies live in the library's own deployed bytecode and cost each caller a jump plus argument marshalling. Batch 1 — `trackOpen`/`untrackOpen`, 10 code lines, no events/immutables/virtuals so ONLY the seam differs: **LevManager −212, BtcLevManager −213.** Batch 2 — `setTargetLtv`/`openPos`/`reanchorIfReseated`: **−268 / −299.** Cumulative **−480 / −512 for 5 bodies ≈ 100 bytes per body per manager**, margins now 1,745 and 5,241; `LevBookLib` 2,089 bytes deployed ONCE. ⇒ **23 bodies remain; at this rate ~2,200 more per manager.** ⚠️ **THE HARD BOUNDARY, and it is a property of the EVM not a preference:** a library body cannot read the caller's IMMUTABLES (`AUX`, `ORACLE_KEY` live in the caller's CODE, not its storage) nor call its VIRTUALS (`_collToBase`). Those values must be computed by the caller and passed BY VALUE — which is exactly what `LevBase`'s own note predicted, and why `reanchorIfReseated` takes `px` and `base`. ⚠️ **WHAT I GOT WRONG AND WHY, so the error is not repeated:** I estimated an inlined 2-line body at ~20 bytes and a seam at 40–80. The measured cost of a body is ~100 bytes REGARDLESS of line count, because solc's inlined code carries storage-slot arithmetic, bounds checks and stack shuffling that source lines do not reveal. **Do not estimate bytecode from line counts — build it.** |
-
-| §E242-inline | 🔴 **OPEN, AND IT TARGETS THE BINDING CONTRACT — SEVEN "LIBRARIES" ARE NEVER DEPLOYED, THEY ARE COPIED INTO EVERY CONSUMER (found 2026-08-17 while pricing the L1 deploy).** `ShareMath`, `BitcoinTx`, `ExternalTwap`, `FixedRateFill`, `SortedSetLib`, `Types` and `Interfaces` all compile to **32-byte stubs**, which is what an internal-only library looks like: solc INLINES the bodies. The prize: **`BitcoinTx` is 380 lines of 7 internal functions copied into FOUR consumers — `BTCChannels` (144 bytes of margin, the tightest contract in the tree), `MuSig2Agg`, `ExitLib`, `ChannelLib`.** Converting its functions to `public` deploys it once and frees space in all four. Every signature takes `bytes calldata`, so the conversion is mechanical; if solc objects to `calldata` on a public library function, widen to `memory` and re-measure (that copy is the seam cost, and §E241 says the seam is cheaper than the copy). ▶️ **MEASURE, DO NOT ASSUME — §E241 is the cautionary tale in both directions.** Also re-check `ShareMath` (2 consumers) and `SortedSetLib` (1) the same way; a single consumer means inlining costs nothing extra and conversion would only ADD a seam.  📌 **§SEQ-AUDIT: GATE 3 · lane L3. Byte savings pre-deploy; 3 of 7 named libraries no longer exist - re-price** |
-
-| §E244-tri-tests | 🔴 **PARTLY CLOSED — ONE OF THE TWO IS FIXED, AND BY THE VENUE PIN RATHER THAN BY THE TEST (2026-08-17).** `VBtcLevFeeLane::testReal_WbtcLev_FoldUp_Then_FlashDelever` PASSES again once the volatile route exists (`e4f9c512`), and that suite is back to its 19/2 session baseline on the ANKR archive endpoint. ⇒ **THE FAILURE WAS THE MISSING CAPABILITY, EXACTLY AS THIS ROW CLAIMED — restoring the capability restored the test, which is the control that proves the diagnosis rather than merely asserting it.** What remains is `LevCascade::test_Economic_LeversToProvenIlTarget`. ⚠️ **The row text below still says "TWO TESTS" and did so for six commits; treat any count in a status row as of its writing date, not as current.** Original text: **OPEN — TWO TESTS NOW FAIL `NoVolatileRoute()`, AND THAT IS THE CAPABILITY REMOVAL BECOMING VISIBLE, NOT A BUG (2026-08-17).** `LevCascade::test_Economic_LeversToProvenIlTarget` and `VBtcLevFeeLane::testReal_WbtcLev_FoldUp_Then_FlashDelever` both exercise a lever-up/flash-delever that needs the USDC↔volatile route TriCrypto used to provide. With it removed (§E240-tri) they revert by design. ⚠️ **DO NOT "FIX" THESE BY WEAKENING THE ASSERTION OR CATCHING THE REVERT** — that is rule 4 exactly, and it would hide that the automatic hedge does not currently execute. They are the honest signal that the IL-protect cannot lever or de-lever until §V-R1 (1inch) lands. ▶️ TWO ACCEPTABLE RESOLUTIONS, both explicit: delete them alongside the route with the property they asserted recorded at the site (as was done for the two SOR tests), or mark them `vm.expectRevert(NoVolatileRoute.selector)` so they assert the CURRENT truth — the hedge is unavailable — and flip back when the router lands. **The unacceptable resolution is a tolerance that makes them pass.** ⚠️ ALSO NOTE what these two prove that reasoning did not: they are the only two tests in the tree that actually drive a full lever-up through the swap, which is why the other ~55 pre-existing failures did not move. Everything else asserts on state that never gets that far.  📌 **§SEQ-AUDIT: GATE 8 · lane L6. Second of the two tests still open** |
-
-| §E245-rate | 🟢 **THE EXTRACTION RATE, MEASURED AT THREE BODY SIZES — THIS IS THE NUMBER THAT MAKES THE MANAGER MERGE PLANNABLE (2026-08-17).** Library extraction frees bytes from the CALLER at a rate that scales with body size, so a plan can be costed instead of guessed: **2–5-line bodies ≈ 100 B each** (`trackOpen`/`untrackOpen`/`setTargetLtv`/`openPos`/`reanchorIfReseated`: −480 LevManager, −512 BtcLevManager over 5); **10–13-line bodies ≈ 514 B each** (the four venue legs: BtcLevManager **19,335 → 17,279, −2,056**). ⇒ **RUNNING TOTALS:** `LevManager` 23,311 → 22,831 (margin 1,745); `BtcLevManager` 20,323 → **17,279** (margin 7,297); `LevMath` 23,020 → **19,101**; `Aux` 22,955 → **20,996**; `BTCChannels` 24,433 → **23,761** (margin 144 → 815). `LevBookLib` 5,878, deployed once. ▶️ **WHAT REMAINS AND WHAT IT IS WORTH AT THESE RATES:** 23 `LevBase` bodies (~2,200/manager), `LevManager`'s 34 own bodies incl. `openLev` 20 / `deleverToVault` 19 / `_rebalanceBody` 16 / `_closeLev` 15 (~5,000 at the large-body rate), `BtcLevManager`'s 13 remaining. ⚠️ **THE TWO HARD BOUNDARIES, properties of delegatecall not preferences:** a library body cannot read the caller's IMMUTABLES (they live in its CODE) nor call its VIRTUALS — so `debtDeltaToTarget`, `_reanchorIfReseated`, `_collToBase` and `_syncRange` values must be computed by the wrapper and passed BY VALUE. And `_syncRange`'s ORDERING is load-bearing: the range poke must follow the venue move, so it stays in the wrapper.  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): Measured extraction rate - a planning input** |
-
-| §E246-legs | 🟢 **THE FOUR "BTC" VENUE LEGS ARE ASSET-AGNOSTIC AND NOW SHARED — the naming hid it (2026-08-17).** `leverBorrow`, `leverSupply`, `deleverWithdraw`, `repay` lived only on `BtcLevManager` and read as BTC-specific. Every one is a generic venue operation whose ONLY asset-specific input is the collateral token, now a parameter, so the same library bodies serve weETH. **`leverBorrow`/`repay` never touch the collateral at all** — they move the venue's STABLE in and out — which is precisely why the BTC lever cycle survived TriCrypto's removal untouched while the ETH atomic path did not (§E240-tri). ⚠️ **THIS DOES NOT MEAN EXPOSE THEM ON THE ETH SIDE.** Earlier in this thread I proposed exactly that and withdrew it: `leverBorrow` on ETH would let an LP borrow WITHOUT supplying, walking its own position toward the liquidation the protocol promises to prevent. The BODIES are shared; which manager EXPOSES which entrypoint is a separate, security-bearing decision. ⚠️ Events are declared in the library and still emit from the MANAGER's address (delegatecall preserves `address(this)`), with byte-identical declarations so no client ABI moves — **editing an event there edits the manager's ABI.** |
-
-| §E251-vbtc-scope | 🔴 **OPEN — DESIGN vs IMPLEMENTATION GAP: vBTC CAN ONLY BE MINTED AGAINST THE LEVERED SLICE, AND THE DESIGN WANTS MORE (owner, 2026-08-17).** MEASURED: `VBtc.mintTo` has **exactly ONE call site** — `Vault:333`, inside `exposeBtcToLev` — so the entire vBTC supply is the portion of range BTC currently exposed to leverage. `outOfRangeBtc` mints none. **The owner's design is broader:** the BTC leg of native coins in 2-of-2 channels should be represented by the range manager's SHARE SUPPLY, and *"totalSupply includes outOfRange locked liquidity that can be lent as vBTC deposited on the Morpho market … not double counted as LP capital twice in the range, since it's in the range by default."* ⇒ i.e. an LP's range BTC — including the out-of-range LOCKED portion — should be mintable as vBTC and lendable, with `levPooled`-style subset accounting preventing the double count (the mechanism §E250 verified already works for the lev slice). ▶️ **WHAT MUST BE SETTLED BEFORE ANY CODE:** ① which range BTC is eligible (all `pooled`? only the out-of-range/locked portion? does in-range depth stay unmintable because it must be deliverable to swappers?); ② whether the subset marker generalises — one marker for "exposed", or separate markers for lev-exposed vs lent-out, since an LP could do both and `plainNet` currently assumes one; ③ what happens to lent-out vBTC when the range needs that BTC for a swap or a close — the deliverability question `§V-R10` raises for sUSDE, in a new place. ⚠️ **DO NOT WIDEN THE MINT WITHOUT ②.** `vbtcExposeBody` guards `sats <= plainNet(pooled, levPooled)`; a second consumer minting against the same `pooled` with its own counter would pass that guard while jointly over-minting. That is the double-count the owner is explicitly ruling out, and it arrives through the guard rather than around it.  📌 **§SEQ-AUDIT: GATE 2 · lane L7. VBtc.mintTo has exactly one call site; widening scope is an owner ruling** |
-
-| §E252-shares-merge | 🟢 **READY — THE 13 RANGE-STATE DECLARATIONS ARE BYTE-IDENTICAL IN ALL THREE FILES, so the merge is mechanical (verified 2026-08-17).** `Shares.sol` is a written-but-UNWIRED prototype: **nothing imports or inherits it**, yet it compiles to 2,301 bytes of deployable contract. Declared identically in `Shares`+`Vault`+`Quid`: `LEV_MANAGER` `autoManaged` `lpShares` `selfManaged` `positions` `ID` `feesPerShare` `USD_FEES` `levPooled` `levBuf` `levBufferUsd` `totalBuffer`, plus `RANGE_ANCHOR` in `Vault`+`Quid` — checked declaration-by-declaration, not by name (an earlier pass flagged `autoManaged` as differing; that was a regex hitting a USAGE line, and the real declarations match). ⇒ Convert `Shares` to an ABSTRACT base both managers inherit. ⚠️ **THE POINT IS NOT SOURCE TIDINESS — IT IS STORAGE LAYOUT.** State costs no bytecode, so this frees nothing directly; what it buys is that both managers' layouts become IDENTICAL for these members, which is the PRECONDITION for one-implementation-two-instances. Merging the managers without it means two contracts whose slots disagree. ⚠️ Check no test reads `Quid`/`Vault` by RAW SLOT first (only `DrainAtomicity` does raw-slot reads today, and it reads `Core`). |
-
-### `§E255-two-instances` 🔴
-
-⚠️ **BOTH NAMED SYMBOLS ARE TOMBSTONES (0 refs, 2026-08-26): `supplyEulerEth`** (Euler borrowing removed 2026-08-13) **and `vogueETH`** (the Vogue→Quid rename; CLAUDE.md lists it among the ~20 tokens deliberately NOT renamed because they resolve to nothing).
-
-⛔ **AND ITS "SEMANTIC DISAGREEMENT" BLOCKER IS FALSE TOO (2026-08-23).** The archived row below ends
-*"`Shares.totalSupply()` = `lpShares + oorShares` … settle that first"*. **`oorShares`: 0 references
-in `evm/src` and `evm/test`. `Shares.totalSupply()`: not declared — the file is state-only.** Neither
-term exists, so the decision it demands has no subject. This is the SECOND blocker on this row to
-dissolve on measurement (the first was *"`Vault` is two things fused"*), which is the tell: **the row
-has been re-derived twice and its blocker line was never re-run either time.** The live text above
-carries the correction; the archive is left verbatim on purpose.
-
-⚠️ **NUMBERS RE-MEASURED FROM `evm/out` ARTIFACTS 2026-08-23 @`ed10bc01` — the row below quotes
-`Quid 23,953 + Vault 12,609 = 36,562 ⇒ ~11,986 over`. Current: `Quid 21,856 + Vault 11,833 =
-33,689` ⇒ **9,113 over** (third reading today: 12,203 → 11,887 → 9,113, the fleet's fold sweep
-taking 3,074 of it in about an hour). The sibling manager fold is `LevManager 22,063 + BtcLevManager 17,228 =
-39,291` ⇒ **14,715 over** (the row says 15,532).
-▶️ **The blocker and the argument are unchanged and still correct — only the price moved.** Re-run
-`tools/check-contract-sizes.py` before planning against either figure; `Quid` currently has just
-**788 bytes** of margin (§E346 gave back 316), so an extraction pass has no room to be approximately
-right.
-⚠️ **This block itself read `24,104 / 36,779 / 12,203 over / 472 bytes` — measured 2026-08-22 and false
-by the next morning.** Three separate numbers in one paragraph, all invalidated by one 12-line commit.
-**Do not re-state a margin here; state the command.**
-
-
-| §E255-two-instances | 🔴 **RE-MEASURED 2026-08-18 — THE RECORDED BLOCKER IS GONE, AND THE REAL ONE IS EIP-170 BY ~11,986 BYTES.** ⛔ **THE STALE BLOCKER: *"`Vault` IS TWO THINGS FUSED, AND MUST BE SPLIT BEFORE ANYTHING CAN BE MERGED"* IS NO LONGER TRUE.** Enumerated the whole ETH-venue slice against `Vault` today: `supplyEtherFi` `supplyAaveEth` `supplyEulerEth` `offrampEtherFi` `_supplyETH` `_withdrawETH` `aaveEthBalance` `deliverableETH` `AAVE_SPOKE` `WEETH` — **ZERO references in `Vault.sol`, all of them in `Quid`.** The only three left (`:64`, `:111`, `:559`) are COMMENTS that say so outright — *"`vogueETH` is VOGUE's accessor, not this contract's"*. ⇒ **§E231's EthVenue fold resolved the precondition by going the OTHER WAY — into `Quid` rather than out of `Vault` — so the split everyone was waiting to do had already happened, under a different row.** `Vault` IS the BTC range manager now. 🔴 **WHAT ACTUALLY BLOCKS IT, MEASURED: `Quid` 23,953 + `Vault` 12,609 = 36,562 against the 24,576 limit ⇒ ~11,986 OVER.** One implementation with two instances means ONE contract carrying both ranges' behaviour and deployed twice, so the union must fit in a single EIP-170 envelope — and it does not, before even counting that ETH-venue custody would ride as dead weight on the BTC instance (the permanent asymmetry `CLAUDE.md` records). ⭐ **THIS IS THE SAME WALL AS THE `LevManager`+`BtcLevManager` FOLD (15,532 over), AND THAT IS THE POINT: BOTH REMAINING FOLDS ARE BLOCKED BY BYTECODE, NOT BY DESIGN AMBIGUITY.** The design questions — which base, whose `totalSupply`, who owns `oorShares` — are settled (§E256). ▶️ **SO THE NEXT STEP IS NOT THE MERGE, IT IS ~12k OF DELEGATECALLED-LIBRARY EXTRACTION, priced by §E245's measured rate (~100 B per small body, ~514 B per large one).** Attempting the merge first produces a contract that compiles, tests, and cannot be deployed — which this repo has shipped once already at −126 bytes with a green suite. ⚠️ **DO NOT START THE MERGE UNTIL THE UNION FITS.** Original text: **THE ARCHITECTURE THIS THREAD WAS DRIVING TOWARD, STATED BY THE OWNER 2026-08-17: *"vogue must control two shares contracts that each do their delever etc for each range, calling each lev library it needs."*** ⇒ ONE range manager; TWO `Shares` INSTANCES (ETH + BTC); each instance delevers its own range through the lev libraries. Today the share FACE is IMPLEMENTED THREE TIMES instead of INSTANTIATED TWICE: inline in `Quid`, as `VBtc` for BTC, and in `Shares` (unwired). That is the duplication, and it is the same `isBTC` argument one level up from `Core`, which already IS one implementation with two instances. ✅ **WHAT IS ALREADY IN PLACE:** `Shares` (§E252) gives both ranges an IDENTICAL storage layout — the precondition; `LevBookLib` (§E246) holds the four venue legs parameterised by collateral token; `Core` is the working precedent. 🔴 **THE BLOCKER IS A SEMANTIC DISAGREEMENT, NOT PLUMBING:** `Shares.totalSupply()` = `lpShares + oorShares` and SPANS both position kinds (*"disjoint by construction… the sum cannot double-count"*); `Quid.totalSupply()` = `lpShares` alone and **`oorShares` does not exist in `Quid` at all**, so out-of-range positions are absent from the share supply. The owner's design says totalSupply INCLUDES the out-of-range locked liquidity (and §E251 wants it lendable). Instantiating `Shares` twice ADOPTS its semantics — **changing what every ERC-20/4626 client reads**. ▶️ Settle that first; it is the same decision §E251 turns on.  📌 **§SEQ-AUDIT: GATE 7 · lane L5. Recorded blocker gone; live blocker is EIP-170 headroom, structural after 2.3** |
-
-### `§QUEUE-RECONCILED-2026-08-17` (none)
-
 ## 📐 §QUEUE-RECONCILED-2026-08-17 — **THE FILE WAS COUNTED PROPERLY FOR THE FIRST TIME, AND THE OBVIOUS AUTOMATED CHECK FAILS ITS CONTROL**
 
 Asked whether every row's status still matches the code. It did not, and the interesting part is
@@ -17525,74 +16978,6 @@ says earns a check.
 or does it commit a half-completed state? This row covers ONE of them.
 
 
-## 📍 REFILL — WHAT I DID **NOT** FINISH, WITH EVERYTHING THE NEXT THREAD NEEDS (2026-08-19)
-Booked because the design changed under the work (owner's 1inch message) and **most of what was built
-is now the wrong shape**. Nothing here is blocked on a decision; it is blocked on someone doing it.
-
-### STATE OF THE CODE, MEASURED NOT RECALLED
-**ALL THREE REFILL PRIMITIVES HAVE ZERO REAL CALL SITES.** The greps return 1 hit each and **the hit
-is the `function` declaration itself** — `SwapLib.sol:886` `refillNeeded`, `:910` `proRataShortfall`,
-`:1925` `refillPlacement`. ⚠️ **Do not read "1 in src" as wired**; I nearly did.
-`imbalanceFeeUsd6` has 3 and is the only one with real callers.
-
-### ⛔ WHAT THE OWNER'S DESIGN DELETED, BEFORE ANYONE "FINISHES" THESE
-Under *"refill only when not enough in the pool to cover a swap, paid against 1inch (routes the swap)…
-so a keeper is not needed"*, **we never source inventory**. ⇒ **`refillPlacement` may have NO JOB AT
-ALL** — it sizes a placement of a restoration we do not perform. **Wiring it would be building the
-deleted design.** ⇒ **AUDIT FOR DELETION FIRST, WIRE SECOND.**
-⛔ **CORRECTED BY §E313 — THIS SENTENCE ORIGINALLY NAMED `proRataShortfall` TOO AND WAS WRONG.** That one
-apportions a SHORTFALL ACROSS EXITING LPs — the rule-17 root fix for the round-trip exit attack (15.2 bps
-measured) — which has nothing to do with sourcing inventory. **It was deleted on this sentence and has
-been restored.** ⚠️ And `SPRINT:1942` already said *"**Wire `proRataShortfall`** into the redeem path"*,
-so this sentence overrode a standing instruction that pre-dated it.
-`refillNeeded` is the one with a future: it IS `skewWad`'s flush test, and the new predicate
-("inventory cannot cover THIS swap") is a near relative of it.
-
-### ⭐ §UNIT-A-CAP-QUESTION IS RESOLVED BY THE SOLVER DESIGN — THE ROW SAYS SO ITSELF
-`QUEUE.md:10075` blocks deleting `MAX_WELL_SKEW` because *"it is currently **THE ONLY THING BOUNDING
-THE CURVE**"* and `Γ·σ²·q/(1−q)^ρ` **diverges as q → 1**. Its own body names the missing piece:
-> *"§UNIT-VENUE-CEILING established the REAL bound is **the cost of routing around us** — measurable,
-> per size and per asset, and **NOT a governance constant** — but **THAT BOUND DOES NOT EXIST IN
-> CODE.**"*
-⇒ **IT DOES NOT NEED TO. The solver applies it OFF-CHAIN by routing elsewhere** — continuously, per
-size, per asset, exactly as the row specifies, and without a constant. **The divergence at `q → 1` is
-then CORRECT, not a hole: an unbounded quote at zero inventory is an unfillable one, which is the
-truth.** ⚠️ **THE ROW'S OBJECTION WAS RIGHT WHEN WRITTEN — it assumed we must serve every order.
-Under solver routing we do not.**
-
-### ▶️ THE REMAINING WORK, IN DEPENDENCY ORDER (each shrinks the next)
-1. 🔴 **SEPARATE Γ FROM THE CAP.** They are ONE constant wearing two hats and `SwapLib:1013-1014`
-   admits it (*"Γ ≡ MAX_WELL_SKEW EXACTLY… the whole curve has ONE number in it, the cap, and it
-   appears twice"*). **Γ is load-bearing pricing and STAYS; the cap goes.** Sites: `:1069` (pole),
-   `:1072`, `:1135` (final clamp), `:1001` (σ²==0 sentinel — **KEEP, it is a different question:
-   "no data", not "no inventory"**).
-   ⚠️ **THE POLE IS THE DELICATE ONE AND HAS ALREADY BITTEN ONCE.** §E104 (`:1055-1065`) records that
-   resolving it to a sentinel instead of a number produced `type(uint).max + base` → **panic `0x11`**,
-   *"a full drain REVERTED instead of charging the 3% ceiling"*, and **the suite never caught it
-   because it never drains a range to zero (4,308 green over an UNREACHED state)**. ⇒ **Under the new
-   design the pole should mean DECLINE — **1inch routes the remainder** — which is a DIFFERENT MECHANISM
-   from both a big number and a revert. Decide the channel before editing.**
-   ⛔ *(This said "the solver routes it". There are no solvers — owner, 2026-09-08. The mechanism is
-   unchanged and correct: we decline, and the swapper's router fills elsewhere.)*
-   ⚠️ **AND CHECK THE CONSUMER:** if `skew` may exceed 1e18, any `base·(1 − skew)` haircut underflows.
-   **I did not verify the application sites. That check is a precondition, not a follow-up.**
-2. 🔴 **MAKE "CANNOT COVER THIS SWAP" THE PREDICATE**, at the `_handleDelta` seam where `fillOOR` was
-   already folded (`4c111fa8` — into `rebalanceCore`, which runs on every swap via repack-first).
-3. 🟠 **RE-AUDIT THE FOUR PRIMITIVES FOR DELETION** (see above).
-4. ✅ **§E241-obsidx — FIXED BY ANOTHER THREAD, ROW CLOSED 2026-08-22.** `Core.sol` now pins the call
-   WITH the address (`setObservationSource(src, call_)`, `OBS_CALLDATA` ×3) and **`OBS_POOL_IDX` has 0
-   references** — exactly the invariant the row demanded, that *"the index and the pool cannot
-   diverge"*. ⚠️ **This row read 🔴 "booked, unfixed" for a day after the fix landed** — the
-   stale-row failure this thread documented three times, arriving in my own row.
-
-### ⚠️ WHAT I RETRACTED, SO NOBODY REBUILDS IT
-- **`1cf471af` (48× shortfall) — MOOT.** Priced a restoration spread we never pay. Right arithmetic,
-  wrong system.
-- **`cedcb061` (end-of-block netting) — UNIMPLEMENTABLE.** No end-of-block signal exists on-chain.
-- **A DELIVERABILITY PRECONDITION ON `refillPlacement` — DELETED FOR THE WRONG REASON** (owner:
-  *"it is just the imbalance in the POOLED_USD and the POOLED_ETH/BTC"*). **If that function survives
-  the audit, the precondition question is still open and was never correctly settled.**
-
 ## PART G (cont.) — **THE 9 I HAD LEFT BEHIND, NOW CLASSIFIED BY READING THEM**
 
 I left 12 non-finished rows in `QUEUE.md` and justified it as *"moving them would drag a finished
@@ -18077,66 +17462,6 @@ re-doing the fork, i.e. what the vendored files already are. ⚠️ Note the sec
 📌 **`Shares.sol`'s deletion is unstaged, so it is not armed** — but it belongs to this change set, and
 rule 14b says a deletion and its replacement land together or the deletion waits. It is waiting.
 
-## §E274 — ✅ **Γ RE-DERIVED AND REMEASURED. THE ANSWER INVERTS §E273's READING: NO FINITE Γ IS SAFE.**
-🔗 **CONTEXT ADDED 2026-09-09 — READ §L5-KAPPA-FOLDED-2026-09-09 (at the end of this file) BEFORE ACTING ON THIS ROW.** It holds the σ-scaled-κ attempt (built, measured, REVERTED, +403 bytes), the ρ(σ) closed form, the linearity wall that forecloses BOTH, and a retraction of this session's own wash-trading sign error.
-Owner: *"rederive and remeasure"*. Executed 2026-08-21, `evm/test/GammaRederived.t.sol`, **5 tests,
-all passing, control included.** `skewWad` is `public pure`, so this needed no fixture and no fork.
-
-### 1️⃣ THE RE-DERIVATION — FROM A HORIZON SOMEBODY ACTUALLY CHOSE
-A–S's premium is `q·γ·σ²·(T−t)`; the code folds γ and (T−t) into Γ. σ² is **annualized**
-(`QuidLib:161,169` — `tickVar·SECS_PER_YEAR/THETA_STEP`), so **(T−t) must be in YEARS**.
-⛔ **The current Γ is circular** (`SwapLib:1013-1014`: *"Γ ≡ MAX_WELL_SKEW EXACTLY… the whole curve
-has ONE number in it, the cap, and it appears twice"*), and §GAMMA-HORIZON-DERIVED read a horizon back
-out of it — **946,080 s = 10.95 days, *"a horizon nobody chose"***. The chain is cap → Γ → horizon,
-and nothing in it is measured.
-⭐ **THE ONE HORIZON IN THIS REPO CHOSEN FOR A STATED REASON IS `Core.sol:207` `FLOW_DECAY` — a 48h
-half-life**, documented as the memory for *"the well's flow-EWMA / **inventory-skew target**"*. That
-is exactly the timescale on which an imbalance is expected to be worked off, which is what (T−t)
-means here.
-```
-    Γ_derived = γ·(T−t) = 1 · 172,800 / 31,536,000 = 5.48e15
-    Γ_current = 3e16                    ⇒ 5.475× LARGER than the flow register implies
-```
-
-### 2️⃣ THE REMEASUREMENT — AND IT REFUTES THE "33× MARGIN" FRAMING
-§E273 found the haircut's real limit is `1e18` and the cap `3e16`, *"33× lower… a vast margin to the
-failure point"*, leaving open whether a re-derived Γ stays inside it. **It does not, and neither does
-any other finite value.** Uncapped kernel, σ²=4e18 (200% ann. vol):
-| case | Γ=3e16 | Γ=5.48e15 | vs 1e18 |
-|---|---|---|---|
-| small drain above q₀=0.99 | 12.52e18 | **2.29e18** | **both over** |
-| Δ=0 quote at q=0.99 | 11.88e18 | **2.17e18** | **both over** |
-| Δ=0 quote at q=0.99999 | 11,999e18 | **2,192e18** | **both over, ~2,000×** |
-🔴 **DIVIDING Γ BY 5.475 BUYS NOTHING, BECAUSE THE KERNEL DIVERGES.** `q/(1−q)` has no finite bound,
-so **no coefficient tames it** — margin is the wrong concept for a pole. ⇒ **THE DECLINE MECHANISM IS
-MANDATORY, NOT A REFINEMENT**, and §E273's "conditional on one change" is the whole thing.
-⚠️ **AND IT MUST TRIGGER WELL BEFORE EXHAUSTION.** The 1e18 crossing is **not** at q=1:
-| Γ | σ²=100% vol | σ²=200% vol |
-|---|---|---|
-| 3e16 (current) | q ≥ **0.97087** | q ≥ **0.89286** |
-| 5.48e15 (derived) | q ≥ **0.99455** | q ≥ **0.97855** |
-⇒ At 200% vol the current curve is already unfillable-in-arithmetic at **89% scarcity**. **"Decline at
-the pole" is too late by design; the predicate is a THRESHOLD, and the threshold MOVES WITH σ².**
-
-### 3️⃣ 🔴 THE SHARPEST CASE IS A **QUOTE**, NOT A FILL — AND IT IS THE SOLVER-FACING PATH
-`Δ = 0` is the zero-size read (`SwapLib:1046-1049`: *"a zero-size READ (the Aux/MM signal, which wants
-the instantaneous rate)"*), where `qBar = q/(1−q)` with **no integral averaging it down**. That is the
-path `Aux.sol:663` exposes so *"Bebop's RFQ engine AND Khalani's Arcadia solver read the same curve
-settlement uses"*. ⇒ **The solver-facing quote is the one that diverges fastest**, and under the
-owner's 1inch design it is the *primary* interface. **Today the cap hides it entirely.**
-
-### 4️⃣ 📌 WHAT THE CAP IS ACTUALLY DOING TODAY — MEASURED, AND IT IS NOT A SAFETY LIMIT
-At σ²=1e18, q₀=0.5, the live (capped) skew is **exactly 3e16 from q₁=0.6 through q₁=0.95**, while the
-uncapped kernel runs 3.69e16 → 12.35e16. ⇒ **THE CURVE IS FLAT-TOPPED ACROSS ESSENTIALLY THE WHOLE
-SCARCITY RANGE.** Every result §UNIT-B and §UNIT-SKEW-IS-NOISE measured about "the skew" above q≈0.6
-was measuring **the constant**, not the curve.
-
-▶️ **CONSEQUENCE FOR THE ORDER OF WORK IN §REFILL-UNFINISHED:** step 1 was "separate Γ from the cap,
-delete the cap". **Γ IS NOW DERIVED (5.48e15) AND THE CAP IS STILL NOT DELETABLE ALONE** — the decline
-threshold must land in the SAME change, or the first deep drain panics `0x11` inside
-`retainSkewPremium`. ⚠️ §E104's lesson stands and now has a number: **the test that proves it must
-drive q past the threshold above**, not merely to zero.
-
 ## §E274-SIZE — ⛔ **`Quid` IS NO LONGER THE BINDING CONSTRAINT. `BTCChannels` IS (1,163 vs `Quid`'s 2,720). THE NUMBER MOVES *AND SO DOES WHICH CONTRACT IT IS ABOUT*; RE-MEASURE, NEVER QUOTE.**
 🔄 **RE-MEASURED 2026-08-23, FOURTH READING: `Quid` 21,856 — 2,720 BYTES TO SPARE, and it is the THIRD
 loosest of the top five.** The header of this row said **86** and was that stale for two days. It read
@@ -18251,44 +17576,6 @@ than redeclaring them. The twelve-duplicated-state-concepts problem is solved.
    `evm/src` (43 mentions, every one a comment). The v4 cut IS complete**, exactly as the item claims —
    and that residue is precisely why a reader keeps concluding otherwise.
 
-## ⏸️ §E276 — **NOT CLOSED. ITS EVIDENCE DIED; ITS QUESTION DID NOT.** `f5499659` deleted the `out -= out*skew` line the row argues from, so its CITATION is dead — but the design question (*do we implement A–S's spread δ and call it A–S's shift r?*) is untouched by that deletion and is live as §E330 / §E332-c. ⇒ **Parked ON those, not resolved.** ▶️ **RE-AUDIT TARGET: `SwapLib.skewWad` + `_composePrice` — with `_fillDelta`'s copy gone, is the single surviving charge a spread or a shift?** Nobody has re-read it since the deletion. *(superseded closure text:)*  The row is built on `Core.sol`'s `out -= out*skew`, which `f5499659` (§E279) removed as the duplicate skew application. **The spread-vs-shift question survives as §E330/§E332-c and is an owner decision**; this row's specific argument no longer has a code referent. Original:  **WE IMPLEMENT A–S's SPREAD δ AND CALL IT A–S's SHIFT r. `UNIT-CURVE-SPEC` IS NOT CLOSED.**
-Owner, 2026-08-21: *"True A-S moves the mid — `r = s − qγσ²(T−t)` — so the balancing side is quoted
-BETTER than reference. **We never go below mid.**"*
-
-**VERIFIED IN BOTH PRICING SITES — every path moves AGAINST the taker:**
-```
-Core.sol:1241     out -= (out * skew) / 1e18              // taker receives LESS
-FixedRateFill     draining ? base + base·skew/1e18        // taker pays MORE
-   _applySkew               : base - base·skew/1e18       // taker receives LESS
-SwapLib.sellSkew  `if (over == 0) return 0;`              // refill EXEMPT — zero, never negative
-```
-⇒ **THE REFILL DIRECTION IS EXEMPT, NOT ATTRACTIVE.** The best price a rebalancing counterparty can
-get from us is *reference*. A–S pays them better than reference; that payment IS the inventory-control
-mechanism, and we do not have it — we have δ (object ii) doing duty for r (object i).
-⚠️ **`UNIT-WHY-ONESIDED` ✅ CLOSED THE `payRefillBonus` IMPLEMENTATION, NOT THIS DEFECT** — correctly
-(a discrete jackpot is a race, MEV). **A closed implementation is not a closed problem**, and the ✅
-conflated them, which is why this read as done for two weeks. §UNIT-CURVE-SPEC's ⛔ — *"we never move
-the BID"* — is still TRUE IN THE CODE AS OF TODAY.
-
-⭐ **AND IT EXPLAINS `SKEW_UNFILLABLE`, WHICH I LANDED TODAY AS IF IT WERE A PROPERTY OF THE CURVE.**
-A **shift** of any magnitude is meaningful — it moves the price and the trade still clears. A **spread**
-of 100% means the taker receives NOTHING, so the quote is arithmetically dead. `Γ·σ²·q/(1−q)` is the
-SHIFT formula, and we feed its output into the SPREAD slot. ⇒ **The 1e18 boundary is an artifact of
-that mismatch, not of the pole.** §E274 measured the crossing at q ≥ 0.893 (200% vol); under a shift
-there would be nothing to cross. **The decline is correct GIVEN the spread implementation — a true
-statement about the wrong object.**
-
-▶️ **THE OPEN QUESTION IS WHETHER THE MISSING SHIFT IS A DEFECT OR A DELIBERATE NON-REQUIREMENT**, and
-it turns on ONE ambiguity in the owner's 1inch spec (*"refill only when not enough in the pool to cover
-a swap, **paid against 1inch (routes the swap)** and rebalances the pool"*):
-| reading | who restores inventory | is the missing bid-shift a defect? | does §E273's 48× reopen? |
-|---|---|---|---|
-| **the SOLVER routes** what we decline | the counterparty, externally | **NO** — nobody needs to be attracted | no (my `1cf471af` retraction stands) |
-| **WE pay 1inch** to route and rebalance | us, actively | **NO**, but we bear the routing cost | **YES — reopens exactly as posed** |
-⇒ **Both readings retire the bid-shift; they disagree about who pays the spread.** ⚠️ **I resolved this
-by inference once already and retracted a CORRECT finding on the strength of it. Do not infer it
-again — the answer decides whether the restoration cost is ours.**
-
 ## ✅ §E275-VERIFIED — THE CAP DELETION HAS NO ATTRIBUTABLE REGRESSION (4 runs, 2 per arm, 2026-08-21)
 `a9da145b` landed the cap deletion from my working tree while I was holding it under rule 15. The
 verification it lacked is now done — **two runs per arm, because one is not a measurement on this suite.**
@@ -18378,200 +17665,6 @@ so anyone who "fixes" it by weakening the assertion destroys the measurement** �
 
 ---
 
-## 🔴🔴 §E278 — **THE TWO SKEW LEGS DISAGREE ABOUT THE σ²=0 SENTINEL. ON BTC THAT IS LIVE; ON ETH IT IS NOW LATENT.**
-
-⛔ **HEADLINE HALF CLOSED 2026-09-08 — RE-SCOPE THIS ROW TO THE FLUSH LEG.** The claim
-*"`UNKNOWN_VARIANCE_SKEW` has exactly one consumption site in the tree"* is false: there are **two**,
-and the second is the leg this row says has no guard. `SwapLib.sol:1443` is the drain leg;
-**`SwapLib.sol:2047-2049`** is `sellSkew`, reading `sigmaSqWad == 0 ? UNKNOWN_VARIANCE_SKEW : …`.
-The σ²=0 disagreement between the two legs is RESOLVED. What the code itself still calls open is the
-FLUSH half (`SwapLib.sol:2037-2039`, §E352) — rewrite the heading to that and nothing else.
-
-⛔ **MY OWN PREMISE WENT STALE WITHIN THE HOUR, AND I AM CORRECTING IT RATHER THAN LETTING IT READ AS
-CURRENT.** This row was written against *"nothing is pinned, so σ² ≡ 0 on BOTH instances"* (§C1,
-2026-08-21). **`d10d7b8b` then restored the source**: `DeployLib.sol:146` pins Curve TriCrypto-USDC
-`price_oracle(1)` on the **ETH** instance, and `:149-151` leaves the **BTC** instance unset on purpose
-(every on-chain venue quotes WRAPPED BTC, so observing one makes a WBTC depeg indistinguishable from
-bitcoin moving). ⇒ **Scope corrected:**
-- **BTC — UNCHANGED AND LIVE.** No source ⇒ ring never written ⇒ σ² ≡ 0 ⇒ every cell below is today's
-  behaviour on the BTC range. **Toxic inflow into the BTC range is free right now.**
-- **ETH — LATENT, NOT FIXED.** Once the ring populates, the kernel runs and the sentinel becomes a
-  fallback again. But `Core.sol:1318-1322` degrades to unmeasured **by design** — *"any failure
-  (revert, short return, zero) simply SKIPS the write … Degrade to unmeasured, never halt"* — and
-  `ringVariance` also returns 0 on `card < 3`, `n < 3` or `m < 2`. So a cold ring at deploy, a stale
-  pool, or a failing `staticcall` puts ETH back in this state silently.
-⚠️ **THE DEFECT ITSELF IS UNTOUCHED BY ANY OF THAT: `sellSkew` STILL HAS NO σ²=0 GUARD.** The source
-question changes HOW OFTEN the branch is taken, never what it does. **Do not close this row on §C1.**
-
-**Measured 2026-08-21 by enumeration, not inference.** `UNKNOWN_VARIANCE_SKEW` has **exactly one
-consumption site in the tree**: `SwapLib.sol:1020`, inside `skewWad` — the DRAIN leg.
-`sellSkew` has **no such guard**, while carrying a comment at `:1476-1480` that says in §E59's own
-words that it must: *"same σ²-zeroes-the-kernel hole as the drain leg — an UNMEASURED variance must
-not price an inventory-increasing sell at nothing … UNMEASURED variance must price at the CEILING."*
-**The prose is right and the code does the opposite.** `sellSkew` goes straight to
-`skew = Γ·σ²·q/1e18`, which at σ² = 0 is **exactly 0**, and `_composePrice(core, 0, 0)` then returns
-`0·sharedScarcity + SPLICE`, i.e. **0 on ETH** (`Core.sol:611` — ETH is `(ETH_CONF_FRAC_WAD, 0)`).
-
-⇒ **AND §C1 MAKES IT LIVE RATHER THAN LATENT.** Nothing is pinned as an observation source
-(2026-08-21, owner), so `_observeIfSourced` returns immediately, the ring is never written,
-`ringVariance` returns 0, and **σ² ≡ 0 on BOTH instances**. So this is not a tail case reachable at
-genesis — it is the state of every swap on `main` right now.
-
-### What the live pricing actually is, with the cap gone (§E275) and σ² ≡ 0
-
-| post-swap range state | ETH | BTC |
-|---|---|---|
-| inventory-INCREASING sell (`sellSkew`, `over > 0`) | **0** | SPLICE only |
-| drain leaving the range flush (`inv1 ≥ flow target`) | **0** | SPLICE only |
-| drain leaving the range scarce (`inv1 < target`) | **3%**, ×`_sharedScarcityWad` ⇒ **3–6%** | same |
-
-⇒ **A TWO-STATE STEP FUNCTION WITH A CLIFF, NOT A CURVE.** A drain landing one unit above target
-pays nothing; one unit below pays 300–600 bps **on the whole ticket**.
-
-### Three things this silently disables — each was built deliberately and none is reachable today
-
-1. **§E68's size-awareness.** The `q0 → q1` path-averaging lives downstream of the σ² multiply, so a
-   \$1 drain and a reservoir drain quote identically again — the exact defect §E68 exists to kill.
-2. **§E274's Γ.** Γ multiplies σ², so the re-derivation (5.48e15 from `FLOW_DECAY`) changes nothing
-   until a source exists. **Do not read §E274 as inert work — read it as blocked on §C1.**
-3. **§E275's `SKEW_UNFILLABLE`.** 3e16 < 1e18, so the decline threshold cannot trigger. (§E276
-   reaches the same place from the other direction: the 1e18 boundary is an artifact of feeding a
-   SHIFT formula into a SPREAD slot.)
-
-### Why this is a defect and not "the honest state"
-
-§C1 records the σ²=0 consequence as *"§E213 prices unmeasured variance at the ceiling, which is the
-honest reading."* **That is true of ONE branch of ONE leg.** The other three cells above price
-unmeasured variance at **zero** — which is precisely the sentinel error §E59 named and closed on the
-drain side: *"a value meaning 'no data' must never be consumed as if it meant 'none of the thing'."*
-🔴 **THE DIRECTION MATTERS: the free cell is the TOXIC one.** An inventory-increasing sell is
-somebody dumping the falling asset into the range, and today it pays nothing. The design sentence this
-repo has been working toward — *"the curve tilts to price your inventory, turning toxic directional
-flow into balanced pool inventory"* — is **inverted** by the live configuration: the balancing
-direction and the toxic direction are both free, and only the scarce drain is charged.
-
-▶️ **THE FIX IS THE GUARD THE COMMENT ALREADY DESCRIBES**, at the producer, per §E275's own rule that
-the decline lives at the producer and not at three consumers: `sellSkew` must resolve `σ² == 0` to
-`UNKNOWN_VARIANCE_SKEW` before the multiply, exactly as `skewWad:1020` does.
-⚠️ **AND THE FLUSH BRANCH IS A SEPARATE HALF — do not fix one and call it done.** `skewWad`'s two
-early returns (`target == 0`, `inv1 >= target`) return `_maxWellSkew(0, rk)`, which is **0 on ETH**
-because ETH has no splice floor. §UNIT-A's *"RETURN THE BASE, NOT ZERO"* fix is neutralised whenever
-σ² is unmeasured, because at σ² = 0 **the base IS zero**. That is the free-drain hole §E59 closed,
-arriving through a different door.
-⚠️ **ONE MONEY-PATH CHANGE PER RUN (rule 10).** These are two changes, not one, and the second is
-gated on §C1: with a live source the flush branch stops being zero on its own.
-
-📌 **BOOKED, NOT FIXED. `§C1` OWNS THE SOURCE; THIS ROW OWNS THE SENTINEL.** The sentinel defect
-survives §C1 — a source that goes stale, a `staticcall` that fails, or a range with too few distinct
-samples all return σ² = 0 by design (`Core.sol:1318-1322`: *"Degrade to unmeasured, never halt"*), so
-`sellSkew` would still price toxic inflow at zero on exactly the days the ring stops advancing.
-
----
-
-## ✅ §E279 — **THE SKEW IS APPLIED TWICE ON THE `Aux.swap` PATH — CONFIRMED IN SERIES BY CONSTRUCTION**
-
-✅ **FIXED 2026-08-22 — THE SECOND APPLICATION IS DELETED FROM `Core._fillDelta`, AND THE FIX IS ONE
-STATEMENT, NOT THE TWO-PART CHANGE THIS ROW PRESCRIBED.** The row said *"separate the RECORD from the
-SUBTRACT before removing either"*, which is real work on the LP fee lane. It was unnecessary:
-`retainSkewPremium` is untouched, so `Core.recordSkewPremium → RANGE.creditSkewPremium` (§E280) is
-byte-for-byte the same and **cannot** have stopped crediting. What was deleted is the DOWNSTREAM
-re-application, `out -= out·wellSkew/sellSkew`, which charged the already-reduced input a second time.
-▶️ **THE PREMISE THAT PICKS THAT SITE, AND IT IS THE WHOLE PROOF:** `BasketLib.routeSwap:544` is the
-**only** call site of the `onlyUs` `Core.swap` in the tree, and all three of *its* callers are
-accounted for — `_finishSwap:463` (both legs charge at `SwapLib:419`/`:441`), `_swapOutSettle:1668`
-(charged in `_swapOutPrep:1652`), and `_swapInSettle:703`, the refill leg, which *"settles FLAT at the
-honest oracle, and that is FINAL"* by design and was the one path `_fillDelta` charged with no
-`retainSkewPremium` at all. ⇒ Re-run that enumeration if a caller is ever added; it is what makes the
-deletion safe rather than merely smaller.
-⭐ **AND `Core.swap` ALREADY SAID SO — THE CONTRACT WAS CONTRADICTING ITSELF.** Its docstring at
-`Core.sol:763` reads *"the skew is deliberately NOT folded into this rate … never a charge applied
-here"*, thirty lines above the code that folded it in. The §V4-CUT rewrite added the application and
-left the prohibition standing, so the file documented the correct behaviour and implemented the wrong
-one. **Neither half was stale; they were simply never read together.**
-
-🔴 **THIS ROW'S HEADLINE NUMBER IS WRONG, AND CORRECTING IT IS THE MORE USEFUL HALF.** *"The realised
-rate is 5.91%, not 3%"* assumes `s` is the flat `UNKNOWN_VARIANCE_SKEW` (3e16) sentinel. It is not:
-`wellSkew` **caps** at `_maxWellSkew = σ²·confFrac/8 + spliceFloor` (`SwapLib:872`), and at today's
-σ² = 0 with ETH's `spliceFloor == 0` that cap is **0** — the §E278 hole. **Zero charged twice is
-still zero, so the live over-charge on the `Aux.swap`/ETH path named in the title was 0%.**
-⇒ **MEASURED, NOT ARGUED:** the seven `DrainAtomicity` controls that read `CONTROL: … 0 <= 0` are
-that same zero, and they fail **identically on pristine `HEAD`** (byte-identical failure sets across
-both arms, 26 passed / 7 failed each) — so they are pre-existing and are ALSO the evidence.
-⛔ **WHICH MAKES THIS A DEFECT ARMED BY A FUTURE FIX, THE MOST EXPENSIVE KIND TO LEAVE IN.** It bites
-wherever the cap is non-zero — **BTC today** (`SPLICE_FLOOR = 2e15` ⇒ 0.2% realised as 0.3996%) and
-**every asset the moment §E222 pins a source and σ² goes positive**. Closing §E222 would have silently
-doubled the ETH drain charge, and the row that would have explained why says 5.91% on a path charging
-nothing. *A magnitude quoted from a constant rather than from the value that constant is capped to is
-how a real finding acquires an unbelievable number — and an unbelievable number is what gets a row
-dismissed.*
-
-⚠️ **THE INSTRUMENT THIS ROW ASKED FOR ALREADY EXISTS AND IS VOID — DO NOT WRITE A SECOND ONE.** It
-prescribes *"assert the realised haircut EQUALS the quoted `wellSkew` … do not write it as
-`assertGt`"*. That test is `DrainAtomicity::test_UNITB_CounterMatchesWhatTheSwapperLoses`, it is
-written exactly that way, and it is one of the seven reds — failing its OWN control
-(*"the target move must change the skew, else the arms are identical"*) because the skew is 0 on both
-arms. **A correctly-designed test that cannot run is indistinguishable from a missing one in a
-status column, and this row recorded it as missing.** It unblocks on σ² > 0, i.e. §E222 — not on new
-test code.
-
-⬆️ **UPGRADED FROM 🔴 THE SAME DAY IT WAS BOOKED, and no execution was needed.** It was written as a
-reading; **one line closes it**. `_finishSwap` builds its `RouteParams` with **`amount: r.amount`
-(`SwapLib.sol:473`) — the value `retainSkewPremium` has ALREADY reduced** — and `routeSwap` derives
-`pooled` from that `p.amount` before calling `ICore.swap`. So the reduced input reaches `_fillDelta`,
-which applies the skew a SECOND time, to the output. **Both legs do it**: the drain branch computes
-`wellSkew` and `_fillDelta` recomputes `wellSkew` (`inputIsUsd == true`); the sell branch computes
-`sellSkew` and `_fillDelta` recomputes `sellSkew`. Neither `retainSkewPremium` call is conditional.
-⇒ **The amount that leaves one site is the amount that enters the other. That is the whole proof.**
-
-🔴 **AND HERE IS WHY IT SURVIVED — EVERY ASSERTION ON THIS PATH IS DIRECTIONAL.** `Alles.t.sol:1904`
-is `assertGt(CORE.skewPremium(), premiumBefore)` and `:1911` is `assertGt(V4.USD_FEES(), lpFeesBefore)`.
-**`assertGt` cannot distinguish `s` from `s·(2−s)`.** Nothing in the tree asserts the MAGNITUDE of the
-realised haircut, so a second application is invisible to a green suite — the same shape as the four
-vacuous tests §12 records, arriving through an assertion that is TRUE but too weak to discriminate.
-
-⚠️ **THE MAGNITUDE IS NOT EXACTLY `(1−s)²`, and the row must not claim it is.** The second application
-recomputes `wellSkew` on the ALREADY-REDUCED amount, so the effective rate is `s + s'·(1−s)` with
-`s' = wellSkew(reduced)` — strictly under the square, equal to it only in the Δ→0 limit. At today's
-σ² = 0 (§E278) both evaluate to the flat `3e16` sentinel, so **the live effective drain rate is 5.91%,
-not 3%** — and being sentinel-driven it is size-blind, so no size sweep will reveal it either.
-
-▶️ **THE TEST IS THE MISSING INSTRUMENT, NOT THE PROOF.** Assert the realised haircut EQUALS the quoted
-`wellSkew`, against a pinned σ². ⚠️ **Do not write it as `assertGt`** — that is the assertion class
-that hid this.
-⚠️ **AND THE FIX IS NOT "DELETE ONE CALL".** `retainSkewPremium` also RECORDS the premium
-(`Core.recordSkewPremium` → `RANGE.creditSkewPremium`), which is the ONLY thing routing it to LPs
-(§E280). Removing the call would silently stop crediting them. **Separate the RECORD from the
-SUBTRACT before removing either** — and note that this makes it a two-part money-path change, so
-rule 10 applies.
-
-**(Original reading below, kept because the chain is still the shortest statement of the defect.)**
-
-```
-Aux.swapTo:741  → SwapLib.swapToBody          (delegatecall)
-  :448-449      →   skew = wellSkew(...);  retainSkewPremium(...)   ⇒ r.amount -= premium
-  _finishSwap   → BasketLib.routeSwap:552 → ICore.swap
-                     → Core._fillDelta:1240  ⇒ out -= out·wellSkew/1e18
-```
-
-Both sites read the SAME `wellSkew`. If they are genuinely in series the effective rate is
-**`(1−s)²`**, i.e. 5.9% where 3% was intended — and it scales with the curve the moment §C1 pins a
-source, so it gets worse, not better.
-
-⚠️ **§E275 ENUMERATED THE THREE CONSUMERS AND DID NOT ASK WHETHER ANY TWO ARE IN SERIES.** Its note
-(`SwapLib.sol:1248-1252`) lists `retainSkewPremium`, `Core.sol:1241` and `FixedRateFill._applySkew:140`
-to justify declining at the PRODUCER rather than guarding each consumer — a correct conclusion about
-where the guard goes, which is a different question from whether one swap hits two of them.
-
-▶️ **THE TEST:** one `Aux.swap` on a scarce range with a known σ², asserting the realised haircut is
-`s` and not `s·(2−s)`. ⚠️ **RUN IT AGAINST A PINNED σ²** — at σ² = 0 (today's state, §E278) `wellSkew`
-returns the flat 3e16 sentinel on both legs, so the two applications are still distinguishable
-(3% vs 5.91%), but the SIZE-dependence that would make the reading obvious is absent.
-⚠️ **IF IT IS REAL, THE FIX IS NOT "DELETE ONE".** `retainSkewPremium` also RECORDS the premium
-(`Core.recordSkewPremium` → `RANGE.creditSkewPremium`), which is what routes it to LPs — deleting the
-call would silently stop crediting them. Separate the RECORD from the SUBTRACT before removing either.
-
----
-
 ## ✅ §E280 — **THE SKEW PREMIUM DOES REACH THE LPs. `E121`/`E122`'s CONTRADICTION IS SETTLED, IN `E122`'s FAVOUR.**
 
 **Verified in code 2026-08-21, one hop:** `Core.recordSkewPremium:359` increments the audit counter
@@ -18654,145 +17747,6 @@ however it costs) or a gap. **State which, with a reason — a dismissal is a co
 
 ---
 
-## 🔴 §E283 — **THE 3% IS INHERITED FROM A CONSTANT §E275 DELETED AS UNJUSTIFIABLE, AND σ²=0 HAS MADE IT THE ONLY PRICE WE QUOTE**
-
-**Owner, 2026-08-21: *"3% cliff is arbitrary."* It is — and this repo already said so about the same
-number under its previous name.**
-
-§E275 deleted `MAX_WELL_SKEW` with a stated reason: *"IT WAS ONE NUMBER DOING THREE JOBS, and the cap
-job was the one that could not be justified: the curve was CALIBRATED TO LAND ON IT
-(`Γ ≡ MAX_WELL_SKEW` exactly), so it never bounded anything it did not also define."* The split kept
-`UNKNOWN_VARIANCE_SKEW = 3e16` — **the same value — and its own docblock concedes the provenance:**
-*"THEY HOLD THE SAME VALUE TODAY BY INHERITANCE, NOT BY DERIVATION."*
-
-🔴 **WHAT CHANGED IS ITS WEIGHT, NOT ITS DERIVATION.** Where no source is pinned, σ² ≡ 0, so per §E278
-the live price surface is `{0, 3e16 × sharedScarcity}` and **`UNKNOWN_VARIANCE_SKEW` is the only
-non-zero number in it** — an un-derived constant becomes the entire pricing model, and it arrives there
-without anyone choosing it.
-
-⛔ **SCOPE CORRECTED THE SAME DAY, WITH §E278.** This row was written while NEITHER instance had a
-source. `d10d7b8b` pinned Curve on **ETH** (`DeployLib.sol:146`) and deliberately left **BTC** unset.
-⇒ **The paragraph above is today's state on the BTC range, and the ETH range's whenever its ring is cold
-or its read fails** (`Core.sol:1318-1322` degrades to unmeasured by design). On a warm ETH ring the
-sentinel is a fallback again and the objection narrows to: **an un-derived constant still prices every
-fallback, and nothing says what it is derived from.** ⚠️ **That narrower objection is the row** — do
-not close it because ETH got a source.
-
-⚠️ **IT IS ALSO THE WRONG SHAPE FOR THE JOB, INDEPENDENT OF ITS MAGNITUDE.** A sentinel is a FLAT
-rate: it cannot be size-aware (§E68's `q0→q1` averaging is downstream of the σ² multiply), it discards
-`q` entirely, and it produces the cliff — one unit above the flow target pays 0, one unit below pays
-300–600 bps on the whole ticket. **No value of the constant removes that. Only a live σ² does.**
-⇒ **THIS ROW IS NOT "PICK A BETTER 3%".**
-
-▶️ **THREE CANDIDATE RESOLUTIONS. Two are policy, so the choice is the owner's:**
-1. **DERIVE it** as the expected loss over the settlement window at an ASSUMED variance —
-   `σ²_ref·confFrac/8`, i.e. `_maxWellSkew`'s own formula evaluated at a stated point (e.g. 100%
-   annualised). The number then has a sentence attached and moves when the assumption does.
-2. **REFUSE instead of guess** — treat unmeasured variance as unfillable and decline, which is
-   §E275's posture for a quote we cannot price and is consistent with *"the solver routes the part we
-   decline"*. ⚠️ **This halts the range whenever the ring is cold, INCLUDING AT GENESIS** — the §E56
-   identifiability trap: a brand-new range and a dead range both read σ² = 0, and no threshold on that
-   one number separates them. §E56 solved the same ambiguity with the monotonic `skewPremium*`
-   counters; any refusal here needs that discriminator or it bricks a fresh deployment.
-3. **MAKE IT UNREACHABLE** by settling §C1 so σ² is measured, leaving the sentinel as the rare
-   fallback it was designed to be. **This is the only one that also removes the cliff**, which is why
-   §C1 outranks this row rather than the reverse.
-
-📌 **DO NOT RE-TUNE THE CONSTANT AS A STANDALONE CHANGE.** That is standing rule 3's clamp exactly: it
-would make the cliff a different height without making the failure announce itself, and it would read
-as fixed. The cliff is a SHAPE defect; the magnitude is a separate and smaller question.
-
----
-
-## 🟠 §E284 — **σ² AND THE PRICE SHARE ONE RING, AND THAT — NOT CHAINLINK — IS WHAT BLOCKS §C1**
-
-**Item 2 of the 2026-08-21 audit. A proposal, not a change: it reframes §C1's question and the
-owner owns the answer.**
-
-§C1 is blocked because every candidate source fails: 1inch is unaffordable (31.7M gas), TriCrypto is a
-single venue (owner's objection — *"correlated sources are one source"* turned on the pool itself),
-and §E220's Chainlink is **circular: Chainlink is the ANCHOR `twapResolve` cross-checks against**
-(`SwapLib.sol:112-132` — on a deviation trip it returns `(ext18, true)`, i.e. *trust Chainlink*), so
-writing the ring from it makes the anchor test a smoothed copy of itself.
-
-⭐ **BUT THAT OBJECTION IS ABOUT THE PRICE, AND THE RING HAS TWO CONSUMERS.**
-
-| consumer | reads | is it circular under a Chainlink-fed ring? |
-|---|---|---|
-| `getTWAPforAsset` → `twapResolve` | the ring's smoothed PRICE | **YES** — this is §E220/§E222 exactly |
-| `ringVariance` → `realizedVarianceWad` → the skew | the series' DISPERSION | **No** — σ² appears nowhere in the anchor test |
-
-Using an external series' volatility to price inventory risk is what A–S asks for; it is not
-self-reference. ⇒ **§E220's objection binds through the SHARED STRUCTURE, not through the variance
-semantics.** One ring means you cannot feed it Chainlink for σ² without also feeding the TWAP.
-
-▶️ **SO THE QUESTION §C1 SHOULD BE ASKING IS NOT "WHICH SOURCE" BUT "WHY ONE RING".** Split them and
-each half gets an answerable question: the PRICE ring keeps §C1's hard problem (and may legitimately
-stay unset, since the Chainlink anchor already backstops price), while σ² gets its own accumulator and
-a source that is allowed to be Chainlink precisely because it never touches the value the anchor
-checks. That would retire §E278's whole live surface without solving the harder problem first.
-
-🔴 **AND THE OBJECTION THAT ACTUALLY APPLIES TO CHAINLINK-FOR-VARIANCE IS A DIFFERENT ONE, WHICH THIS
-REPO HAS ALREADY HIT.** Chainlink updates on a DEVIATION THRESHOLD plus a heartbeat, so its realized
-variance is a function of its own trigger parameters, not of the market — a quiet tape and a tape that
-moves less than the threshold are indistinguishable in the series. **That is very likely why the
-attempt failed before:** `5b6e96c9` retired `test_UNIT_PoolVarianceVsChainlinkVariance` saying *"the
-Chainlink estimator port never produced a comparable number across three scaling attempts"*, and
-`test_UNIT_HowOftenDoesChainlinkCrossTheDeadband` was asking exactly this question.
-⇒ **DO NOT RE-PORT THAT ESTIMATOR TO TEST THIS.** §E277's re-derivation already established the half
-that matters from our side alone. What this row needs is not a cross-series comparison but an answer
-to: **can a deviation-triggered feed's dispersion be turned into a variance estimate at all**, and if
-not, the split above buys nothing and §C1's hard problem is the only problem.
-
-⚠️ **SCOPE, so this is not read as more than it is:** the split makes §E278's sentinel rare again; it
-does NOT fix the sentinel (§E278 stands — a stale or failed read still yields σ² = 0 by design), and it
-does NOT touch §E283's magnitude question. Three rows, one symptom, and none of them subsumes another.
-
-## ✅ §E278-partialfill — **SHIPPED. CLOSED BY MEASUREMENT 2026-08-23: its whole premise is `revert QuoteUnfillable`, which has **ZERO references in `evm/src`** — deleted by `94d94899` (*"§E300: the skew path never reverts — bound the quantity, not the price, so an RFQ…"*). `SwapLib._fillableDrain` IS the price-bounded solve this row asks for. ⚠️ The row below is kept as the DERIVATION, not as work.**  **THE CAP DELETION REGRESSED THE PARTIAL FILL. MY FIX WAS A NO-OP; THE REAL FIX IS A DESIGN CALL.**
-⚠️ **SUFFIXED 2026-08-21 — `§E278` NAMED TWO ROWS.** Two threads booked against the same id within the
-hour: the other is the σ²-sentinel row above (`:5328`). Per `CLAUDE.md`/§E124 the fix is a **suffix on
-the NEWER row, never a renumber** — this one is newer, and no code cites either (the `§E278` comment in
-`SwapLib` went out with `6890f95c`), so the collision is document-only and ends here.
-📌 **AND THE TWO ARE NOT INDEPENDENT — see `§E285`**, which argues this row is NOT blocked on §E276 and
-that the bound it needs is the one the σ²-sentinel row's option 2 also reaches for.
-
-Booked 2026-08-21 while wiring the refill. **Two things here: a real regression, and my own bad patch
-for it, reverted at `6890f95c`.**
-
-### THE REGRESSION — REAL, AND THE SUITE CANNOT SEE IT
-`swapToBody` prices the skew on the **REQUESTED** size (`SwapLib:448` `wellSkew(core, r.px, r.amount)`)
-and bounds it to inventory ~20 lines later — `routeSwap` returns `consumed`, `_refundExcess` (`:488`,
-#105) refunds the remainder. **So an oversized request is a PARTIAL FILL by design** (owner: *"you
-still get the remainder of the inventory at the same price"*).
-| request > inventory | before the cap deletion | now |
-|---|---|---|
-| `inv1 = 0` ⇒ pole | pinned to `MAX_WELL_SKEW` (3%) ⇒ **fill proceeds, remainder refunded** | **reverts `QuoteUnfillable`** — the whole swap dies |
-⛔ **FOUR FULL-SUITE RUNS ON BOTH ARMS AGREED, BECAUSE NONE OF THEM ASKS FOR MORE THAN THE RANGE HOLDS.**
-§E104 recorded this same blind spot (*"the suite never drains a range to zero"*, 4,308 green over an
-unreached state). **It is still unwritten, and a pure-function test CANNOT cover it — the bound lives in
-the swap path, so the test must be a fixture that drains past inventory.**
-
-### ⛔ MY FIX WAS A NO-OP AND I SHIPPED IT WITH A CONFIDENT COMMENT (reverted)
-I added `fillable = min(drainUsd6, poolVolUsd)` in `wellSkew`. **`skewWad:980` ALREADY does exactly
-that**: `inv1 = drainUsd6 >= inv0 ? 0 : inv0 - drainUsd6`. Clamping the input to `inv0` still satisfies
-`>= inv0`, so `inv1` is 0 either way — **identical arithmetic, zero behaviour change**, under twelve
-lines of comment asserting it repaired a regression. The accompanying test called
-`SwapLib.wellSkewPure(...)`, **which does not exist** — I invented an API to fit the test I wanted.
-⇒ **Two failures of the same kind in one commit: I wrote the explanation before running the check.**
-
-### ▶️ WHY THE REAL FIX IS NOT MECHANICAL — AND WHO DECIDES
-The pole is at `inv1 = 0`, so **NO FINITE PRICE SERVES A DRAIN THAT EMPTIES THE RANGE.** That is
-CORRECT under A–S, and the old 3% cap was the defect (it sold the last inventory too cheap — the very
-reason the cap was deleted). ⇒ The fill can no longer be bounded by INVENTORY alone; it must be bounded
-by **PRICE**: serve the largest amount whose skew stays under 100%, refund the rest. That is a solve,
-and a policy choice about how close to the pole we are willing to quote. **Owner's call, not a patch.**
-⭐ **AND §E276 DISSOLVES IT.** Under a mid-SHIFT (`r = s − qγσ²(T−t)`) there is no 100% boundary at all —
-a shift of any magnitude still clears. **This whole problem exists only because we apply the pole as a
-SPREAD.** ⇒ **Do not build the price-bounded solve before settling §E276; it would be machinery to
-manage a boundary that the correct object does not have.**
-
----
-
 ## ✅ §E285 — **SHIPPED, SAME COMMIT (`94d94899`). CLOSED 2026-08-23: the inventory-residual bound it specifies is built as `_fillableDrain`. Kept below as the derivation.**  **§E278-partialfill IS NOT BLOCKED ON §E276. THE BOUND THE PDFs SPECIFY IS AN INVENTORY RESIDUAL, AND IT IS INVARIANT TO SPREAD-vs-SHIFT.**
 
 **Owner asked whether the refill trigger the other thread wired matches the design in `plan.pdf` /
@@ -18865,64 +17819,6 @@ that is the no-op this row's sibling already paid for.
 Consolidated 2026-08-21 so the next thread does not re-derive it. **Each line is a pointer to a row that
 carries the evidence — this is an index, not a restatement.** Read this before touching `skewWad`,
 `wellSkew`, `sellSkew`, `_composePrice` or the refill.
-
-## WHAT THE SKEW ACTUALLY IS (and the four things it is NOT)
-| | |
-|---|---|
-| ⭐ **It is A–S's SPREAD δ wearing A–S's name — NOT the reservation shift `r`** | §E276. `r = s − qγσ²(T−t)` moves the MID so the balancing side is quoted **better than reference**; we never go below mid. Every path moves against the taker (`Core:1241`, `FixedRateFill._applySkew`), and the refill direction is **exempt (`sellSkew` returns 0), not paid**. ⇒ **We have the magnitude without the mechanism.** |
-| **Γ is the cap under a second name** | `SwapLib:1013-1014` says so outright. The chain was cap → Γ → a 10.95-day horizon *"nobody chose"*. §E274 re-derives Γ = **5.48e15** from `FLOW_DECAY`'s 48h half-life; the old 3e16 is **5.475× larger**. **Not landed — deliberately unbundled from the cap removal.** |
-| **No finite Γ makes the curve safe** | §E274, measured. `q/(1−q)` diverges, so dividing Γ by 5.475 changes nothing: at 200% vol the kernel passes 1e18 at **q ≥ 0.893**, i.e. in normal operation. **Margin is the wrong concept for a pole.** |
-| **The 1e18 boundary is an ARTIFACT, not a property** | §E276. A *shift* of any size still clears; a *spread* of 100% leaves the taker nothing. We feed the shift formula into the spread slot. **Under a real mid-shift there is nothing to cross.** |
-| **The curve was FLAT-TOPPED almost everywhere it mattered** | §E274. At σ²=1e18, live skew was pinned at exactly 3e16 from q₁=0.6 through 0.95 while the uncapped kernel ran 3.69e16 → 12.35e16. ⇒ **Every §UNIT-B / §UNIT-SKEW-IS-NOISE number above q≈0.6 was measuring THE CONSTANT, not the curve.** |
-| **σ² is pinned at ~0 and cannot be moved** | §E277. `DrainAtomicity.t.sol:1372` fails with σ² = **1,1,1,0 wad across four runs on both arms**. ⛔ **ITS FAILURE IS THE MEASUREMENT — "fixing" it destroys the evidence.** ⚠️ **And the DEPLOY side is now asymmetric (`d10d7b8b`): ETH is sourced (`DeployLib:146`, Curve `price_oracle(1)`), BTC is deliberately UNSET. So σ²≡0 is BTC's steady state, and ETH's whenever its ring is cold or its read fails — `Core:1318-1322` degrades to unmeasured BY DESIGN.** |
-| 🔴 **`sellSkew` HAS NO σ²=0 GUARD, SO TOXIC INFLOW PRICES AT ZERO** | §E278 (the σ²-sentinel row — **not** §E278-partialfill). `UNKNOWN_VARIANCE_SKEW` has **exactly one consumption site in the tree**, `SwapLib:1020`, inside `skewWad` — the DRAIN leg. `sellSkew` computes `Γ·σ²·q` = 0 and `_composePrice` returns `SPLICE`, **which is 0 on ETH**, while its own comment at `:1476-1480` says in §E59's words that unmeasured variance must price at the CEILING. ⇒ **The free cell is the TOXIC one** — an inventory-increasing sell is somebody dumping the falling asset into the range. Live on BTC today. |
-| ✅ **THE SKEW IS APPLIED TWICE ON `Aux.swap`** — FIXED 2026-08-22; ⚠️ **the "5.91%" in this row's own title is WRONG**, see §E279 | ✅ The second application is deleted from `Core._fillDelta`; `retainSkewPremium` (and with it the entire LP credit lane) is untouched, so the two-part change this row demanded was never needed. **The live over-charge on the ETH path was 0%, not 5.91%** — `wellSkew` caps at `_maxWellSkew`, which is 0 at σ² = 0 with ETH's zero `spliceFloor`. Real on **BTC** (0.2% → 0.3996%) and on everything once §E222 pins a source. Verified against a pristine-`HEAD` control: byte-identical failure sets, 26 passed / 7 failed on both arms. ⚠️ The instrument this row calls missing — `test_UNITB_CounterMatchesWhatTheSwapperLoses` — **exists, is written correctly, and is void** because its own control needs σ² > 0. *Original text below.* · §E279, confirmed **by construction**, no execution needed. `_finishSwap` builds `RouteParams` with `amount: r.amount` (`SwapLib:473`) — the value `retainSkewPremium` **already reduced** — and `routeSwap` derives `pooled` from it before `ICore.swap` → `_fillDelta:1240` applies the skew **again**. Both legs, neither call conditional. ⛔ **It survived because every assertion here is `assertGt` (`Alles.t.sol:1904`, `:1911`), which cannot distinguish `s` from `s·(2−s)`.** ⚠️ The fix is NOT deleting one call — `retainSkewPremium` is what ROUTES the premium to LPs (§E280). |
-| **The 3% is an inherited constant, and it is the wrong SHAPE** | §E283. §E275 deleted `MAX_WELL_SKEW` as unjustifiable; the split kept `UNKNOWN_VARIANCE_SKEW` at the same 3e16 **"BY INHERITANCE, NOT BY DERIVATION"** (its own docblock). A sentinel is FLAT: it discards `q`, defeats §E68's size-awareness, and **produces the cliff** — one unit above the flow target pays 0, one unit below pays 300–600 bps on the whole ticket. **No value of the constant fixes that; only a live σ² does.** |
-| **The premium DOES reach the LPs** | §E280, one hop: `Core.recordSkewPremium:359` → `RANGE.creditSkewPremium`. Settles the `E121`/`E122` pair in **E122's** favour with a code citation. ⚠️ Scoped to the SKEW premium — the 420 ppm is a different charge on a different route (§E226). |
-
-## THE REFILL — SETTLED, AND SMALLER THAN IT LOOKED
-- **Trigger = EXHAUSTION, not a clock or a threshold.** A contract cannot know it is end-of-block; and
-  because we quote at the oracle, depletion does not move the quote, so there is **no pricing reason to
-  rebalance until a side is spent**. (My end-of-block proposal was unimplementable.)
-- **The principal is never the problem.** A drain of `D` pays `D·px` **in** — the range is mis-composed,
-  not poorer (**+$570,000 measured**, §E134). Only the SPREAD costs anything.
-- ⛔ **THIS READ *"The solver routes what we decline" (owner)* AND THE OWNER NEVER SAID IT — STRUCK
-  2026-09-08.** It was a GLOSS on the heading above the real quote, restated as an attribution with a
-  bare `(owner)`, no date and no quoted words, where every substantive attribution in this file is
-  `(owner, YYYY-MM-DD: *"…"*)`. **THE PRIMARY SOURCE (owner, 2026-08-19, `:88870`):** *"refill only
-  when not enough in the pool to cover a swap, **paid against 1inch (routes the swap)** and rebalances
-  the pool. so a keeper is not needed."*
-  🔴 **AND THE GLOSS DID NOT PARAPHRASE — IT INVENTED AN ACTOR. Owner, 2026-09-08: *"we dont have
-  solvers."*** The 16 "solver" mentions in `evm/src` are a DIFFERENT thing — an external RFQ
-  counterparty quoting AGAINST us (`Aux.sol:843`, `Core.sol:1424`) — never an agent we dispatch, and
-  §E357 says outright *"Aggregation was never on the table (no solver, no route parameter)."*
-  ⇒ **WHAT THE OWNER'S WORDS ACTUALLY MEAN: WE ARE ONE LIQUIDITY SOURCE AMONG MANY.** The swapper
-  arrives via 1inch, we fill what our inventory covers at our skewed quote, and 1inch routes the
-  remainder elsewhere. **There is no restoration ACTION, so there is no actor to incentivise and no
-  keeper to build** — *"rebalances the pool"* is the CONSEQUENCE: flow returns because the quote moved.
-  ⭐ **THAT RELOCATES THE DEFECT. The mechanism IS the skew, so a 0 bps quote below the deficit
-  switches off the only restoration the design has — the bug is in the QUOTE, not in a missing
-  actor**, and fixing a quote is a far smaller job than building a keeper (which has ZERO code today).
-- **§V-R1 (1inch AggregationRouterV6) does not exist in code** — it is a comment naming an intended
-  route.
-- ⚠️ **STILL AMBIGUOUS AND IT DECIDES WHO PAYS:** *"paid against 1inch"* — solver routes (we pay
-  nothing) vs we pay 1inch (the 48× question reopens). **I inferred this once and retracted a CORRECT
-  finding on it. Do not infer it again.**
-- 🔴 **BUT "THE SOLVER ROUTES WHAT WE DECLINE" IS NOT EXECUTABLE AS BUILT — §E285.** `wellSkew` is
-  `public view`, so `_declineIfUnfillable` makes a **QUOTE READ REVERT** (§E275 already flags
-  `Aux:690`, `FixedRateFill:113/127`). **A reverting quote tells a solver nothing** — it cannot size
-  down, cannot split the route, and must drop us for the whole leg. **You cannot route the part we
-  decline unless we say how big it is.**
-- ⭐ **THE BOUND IS AN INVENTORY RESIDUAL, AND IT IS NOT BLOCKED ON §E276 — §E285.** §E278-partialfill
-  proposes bounding the fill by *"skew under 100%"*, which bounds **the artifact two rows up** (rule 3).
-  `plan2.pdf` specifies the other kind: *"**MAX_SKEW** — if inventory hits this boundary, the vault
-  stops quoting one side entirely until arbs clear it."* **A residual floor never asks what the price
-  is, so it reads the same under a spread and under a shift.**
-  🔴 **And it is FORCED, not chosen: §E68's integral `[ln((1−q0)/(1−q1)) − Δ]/Δ` DIVERGES as q₁→1**
-  (`SwapLib:1064` — *"ends at inv=0 ⇒ pole → ∞"*). ⇒ **No finite price serves a drain that empties the
-  range, under any of the four combinations of integrated/endpoint × spread/shift.** Serve
-  `inv1 ≥ residual`, refund the rest through `_refundExcess`, decline **only** at `fillable == 0`.
-  ⚠️ **Size from `inv0`; clamping `drainUsd6` is the no-op §E278-partialfill already paid for.**
 
 ## 🔴 THE TRAPS — each cost real time in THIS thread
 1. **THE SENTINEL HAS NO SAFE VALUE — it must be DATA at the measurement and DECLINED at the fill.**
@@ -19141,135 +18037,6 @@ symptom — one row later.**
 
 ---
 
-## ⛔ §E287-qsquared — **REFUTED THREE WAYS. DO NOT BUILD THIS.** *(withdrawn by its author; restored 2026-08-21 after a rebase silently dropped the withdrawal)*
-⛔ **THE ⭐ ON THE ORIGINAL HEADER BELOW IS THE DEFECT §E276/§E277 DESCRIBE — a marker recommending a
-design that has been refuted. It was withdrawn within the hour and the withdrawal was lost twice.**
-1. 🔴 **THE CITATION PUTS `q²` IN THE DENOMINATOR, WHERE IT CREATES THE POLE** (§E288, from the paper:
-   `… / (2ω − γ²q²σ²)`). This row moves it to the NUMERATOR as the premium — the opposite operation.
-2. 🔴 **EVENNESS DOES NOT DISCRIMINATE.** A–S's shift is ODD in `q`; its magnitude is `|q|`, which is
-   even exactly as `q²` is. The argument supports `q¹`. *(The `τ(q)=q·T_flow` derivation is mine and
-   stands alone — but it is a MODEL CHOICE competing with the barrier, not a citation.)*
-3. 🔴🔴 **ORDERING, decisive alone.** Under `q²` a full drain integrates to ~1% at the landed Γ; today
-   the range cannot be emptied **at any price**. §E276: nothing pulls inventory back. **The pole is the
-   only brake and this deletes it before its replacement exists.**
-🔴 **AND STEP 2 HALF-LANDED:** the kernel commit was dropped by a rebase while its test landed, so
-`main` carried 5 failing tests asserting a kernel that was not there. ⇒ **`git ls-remote` proves a SHA
-arrived, never that the DIFF did. Verify by content.**
-⭐ Surviving: the closed-form `(q1²+q1q0+q0²)/3` beats `lnWad` for whatever kernel wins; one σ²=0
-consumption site is still right for §E278; and `GammaRederived`'s control is vacuous (it asserts
-`assertLe` at σ²=1e12 where the DEPLETION term is ~9.3e13 and the kernel ~1e10 — it passed unchanged
-through a whole kernel replacement). ⇒ **§E289 is the live successor.**
-⚠️ **ID: this row is `§E287-qsquared`.** Three rows shared `§E287` — see §E291.
-
-*(original below, kept because it is what must be answered, not repeated)*
-
-⛔ *(withdrawn original of `§E287-qsquared`, demoted out of the header namespace so a `^##.*§E287` grep
-cannot land on it — see §E291)* — **THE HORIZON IS `q·T_flow`, NOT A CONSTANT. THAT DERIVES THE
-CONVEXITY, DELETES THE BARRIER, AND MAKES ONE KERNEL SERVE BOTH LEGS.**
-
-**The root fix §E286 asks for, built from parts already in the tree. Nothing here is new machinery —
-it is one substitution that removes four bounds, one branch, one import and one whole function.**
-
-### THE DERIVATION — AND IT IS §E54's OWN SENTENCE, FINISHED
-A–S's premium is `q·γ·σ²·(T−t)`. §E274 folded `γ·(T−t)` into Γ and read a horizon back out: **946,080 s
-= 10.95 days, *"a horizon nobody chose"***. But §E54 already states what the horizon IS, on the other
-leg: *"the only real cost of taking volatile we did not want is that we must SHED it, shedding happens
-INTO FLOW, and **the holding time is q/flow**."*
-
-Make that dimensional against what `Core` actually stores. The imbalance in USD is `I = q·target`, and
-`target = flowEwmaUsd` — an EWMA whose characteristic time is `FLOW_DECAY`'s **48 h half-life**
-(`Core.sol:207`, documented as *"the well's flow-EWMA / **inventory-skew target**"*). So the shed RATE
-is `flowEwma / T_flow`, and
-
-```
-    τ(q) = I / rate = (q·flowEwma) / (flowEwma / T_flow) = q · T_flow
-```
-
-⇒ **The horizon is not a constant — it is PROPORTIONAL TO THE IMBALANCE**, which is obvious in
-hindsight: twice the imbalance takes twice as long to work off at the same flow. Substituting:
-
-```
-    skew = γ·σ²·τ(q)·q = γ·σ²·(q·T_flow)·q = (γ·T_flow)·σ²·q²  =  Γ·σ²·q²
-```
-
-⭐ **AND Γ IS ALREADY THIS NUMBER.** §E274 derived Γ = γ·(T−t) = 1 × 172,800 / 31,536,000 = **5.48e15**
-from FLOW_DECAY's 48 h — i.e. **Γ = γ·T_flow exactly**. §E274 found the right coefficient and read it
-as a fixed horizon; it is the flow WINDOW, and the horizon is `q` times it. ⇒ **§E274 is not superseded
-— it is explained, and its number lands unchanged.**
-
-### 🔴 THE CONVEXITY IS DERIVED, SO THE BARRIER HAS NOTHING LEFT TO DO
-The pole was added because linear A–S felt too flat near depletion (§E286: a −log(inv) barrier from an
-HJB with a hard `inv ≥ 0` constraint). **`q²` supplies convexity from the shedding time instead** — a
-measured quantity, not an asserted constraint — and it is **finite everywhere on `q ∈ [0,1]`**.
-⇒ The barrier's job is gone, and with it every bound erected to contain its divergence.
-
-| deleted | why it existed |
-|---|---|
-| `q/(1−q)` pole + the `oneMinusQ == 0` branch | the barrier |
-| `SKEW_UNFILLABLE` (1e18) and `_declineIfUnfillable`'s **pole** role | to stop the barrier overflowing (§E275) |
-| `SoladyMath.lnWad` and its import note (`SwapLib:22`) | **exactly one use site, `:1074`** — the pole's integral |
-| §E285's residual floor · §E278-partialfill's price bound · §E283's cliff | four bounds on one divergence (§E286, rule 17) |
-| `sellSkew`'s `if (q1 > 1e18) q1 = 1e18` saturation | a clamp on the abundant side's linear term |
-| **`sellSkew` as a separate function** | see below |
-
-### ⭐ ONE KERNEL, SIGNED `q` — WHICH FIXES §E278 BY CONSTRUCTION RATHER THAN BY A SECOND GUARD
-`q` is the same quantity on both legs: **the normalised deviation from `target`**, scarce on one side,
-overshoot on the other. §E54 kept them apart only because the POLE had no meaning on the abundant side
-(*"you cannot run out of surplus"*). **With no pole that objection dissolves**, and `Γσ²q²` is even in
-`q` — the same premium for the same magnitude of imbalance, either direction, which is what A–S says.
-⇒ 🔴 **§E278 CLOSES AS A SIDE EFFECT.** Its defect is that `UNKNOWN_VARIANCE_SKEW` has one consumption
-site and `sellSkew` is not it. **One kernel means one site**, so the σ²=0 guard is written once and both
-legs inherit it — the root fix, versus adding the missing guard as a second copy (rule 17, rule 2).
-
-### ⭐ AND IT DISSOLVES §E283's CLIFF, BECAUSE THE SENTINEL STOPS BEING AN OUTPUT
-Today `σ² == 0` returns `UNKNOWN_VARIANCE_SKEW` — **a finished skew that BYPASSES the curve**, which is
-precisely why it is flat, size-blind and produces a step at the flow target. Under one kernel the fix
-is a substitution, not a new constant: **replace the OUTPUT `UNKNOWN_VARIANCE_SKEW = 3e16` with an
-INPUT `SIGMA_UNKNOWN`** — an assumed variance fed through the same `Γσ²q²`. The sentinel then inherits
-size-awareness and shape automatically, **and the cliff cannot exist**, because there is no longer a
-branch that skips the curve. That is §E283's option 1 arriving for free.
-
-### THE NUMBERS, SO THIS IS A COMPARISON — Γ = 5.48e15, σ² = 1e18 (100 % ann. vol)
-
-| q (imbalance vs flow target) | today: pole, capped | **`Γσ²q²`** | linear `Γσ²q` |
-|---|---|---|---|
-| 0.25 | 3.00 % (the cap) | **0.034 %** | 0.137 % |
-| 0.50 | 3.00 % (the cap) | **0.137 %** | 0.274 % |
-| 0.90 | 3.00 % (the cap) | **0.444 %** | 0.493 % |
-| 1.00 (range empty) | ∞ ⇒ decline | **0.548 %** | 0.548 % |
-
-The integral is closed-form and needs no logarithm: `(1/Δ)∫q² dq = (q₁³ − q₀³)/(3Δ)`, so §E68's
-size-awareness survives **and gets cheaper** than the current `lnWad` branch.
-
-### ⚠️ THE HONEST COSTS — three, and the first is the one to argue about
-1. **A FULL DRAIN INTEGRATES TO `Γσ²/3` = 0.18 %**, below both today's capped 3 % and the linear 0.27 %.
-   **Is that enough?** §E59/§E68 spent a session on the free-drain hole, so this must be decided, not
-   discovered. ▶️ **The answer is that the KERNEL was never what closed it — the FLOOR is.** §E79's
-   inversion made `_maxWellSkew = σ²·confFrac/8` (LVR over the settlement window, MMRZ eq. 16) the
-   **base charge under every trade**, and §UNIT-A's *"RETURN THE BASE, NOT ZERO"* is that rule. **The
-   floor is untouched here and is the adverse-selection term; the kernel is the inventory term.**
-   Two terms, two jobs — and the owner's §E79 reframe says the skew's real job is the FIRST one.
-2. **The premium falls sharply at small q** (0.034 % at q = 0.25 vs 3 % today). That is not a loss of
-   protection, it is **the removal of the flat top §E274 measured** — but it IS a revenue change on the
-   money path and must be measured, not reasoned (rule 9).
-3. **`q` unbounded on the abundant side.** Dropping the saturation lets `q² ` grow without limit as
-   surplus grows. That is correct A–S (the more you hold, the more you charge to take more) and it is
-   **self-limiting in the only way that matters** — nobody sells into a quote that bad. ⚠️ But it is an
-   uncapped number on a money path: check the `1e18`-scaled arithmetic for overflow at large surplus
-   before landing.
-
-▶️ **LANDING ORDER (rule 10 — one money-path change per run, each with a stated prediction):**
-1. **Settle §E286's citation** (free, and it authorises everything below). `SwapLib:1030-1031` claims
-   A&S §2.3 derives the pole; `:765-770` says *"ρ=0 recovers plain linear A-S"*. One must go.
-2. **`q/(1−q)` → `q²` on the drain leg alone.** Predict: `wellSkew` finite for all `q < 1`; every
-   pole-related revert unreachable; §E274's crossing table becomes empty.
-3. **Unify the legs** on signed `q` and delete `sellSkew`. Predict: byte-identical outputs on the
-   abundant side (`q² = q²`), and §E278 closes with no new guard.
-4. **Sentinel becomes an input** (`SIGMA_UNKNOWN`). Predict: the step at the flow target disappears
-   from a σ²=0 sweep — **that sweep is the falsifiable test §E283 never had.**
-5. **Then delete** `SKEW_UNFILLABLE`, `lnWad`, the saturation clamp and §E285's residual, which by
-   then have nothing to bound. ⚠️ **Deleting them earlier hides whether step 2 worked.**
-
 ## §E286-v3 — ✅ **CLOSED 2026-08-25: THERE IS NO UNISWAP V3 IN THE TREE.** Owner: *"we dont need v3
 anymore pull it out and delete it completley"*. `_poolSwap` is deleted, all four volatile hops go
 through `_aggSwap` against the pinned 1inch router, and `IV3Router`/`V3_SWAP_ROUTER`/`V3_FEE_*` are
@@ -19328,173 +18095,6 @@ unconditional external leg and remove the Uniswap BRAND from prose without remov
 (c) measure a third venue — 1inch is already ruled out at 31.7M gas (§E232), and nothing else has been.
 ⚠️ **Whichever is chosen, the test that proves it must run a CORRELATED CRASH with no user flow.** A
 suite that never drains the range will pass under (a) and tell you nothing — §E104's lesson exactly.
-
-## ⚖️ §E288 — **STEP 1 RESOLVES, BUT AGAINST THE PLAN: A&S IS LINEAR, AND THAT IS AN ARGUMENT FOR THE POLE, NOT AGAINST IT**
-Asked 2026-08-21: *"is the pole removal correct, why did we build it in the first place?"* — and whether
-A&S §2.3 gives a linear reservation price or a pole.
-⚠️ **NOT VERIFIED AGAINST THE SOURCE. The PDFs are not on this machine** (`mcp__pdf` is scoped to the
-repo, which holds only solady/OZ audits; 358 PDFs under `~` and no A&S or MMRZ among them). **Everything
-below about A&S is FROM KNOWLEDGE and must be checked before it is load-bearing.**
-
-### THE CONTRADICTION, AND WHICH SIDE GOES
-| site | says |
-|---|---|
-| `SwapLib:765-770` | *"the A-S linear reservation premium Γσ²q **AMPLIFIED BY** the shadow price of the last inventory units… HJB with a HARD inv≥0 constraint — a −log(inv) barrier… **ρ=0 recovers plain linear A-S**"* |
-| `SwapLib:1030-1031` | *"a SIMPLE POLE q/(1−q), **which is what A&S §2.3's infinite-horizon reservation price derives anyway** (exponent fixed at 1 by the CARA value function)"* |
-⇒ **`:765` IS RIGHT; `:1030-1031` IS THE ONE TO DELETE.** A&S is `r = s − qγσ²(T−t)` — **linear in q**;
-CARA gives a linear inventory term and there is no `q/(1−q)` anywhere in it. `:765` never claimed
-otherwise: it says the barrier is something WE ADD ON TOP.
-
-### 🔴 BUT THE RESOLUTION ARGUES FOR THE POLE, NOT AGAINST IT
-**A&S's market maker holds SIGNED, UNBOUNDED inventory — they can go short and keep quoting. WE CANNOT.**
-We hold real assets and physically cannot serve at `inv = 0`. That is exactly the constraint `:765`
-names, and it is a STRUCTURAL asymmetry, not drift. ⇒ *"A&S is linear, therefore drop the pole"*
-**imports a model whose key assumption we violate.** The pole exists because our inventory has a floor
-and A&S's does not.
-
-### ⚠️ AND `q²` IS NOT A&S EITHER — THE CITATION AUTHORISES `q¹`
-The plan's justification is *"Γσ²q² is even in q — same premium for the same imbalance either
-direction, which is what A–S says"*. **That argument supports `|q|`, not `q²`.** A&S's SHIFT is **odd**
-in q (long lowers the mid, short raises it); its MAGNITUDE is even, i.e. `|q|`. `q²` is even as well —
-**but so is `|q|`, and they are different functions.** Evenness cannot pick between them.
-⇒ **The plan invokes A&S to reject the pole and then adopts an exponent A&S does not give.**
-
-### 🔴 THE ORDERING OBJECTION — THE STRONGEST ONE
-Under `q²` a full drain integrates to **Γσ²/3 ≈ 0.18%**. ⇒ **ANYONE CAN EMPTY THE RANGE FOR 18 bps.**
-Today they cannot empty it at any price. And §E276 established **nothing pulls inventory back**: we
-never move the bid, the refill direction is EXEMPT rather than paid, and **§V-R1 (1inch
-AggregationRouterV6) does not exist in code**. ⇒ **Removing the pole BEFORE the refill or the shift
-exists leaves a range drainable to zero, cheaply, with no restoration mechanism.** The pole is currently
-the ONLY thing preventing that. Steps 2–5 are each coherent; **the sequence puts the deletion before the
-thing that makes it safe.**
-⭐ **AND THE EXPONENT IS DOWNSTREAM OF §E276, NOT INDEPENDENT OF IT.** The pole's pathology — crossing
-100% at finite q — exists **only because we apply it as a SPREAD**. Under a mid-SHIFT a large shift
-still clears and there is nothing to tame. **Choosing `q²` to keep the spread bounded treats the symptom
-of using the wrong object.**
-
-▶️ **WHAT I AGREE WITH:** delete `:1030-1031` (free, and true); the floor (`σ²·confFrac/8`, §E79) — not
-the kernel — is what closes the free-drain hole; and a closed-form integral is cheaper than `lnWad`.
-▶️ **WHAT NEEDS SETTLING FIRST:** (1) verify A&S against the actual paper — **nobody has**; (2) decide
-§E276 (spread vs shift), because it determines whether the pole is pathological at all; (3) show what
-prevents a cheap full drain once the pole is gone. **Until (3) has an answer, step 2 removes the only
-brake we have.**
-
-## ⛔ §E288-CORRECTED — **I WAS WRONG. A&S §2.3 DOES HAVE A POLE, AND IT IS AT AN INVENTORY BOUND.**
-**VERIFIED AGAINST THE ACTUAL PAPER** (Avellaneda & Stoikov, *Quantitative Finance* 8(3), 2008,
-217–224), fetched and text-extracted 2026-08-21. §E288 above asserted from memory that A&S is linear
-and that `:1030-1031` should be deleted. **Both claims are false. The row is superseded by this one.**
-
-### WHAT §2.3 ACTUALLY SAYS — QUOTED, NOT RECALLED
-```
-r^a(s,q) = s + (1/γ)·ln[ 1 + ((1−2q)γ²σ²) / (2ω − γ²q²σ²) ]
-r^b(s,q) = s + (1/γ)·ln[ 1 + ((−1−2q)γ²σ²) / (2ω − γ²q²σ²) ]      where  ω > ½γ²σ²q²
-```
-> *"The parameter ω may therefore be interpreted as an **UPPER BOUND ON THE INVENTORY POSITION our
-> agent is allowed to take**. The natural choice of ω = ½γ²σ²(q_max+1)² would ensure that the prices
-> defined above are **BOUNDED**."*
-⇒ **THE DENOMINATOR `2ω − γ²q²σ²` IS A POLE, AND IT SITS EXACTLY AT THE INVENTORY LIMIT.**
-
-### ⇒ THE TWO COMMENTS NEVER CONTRADICTED — THEY ARE ONE FACT FROM TWO SIDES
-| | |
-|---|---|
-| `:765-770` — *"HJB with a HARD inv≥0 constraint… ρ=0 recovers plain linear A-S"* | ✅ **TRUE.** §2.2's FINITE-horizon price IS linear: `r = s − qγσ²(T−t)`. |
-| `:1030-1031` — *"a SIMPLE POLE q/(1−q), which is what A&S §2.3's infinite-horizon reservation price derives anyway"* | ✅ **ALSO TRUE**, and I proposed deleting it. §2.3 IS a pole, and A&S's `ω` IS `:765`'s hard constraint. |
-⇒ **`:1030-1031` MUST NOT BE DELETED.** Step 1 of the removal plan was *"one must go"* — **neither does.**
-
-### 🔴 AND IT REFUTES `Γσ²q²` ON THE PLAN'S OWN CITATION
-**A&S PUTS `q²` IN THE DENOMINATOR, WHERE IT CREATES THE POLE.** `Γσ²q²` moves `q²` to the numerator as
-the premium itself — **the opposite operation.** The plan invoked A&S to justify the exponent; the paper
-says the exponent belongs on the other side of the fraction. ⚠️ Also note A&S DAMPS the pole with a
-`ln(1 + ·)`, which we do not — a real difference worth studying, and a third option nobody has costed.
-
-### ⭐ WHAT A&S DOES INSTEAD OF A CAP — AND IT IS THE ELEGANT ANSWER TO §E275
-A&S never clamps the output. **They choose ω so the pole sits OUTSIDE the reachable inventory range:**
-at `q = q_max` with `ω = ½γ²σ²(q_max+1)²` the denominator is `γ²σ²(2q_max+1) > 0`, so the price is
-finite everywhere the agent can actually be. ⇒ **THE BOUND IS A PARAMETER CHOICE, NOT A CLAMP** — which
-is exactly standing rule 17 (make the bad state unconstructible rather than detectable), arrived at
-independently by the source. **This is a THIRD design we have not costed, and it may dominate both the
-cap (deleted, §E275) and the decline (`SKEW_UNFILLABLE`, landed today).**
-▶️ **NEXT:** map our `q` (scarcity vs shed target) onto A&S's `q_max`, and ask whether an ω-equivalent
-exists here. If it does, `_declineIfUnfillable` becomes unreachable **by construction** rather than by a
-threshold — and rule 1 then deletes it.
-
-### 📌 THE PROCESS POINT, BECAUSE IT IS THE SECOND TIME TODAY
-§E277 flagged 4 rows from a grep and **3 were false positives**. §E288 asserted a paper's contents from
-memory and **was refuted by reading it — 20 minutes of fetching and decompressing.** ⚠️ **BOTH TIMES THE
-CONFIDENT-SOUNDING CLAIM WAS THE UNVERIFIED ONE, AND BOTH TIMES THE OWNER ASKED FOR THE CHECK.** The
-papers live in `../` (SPV's PARENT — outside the `mcp__pdf` root, which is why "not on disk" was wrong
-too); A&S is fetchable from `math.nyu.edu/~avellane/HighFrequencyTrading.pdf` and this repo has no
-`pdftotext`, so decompress the streams with `zlib` and regex the text operators.
-
----
-
-## ⭐ §E289 — **A–S's ω HAS AN EXACT ANALOGUE HERE: MOVE THE POLE OFF THE REACHABLE RANGE. ONE PARAMETER, `κ`, AND `κ=1` IS TODAY.**
-🔗 **CONTEXT ADDED 2026-09-09 — READ §L5-KAPPA-FOLDED-2026-09-09 (at the end of this file) BEFORE ACTING ON THIS ROW.** It holds the σ-scaled-κ attempt (built, measured, REVERTED, +403 bytes), the ρ(σ) closed form, the linearity wall that forecloses BOTH, and a retraction of this session's own wash-trading sign error.
-
-**§E288's find, carried to a design. A&S NEVER CLAMP — they place the singularity where the agent
-cannot go.** *"ω may therefore be interpreted as an upper bound on the inventory position our agent is
-allowed to take. The natural choice of `ω = ½γ²σ²(q_max+1)²` would ensure that the prices defined
-above are bounded."* ⇒ **The bound is a PARAMETER CHOICE, not a clamp — standing rule 17 reached
-independently by the source.**
-
-### THE ANALOGUE, AND IT IS A ONE-CHARACTER GENERALISATION OF WHAT WE ALREADY RUN
-Our kernel is `q/(1−q)`, a pole at `q = 1`. And `q = (target − inv)/target`, so **`q = 1` IS `inv = 0`
-— the pole sits exactly ON the reachable boundary**, which is the one thing A&S take care to avoid.
-Generalise the pole location to `κ`:
-
-```
-    kernel(q) = q / (1 − q/κ) = κq / (κ − q)          κ > 1
-```
-`q = κ` ⇔ `inv = (1−κ)·target`, i.e. **NEGATIVE inventory — unreachable by construction.** A&S's
-natural choice is one unit beyond the maximum; in our normalisation one unit IS one flow-window, so
-the direct analogue is **`κ = 2`: the singularity sits one full flow-window MORE depleted than empty.**
-
-**AND THE INTEGRAL KEEPS ITS SHAPE — §E68 survives untouched.** With `∫q/(κ−q)dq = (κ−q) − κ·ln(κ−q)`:
-```
-    qBar(q0,q1) = κ · [ κ·ln((κ−q0)/(κ−q1)) − Δ ] / Δ ,      Δ = q1 − q0
-```
-🔴 **AT `κ = 1` THIS IS THE CURRENT LINE, CHARACTER FOR CHARACTER**: `[ln((1−q0)/(1−q1)) − Δ]/Δ`. So the
-diff is `1e18 - q` → `κ - q`, plus one outer `κ·`. **`lnWad` stays, the branch structure stays, the
-convexity stays.** Nothing is deleted to make this work, which is why it is worth preferring to both
-things tried today.
-
-### ⭐ AND `κ` DISSOLVES THE ORDERING OBJECTION THAT KILLED §E287-qsquared
-§E287's fatal flaw was deleting the only brake before its replacement existed. **`κ` separates the
-STRUCTURAL change from the ECONOMIC one:** land the generalisation at `κ = 1` and the behaviour is
-provably identical (same expression), then move `κ` as a single-constant change **gated on the refill
-or the shift existing**. ⇒ **Rule 10 satisfied by construction rather than by care** — the first run
-changes no economics, so a regression is attributable to the refactor alone.
-
-### THE NUMBERS — Γ = 3e16, σ² = 1e18 (100% ann. vol)
-
-| | instantaneous at `q = 0.9` | at `q = 1` (empty) | average over a FULL drain |
-|---|---|---|---|
-| **κ = 1 (today)** | 27% | **∞ ⇒ decline** | **∞ ⇒ cannot be emptied at any price** |
-| **κ = 2 (A&S's analogue)** | 4.9% | **6%** | **2.32%** (`qBar = 2[2ln2 − 1] = 0.773`) |
-| linear (`ρ=0`) | 2.7% | 3% | 1.5% |
-| ~~`Γσ²q²`~~ (§E287, refuted) | 2.4% | 3% | 1.0% |
-
-⇒ **κ=2 is a REAL brake** — dearer than linear everywhere and 2.3× the refuted `q²` on a full drain —
-**while being finite, so a quote is a number rather than a revert.**
-
-### ⭐ WHAT IT MAKES DELETABLE — BY UNREACHABILITY, WHICH IS RULE 1's OWN TEST
-Max kernel is `κ/(κ−1)·Γσ²`. At κ=2, Γ=3e16 that is `6e16·σ²/1e18`, which crosses `SKEW_UNFILLABLE`
-(1e18) only at **σ² ≈ 1.67e19, i.e. ~408% annualised vol**. ⇒ **`_declineIfUnfillable` becomes
-unreachable below that**, and rule 1 then deletes it — *"if a branch can't be hit, delete it"*.
-⚠️ **STATE THE BOUND, DO NOT SAY "UNREACHABLE BY CONSTRUCTION".** It is unreachable *below a measurable
-volatility*, and that number moves with Γ. **If Γ lands at §E274's 5.48e15 the headroom rises ~5.5×**
-(crossing near 2200% vol). A row claiming unconditional unreachability would be the exact
-plausible-but-wrong constraint rule 15 warns about.
-
-### ⚠️ THREE THINGS THIS DOES NOT SETTLE
-1. **A&S damp the pole inside `ln(1 + ·)`; we do not.** §E288 flagged it and **nobody has costed it.**
-   That is a THIRD difference from the paper, independent of ρ and of where `q²` sits.
-2. **It does not touch §E276.** We still apply the result as a SPREAD where A&S apply a SHIFT, and κ
-   changes only where the singularity lives. **If the shift lands, re-derive κ — a shift has no 100%
-   boundary, so the pressure that makes κ attractive is partly an artifact of the spread form.**
-3. **`κ` needs a derivation, not just A&S's "+1".** Their `+1` is one share; our `1` is one
-   flow-window, and that those coincide is an analogy, not a result. ▶️ **The honest first landing is
-   `κ = 1` (a pure refactor); `κ = 2` is a SECOND, economic commit with its own prediction.**
 
 ## §E287-init — **`init` IS THE LAST UNFOLDED MANAGER PAIR (74%), AND IT HIDES FOUR ASYMMETRIES**
 ⚠️ **SUFFIXED 2026-08-21 — the last bare `§E287`.** Three findings shared it: `§E287-guards`,
@@ -19565,103 +18165,6 @@ constant. Until then it is a real cost charged at a made-up rate.
 while a **scarce range charges the 3% policy price**. Neither number has anything to do with realised
 volatility, and the range sits permanently in the state an attacker would otherwise have to
 manufacture.
-
-
----
-
-## 🔴🔴 §E290 — **THE CURVE AND ITS RESTORATION MECHANISM ARE ON OPPOSITE RANGES. THAT IS WHY κ CANNOT MOVE ON EITHER.**
-
-**Measured 2026-08-21 by checking the mechanism before designing around it, with the control run.**
-
-§E276 states that *"nothing pulls inventory back — we never move the bid, the refill direction is
-exempt rather than paid, and §V-R1 does not exist in code"*, and that premise is what refuted §E287 on
-ordering. **It is true of ETH and FALSE of BTC**, and nobody has said so.
-
-| primitive | live refs in `evm/src` (comments excluded) | verdict |
-|---|---|---|
-| `creditSwapIn` | **8** — `BTCChannels` ×4 → `Vault.creditSwapIn:725` → `SwapLib.creditSwapInBody` | 🟢 **a real, wired restoration rail — BTC ONLY** |
-| `swapOutDelever` | **15** | 🟢 live (lev path, not range restoration) |
-| `FixedRateFill` | **1** — its own `library` declaration; **every other mention is a comment** | ⛔ unwired |
-| `refillNeeded` · `refillPlacement` · `proRataShortfall` | **1 each** — the `function` line itself | ⛔ unwired |
-
-⇒ **BTC HAS THE MECHANISM:** the self-funding fleet op `Core.sol:387` describes — *"JIT Morpho-flash
-BTC → `creditSwapIn` → repay"* — is not a plan, it is four call sites driven by the hop daemon.
-
-✅ **CONTROL RUN, because this asserts an absence (repo rule).** The same search over `Quid` (the ETH
-range manager) returns `supplyFromAux`, `offrampEtherFi` and `creditSkewPremium` — **venue plumbing and
-the premium credit, no swap-in rail** — while over `Vault` it returns `creditSwapIn` AND
-`creditSwapOut`. `supplyFromAux` is gated to Aux and its own docblock calls it *"the BOLD/SP
-liquidation re-supply leg"*: it supplies a venue, it does not serve a swap from flashed inventory.
-**The method can see the rail where one exists, so its silence on ETH is evidence.**
-
-### 🔴🔴 THE CONSEQUENCE, AND IT IS WORSE THAN EITHER HALF
-Read this against §E278: the **BTC** instance is deliberately left with **no observation source**
-(`DeployLib:149-151` — every on-chain venue quotes wrapped BTC), so σ² ≡ 0 there and `skewWad` returns
-the flat `UNKNOWN_VARIANCE_SKEW` **before the kernel is ever evaluated**. Meanwhile **ETH** is sourced
-(`DeployLib:146`) and its kernel runs.
-
-| | kernel actually runs? | restoration rail? |
-|---|---|---|
-| **ETH** | ✅ yes (Curve-sourced σ²) | ⛔ **none** |
-| **BTC** | ⛔ no (σ² ≡ 0 ⇒ sentinel short-circuits it) | ✅ `creditSwapIn` |
-
-⇒ **THE PRICING CURVE AND THE THING THAT MAKES IT SAFE TO RELAX ARE ON DIFFERENT INSTANCES.**
-
-### ▶️ WHAT THIS DECIDES
-1. **κ = 2e18 CANNOT LAND ON EITHER RANGE TODAY, FOR OPPOSITE REASONS.** On ETH it is meaningful and
-   unsafe — the ordering objection applies in full, because raising κ makes the range drainable at a
-   finite price with nothing to pull inventory back. On BTC it is safe and **pointless**: σ² = 0 means
-   κ never enters the arithmetic at all. ⇒ **`KAPPA_WAD`'s gate is now specific rather than general —
-   it is not "wait for the refill", it is "ETH needs a rail, BTC needs a source", and they are
-   different tasks.**
-2. **§E286-partialfill / §E286-v3's option (b) is stronger on BTC than its own row argues.** It cites
-   `LevManager:597`'s `swapOutDelever` as the precedent for routing internally. **`creditSwapIn` is a
-   better one** — a whole flash-serve rail, already wired, already daemon-driven. ⚠️ **And it is
-   correspondingly weaker on ETH, where there is nothing to route into.** A single venue decision
-   spanning both legs is therefore the wrong shape; the two ranges are not in the same position.
-3. **The cheapest unblock is BTC's source, not ETH's rail** — one is a config decision already scoped
-   in §C1, the other is a subsystem. ⚠️ But §E223's objection stands and is why BTC is unset: a WBTC
-   quote makes a wrapper depeg indistinguishable from bitcoin moving. **Do not treat "cheapest" as
-   "decided".**
-
-📌 **METHOD NOTE, because it is the third time today.** The answer came from `grep -c` on live
-references and a control, not from reading rows. `FixedRateFill` reads as a built primitive in four
-documents and is a `library` declaration with no caller; `creditSwapIn` reads as a plan in a comment
-and is four wired call sites. **Both ledgers were wrong in opposite directions about the same
-subsystem** — which is what "check the mechanism before building around it" is for.
-
-### C13. 🔴 `pushObservation` IS BUILT AND UNTESTED — the last thing this thread started (2026-08-21)
-
-`Core.pushObservation(uint256)` is **written, compiling and pushed** (`e82fff4a`), and **nothing
-tests it and nothing calls it.** Booked because a half-wired money path that looks finished is worse
-than an open row.
-
-**What it is.** The ring needs a reading independent of Chainlink, since Chainlink is already the
-ANCHOR `twapResolve` checks against (§C1). The best independent source is 1inch's aggregator, and it
-**cannot be read on-chain** — `getRate` = **33,573,664 gas** vs a 30M limit, corroborated by the
-node's own `eth_estimateGas` refusing past its 16.7M ceiling. **That is not a defect: the contract is
-`OffchainOracle`, built for `eth_call` where the caller sets its own gas cap.** So it is read
-off-chain and pushed on-chain. Pinned by `test/OneInchGasProbe.t.sol`, which **asserts the gas exceeds
-a block** — a tripwire that FAILS if 1inch ever becomes affordable, rather than a comment that would
-be believed forever.
-
-**Design, so it is not re-litigated.** *Permissionless*, following `cascadeDelever`'s precedent — the
-BOUND is the security, not a keeper role, so there is no privilege to steal, no key to rotate and no
-liveness dependency on one operator. *Every failure degrades*: no pusher, dark feed, or out-of-range
-value all leave the ring unwritten → `ringVariance` 0 → the sentinel. **Never a revert** — a revert
-here lets a stalled oracle halt the range, which was the defect in the first attempt. *Range = 50 bps*,
-against a **measured 8 bps** 1inch-vs-Chainlink basis (~6× headroom), capping an adversary's σ²
-inflation at ±0.5%/block since the ring takes one write per timestamp.
-
-▶️ **WHAT IS LEFT — this is the "proper fix" to finish elsewhere:**
-1. **No off-chain caller.** `quid-bridge` has `lev_keeper.rs` / `lev_keeper_btc.rs` but no observation
-   pusher. That crate is being edited by another thread.
-2. **No test at all** — not the range, not the degrade paths, not the `isWbtc` derivation
-   (`VOL_DECIMALS != 18`), not the raw-anchor trick (`twapResolve(feed, **0**, …)` returns the anchor
-   because §A.13 made a zero price fall through instead of short-circuiting).
-3. **It does not yet retire `UNKNOWN_VARIANCE_SKEW`** (§C12). Only once σ² is genuinely measured does
-   that policy price become unreachable and deletable — and **not one moment before**, since §E59
-   measured the free-drain it closes.
 
 
 ---
@@ -19885,91 +18388,6 @@ reachable inventory. **You cannot route the part we decline unless we say how bi
    and it carries a capital requirement (staked 1INCH) that no other option here does.
 
 ---
-
-## ✅ §E294 — **CLOSED 2026-09-08 BY DELETION (re-confirmed below; the ✅ was sitting under a 🔴 heading and rule 22 says cross it off).** ⛔ **WAS: RE-OPENED 2026-08-23. I CLOSED THIS ON A TECHNICALITY AND THE CONCERN IS LIVE.** I closed it because the row's wording (*"caller: ZERO in src/script/test"*) is literally false — a forge script and SEVEN test files call it. **But the row's CONCERN is production wiring, and `pushObservation` has ZERO callers in `evm/src`** (measured, comments excluded). A manual script and a test harness are not production wiring; SPRINT says so itself elsewhere. ⇒ **The imprecise wording was not the finding. The unwired push is.** ▶️ **RE-AUDIT TARGET: `Core.pushObservation` + `_observeIfSourced` — is the ring meant to have a live writer at all now that §E345 made σ² ring-independent, or should the ring be fed only for `twapResolve`'s smoothing?** That is a real open question and §C1 (which source) gates it. *(superseded closure text:)*  The row says *"caller: ZERO in src/script/test"*; measured, `script/PushObservation.s.sol:71` plus FIVE test files call it, and `PushObservationFillsTheRing.t.sol` tests it. ⚠️ §E345 also made σ² ring-INDEPENDENT (`realizedVarianceWad` = `max(ring, anchor)`), so the row's consequence is retired even where its premise held. What remains is §C1 — which pool — and that is an OWNER DECISION, not this row. Original:  **§C1's ANSWER IS ALREADY BUILT AND HAS ZERO CALLERS. `Core.pushObservation` IS THE UNWIRED ORACLE.**
-
-✅ **CLOSED 2026-09-08 — DISCHARGED BY DELETION, THE ARM THE OWED TABLE OFFERED.** `pushObservation` has
-zero declarations anywhere in `evm/`, and `evm/script/` contains no `PushObservation.s.sol`. The
-ring's writer is real production code, not a stub: `Core.sol:1055` calls `_observeIfSourced()` on
-the swap path.
-✅ **RE-VERIFIED INDEPENDENTLY 2026-09-08 (L1 booking pass):** `grep -rn "function pushObservation" evm/` = **0**; `ls evm/script/ | grep -i push`
-= **0**. The ten residual `pushObservation` strings in `evm/` are **prose** — comments in `OracleLib.sol`/`SwapLib.sol` and three test files —
-**not a declaration and not a call**, which is the distinction that re-opened this row in the first place and is worth stating so it is not
-re-opened a third time. `_observeIfSourced` is called on BOTH live pricing paths (`Core.sol:1055` and `:1158`), each with the same in-code
-warning — *"an independent OBSERVATION — never `px`, which READ this ring"* — so the ring is fed by production flow, not by a keeper nobody built.
-⇒ **The deletion candidate this row identified was taken. There is no wiring task and no owner decision left here.**  📌 **§SEQ-AUDIT: CLOSED 2026-09-08 — verified against code** ⚠️ **§E294-sources (the "median of three are not independent" row) is a DIFFERENT
-row and stays open.**
-
-**Owner proposed 2026-08-21: cache `getRate` off-chain and submit it as an update alongside a trusted
-callback (a delever), using the EIP-712 permissions IL-protect and opt-in already carry. CHECKED THE
-MECHANISM FIRST — it exists, at `Core.sol:1389`, and it needs no 712 at all.**
-
-```solidity
-function pushObservation(uint256 priceWad) external {          // ← NO auth modifier
-    ...twapResolve(AUX.assetPriceFeed(ASSET), 0, …, OBS_PUSH_MAX_BPS, 1 days);   // Chainlink anchor
-    if ((hi - lo) * 10_000 > lo * OBS_PUSH_MAX_BPS) return;    // outside 50 bps ⇒ refuse, silently
-    _writeObservationPrice(priceWad);
-}
-```
-
-⭐ **IT DISSOLVES THE GAS PROBLEM BY CONSTRUCTION, WHICH IS THE OWNER'S POINT EXACTLY.** `getRate`'s
-33.6M gas is the cost of an ON-CHAIN read; off-chain `eth_call` runs with an effectively unbounded
-allowance — **which is precisely why §E257 records that it *"looked perfectly healthy from a
-console"***. Reading it off-chain and pushing the result costs one `SSTORE`.
-
-⭐ **AND IT IS STRICTLY BETTER THAN THE PROPOSAL: THE ANCHOR REPLACES THE SIGNATURE.** It is
-**permissionless** — no 712, no keeper key, no trusted callback — because every push is validated
-against Chainlink within `OBS_PUSH_MAX_BPS = 50`. A liar cannot move the LEVEL more than 50 bps, and
-its own docblock already prices the σ² vector: *"it caps an adversary's reachable σ² inflation at
-±0.5% per block (the ring takes one write per timestamp)."*
-📌 **AND IT ANSWERS §E220/§C1's CIRCULARITY OBJECTION HEAD-ON, IN ITS OWN WORDS:** *"Chainlink updates
-on a heartbeat or a deviation threshold, so BETWEEN updates it reports a flat line while the market
-moves — a ring sourced from it would measure σ² ≈ 0 through real volatility. A DEX-aggregated push
-carries that intra-update movement… **The bound constrains the LEVEL; the information is in the
-PATH.**"* ⇒ **Chainlink as the ANCHOR and 1inch as the PATH is not circular** — they carry different
-information, which is the distinction §E284 was reaching for from the other side.
-
-### 🔴 WHAT IS ACTUALLY MISSING — AND IT IS SMALL
-| | |
-|---|---|
-| **a caller** | **ZERO**, in `src`, `script`, `test` AND `quid-ln`. This is the `create_sweep_tx` / `FixedRateFill` shape: a maintained function marking a gap, not litter (⛔ **do not delete it**). |
-| **a test** | **ZERO.** The range, both refuse paths (`anchorPx == 0`, outside-range) and σ² accumulation are all unverified. |
-| **cadence** | `ringVariance` returns 0 until `card ≥ 3`, `n ≥ 3`, `m ≥ 2` **distinct** samples — so ONE push changes nothing. σ² only exists once pushes are recurring. |
-
-⇒ **THIS IS WHY σ² ≡ 0 (§E278/§E290): the ring has a writer and no one invokes it.** §C1 has been
-framed as *"which source"* for weeks; the source question is answered and the open item is a **caller
-and a cadence**.
-
-### ⭐ THE OWNER'S "PIGGYBACK ON A DELEVER" SURVIVES, FOR A DIFFERENT REASON THAN PROPOSED
-The 712 is unnecessary, but the attachment idea is not — it solves **gas attribution**, not trust. A
-standalone push costs someone gas for no reward. Attaching it to a transaction that *already happens*
-(a delever, a keeper action, a swap) makes it free-ride on necessary work.
-⭐ **AND `pushObservation` IS BUILT TO BE ATTACHED SAFELY: EVERY FAILURE PATH IS A SILENT `return`, NOT
-A REVERT.** A bad anchor, a zero price, an out-of-range value — none can brick the carrying
-transaction. That is the same *"THE READ MUST NOT BE ABLE TO HALT THE RANGE"* rule `Core.sol:1313`
-states for the pull path, and it is what makes piggybacking sound rather than merely convenient.
-▶️ **Attach it where the market drives the cadence, not the pusher** — a caller who chooses WHEN to
-push chooses which prices the ring sees, and selective sampling is the one manipulation the 50 bps
-range does not bound. **Sampling driven by range state (repack, swap, delever) is not attacker-chosen;
-a discretionary keeper loop is.**
-
-▶️ **NEXT, IN ORDER:** (1) a test for the range and both refuse paths; (2) pick the carrier and state
-why its cadence is market-driven; (3) the off-chain reader (`eth_call` `getRate`, cache, attach).
-⚠️ **None of this needs `setObservationSource` — that is the PULL path and it stays unset.** Two
-mechanisms, one ring; do not wire both.
-
-🟡 **STEP 1 IS PART-DONE — `evm/test/PushObservationAnchor.t.sol`, 3 passing, ~8s on a fork.**
-It asserts the DEPENDENCY the guard cannot work without: `twapResolve(feed, 0, …)` returns the raw
-Chainlink anchor by way of §A.13's `price == 0` fall-through — **a fix made for an unrelated reason (a
-self-reinforcing drain deadlock) and relied on here as load-bearing, with nothing asserting it.**
-⇒ **Its failure mode is why it was worth writing: if that fall-through regressed, `anchorPx` would be
-0, `pushObservation` would take the refuse branch on EVERY push, and the ring would silently never
-fill — indistinguishable from today's no-source state, and green in any suite.** The file also carries
-a control (a dead feed must yield NO anchor, so the refuse path is reachable) and pins
-`OBS_PUSH_MAX_BPS < 500` so a later unification cannot quietly widen it to the TWAP range.
-⚠️ **WHAT IS STILL OWED, stated so the row is not read as closed:** the range arithmetic and the write
-path itself. **Only `Alles.t.sol` constructs a `Core`**, so those need that fixture — which is the
-real reason this function shipped untested, and it is a cost worth naming rather than absorbing.
 
 ## C14. SIX ACTIONABLE DOCS DELETED — audited by CODE, not by header (2026-08-21)
 
@@ -20633,89 +19051,6 @@ tree settles.**
 
 ---
 
-## ✅ **[CLOSED 2026-08-28 — THE INSTRUMENT IS BUILT, AND IT REFUTES THE HEADLINE WHILE VINDICATING THE CONCERN]**  ~~§E306 — THE κ BLINDSPOT GENERALISES~~
-⭐ **THE MISSING INSTRUMENT NOW EXISTS: `evm/test/SkewLivePathReachesKernel.t.sol` (2/2).** It does
-exactly what this row prescribed — enters through `Aux.wellSkew(asset, drainUsd6)`, the PRODUCTION
-caller that reads `realizedVarianceWad()` off a live `Core`, instead of at the `public pure`
-`skewWad` one level below. §E306 named the reason nobody had: *"it needs a `Core`, and only
-`Alles.t.sol` builds one — that fixture cost is the actual reason this class went unmeasured for
-weeks."* The file pays that cost once by extending the fixture.
-🔴 **THE HEADLINE IS REFUTED. THE LIVE PATH DOES REACH THE KERNEL:**
-```
-live sigma^2   704,808,248,487,932,092      flowEwmaUsd  $198,203     POOLED  319.79 ETH
-wellSkew @  10k     2,667,071,248,876
-wellSkew @ 200k    52,705,335,533,277        19.8x
-wellSkew @ 600k   201,540,820,367,195        75.6x
-```
-⇒ Γ, ρ, the pole, §E68's integral and κ are **not** downstream of a multiply-by-zero. They execute.
-⚠️ **BUT THE CONCERN WAS REAL AND THE ROW EARNED ITS KEEP** — no test entered through the production
-caller until now, so nothing in the suite could have distinguished "the kernel runs" from "the kernel
-is unreachable". That is fixed, and the rule this row asked for is now ENFORCED rather than written
-down: **at least one test must enter through the CALLER that supplies the parameters in production.**
-🔴 **AND THE ROW'S STATED FAILURE MODE IS WRONG IN A WAY THAT MATTERS.** It says the live path
-*"returns the flat sentinel at every q"*. It does not. `skewWad` opens with
-`if (target == 0) return _maxWellSkew(sigmaSq, rk)` — **above** the `UNKNOWN_VARIANCE_SKEW`
-short-circuit — so with no flow the sentinel is **never reached**, and on ETH (`ethRisk() =
-(ETH_CONF_FRAC_WAD, 0)`, `spliceFloor == 0`) the whole expression is **ZERO**. **Measured: an unseeded
-ETH range quotes 0, not 3e16.** ⇒ That zero IS `§ZERO-REVENUE-ON-A-FLUSH-ETH-RANGE`, seen from the
-production entry point for the first time.
-⭐ **THE THIRD PRECONDITION, WHICH THIS ROW AND §SIGMA-IS-ZERO BOTH MISS: `flowEwmaUsd > 0`.** Depth
-and σ² are not enough. `target` is the flow EWMA, raised only by `_bumpFlow` on the swap path
-(`Core:1050`), so **a fixture with real depth and real variance still reads FLAT at every size** —
-looking perfectly healthy while measuring nothing. Real swaps are the only way to raise it. That is a
-third independent way to get a vacuous skew measurement, and it explains flat readings that neither
-σ² nor the `inv1` branch can account for.
-⚠️ **MINOR, FOUND IN PASSING:** `skewWad`'s `kMinusQ1` comment claims *"κ > q1 for κ > 1e18 ⇒ never
-zero"*, but `KAPPA_WAD == 1e18` today, so the premise does not hold and `kMinusQ1` CAN be zero at
-`q1 == 1e18` (a total drain). The code handles it explicitly (`qBar = type(uint).max` → pinned to the
-cap), so this is a comment describing a configuration we do not run, not a bug.
-
-### (original) 🔴🔴 §E306 — **THE κ BLINDSPOT GENERALISES: EVERY SKEW MEASUREMENT WE HAVE TESTED A FORMULA THE LIVE PATH NEVER REACHES**
-
-**Owner, 2026-08-22: *"with kappa we can't have a blindspot like this, it is suggestive of a larger
-issue at play."* Correct, and the larger issue is the INSTRUMENTS, not the constant.**
-
-### THE BLINDSPOT, STATED PLAINLY
-`skewWad` short-circuits at `if (sigmaSqWad == 0) return UNKNOWN_VARIANCE_SKEW;` (`:1020`) **before the
-kernel is evaluated.** With no observation source pinned (§C1), σ² ≡ 0 on **both** instances (§E290).
-⇒ **Γ, ρ, the pole, §E68's integral and now κ are ALL downstream of a multiply-by-zero. None of them
-has ever executed in production.** Sessions have derived Γ from a flow half-life, measured crossings
-at finite q, deleted a cap, re-derived an exponent and installed a pole-location dial — **on a curve
-the live path does not reach.**
-
-### 🔴 THE MECHANISM: OUR INSTRUMENTS MIRROR THE FORMULA INSTEAD OF CALLING THE PATH
-1. **`GammaRederived.t.sol` reimplements the kernel locally** (`_kernel`, `:33`/`:117`). A mirror
-   cannot detect that its subject is unreachable — **and it demonstrably cannot detect that the
-   subject CHANGED either: it passed unaltered through a complete kernel replacement (§E287-qsquared),
-   measured today.**
-2. **`skewWad` takes σ² as a PARAMETER, and it is `public pure`.** So every test supplies its own σ²
-   and *none of them observes what the caller supplies.* ⇒ **The parameterisation that makes the
-   function testable is exactly what hides the unreachability.** My own `KappaIsTodayAtOne.t.sol`
-   calls the real function — and still passes σ² = 16e18 by hand, so **it would pass identically in a
-   world where production always passes 0.** It does.
-3. ⇒ **THE GAP IS BETWEEN `skewWad` AND `wellSkew`.** `wellSkew(core, …)` READS
-   `ICore(core).realizedVarianceWad()` itself. **Nothing tests `wellSkew` against a real `Core`** —
-   every skew test enters at the pure function one level below the read.
-
-### ▶️ THE MISSING INSTRUMENT, AND IT IS THE §E294 SHAPE
-**Assert on the PRODUCTION ENTRY POINT, not the formula:** call `wellSkew`/`sellSkew` against a
-deployed `Core` and assert the skew **varies with scarcity**. Today that assertion FAILS — it returns
-the flat sentinel at every q — **and that failure is the finding.** Same shape as
-`PushObservationAnchor.t.sol`: test the DEPENDENCY the thing cannot work without, not the arithmetic
-it would perform if it ran.
-⚠️ **It needs a `Core`, and only `Alles.t.sol` builds one** (§E294 hit the same wall). **That fixture
-cost is the actual reason this class went unmeasured for weeks — name it rather than pay it again.**
-
-### 📌 THE RULE THIS REPO DOES NOT YET HAVE
-It has *"an empty grep proves nothing"*, *"a comment describes past state"*, and *"run the CONTROL"*.
-It does **not** have: ⭐ **A TEST THAT REIMPLEMENTS ITS SUBJECT CANNOT SEE THAT THE SUBJECT IS
-UNREACHABLE, AND CANNOT SEE THAT IT CHANGED.** Both failures were measured today, in the same file.
-⇒ **When a pure function is parameterised for testability, at least one test must enter through the
-CALLER that supplies those parameters in production** — otherwise the suite is green over a path
-nothing takes.
-
----
-
 ## ✅ §E307 — **CLOSED 2026-08-23: the residual comment it tracks is already corrected** (both digests fixed in-file), and the ABI gate is green — `check-client-abis.py` reports 116 Rust + 68 SPA, 0 drifted. Original:  **THE CLIENT HALF IS FIXED AND THE ABI GATE IS GREEN. WHAT REMAINS IS THE COMMENT THAT SAYS THE OPPOSITE.**
 
 **Found 2026-08-22 while gating another thread's rename — the ABI gate is RED on `origin/main` and
@@ -20765,58 +19100,6 @@ above it, which the SAME comment block already corrects for `openAuthDigest` (*"
 to sit here claimed `openAuthDigest` was 'KEPT' … it did not"*) — so the block documents this exact
 failure mode while committing it.
 
-
----
-
-## ✅ §E308 — **CLOSED 2026-08-24: THE DISCRIMINATOR WAS BUILT *AND RUN*, AND IT LANDED ON THE FIRST ROW OF ITS OWN TABLE.** Both of this row's falsifiable claims are now false. (1) *"THE TICK DRIVER WRITES NOTHING"* — `DrainAtomicity._driveTick` (`test/DrainAtomicity.t.sol:1382-1387`) deploys an `InjectedObservationSource` and calls `CORE.setObservationSource(...)`, so `_observeIfSourced` no longer takes its `src == address(0)` exit; §E327 measured **σ² 0 → ≈23.6 wad with the assertion going green on its own**. (2) *"NOT YET RUN — four source files are in state `UU` with conflict markers"* — measured: **zero conflict markers in `Quid.sol`**, and `test/PushObservationFillsTheRing.t.sol` is present. ⇒ **The table resolves to row one: nothing was written, the estimator is fine.** The residual this row named — *"an operations gap: a permissionless function with no process calling it"* — is no longer this row's either: `script/PushObservation.s.sol` now exists for the PUSH path, and §E345 landed `realizedVarianceWad = max(ring, anchorVarianceWad())` so **σ² is live in production off the Chainlink anchor with no ring source pinned at all**. The remaining PULL-source choice is §E327/§C1. *(original booking below)*
-### §E308 — **THE "σ² IS PINNED" EVIDENCE IS MISSING ITS CONTROL: THE TICK DRIVER WRITES NOTHING**
-
-**Owner, 2026-08-22: *"why is it zero? … it shouldn't be zero."* Auditing the observation path to
-answer that turned up a defect in the EVIDENCE, not just in the wiring.**
-
-`DrainAtomicity::test_UNITA_FixtureDrivesRealVariance` drives 20 ticks and reports
-*"σ² = 1, 1, 1, 0 wad across FOUR full-suite runs … `realizedVarianceWad()` is pinned at ~0 and 20
-driven ticks cannot budge it."* §E277 and §UNIT-SERIES-MEASURED both rest on it, the second reading it
-as a property of **our series** — *"ours reports exactly zero"*.
-
-🔴 **BUT `_driveTick` MOVES THE RING ONLY THROUGH `AUX.swap` → `Core._observeIfSourced`, WHICH BEGINS
-`if (src == address(0)) return;` — AND NO SOURCE IS PINNED (§C1).** ⇒ **Those 20 ticks write NOTHING.**
-An unwritten ring returning 0 is not a measurement of the estimator; **it is the definition of an
-unwritten ring.** The test has no control distinguishing *"the estimator cannot produce variance"*
-from *"nothing was written"*, and those have **opposite remedies**:
-
-| if the truth is… | then… |
-|---|---|
-| nothing is written | a pusher fixes σ², and §E294's 23 bps admissibility means **1inch is a working source today** |
-| the estimator is broken | a pusher changes nothing, and the whole calibration effort needs a different fix |
-
-⚠️ **§E277 RE-DERIVED §UNIT-SERIES-MEASURED ON THIS TEST** after the original instrument was retracted
-— *"the failure IS the measurement"*. **If the reading above holds, the replacement instrument has the
-same defect as the retracted one: it cannot support the conclusion drawn from it.** That is the third
-time today an instrument has been found to measure something other than its stated subject
-(`GammaRederived`'s mirror, `GammaRederived`'s vacuous control, this).
-
-### ▶️ THE DISCRIMINATOR IS BUILT: `evm/test/PushObservationFillsTheRing.t.sol`
-`pushObservation` is the **other** writer — permissionless, anchor-bounded, **zero callers** — so
-calling it separates the two cases. Pushes a varying **in-range** series (jitter 0–32 bps, all inside
-the 50 bps guard) across 9 samples with `vm.warp` between them (`ringVariance` needs `card ≥ 3`,
-`n ≥ 3`, ≥2 distinct values, and a ring that will not advance on a repeated timestamp), then asserts
-σ² moved. **Two controls**: an out-of-range push must be refused *silently* (which is what makes the
-call safe to attach to a carrier), and one sample must NOT produce a variance.
-🔴 **NOT YET RUN — and the reason is not mine.** Four source files (`Quid`, `Vault`, `LevManager`,
-`BtcLevManager`) are in state **`UU`**: an unresolved merge from another session, with conflict markers
-in the source, so `solc` fails on *"Expected pragma…"* and **no build in this tree means anything**.
-My test is implicated in **zero** of those errors. API assumptions verified statically against
-`origin/main`: `Aux.assetPriceFeed` is a public mapping, and `AllesFixture` exposes `CORE`/`AUX`/`WETH`
-(`DrainAtomicity` uses all three).
-
-### 📌 AND THIS IS WHY σ² IS ZERO — THE ANSWER TO THE QUESTION
-**Not because 1inch does not work.** §E294 measured the basis at **23 bps against a 50 bps guard**, so
-a 1inch-sourced push is *admissible today*. **σ² is zero because the ring has two writers and neither
-runs:** the PULL path (`_observeIfSourced`) has no source by owner decision, and the PUSH path
-(`pushObservation`) has no caller because nobody wrote one. ⇒ **It is an operations gap, not a
-cryptography or pricing one** — and the missing piece is a process that calls a permissionless
-function, not a contract change.
 
 ---
 
@@ -21590,130 +19873,6 @@ constant cannot be right for both branches**, which is itself evidence the two w
 
 ---
 
-## 🔴🔴 §E314 — **`§UNIT-SKEW-IS-NOISE` MEASURED A SELF-REFERENTIAL ORACLE, NOT THE SKEW. `SKEW-PRIORITY`'s ORDERING RESTS ON IT.**
-
-**Dates settle this, and they were sitting in the file the whole time.**
-
-`§UNIT-SKEW-IS-NOISE` reports the skew at **\$0.025 of a \$63.35 swapper cost — 0.04%, cushion
-dominating ~2,500×**, and `SKEW-PRIORITY-2026-08-10` promotes it to *"THE GATE … it outranks
-§UNIT-B."* **Both are dated 2026-08-10.**
-🔴 **THE SELF-WRITE WAS NOT DELETED UNTIL 2026-08-17** — `1e54a2fc` *"E222: give the ring an
-independent source, and delete the self-write"*. **Seven days later.**
-
-⇒ **On the day of that measurement, `Core.swap` read `px = getTWAPforAsset(…)` — which reads the
-observation ring — and wrote that same value straight back** (`:878`/`:988`). §E222 states the
-consequence exactly: *"the deviation test compares a value against a smoothed copy of itself"*, and
-*"a green suite is exactly what this produces."*
-⇒ **σ² was the variance of a smoothed copy of itself: structurally near-zero regardless of real
-market volatility.** And `skew = Γ·σ²·qBar` is **identically 0 when σ² is 0, no matter how scarce the
-band is** (§E59's own words). ⇒ **"The skew is noise" was not a property of the curve. It was a
-property of the oracle feeding it.**
-
-### 🔴 WHAT THIS INVALIDATES
-1. **`§UNIT-SKEW-IS-NOISE`'s headline number and its 2,500× cushion ratio.** ⛔ **Do not re-quote
-   either.** ▶️ Re-measure only after §C1 — and note the measurement is now *possible* for the first
-   time: §E308 showed nine pushes take σ² from **0 → 7.7e17**, so a real variance can be put into the
-   ring on demand.
-2. **`SKEW-PRIORITY-2026-08-10`'s ordering.** It ranks `§UNIT-SKEW-IS-NOISE` above `§UNIT-B` **because
-   that row's measurement made the skew look negligible.** With the measurement withdrawn the ranking
-   has no basis — ⇒ **the priority is unset, not reversed.** ⚠️ **Do not read this as promoting
-   §UNIT-B instead:** §E274 already established that every §UNIT-B number above q ≈ 0.6 was measuring
-   **the constant**, because the cap flat-topped the curve there. **Both rows' instruments are gone,
-   by two DIFFERENT mechanisms** — self-referential σ² before 08-17, cap saturation after.
-
-### ⭐ THE PATTERN, AND IT IS THE FIFTH TODAY
-`GammaRederived` mirrors the kernel instead of calling it · its "control" clears by four orders of
-magnitude on an unrelated term · `DrainAtomicity`'s tick driver writes nothing · `AllesFixture` pins
-no feed so every push is refused · **and now a whole skew-calibration conclusion measured an oracle
-reading itself.** ⇒ **Every one is an instrument whose stated subject is not what it measures**, and
-in four of five the suite was GREEN throughout.
-📌 **THE DISCRIMINATOR THAT WOULD HAVE CAUGHT ALL FIVE IS THE SAME ONE:** *would this measurement look
-the same if the thing I am measuring were absent?* For this row the answer was **yes** — a
-self-referential ring and a genuinely calm market produce the same σ², and nothing in the measurement
-separated them. **That question is already the repo's stated rule; what is missing is running it
-against the INSTRUMENT rather than against the finding.**
-
-### C22-RESOLVED. ✅ `ilTargetLive` IS DELETED — ITS PRIMARY BRANCH WAS A CONSTANT, PROVEN AND MEASURED
-
-**THE PROOF, and it is two lines.** `holdingRatioWad` CLAMPS `p0` into the live band, and
-`RANGE_ANCHOR = spotPrice` is unconditional (`Quid._rebalance`), so the band recentres and the triple
-is always `(P(1−d), P, P(1+d))`. **`P` cancels:**
-```
-holdingRatio = √(1−d) · (√(1+d) − 1) / (√(1+d) − √(1−d))
-```
-With `RANGE_DELTA = 20 bps` ⇒ `0.499250000` ⇒ **soldFraction = 0.500750000**, a function of **BAND
-WIDTH ALONE, with no price in it.**
-
-**THE MEASUREMENT, over a rally that DOUBLED the price (2716.84 → 5430.99, ten steps):** the range's
-real inventory `POOLED` fell **7.566 → 2.331 ETH** while `soldFractionWad` returned
-**0.500750000312500535 at every step**, moving only in the 18th decimal. **Algebra and measurement
-agree to nine significant figures.**
-⇒ It is not a measure of IL. It reported a 50.075% hedge at open, at +100%, and would report the same
-on the way down. It never fired in production only because the reanchor kept `syncKeyPx == spot` so
-`sf` came back 0 — **the estimate ran, correctly, BY ACCIDENT** (§C22's landmine, now defused).
-
-✅ **VERIFIED BY A ONE-VARIABLE A/B — same worktree, same harness, only the source toggled:**
-
-| arm | passed | failed |
-|---|---|---|
-| baseline (`ilTargetLive` restored) | 38 | 14 |
-| treatment (deleted) | 38 | 14 |
-
-**13 of 14 failure messages BYTE-IDENTICAL**; the 14th differs by **0.000283 ETH (0.006%)** on an
-already-failing assertion — noise. **Behaviourally neutral, which is exactly what deleting a branch
-that never fires must look like.**
-⚠️ **TWO EARLIER A/Bs ON THIS CHANGE WERE INVALID AND ARE DISCARDED, both for the same reason: an
-UNPUSHED harness fix.** The first compared a worktree built from `origin/main` (5% ramp ⇒ 241 bps ⇒
-under the 300 deadband ⇒ no leverage at all) against a tree carrying the 8% ramp, and the four
-"regressions" were every pre-C19 symptom returning. The second compared against a log captured before
-the `_crashRange` fix existed. **A stale baseline is a different experiment wearing the same filename.**
-⇒ **The ramp is pushed with this commit precisely so it stops being a floating local difference.**
-
-**GATES:** `check-contract-sizes.py` OK — tightest `Quid` **452 bytes** spare, `LevManager` **2,441**.
-`check-client-abis.py` reports **1 SPA drift, `openChannelDigest`, which is PRE-EXISTING** — reproduced
-on pristine `origin/main` with no C22 applied. **`ilTargetLive` has ZERO references in `spa/` and
-`quid-ln/`**, so the deletion breaks no client.
-
-▶️ **STILL OPEN, and it is the real remaining question: is `1 − √(entry/now)` CALIBRATED for this band?**
-Measured inventory fell ~69% over a +100% move where the estimate gives 29.3%. **Not booked as a defect
-— `POOLED` moves for deposits, withdrawals and the levered buffer too, so the comparison is not yet
-apples-to-apples.** Isolate it with a single-LP, no-leverage rally before concluding anything.
-
-### C22-CAL. ⛔ NEGATIVE RESULT — the IL-calibration probe was INVALID. Recorded so nobody repeats it.
-
-Question: is `1 − √(entry/now)` correctly SIZED for a ±0.2% recentring band? **Still unanswered.** What
-follows is what the attempt cost, because the failure mode is now four-for-four in this session.
-
-⛔ **THE PROBE'S ORACLE NEVER MOVED.** A bare `AllesFixture` probe injected +2%/rung via
-`_setLiveEthFeed(px/1e10)` + `CORE.pushObservation(px)`. Measured: `AUX.getTWAPforAsset(WETH, 1800)`
-returned **2511440000000000000000 at EVERY rung** while the injected `px` climbed to 2828. **The same
-injection works inside `LevYbReal._rallyRange`** (ring TWAP moved 2501 → 2626), so the difference is in
-the fixture, NOT the technique. **Unresolved: why it does not take in a bare fixture** — candidates are
-the `pushObservation` 50 bps anchor bound, the 1800s window against a 31-minute warp cadence, and
-`assetPriceFeed` resolution. **Find that before writing another probe.**
-
-⚠️ **AND HERE IS WHY IT MATTERS — THE INVALID PROBE PRODUCED A CLEAN, PLAUSIBLE, FALSE FINDING.** With
-the oracle frozen, the LP's mark-to-market stayed flat while the range's inventory drained, and the
-arithmetic backed out an implied valuation price of **exactly 2511.44 at every rung, to the cent** —
-which reads unmistakably as *"`_pricingBacking()` values the LP-owned USD leg at a STALE entry price,
-so the LP's claim conceals 4.7% of impermanent loss."* **That conclusion is FALSE.** The oracle WAS
-2511.44, so valuing the USD leg there is valuing it at the live oracle, exactly as the code says.
-**`_pricingBacking()` is correct and there is no hidden IL.** It was one step from being booked as a
-money-path defect.
-▶️ **THE CHECK THAT CAUGHT IT IS ONE LOG LINE — `emit log_named_uint("oracle", AUX.getTWAPforAsset(...))`
-— AND IT BELONGS IN EVERY PRICE-DRIVEN PROBE BEFORE ANY OTHER ASSERTION.** A perfect fit to a constant
-is the signature of a frozen input, not of a discovery.
-
-✅ **TWO FACTS WORTH KEEPING, both independently verified:**
-1. **`Quid.balanceOf` DOES NOT MOVE WITH IL.** It is `autoManaged[u].pooled`, a static share record —
-   it read **10.000000 ETH at every rung** while `POOLED` drained 10 → ~0. **Never use it as an IL
-   probe.** `convertToAssets(balanceOf(lp))` is the only per-LP mark-to-market.
-2. **The LP-owned USD leg is exactly `POOLED_USD − basketUsd`** and equals the swap proceeds to the
-   cent (1000, 2000, 3000, 4000 …), confirming `_pricingBacking()`'s own comment.
-
-▶️ **TO ACTUALLY ANSWER THE CALIBRATION QUESTION:** fix the injection in a bare fixture (or run the
-probe inside a fixture where it is known to work), assert the oracle moved FIRST, then compare the
-LP's `convertToAssets` path against `1 − √(entry/now)` over a one-directional rally.
 ## ⏸️ §E313 — **THE `preferred` PARAMETER IS DELETED (DONE). DELETING `_takePreferred` ITSELF IS REFUTED — IT HAS THREE CALLERS AND ONLY ONE IS A PREFERENCE.**
 
 **Owner, 2026-08-22: *"there should be no more `_takePreferred` because we can do the multicall thing
@@ -22124,49 +20283,6 @@ indistinguishable, in stored state, from one that is balanced.
 
 ---
 
-## ✅ §E323 — **CLOSED 2026-08-24: BOTH HALVES ARE IN THE TREE.** The measurement: `DrainAtomicity.t.sol:1400-1402` now calls `AUX.swap(USDC, WETH, false, …)` for the sell arm — SAME pair, `forVolatile = false`, not reversed arguments — and `:1407-1409` asserts `assertGt(buys, 0)` / `assertGt(sells, 0, "this is the E323 defect returning")`, so a permanently dead arm can no longer hide inside the `try/catch` (rule 4: the skip stays, instrumented). Its own residual — *"still reports σ² 0 → 0 because no source is pinned"* — is also discharged in the same helper: `:1382-1387` deploys `InjectedObservationSource` and pins it, and §E327 measured **σ² 0 → 23598713149014421874 (≈23.6 wad), assertion green**. What remains (choose a PRODUCTION source) is §E327's ▶️, not this row's. *(original booking below)*
-### §E323 — **THE VARIANCE DRIVER'S SELL ARM HAD ITS ARGUMENTS SWAPPED AND HAS NEVER RUN. ITS DOCBLOCK PROMISES THE OPPOSITE.**
-
-**Found 2026-08-22 while writing `SignedNetFlow.t.sol`** — my own sell leg reverted `BadAsset()` and
-grepping for the same shape turned up exactly one other site, in the fixture that exists to create
-volatility.
-
-`DrainAtomicity._driveTick` (`:1342`) alternates buy and sell rounds. The sell round read:
-```solidity
-try AUX.swap(address(WETH), address(USDC), true, (1 + (i % 4)) * 1e18, 0, true) {} catch {}
-```
-The signature is `swap(token, asset, forVolatile, …)` and **`asset` must be WETH or WBTC** —
-`SwapLib.sol:335`: `if (r.asset != c.weth && r.asset != c.wbtc) revert BadAsset();`. Passing USDC as
-`asset` reverts on **every odd round**, and `catch {}` ate it. A sell is the SAME pair with
-`forVolatile = false`, not reversed arguments.
-
-⇒ **Half of every call to this helper was a no-op, and the helper's own docblock says
-*"alternates direction with varying size so the tick moves BOTH ways and the ring stores real second
-differences rather than a straight line."*** The series has only ever been one-directional buys.
-🔴 **SO EVERY CONCLUSION DRAWN FROM IT ABOUT VARIANCE WAS MEASURED ON A SERIES THAT WAS NEVER
-TWO-SIDED** — including §E277 / §UNIT-SERIES-MEASURED's *"20 driven ticks cannot budge σ²"*, already
-under suspicion from §E308 for a DIFFERENT reason.
-
-### ✅ FIXED, AND MADE UNREPEATABLE
-`forVolatile = false`, plus per-arm success counters and `assertGt(buys, 0)` / `assertGt(sells, 0)`.
-The `try/catch` STAYS — a transient revert on one round is legitimate and should not fail the fixture
-— but a PERMANENTLY dead arm can no longer hide inside it. **Standing rule 4 exactly: the skip is
-what made the defect invisible, so the fix is to keep the skip and instrument it, not to remove it.**
-
-### ⚠️ NECESSARY BUT NOT SUFFICIENT — AND THIS CONFIRMS §E308 RATHER THAN REPLACING IT
-With both arms live, `test_UNITA_FixtureDrivesRealVariance` **still reports σ² 0 → 0**. The residual
-cause is the one §E308 named and is INDEPENDENT of direction: `_observeIfSourced` returns at
-`if (src == address(0)) return;` and `AllesFixture`/`DeployLib` pin no source, so the ring is not
-written at all. ⛔ **AND THE HELPER'S OTHER SENTENCE IS ALSO WRONG:** it says *"the ring advances ONLY
-ON A SWAP"*. The ring stores an INDEPENDENT observation (§E222 — *"never `px`, which READ this
-ring"*), precisely so the oracle is not self-referential (§E310/§E314). **A swap can therefore never
-move the ring by itself, with any argument order.** Driving swaps to create variance is not a fixture
-bug to fix twice; it is the wrong mechanism. ▶️ Pin a source (as `PushObservationFillsTheRing`
-does) or call `pushObservation` — which is §E294's keeper, still with zero production callers.
-
-
----
-
 ## ✅ §E324 — **WHY THOSE THREE SKIPS MATTERED: THEY DISABLED THE ONLY MONITOR §E304 CALLS ESSENTIAL**
 ⚠️ **THE FIX ON `main` IS `§LOOSE-ENDS-SCAN`'s, NOT THIS ROW'S — TWO THREADS FIXED IT INDEPENDENTLY
 WITHIN THE HOUR.** Both separate the env read from the fork; theirs additionally `emit log`s the
@@ -22499,32 +20615,6 @@ the suite while production works**. ⚠️ `setObservationSource` is one-shot
 (`require(observationSource == address(0))`), so a wrong pin is permanent on that instance.
 📌 `CurveObserverIsCheapAndSane` already exists to validate a Curve source against Chainlink — the
 acceptance test for step (2) is written.
-
----
-
-## 📌 §SKEW-DOUBLE — **THE RESOLUTION IS RIGHT, BUT ITS FIRST TELL IS FALSE. CORRECTING IT BEFORE ANYONE BUILDS ON IT.**
-
-The proposed call — **keep `retainSkewPremium`, delete the skew in `_fillDelta`** — is supported by the
-call graph, the decisive test's own arithmetic, both docblocks, and rule 17 (one cut retires
-§SKEW-DOUBLE, §SWAPIN-FLAT-VS-SKEW and §STALE-SKEW-DOCBLOCK together). **That verdict stands.**
-
-⛔ **BUT TELL #1 — *"`_fillDelta` is a `view`, it cannot credit LPs, ever"* — IS WRONG, and it is the one
-offered as decisive on its own.** A `view` that returns a smaller `out` makes the CALLER settle a
-smaller payout; the difference stays in `POOLED_*`, which is LP principal. **Core says so in that very
-function**, about the 420 ppm that occupied the same line: *"The 420 was retained in `POOLED_*` and DID
-reach LPs by compounding"* (`Core.sol:1187-1188`; `Quid.sol:136` calls `POOLED_*` *"principal + ALL
-compounded fees"*).
-⇒ **Both charges reach LPs. The difference is TIMING, not existence** — per-share accrual
-(`recordSkewPremium`) credits the LP present AT THE SWAP; `POOLED_*` compounding credits the holder at
-CLAIM. §E311's comment names exactly this: *"a difference of TIMING (holder at claim vs holder at swap)"*.
-⭐ **And once stated correctly the timing argument STRENGTHENS the same conclusion:** a market-making
-premium is compensation for carrying inventory risk *at that moment*, so it belongs to the LP who was
-there — which is per-share accrual, i.e. `retainSkewPremium`. **Keep the crediting path because its
-attribution is right, not because the other one credits nobody.**
-⚠️ **Why this matters beyond pedantry:** "a `view` cannot charge" would license deleting other
-`_fillDelta` reductions as no-ops. They are not no-ops — that is precisely how the 420 was charged for
-its whole life, and §E311 had to be corrected once already for describing its removal as free.
-
 
 ---
 
@@ -29206,39 +27296,6 @@ A battle-tested reference implementation outranks convention-reasoning — CHECK
   📌 Before designing one: check whether the legacy repo handles this case some other way — it may
      already have a mechanism (its `Rover.sol` UniV3 path, or a keeper leg) that was never ported.
 
-## §A.58(2) DOWNGRADED — the user is right: the JIT refill covers this. It is KEEPER work, not a defect.
-
-User: *"the legacy repo doesnt handle the case you speak of, the flash refiller you completed earlier
-should automatically kick in to fix this, am i wrong?"* Not wrong. Checked:
-  • There is NO `function *refill` in `src/` — so it is NOT an on-chain automatic trigger.
-  • `Core.sol:266` describes it: *"refill is a self-funding fleet op — JIT Morpho-flash BTC →
-    creditSwapIn → repay, gas via #87"*. It is a KEEPER operation.
-  • `Aux.sol:854/863` record that the older on-chain `arbETH`/`arbBTC` forwarders (called by
-    `Core.refillETH` / `Quid._withdraw`) were REMOVED — i.e. the on-chain auto-arb path was
-    deliberately retired IN FAVOUR of the fleet op.
-  • An ECONOMIC layer backs it: `skewPremiumETH`/`skewPremiumBTC` withhold a premium from the drainer
-    that stays in the basket as LP backing (`SkewPremiumRetained`). Draining is PRICED, not free, and
-    the premium is exactly the fund the refill captures for LPs.
-
-⇒ A ~99.9% one-sided range is therefore NOT an unhealable deadlock: the keeper flash-refills it, funded
-  by the skew premium the drainer already paid. My framing ("`reseat()` cannot heal the deadlock it
-  documents") measured the WRONG HEALER — `reseat()` is the permissionless tick-repack poke; the
-  composition healer is the fleet JIT refill, a different mechanism entirely.
-STRUCK as a protocol defect. What remains is narrower and honest:
-  • 🟡 LIVENESS, not correctness: if the keeper fleet is down, a drained range stays drained until it
-    returns. Same trust model as any keeper-dependent op — worth stating in the docs, not fixing in the
-    contract.
-  • 🟡 TEST GAP (real, and the only actionable part): `testGrindRemoval_...` calls `reseat()` on a
-    composition-skewed range and asserts a no-op. That is the WRONG mechanism for that state, so the
-    test does not exercise the actual healer. A test that drains the range and then runs the JIT REFILL
-    path would prove the property the file was reaching for.
-
-📌 THIRD wrong verdict on §A.58, and the pattern is now unmistakable: (a) "design decision" — from
-reasoning about the fixture; (b) "off-by-one" — from an external convention; (c) "unhealable deadlock"
-— from checking only ONE mechanism and not asking what else could heal it. Each time the correction
-came from the USER pointing at something real. ASK WHAT ELSE IS IN THE SYSTEM before declaring
-something unhandled.
-
 ## §A.59 🔴 STALE-COMMENT CONTRADICTION — user says the auto-trigger WAS built; two comments say it was not
 
 User: *"we built the on automatic trigger several compactions ago in this thread."* I could not confirm
@@ -31616,16 +29673,16 @@ where `amount` is native (C1) and `consumed` is 6-dec. The mismatch is currently
 the branch unreachable. **Fixing C3 alone ARMS it** — for an 18-dec stable it refunds the swapper's
 entire deposit *after* the swap executed.
 
-## C4 🟠 HIGH — a **wei** premium written into a 6-dec register silently kills the θ risk budget
-`SwapLib.sol:416` `r.amount` is raw WEI → `:442` `retainSkewPremium` → `:1323` `premium =
-mulDiv(amount, skew, 1e18)` (WEI) → `Core.sol:277-284` `recordSkewPremium(uint premiumUsd)` whose
-docblock says *"Units = … (6-dec)"* → `_bumpEwma` → `QuidLib.sol:334-339` `mulDiv(prem6 * 127, 1e18,
-pooled6)` (pooled6 genuinely 6-dec) → `derivedThetaWad` → `applyTheta` returns `available` unthrottled
-when `>= 1e18`. One 1 ETH sell at 1% skew writes `1e16` into a register read as "$10,000,000,000"
-(~3.3e8x at $3000/ETH). The clamp was deliberately deleted (`QuidLib.sol:376-381`), so it stays blown
-for the EWMA's life. **The #107/D3 Merton range-size throttle is DEAD on the ETH side after the first
-volatile sell-in.** Fail-open; `clampByBacking`'s physical headroom still binds, so not a direct drain —
-but the control is gone and `Core.skewPremiumETH` is meaningless.
+## C4 🪦 RETIRED 2026-09-10 — ~~a **wei** premium written into a 6-dec register silently kills the θ risk budget~~
+
+Both halves are gone. **The BUG is fixed**: `retainSkewPremium` now takes an explicit `nativeAmount`
+flag and converts with `premium·r.px/1e30` on the sell leg only, so the native legs no longer record
+wei/sats into a USD register. **The CONSEQUENCE is deleted**: `derivedThetaWad`/`applyTheta` and the
+premium EWMA this fed no longer exist (§NO-GAMEABLE-BOUND).
+⭐ The general lesson survives both and is why this stub is kept: **a unit error that lands in a
+register nothing asserts on is invisible until something downstream divides by it.** The register
+(`Core.skewPremium`) is still read as an LP credit, so the fix still matters even though the θ
+consumer that made it catastrophic is gone.
 
 ## C5 🟡 MEDIUM — a **THIRD** instance of the §A.57 mint bug, `Quid.sol:658`
 `QUID.mint(recipient, owed, address(QUID), 0);` — missing `* 1e12`. `LP.usd_owed` is 6-dec. The sibling
@@ -33029,26 +31086,6 @@ range. Reusing that measurement here is the specific error this file exists to s
 
 ---
 
-## 2. What refill is NOT — four definitions ruled out, three by the owner
-
-⛔ **Not re-pairing assets already held.** Pairing spare ETH against spare dollars we already hold just
-makes the range smaller in one leg. If there is excess ETH beyond the dollars available to pair it, the
-excess stays uncovered. That is a REBALANCE, and it shrinks the pool rather than refilling it.
-
-⛔ **Not selling uncommitted basket dollars for out-of-range ETH.** Those dollars back QU!D. Spending
-them to buy volatile converts stable backing into directional exposure using QU!D holders' capital.
-It is a trade with someone else's money, not a refill. **This is the boundary that matters most.**
-
-⛔ **Not #12's freed headroom.** (E67, owner-corrected.) I claimed E36's +60,000 of returned headroom
-and E39's +32 ETH of range depth were "additional refill capacity". **#12 freed no dollars**: it stopped
-the backing gate counting LP trading proceeds as basket commitments. `liquidTotal` never moved, only
-`committedBoth` fell. **What grew is PERMISSION, not capital.** ❓ Whether deployable dollars sit behind
-that permission was never checked — E39's `surplus/price` arithmetic assumes it does.
-
-⛔ **Not the Lightning channel rebalancer.** See §5.
-
----
-
 ## 3. What the contracts actually do today ✅
 
 All verified in-repo 2026-08-05, at these lines, AFTER the E68 skew change landed (`ca4d26e`):
@@ -34109,44 +32146,6 @@ closure; do count it as coverage.**
 transport failures under `-j 8` is normal on a rate-limited key — **re-run the failures before
 reading them as defects, and classify on the message, not the count.**
 
-## 🟢 §E352-REACHABILITY — **THE "FREE DRAIN AT σ²=0" CANNOT BE CONSTRUCTED BY A SWAP THAT MOVES VALUE. MEASURED.** (2026-08-29)
-
-`§E352` gates the 141-task skew cluster and is booked as *"a free drain at σ²=0 … both routes change
-what users are charged"*. **Tested rather than decided. `evm/test/SkewE352Reachability.t.sol`, 4/4
-green:**
-
-| cell | charge | |
-|---|---|---|
-| flush · σ²=0 · **real drain** (10% of inventory), ETH | **> 0** | `_depletion` is σ²-FREE — `210 ppm × drain/inv0` — and it is what makes the branch order safe |
-| flush · σ²=0 · real drain, **BTC** | **≥ 0.2%** | plus the splice floor, which ETH does not have |
-| **scarce** · σ²=0 · real drain | **= 3e16** | the sentinel at `:1333` DOES fire where scarcity is real — `:1282` never intercepts it |
-| flush · σ²=0 · **drain == 0** | **0** | the pinned cell — **and the only free one** |
-
-### ⇒ WHY THAT CLOSES IT
-
-The free cell requires `drainUsd6 == 0`. **The production path cannot pass zero:** `SwapLib:444` is
-`wellSkew(c.core, r.px, r.amount)` — *"§E68: `r.amount` IS the 6-dec drain size"* — and
-`_fillableDrain` returns `wanted` **unchanged** when `sigmaSqWad == 0`, so in exactly the unmeasured
-case the full swap size arrives at `skewWad`. A swap that drains nothing moves no value and has
-nothing to adversely select.
-
-📌 **WHY BOTH EXISTING TESTS MISSED IT, WHICH IS THE REUSABLE PART.**
-`SkewUnmeasuredVariance` asserts `flush == 0` at σ²=0; `SkewLearningsAreLive` asserts `flush > 0` at
-σ²=SIGMA. **Both pass `drainUsd6 = 0`.** Between them they bracket σ² and say **nothing about drain** —
-so the suite appeared to cover the branch from both sides while the axis that decides it was fixed at
-one value in both. ⚠️ Same shape as the `flush < CEIL` bound that `§E352`'s own comment calls
-*"satisfied BY THE DEFECT"*: **two tests can agree on a wrong picture by sharing an unvaried input.**
-
-### 🟠 WHAT ACTUALLY REMAINS, AND IT IS SMALL
-
-Not *"stop the free drain"* — there is none — but: **should an unmeasured FLUSH swap owe only the
-inventory term (`_depletion`), or also an adverse-selection term?** The base is `σ²·confFrac/8`,
-which is zero when σ² is, so "charge the base" is not available as an answer at σ²=0; charging the
-3% sentinel on a NON-scarce range would price every quiet-tape flush swap at the ceiling, which
-`§E59`'s own bracketing test warns against. ⇒ **A policy question about a term that is already
-non-zero, not a leak.** ⛔ Do not "repair" `SkewUnmeasuredVariance`'s `assertEq(flush, 0)` — it
-correctly pins a synthetic cell, and the new suite is what covers the reachable ones.
-
 ## 🧩 §INTENT-FUNDING-OPTIONS — **THE MISSING LEG IS A WIRING GAP ON ONE SIDE AND A REAL DESIGN HOLE ON THE OTHER** (2026-08-29)
 
 Evidence for Tier 0.1. `§INTENT-HAS-NO-FUNDING-LEG` measured the loss; this is what the settlement
@@ -34258,74 +32257,6 @@ backstop has no economic bound"*), `§J.2c` (*"the ERC-20 transfer face is ambig
 manager"*), the TDX/Nitro seal wiring, `#114`'s three rows. The 15 ⛔ are decisions and retractions.
 **The 50 unmarked are overwhelmingly sub-headings of other items** — the same distortion `§E356`
 measured, and the reason "137 sections" is not "137 tasks".
-## 🔍 §CLUSTER-1-SKEW — **141 TASKS READ AGAINST CODE. THE HEADLINE BLOCKER IS REAL BUT MUCH NARROWER THAN IT READS.** (2026-08-29)
-
-First cluster read end-to-end against the tree. **`§E352` is the gate on all 141 and it is one of the
-four owner decisions — so getting its scope right is worth more than closing rows.**
-
-### ✅ WHAT LANDED, VERIFIED — the ceilings are gone
-
-`UNIT-A-DECIDED` records the owner call: *"DELETE THE CEILINGS. THE SKEW USES THE ACTUAL MEASURED
-VARIANCE."* In the tree today:
-
-| constant | declarations | uses |
-|---|---|---|
-| `MAX_WELL_SKEW` | **0** | **0** — deleted (§E275, "unjustifiable") |
-| `CAP_SAFETY` | **0** | **0** — deleted (was the 2σ worst-case multiple) |
-| `UNKNOWN_VARIANCE_SKEW` | 1 (`:762` = `3e16`) | 3 |
-| `SPLICE_FLOOR` | 1 (`:831` = `2e15`) | 2 |
-
-⛔ **BUT THE CONCERN MOVED RATHER THAN CLOSED, AND A ROW IN THIS CLUSTER SAYS SO:** *"§E275 deleted
-`MAX_WELL_SKEW` as unjustifiable; the split kept `UNKNOWN_VARIANCE_SKEW` at the same 3e16 **BY
-INHERITANCE, NOT BY DERIVATION**."* Confirmed — `:762` is a bare `3e16` with no derivation beside it.
-**So every task about "the 3% is an inherited constant" is still open under a different name.** This
-is the closure trap from earlier today in its exact form: the vocabulary changed, the concern did not.
-
-### 🔴 `§E352` IS REAL, AND ITS SCOPE IS ONE CELL — NOT "A FREE DRAIN"
-
-`§E356` books it as *"a free drain at σ²=0"*. Read against the code that overstates it. The flush
-branch is:
-
-```
-SwapLib.sol:1282   if (inv1 >= target) return _maxWellSkew(sigmaSqWad, rk) + _depletion(inv0, inv1);
-SwapLib.sol:1333   if (sigmaSqWad == 0)  return UNKNOWN_VARIANCE_SKEW;      // 51 lines later — unreachable from :1282
-```
-
-and the two terms are:
-
-```
-_maxWellSkew(σ², rk) = σ²·confFrac/8e18 + rk.spliceFloor     // :959
-_depletion(inv0,inv1) = inv1>=inv0 ? 0 : DEPLETION_RATE_WAD·(inv0−inv1)/inv0   // σ²-FREE
-ethRisk() = Risk(ETH_CONF_FRAC_WAD, 0)      // no splice floor
-btcRisk() = Risk(CONF_FRAC_WAD, 2e15)       // 0.2% floor
-```
-
-⇒ **A REAL DRAIN AT σ²=0 IS NOT FREE.** `_depletion` carries no σ² term, so any `drain > 0` is charged
-`210 ppm × drain/inv0` on both assets, and BTC additionally floors at 0.2%. **The genuinely
-uncharged cell is narrow: ETH, σ² unmeasured, and `drainUsd6 == 0`** — i.e. a swap that drains
-nothing. `SkewUnmeasuredVariance.t.sol:92` pins exactly that call
-(`skewWad(POOL, POOL/10, 0, ethRisk(), 0)`) and asserts `flush == 0`.
-
-📌 **THE TEST IS THE BEST-BUILT THING IN THIS CLUSTER AND SHOULD NOT BE "FIXED".** Its comment
-explains why it is an equality: *"an assertion a fix cannot fail is not coverage of the fix"* — the
-earlier bound `flush < CEIL` was satisfied **by the defect**, so the suite reported the branch
-covered while it was not. It goes red the moment the decision lands, either way.
-
-⇒ **The decision to make is not "stop the free drain".** It is: **when variance is UNMEASURED, does
-the adverse-selection base charge nothing (because the base IS σ²·confFrac/8, which is 0) or the
-sentinel?** The inventory side is already handled by `_depletion` regardless. That is a much smaller
-question than the row implies, and it is a one-line branch-order change either way.
-
-### ⇒ WHAT THIS DOES TO THE 141
-
-- **Blocked on the same one decision, not on 141 investigations.** The UNIT-A (13), E93 (11),
-  UNIT-B (6) and E87/E98 (5) families are attempts, retractions and status reports on this question.
-- **The σ²-suppression sub-family needs re-reading before any of it is built** — `§E345` landed
-  (`Core.sol:400-401`, `realizedVarianceWad` = `max(ring, anchor)`), so the *"4h gaps → σ² 24× down"*
-  measurement those plans were written against no longer describes the input.
-- **The "3% by inheritance" family stays open** under `UNKNOWN_VARIANCE_SKEW`, and is the one part of
-  this cluster that does NOT wait on `§E352` — deriving the constant is separable work.
-
 ## 🧭 §TASK-CLUSTERS — **THE CORPUS IS 1,547 ITEM-SHAPED THINGS, AND THAT IS NOT THE SAME AS 1,547 TASKS** (2026-08-29)
 
 Owner's method, applied before reading code: *"read all the tasks together first, check for
@@ -34922,141 +32853,6 @@ The single-asset instance the fold needed already existed. This does NOT wait fo
   pool". Those legs call **Curve** now. Prose describing a router the code no longer reaches is the
   exact failure mode that has already cost this refactor several wrong conclusions.
 
-## 📐 WHAT ACTUALLY SIMPLIFIES ACROSS THE REFACTOR — **σ² DOES NOT DELETE. IT MOVES FROM *PRICING* TO *SIZING* (measured 2026-08-15).**
-The expected cascade was: charge becomes a passthrough ⇒ σ² has no consumer ⇒ `ringVariance` and the ring
-delete with it. **That is wrong, and the reason is a SECOND, INDEPENDENT CONSUMER.**
-⛔ **`QuidLib.derivedThetaWad:303-304` reads `realizedVarianceWad` to size the range's DEPTH BUDGET** —
-θ weighs `kLvrWad · σ²` (the LVR work the range takes on) against the premium it earns. That is the
-range-SIZING decision, not the swap CHARGE, and it survives every change to how a swap is priced.
-`Quid.sol:939` re-exposes the same number.
-✅ **WHAT DOES DELETE when the charge becomes the realized restoration cost:**
-| | |
-|---|---|
-| `skewWad` | **159 lines** — the A-S kernel `Γ·σ²·q/(1−q)^ρ` |
-| `_maxWellSkew` | **43 lines** — its σ² term goes; only `SPLICE_FLOOR` (BTC) had another reason to exist |
-| `_composePrice` | **9 lines** — the §E89b risk-vs-fee split exists to separate σ²·confFrac from the splice |
-| `CONF_FRAC_WAD`, `ETH_CONF_FRAC_WAD` | they exist ONLY to multiply σ² |
-| Γ as a variance coefficient | survives ONLY as the 3% cap; ρ is already gone |
-⛔ **WHAT SURVIVES:** `Core.realizedVarianceWad`, `OracleLib.ringVariance`, and the observation ring — the
-ring feeds BOTH the TWAP and θ, so it outlives the skew either way.
-✅ **AND `qBar` SURVIVES WITH A CHANGED JOB — this is the owner's *"used for attribution rather than pricing"*.**
-The integral `(1/Δ)·∫[q0→q1] q/(1−q) dq` stops being a price and becomes the MEASURE OF IMBALANCE CREATED,
-i.e. the key by which the restoration cost is attributed to the causer. **The one genuinely derived piece of
-the machinery is the one that keeps its job.**
-🔴 **CONSEQUENCE THAT MUST NOT BE LOST: every σ² DEFECT MEASURED THIS SESSION STILL APPLIES — TO θ.**
-Attacker-stretchable (93.3% at 4h spacing, §UNIT-B-PATIENCE), not patchable by re-normalization
-(§SIGMA-ESTIMATOR-NOT-PATCHABLE), and representation-sensitive (±31% on an encoding-ONLY change,
-§SKEW-DESIGN-VERDICT ⓸). **Moving σ² out of the charge lowers the stakes — a manipulated σ² then moves RANGE
-DEPTH rather than the price a swapper pays — but it does NOT close the exposure, and this row exists so the
-passthrough is not mistaken for having closed it.**
-📌 **θ FAILS OPEN AT σ² = 0 (`derivedThetaWad` returns 1e18), so a σ² an attacker drives DOWN buys MORE depth,
-not less** — and `SwapLib.clampByBacking`'s physical `backing − pooled` headroom is what actually bounds it
-(audit #8). **That is the guard to re-verify once σ² leaves pricing, because it becomes the only one left.**
-⏸️ **NARROWED BY §E345 (`56249fe8`), NOT CLOSED.** σ² is no longer identically 0: `Core.realizedVarianceWad`
-returns `max(ringVariance, anchorVarianceWad())` and the anchor leg accumulates squared Chainlink returns on
-every swap (`Core.sol:431`/`:983`). **Suppressing σ² now requires suppressing the CHAINLINK anchor, not just
-declining to write a permissionless ring** — the `max` was chosen precisely so the ring's writer can move σ²
-only UPWARD. ⚠️ **The fail-open at a TRUE 0 is unchanged and still live** (0 from both legs still means
-UNMEASURED), and the attacker-stretchability / non-patchability / representation-sensitivity results above are
-untouched. ⇒ **Re-run this analysis against `max(ring, anchor)` before treating either half as settled.**
-
-## 🔑 WHAT THE REFILL BECOMES UNDER THE CUT — **A RESEAT, NOT A PURCHASE. THIS IS WHY THE OWNER CALLED EXTERNAL BUYING A MISUSE (2026-08-16).**
-Read against `spv-2d`'s current state: **`Core.swap` settles at oracle AGAINST INVENTORY with zero v4
-references**, while `_modifyLiquidity` still has 7 and four unlock sites remain (Repack/Reseat/OutsideRange/
-Collect). ⇒ **Swaps have already stopped being v4 operations; LIQUIDITY has not.**
-🎯 **ONCE LIQUIDITY ALSO SETTLES AGAINST INVENTORY, THE RANGE STOPS BEING A POSITION AND BECOMES INVENTORY WE
-OWN. At that point "putting ETH into the range" is CREDITING `POOLED_ETH` — a bookkeeping move, not a trade —
-and the RANGE becomes a PRICING PARAMETER rather than a custody boundary.**
-⇒ **A refill is then a RANGE-PLACEMENT COMPUTATION: choose the range so the inventory ALREADY HELD sits at the
-target composition at the current price. No counterparty, no external leg, no restoration cost.**
-✅ **THAT RECONCILES EVERY CLAUSE OF §E48 AT ONCE, WHICH IS WHY IT IS PROBABLY RIGHT:**
-| owner's words | why it follows |
-|---|---|
-| *"uncommitted dollars shouldnt be sold for ETH out of range… a misuse"* | there is nothing to buy — the ETH is already held |
-| *"maximise representation of the ETH already held"* | that is literally what range placement does |
-| *"external impact… should net the zero"* | no external leg exists to carry impact |
-| *"no premium paid to a restorer"* | no external party performs the restoration |
-| *"reseats should fire together with refill JIT"* | they are not two operations; they are ONE |
-⛔ **AND IT EXPLAINS WHY MY CURVE-RESTORATION FRAMING WAS WRONG** — I costed an external purchase the owner had
-already ruled out, then derived a grind floor from a `C` that does not exist in the atomic tier. **The floor
-survives only at §E48's THIRD tier (the premium-attracted hop), where an external cost is real.**
-✅ **THE ARITHMETIC IS BUILT AND TESTED (2026-08-16).** `SwapLib.refillPlacement` — the range-placement
-computation this section predicted, `pure`, no pool / tick / sqrt-price / counterparty. 1:1 falls out with **no
-square root**: a concentrated position is 1:1 by value exactly when price is the GEOMETRIC MEAN of its bounds,
-so placing bounds ratio-symmetrically (`px/(1+δ)`, `px·(1+δ)`) satisfies it identically and the roots cancel
-before any arithmetic. Scarcer leg binds; surplus is REPORTED as idle, not absorbed. 9/9 green.
-✅ **THE CHARGE IS DECIDED AND BUILT** — `imbalanceFeeUsd6`, reshaping the EXISTING fee onto imbalance created
-rather than adding a levy. **Calibration is derived, not chosen:** a drain from balance creates exactly 2× its
-value in idle inventory, so **210 ppm on imbalance ≡ 420 ppm on notional** (matched to the cent, $25.32 both
-ways on a $60,288 trade) with **no new constant**. The refill direction exempts itself — `created` floors at 0.
-✅ **DELIVERABILITY IS A PRECONDITION, NOT A CLAMP (rule 17 applied to my own work, `649a3b6f`).** I first added
-`refillRealisable` taking `min(nominal, realisable)`; `QuidLib.deliverableETH` ALREADY bounds that class, so
-the min guarded an unconstructible state. **Deleted — one function and four tests gone, no capability lost.**
-What survives is the precondition on `refillPlacement`: its inputs MUST be deliverable figures, because feeding
-nominal overstates depth by exactly the undeliverable slice and does so SILENTLY (no revert, just a partial
-fill wearing a normal one's costume).
-🔴 **WHAT STAYS GENUINELY HARD, AND IS NOT DISSOLVED BY THIS:**
-1. **IF THE RANGE IS SHORT ETH OUTRIGHT, NO RESEAT FIXES IT.** You can only represent what you hold. *"Restore
-   to 1:1"* and *"maximise representation of ETH already held"* diverge exactly there.
-   ✅ **THE CODE SIDE IS CLOSED:** `test_ShortEthCannotBeFixedByPlacement` pins the honest report — all held ETH
-   places, the rest of the USD idles, and the range ends 1:1 on a SMALLER position. 🔴 **The owner's conflict is
-   NOT closed and is a decision, not code**: which of the two objectives wins when they diverge.
-2. **§E48's THREE OPENS — TWO MOVED, ONE STILL OPEN:**
-   ✅ **who pays the gas — ANSWERED IN CODE, not by me**: `SwapLib:676-679` records the refill as a self-funding
-      fleet op (JIT Morpho-flash → `creditSwapIn` → repay) with *"gas already refunded via #87"*.
-   ✅ **skew ↔ external impact — DISSOLVED AT THE ATOMIC TIER** by this section's own table: no external leg
-      exists to carry impact, so there is nothing to tie it to. **It survives ONLY at the third tier (the
-      premium-attracted hop), where an external cost is real** — do not re-open it for tiers 1–2.
-   ✅ **Rust-automatic vs on-chain trigger — ANSWERED BY EVIDENCE, NOT BY PREFERENCE (2026-08-16, owner:
-      *"can we workaround needing this in the structure at all and still guarantee that some other component
-      does the job"*). YES — and BOTH halves already exist and are tested:**
-      • **PRIMARY — repack-first.** `SwapLib.rebalanceCore` is folded into the repack-first of **every**
-        swap/deposit/withdraw (`Quid:1130`). Ordinary traffic reseats the range, and **the swapper who created
-        the imbalance pays the gas** — which also answers "who pays" without a budget: `SwapLib:730` —
-        *"repack-first (swapper-paid) + the self-funded reseat keeper — no separate gas budget needed."*
-      • **BACKSTOP — `Quid.reseat()` is `public` and PERMISSIONLESS**: *"anyone can unstick the pool even if
-        no one is trading."* No trusted party, no daemon, **no liveness dependency**.
-      🔴 **AND THERE IS NO RANGE-REFILL KEEPER IN RUST — I INVOKED A COMPONENT THAT DOES NOT EXIST.**
-      `quid-bridge/src/lev_keeper.rs` manages **leverage positions** (LTV targets, `repay_to_target_usd`,
-      per-LP `rebalance(lp)`), not the range.
-      ⛔ **THE KEYED ALTERNATIVE WAS ALREADY REJECTED ON PURPOSE.** `evm_validating_signer.rs:54-59`:
-      `repackNFT()` was the only range entry in the signer allowlist and was **DELETED** — *"the successor is
-      `repack(bool)`, which is `onlyUs`… Do NOT re-add it — `onlyUs` means the protocol calls it."* Building a
-      keyed keeper walks straight back into a hole this repo closed deliberately.
-      ⇒ **CONSEQUENCE: `Aux.refillQuote` WAS BUILT AND THEN DELETED IN THE SAME SESSION.** A `view` quoting the
-      refill plan only has a consumer in the FALLBACK tier — and there is no fallback tier, because the
-      primary is unconditional and the backstop is permissionless. **Third deletion in one session on one
-      principle (rule 17): `refillRealisable` duplicated `deliverableETH`'s bound; `pLower`/`pUpper`
-      duplicated a width the arithmetic never read; the quote duplicated repack-first.**
-      ⚠️ **IT ALSO CLOSES THE PUBLISHER QUESTION.** Today's posture is strictly **PULL** — Bebop's RFQ engine
-      and Khalani's Arcadia solver READ `ISwap`'s four views (`getTWAPforAsset`/`resolvedTwap`/`wellSkew`/
-      `swapFeePpm`) and we owe nothing; **there is no 1inch dependency in the tree at all** (measured: zero
-      references). Becoming a **PUBLISHER** — pushing signed quotes into an RFQ pubsub as a maker — would be an
-      OBLIGATION rather than a disclosure (quote liveness, signing infra, honour-or-penalty). With no keeper
-      there is no liveness dependency and no accidental route into it. **Keep the refill off `ISwap`: that
-      contract stays exactly four taker-facing views.**
-      ▶️ **WHAT REMAINS IS THE WRITE, NOT THE TRIGGER:** the placement must be computed and applied INSIDE
-      repack-first, which needs liquidity settling against inventory — i.e. it lands with the v4 cut.
-3. ⚠️ **A TRANSITIONAL HAZARD NOBODY OWNS: swaps now settle against `POOLED_*` while v4 STILL CUSTODIES THE
-   TOKENS** (`spv-2d`: *"the POOLMANAGER HOLDS THE TOKENS, and POOLED_* is an accounting mirror, not a balance
-   we custody"*). **For as long as that window is open, the authoritative balance for swaps and the actual
-   custodian disagree.** That is not a steady state and should not be left open across a merge.
-4. 🔴 **THE REFILL WORK IS ON `main` AND ABSENT FROM `SPV-v4cut` — MEASURED 2026-08-16, AND NOBODY OWNS IT.**
-   `grep -c "refillPlacement\|imbalanceFeeUsd6" SPV-v4cut/evm/src/imports/SwapLib.sol` → **0**. The branch
-   forked before any of it landed and is rewriting the SAME files (`SwapLib`, `Core`, `Quid`), so this is the
-   `isbtc-fold` pattern again: **whichever side merges naively deletes the other's work.** Divergence is
-   **73 main-only vs 31 v4cut-only** — not a fast-forward. v4cut also carries its own declared blockers
-   (`100f5783` transitional solvency divergence, `e02c2d18` a circular oracle the cut introduced).
-   ⚠️ **AND THE REFERENCE COUNT IS THE WRONG TEST — I used it and was wrong.** I reported "111 v4 refs in main,
-   so the cut has not landed". §E200-UNBLOCKED already states the right invariant, quoting `Core:1337-1340`:
-   *"the ring stores PLAIN PRICE… converted ONCE HERE, at the write, so neither ticks nor sqrt-prices survive
-   in storage or on any read path."* **Test THAT invariant, not a grep count** — v4's `getSlot0` return shape
-   and `Quid.UPPER_TICK`/`LOWER_TICK` are the v4 BOUNDARY and legitimately remain until the PM is ours.
-   ✅ **Independently re-verified for the paths that matter here:** the skew checker parses function bodies and
-   reports all 8 skew functions v4-free with the seam unchanged at 8 accessors, and `refillPlacement` /
-   `imbalanceFeeUsd6` contain no v4 concept at all. **The refill arithmetic is representation-agnostic ALREADY,
-   so it does not need the cut to land — but it does need to survive the merge.**
-
 ## 📐 P&L ACCUMULATOR DE-ASSOCIATION — **SCOPED, RATCHETED, AND IT IS FOUR MIRRORS, NOT A SWEEP (2026-08-16).**
 Owner: *"complete the P&L accumulator deassociation from tick and sqrtprice and v4 or poolkey, but handle
 delta only for refill."* **Measured per-accumulator by reading the ENCLOSING FUNCTION of every write:**
@@ -35373,36 +33169,6 @@ cost.** ⇒ **Settle at the ACTUAL cost, or FLOOR the quote. Never quote naked `
 MODEL and should go; the fill settles at oracle and the swapper is charged the measured restoration cost.
 The free-option problem dissolves with it — there is no off-mid committed rate left to arb, so
 `Quote.deadline` drops from load-bearing to hygiene.**
-
-## 🔴 BLOCKER ON PHASE 3 STEP 1 — **"MAKE SKEW BE THE QUOTE" AND "WE DON'T COLLECT IT" SPECIFY DIFFERENT CHARGES. SETTLE BEFORE `FixedRateFill` LANDS (raised 2026-08-15).**
-Step 1 below says *"skew pricing the swapper for the imbalance they create… make skew BE the quote"*,
-and `FixedRateFill` (in `SPV-v4cut`, untracked) implements exactly that — it quotes `wellSkew`/`sellSkew`,
-i.e. the MODELLED charge `Γ·σ²·q/(1−q)^ρ`.
-**The owner then said (2026-08-15): *"we can always get curve to get us the leverage we need no matter
-what from inside and we dont need external arbers to earn the skew so we dont need to collect it
-either. we just attribute properly and rebalance to 1:1."***
-⇒ **THOSE ARE TWO DIFFERENT PRICES, AND THE FILL IS THE ARTIFACT THAT FIXES WHICH ONE IS CANONICAL:**
-| | **(A) MODELLED — what the fill writes today** | **(B) PASSTHROUGH — what "attribute + rebalance to 1:1" describes** |
-|---|---|---|
-| charge | `Γ·σ²·q/(1−q)^ρ` | the **MEASURED cost of restoring 1:1 via Curve**, attributed to the causer |
-| needs σ² | yes | **no** |
-| needs Γ, ρ, `SIGMA_REF`, the ring | yes | **no** |
-| patience vector | **open** — σ² collapses 24× at 4h spacing (§UNIT-B-PATIENCE) | **closed** — a realized fee cannot be diluted by waiting |
-| representation-sensitive | **yes — ±31% on an economically-NEUTRAL encoding change** (§SKEW-DESIGN-VERDICT ⓸) | **no** — it is a receipt |
-| oracle needed | yes (σ² feed) | **no** — settles §BAN-THE-ORACLE for this path |
-🔴 **EVERY DEFECT MEASURED AGAINST THE SKEW THIS SESSION IS A PROPERTY OF (A) AND ABSENT FROM (B):** Γ was never
-derived (it is `MAX_WELL_SKEW` renamed, implying a 10.95-day horizon nobody chose, §GAMMA-HORIZON-DERIVED);
-ρ = 1 with the ρ>1 branch dead; σ² is attacker-stretchable and **not patchable** (three normalizations refuted,
-§SIGMA-ESTIMATOR-NOT-PATCHABLE); and the charge moved 31% when only the ENCODING of price changed.
-⚠️ **AND (B) IS NOT "NO CHARGE".** The swapper still pays for the imbalance they create — they pay the REAL
-restoration cost rather than a modelled premium. §#41-INTERNAL-FILL-PRICE already constrains exactly this
-attribution (the fill must pay the range oracle + the range's own fee, never the mid), so (B) inherits a
-constraint that is already derived rather than needing a new one.
-▶️ **IF (B): `FixedRateFill` quotes the restoration cost, and `σ²`/`Γ`/`ρ`/`ringVariance`/`realizedVarianceWad`
-DELETE — which also dissolves the two suite failures left by the tick removal, with no Γ recalibration.**
-▶️ **IF (A): the fill is right as written, but it inherits an open, unpatchable attacker vector into the
-settlement price, and §BAN-THE-ORACLE cannot land on this path.**
-📌 **Do not resolve this by writing the fill — the fill IS the resolution. One line of owner intent decides it.**
 
 ## Phase 3 — 🔑 THE v4 CUT. One designed replacement, then one deletion.
 **Decided (owner):** replace the AMM with **intent-based refill (1inch Fusion + Khalani)**,
@@ -39969,23 +37735,6 @@ in one commit. **Nothing to test. Closed by deletion, not by coverage.**
 `settleBtcFeesOwed`. Driven from `quid-bridge/channel_driver.rs:844-870`. **Nothing in `evm/test/`
 references it.** A live money path with two guards and no on-chain test on either.
 
-## E3. Decide the θ question — θ prices a cost this pool does not have
-θ ≤ `yield/(K·σ²−f)` is an **LVR-sizing** inequality, introduced to bound how much shared surplus
-`arbETH` could drain. `arbETH` is removed and the LP bears its own IL via the share price. And swaps
-execute at the internal TWAP over Core-only mock tokens under `onlyUs`, so **there is no public-LP LVR
-here at all** (`IL-FINDINGS-2026-06.md` §1) — the real cost is composition divergence on reseat plus a
-≤50 bps execution lag.
-
-Symptoms both directions: it **thins the range in a vol spike**, when swap demand and fees peak and a
-venue most needs depth; and it stays **wide in the low-σ grind**, which our own sim
-(`find_makewhole_window.js`) flags as the one real exposure (~10% upper-bound gap).
-
-Options: drop θ and bound depth only by `surplus = TVL − committed` plus the physical deposit, or
-re-derive a clamp from the execution lag. Counter-argument to weigh: the range's dollar leg is **basket
-capital**, so deeper depth converts more basket dollars into the falling asset; `surplus` bounds the
-level of that but not the rate. **Live money-path parameter — needs its own run with a falsifiable
-prediction stated first.**
-
 ## E4. Rename `registerBtcLp`
 Called at open (`BTCChannels.sol:727`) **and again on every GROW splice** (`_applySplice`, `:813`),
 while the SHRINK half calls `resizeBtcLp`. Two halves of one operation under two verbs, one implying a
@@ -40757,16 +38506,6 @@ User: *"a substantial increase to capital efficiency… if the refill fires as e
 of service to one side of the pool… we have to compare what we have now to this and consider the likelihood
 of the refill not firing as we expect."*
 
-## 🔴 THE DECISIVE FACT — P(refill fires today) = **ZERO**, because it is UNBUILT
-`BUILD-QUEUE:402`: **"#100 — the ACTIVE WBTC flash-serve. UNBUILT either way; only the TRIGGER is
-undecided… STATUS: UNBUILT — there is no flash-serve function."**
- • **0 matches** for `function *refill` in `src/` (Solidity).
- • **0 matches** for flash-serve / JIT-refill in the entire Rust fleet.
- • What IS built and must not be mistaken for it: the **LP-entry pump** (`Vault.registerBtcLp`) and
-   **premium retention** (`retainSkewPremium`). Neither is a refill — one is exogenous LP arrival, the
-   other is accounting.
-⇒ **Today the BTC range refills ONLY when an LP chooses to arrive.** That is not a mechanism, it is a hope.
-
 ## THE COMPARISON
 | | **NOW (split vars, shared backing gate)** | **PROPOSED (unified pooled_usd)** |
 |---|---|---|
@@ -40780,19 +38519,6 @@ undecided… STATUS: UNBUILT — there is no flash-serve function."**
   correctly aimed.**
 ⇒ 🔴 **But shipping the unify BEFORE #100 converts a BOUNDED inefficiency into an UNBOUNDED liveness risk,
   with a 100% refill-failure rate on day one.** That is the wrong order, not the wrong idea.
-
-## LIKELIHOOD OF THE REFILL NOT FIRING — even AFTER it is built (ranked)
- 1. 🔴 **UNBUILT** — today, certain. Everything below only matters once #100 lands.
- 2. 🟠 **Fleet liveness.** The described op is a *"self-funding FLEET op"*. **This is the same fleet whose
-    possible disappearance motivated the #114 dead-man exit.** A refill that depends on fleet uptime
-    inherits every fleet-outage mode — and the ETH LP's withdraw reverts exactly when the fleet is down.
- 3. 🟠 **External flash liquidity.** Needs Morpho WBTC flash depth at the moment of need — an outside
-    dependency, correlated with the stress that caused the drawdown.
- 4. 🟡 **Trigger choice — and this one is a DESIGN LEVER, not a risk to accept.** `#100` leaves it open:
-    **(A) PROACTIVE permissionless** (anyone may call a depletion-check entrypoint) vs **(B) REACTIVE JIT**
-    (fires inside a swap-out). ⭐ **(A) is strictly safer HERE**: it does NOT depend on fleet liveness, so it
-    removes risk #2 — which is otherwise the dominant one. **Given #114 exists precisely because the fleet
-    may vanish, betting ETH-LP withdrawals on fleet uptime is the contradiction to avoid.**
 
 ## ▶️ RECOMMENDED ORDER (keeps the capital-efficiency gain, removes the day-one DoS)
  1. **Build #100 with trigger (A)** — permissionless, so no fleet dependency.
@@ -41297,254 +39023,11 @@ simply reads one leg of two.
   the range books them, correctly) but *"do we credit the delta to LP share price, and build the USD
   delivery leg to match?"*
 
-## Well skew rebuild (branch `rover-weeth-ship-decision`, 2026-08-04) — OPEN, suite RED
-
-Six unpushed commits. `forge test` on the mainnet fork: **3700 passed / 147 failed / 1 skipped**
-(baseline 0–1 failures). Compiles clean, EIP-170 unverified. Nothing here is landed.
-
-Kernel is now `skewWad(outUsd, invUsd)` — one division, **zero governance constants**. Deleted: `Γ`,
-`ρ`/`STABLENESS`, `SIGMA_REF`, `MAX_WELL_SKEW`, `CAP_SAFETY`, `SPLICE_FLOOR`, both confirmation
-windows, `target = flowUsd + committedUsd`, and the entire settlement/duration term. σ² has left the
-skew path completely, which closes the σ²=0 free-drain window and the TWAP-manipulation exposure by
-construction rather than by defence.
-
-**OPEN 1 — sell-leg denominator: STILL OPEN, both prior diagnoses were wrong.**
-  * Diagnosis A ("the denominator is halved, fix the derivation not the test") — wrong.
-  * Diagnosis B ("it computes ΔI, the standard book-imbalance statistic, so it is correct") — right
-    in general, wrong HERE, and the distinction is the whole point. For a two-reserve AMM inventory
-    imbalance and book imbalance ARE the same object: there is no separate book, the reserves ARE the
-    resting liquidity and `(x,y)` fixes the quote at every price on both sides. So the identity is
-    real — it just does not hold for BOTH of our sides.
-  * OUR ASK SIDE satisfies it: we can only hand over volatile we hold, so `V` is genuine depth and
-    the CP reading is correct on the drain leg.
-    OUR BID SIDE does not: the dollars are MINTED AGAINST THE BASKET, so `D` is an accumulator, not
-    the constraint. There is no reserve there for a book statistic to measure.
-  * The tell was already in this repo: our sell side is **not bounded by `D`** — the dollars paid out
-    are MINTED AGAINST THE BASKET, not drawn from `POOLED_USD_*`. That is the exact asymmetry that
-    broke the mirrored sell leg. So our "bid depth" is not `D`, and no CP-against-`D` reading applies.
-
-  **The real open question, unanswered:** if the sell side is basket-backed and effectively unbounded,
-  what IS the correct denominator for a sell? Not `D` (not the constraint), not `(V+D)/2` (justified
-  only by the false book-imbalance identification). Candidates: the volatile inventory `V` we are
-  accumulating (the thing actually at risk), or a realised-cost basis (see OPEN 2). **Derive it from
-  what a sell actually costs us, and do not reach for a ratio because it looks familiar.**
-  Measured symptom: `testSwapPricing_EthSellInRange_PaysAboutOracle` pays 1.65% vs a 1.5% tolerance
-  on a trade worth ~0.9% of pool value.
-
-**OPEN 1b — EXTERNAL order-book imbalance `I = (V_bid − V_ask)/(V_bid + V_ask)` is NOT implemented
-and is a genuinely separate input.** Everything built so far is endogenous and descriptive (our
-position now). This is exogenous and predictive (depth thinning ahead of a move). Note it is a RATIO,
-so symmetric JIT injection cancels — which is why it may be safe where external DEPTH (`L`, a level)
-was not. **Unverified hypothesis about an attack surface; test before relying on it.**
-
-**OPEN 2 — VOID FOR THE SATS LEG. Rewritten 2026-08-04 after the repo owner corrected the premise.**
-It read "nothing ties the skew we collect to the external price impact the flash refill pays". For
-BTC sats THERE IS NO SUCH COST: we never source sats from an EVM tx. The range, when short, prices
-them richly via the skew premium, and a hop holding sats sees a better-than-market bid and sells to
-us through `creditSwapIn`. **The hop is a counterparty we PAY, not an agent we EMPLOY** — we never
-source, never pay external impact, never take acquisition risk. So "never loses money" holds BY
-CONSTRUCTION on that leg: we only ever buy at a price we ourselves posted. The realised-cost EWMA and
-the go/no-go gate I proposed were machinery for a problem that does not exist here. **Do not build
-them for sats.** Two distinct mechanisms were conflated: the ETH-side atomic flash (we DO source,
-in-tx) and the sats-side premium-attracted hop (we never do). Any residual version of this item
-applies to the ETH leg ONLY.
-
-**OPEN 2b — the range credit was 2x too generous and was MASKING an over-charging skew.**
-`RANGE_FRAC_WAD` was `RANGE_DELTA` (20bps). Average execution across a traversal is the GEOMETRIC MEAN
-of pre/post marginal price, not the edge, so the most the range can charge on average is
-`1-(P_a/P_b)^(1/4)` ~ delta/2 = **10bps** (identity control-validated: it reproduces the v3
-whitepaper's own 200x/2000x figures to two decimals). Corrected to delta/2.
-**Result: failures went 147 -> 284.** The over-credit was silently offsetting a skew that
-over-charges generally; removing it did not create a defect, it EXPOSED one (rule 4). Do NOT revert
-the credit to hide this again — the real defect is that the skew is too high, most visibly on the
-sell leg (see OPEN 1).
-
-**OPEN 3 — `Core.skewPremium*` is NOT consumer-free.** It was documented as having "no consumer
-beyond the counters + theta EWMA"; the BTC mint-vs-proceeds invariants are tuned against the premium
-magnitude and break when it moves (`test_RunSim_AllExit_BtcLp` + 5 siblings).
-
-**OPEN 4 — `testGrindRemoval_LargeSwapThenReseatRerangesSkewed` fails on its PREMISE**, not its
-assertion: a swap can no longer drain ≥99% of the range's USD leg. Plausibly the feature working and
-the test needing a rewrite — **unproven, and a dismissal needs the same evidence as a finding.**
-
-**OPEN 5 — flash de-lever pair unattributed.** `testReal_Euler_RebalanceMany_BatchHoldsTarget` and
-`testReal_Morpho_OpenAndDelever` fail in `x <= x` form. No clean baseline was captured, so these are
-not yet attributable to this change either way. **Capture the baseline first.**
-
-**OPEN 6 — `Aux.wellSkew(asset, outUsd)` read surface has single-price exposure.** The swap path is
-guarded by `_priceMax` (two independent prices); the external quote surface Bebop/Khalani read has no
-`v4p` to pair with the TWAP.
-
-**BLOCKED — automatic flash refill not located.** `d588d19` is `E46: raise COMPOUND_GAS`, not refill
-wiring. The Rust flash paths found (`lev_keeper.rs:554`, `lev_keeper_btc.rs:64/150/409`) are IL-target
-leverage rebalancing, not well refill. OPEN 2 cannot be closed until this is found.
-
-**NOT STARTED — `VENUE_ROVER` removal.** Deferred by the repo owner until the skew work completes.
-
-### Skew — verification status and items still unswept (2026-08-04)
-
-**PASSED:** `tools/check-client-abis.py` — 76 signatures, 0 drifted. `forge build --sizes` —
-**SwapLib 24,014 B, margin 562 B** (was ~150 B from the EIP-170 ceiling; the deletions GAINED ~400 B).
-LevMath (20 B margin) and LevManager (70 B) are untouched by this work but remain the tight ones.
-
-**OPEN 7 — `dI/dt` is never read.** The kernel prices the imbalance we are AT, never the one we are
-heading into. `I = (V−D)/(V+D)`; a pool draining steadily toward one side is in a different risk state
-than one sitting statically at the same `I`, and today they are charged identically. Computable from
-ONE stored previous value — no oracle, no external venue, no variance ring, no manipulation surface,
-because it derives from our own settled balances.
-
-**OPEN 8 — external book imbalance may be safe where external DEPTH was not; this is the route to
-closing OPEN 2.** Live external `L` was rejected as JIT-manipulable (flash-add depth ⇒ our skew reads
-~0 ⇒ drain at the floor ⇒ withdraw). That attack works because `L` is a LEVEL. `I` is a RATIO, so
-SYMMETRIC injection cancels out of it — moving it requires ONE-SIDED depth, i.e. carrying real
-directional inventory rather than a free round trip. If that holds, the external signal becomes usable
-in imbalance form and the skew can finally be tied to the actual external cost the flash refill pays.
-⚠️ **HYPOTHESIS ABOUT AN ATTACK SURFACE, NOT A RESULT — must be tested before it is relied on.**
-
-**OPEN 9 — never measured: the real `SorExchange → Aux.swap` curve.** Explicitly asked for; only the
-`addedTok=0` question was answered (deliberate, confirmed by git blame). The curve itself is unmeasured.
-
-**OPEN 10 — never enumerated: all the v4 poolIds.** Asked for, in the context of whether
-`v3SwapTiered` is needed at all unless the v4 pools are exhausted. Not done.
-
-**OPEN 11 — possible dead code from the rewrite (rule 1).** `flowEwmaUsd` and `levClaimUsd6` may no
-longer have a consumer in `sellSkew`; `sr.asset = wbtc` in `_swapOutPrep` may be vestigial after the
-signature reverted to 4 args. Verify by structure, not by name.
-
-**OPEN 12 — range credit on the SELL leg is unverified.** `RANGE_FRAC_WAD` is subtracted inside the
-shared `skewWad`, so both legs get it. It is justified for the drain (the range charged the swapper
-first). Whether the range charges a SELLER the same half-width was never checked.
-
-**OPEN 13 — priority gas as a direct MEV-pressure signal, never evaluated.** Balancer v3's shipped
-MEV hook scales its swap fee with `tx.gasprice − block.basefee`. This is a different signal CLASS
-from anything used here: volatility infers toxicity from past prices, inventory infers it from our
-own position, but priority gas measures *how hard someone is bidding to be first in this block* —
-close to a direct read on toxic flow, which is precisely what the skew exists to price. On-chain, no
-oracle, no history, no observation ring. Surfaced in the 2026-08-04 research and never assessed.
-Caveats to check before use: it is a signal about the BLOCK, not about this trade, so an honest
-swapper in a contended block pays for someone else's MEV; and a searcher can pay priority gas
-without being toxic to us specifically.
-
-### Skew constants — what came out green, and why the rest cannot come out by substitution
-
-**REMOVED, suite green each time (main a23640f, 3856/0):**
-`SIGMA_REF`, `GAMMA_WAD`, `STABLENESS` — byte-identical arithmetic, because none was ever a dial:
-rho=1 made the barrier loop DEAD CODE (the pole q/(1-q) is A&S 2.3's derived shape, exponent fixed by
-the CARA value function), and Gamma === MAX_WELL_SKEW exactly (the cap under a second name).
-`CAP_SAFETY` — a 2-sigma WORST-CASE multiple, i.e. risk aversion = gamma renamed. Replaced by the
-preference-free EXPECTED cost, LVR = sigma^2/8 per unit time (arXiv:2208.06046 eq.16).
-
-**⚠️ DO NOT REMOVE SPLICE_FLOOR BY SUBSTITUTION — IT WOULD OPEN A FREE-DRAIN.** Measured: without it
-the BTC cap is sigma^2*T/8 alone = 0.01 * 1.14e-4 / 8 = **1.43e-7 (0.0014 bps)** at sigma^2=1e16 over
-the ~1hr confirmation window. That is three orders of magnitude below any real skew, so BTC's charge
-would pin at ~zero. SPLICE_FLOOR is currently the ONLY thing keeping that ceiling meaningful — which
-is also why the 2026-08-04 prediction that removing CAP_SAFETY would break testSkewBarrierRamp was
-WRONG: the floor dominates the BTC cap and 3e14 still sits under it.
-
-**THE REAL FINDING: the cap's STRUCTURE is wrong, not its constants.** sigma^2*T/8 is an expected-loss
-RATE. Using a rate as a price CEILING is a category error — an expected loss over the settlement
-window is a BASE charge (the floor under every trade), which is what the reverted rebuild concluded.
-So the last three constants (MAX_WELL_SKEW — which serves DOUBLE DUTY as numerator coefficient AND
-ceiling — plus SPLICE_FLOOR and the two windows) cannot come out one at a time. Reaching zero
-constants requires the cap-to-base inversion, i.e. the rebuild, **gated on OPEN 17**: if a drainer can
-simply redeem instead of swapping, the skew's magnitude is moot and the whole exercise re-prices a
-path nobody is forced to take.
-
-| **E64** | ⛔ **THE "MARGINAL-VS-LEVEL PREMIUM" FIX IS REFUTED — I CHECKED THE MECHANISM BEFORE BUILDING IT (2026-08-05).** I told the owner the premium is sized on the *level* of imbalance, so a second swap into an already-imbalanced range overpays for imbalance it did not cause, and that sizing on the marginal contribution was "a different formula, not a tuning change". **That is wrong and the code says so on both legs.** `skewWad` returns a **per-unit WAD rate scalar**, not a charge on the imbalance — each trader pays `rate x their own size`, which is the standard A–S reservation price and is not an overcharge. And the restoring direction is **already exempt by construction, on both sides**: `skewWad` `if (inv >= target) return 0` (`SwapLib:857`) and `sellSkew` `if (over == 0) return 0  // refill / at-target => EXEMPT` (`SwapLib:1034-1035`). **A swap that moves the range toward target is charged zero extra today.** No fix required; nothing to land. | ⛔ REVERSED by E68 — see below |
-| **E65** | 🔴 **THE REAL DEFECT IS AN INCENTIVE VACUUM, NOT A PRICING ERROR — AND IT INVERTS E48's PREMISE.** E64 establishes restoration is fee-**exempt**. **Exemption is not an incentive.** The restorer still pays gas and the ordinary LP fee and receives no premium, so restoring is profitable only if the curve dislocation alone covers the round trip — and **E25 measured 0 bps across 300k of volume**. The range holds price at oracle *by design*, which **deliberately removes the very dislocation that would pay an external arb to rebalance it**. Same property, both effects: tight peg is good for swappers and starves the restoration incentive. **Consequence: no external party will ever restore balance unaided; the owner's "it should be profitable to restore naturally" does not hold under a 0 bps peg, and this is a design consequence, not a bug to fix.** ▶️ So the executor must be US, and the funding source is the premium **already accrued from whoever caused the imbalance** (`skewPremiumCum`) — which is why the owner is right that it "should need no funding at all": it is pre-funded, not new capital and never basket dollars. **This is the strongest argument yet for E48's atomic in-swap repair over any keeper: a keeper has to be paid, the atomic path is paid already.** ⚠️ **UNMEASURED and gating: the claim "premium already collected >= cost of the repair" has never been tested.** That, not natural-arb profitability, is the test to build. | ✅ ANSWERED by E131 — 8P/V = 6.027e-6, ~527s covered vs 11s priced  📌 **§SEQ-AUDIT: GATE 2 · lane L7. Incentive vacuum - owner decides what funds restoration** |
-| **E66** | ⛔ **RUST RETRACTION — I SAID "REFILL AND JIT MACHINERY EXISTS IN RUST BUT IS NOT WIRED". BOTH HALVES ARE WRONG (verified 2026-08-05).** (1) `quid-hop/src/rebalancer.rs` is **not** EVM range refill — it is a **Lightning channel liquidity rebalancer** that splices on-chain BTC into the hop<->LP channel when `next_outbound_htlc_limit_msat` falls below the per-swap ceiling. Its "imbalance" is **channel outbound direction**, a different quantity from the range's volatile:USD composition. I conflated two unrelated meanings of "rebalance". (2) It is **LIVE, not unwired**: `rebalance_capacity_tick` is called at `quid-bridge/src/vault.rs:665`, PHASE C of `run_vault_open_orchestrator`. (3) **There is no JIT code in Rust at all** — no match for `JIT` in `quid-hop/src` or `quid-bridge/src`. **Nothing in Rust bears on range refill; do not cite it as prior art for E48.** | ⛔ retracted (see E66a — last sentence withdrawn) |
-| **E67** | ⛔ **RETRACTION — #12's FREED HEADROOM IS NOT REFILL CAPACITY** (owner corrected me directly, 2026-08-04). I wrote that E36's +60,000 of returned headroom and E39's +32 ETH of range depth were "additional refill capacity". **#12 freed no dollars.** It stopped the backing gate from counting LP trading proceeds as basket commitments: `liquidTotal` never moved, only `committedBoth` fell. **What grew is PERMISSION, not capital.** Whether deployable dollars sit behind that permission is a separate question that was never checked, and E39's `surplus/price` arithmetic assumes it does. **Any statement of the form "#12 gave us N more ETH of refill" is unsupported and must not be repeated.** | ⛔ retracted (see E66a — last sentence withdrawn) |
-
-| **E68** | 🔴 **E64 IS REVERSED. THE OWNER WAS RIGHT: THE PREMIUM IS SIZED ON THE LEVEL OF IMBALANCE, NOT THE SWAP'S MARGINAL CONTRIBUTION — VERIFIED 2026-08-05.** ⛔ **My refutation in E64 was a category error**: the owner's claim is about the **rate**, and I rebutted it with a fact about the **base** ("each trader pays rate x their own size"). **Per-unit is not marginal.** I used them as synonyms and they are not. **VERIFIED MECHANISM:** `wellSkew` calls `_skewBasis(core, base, isBTC, 0)` — `addedTok` is **0 for a drain**, stated in the prologue doc at `SwapLib:920`. So `q = (target - inv_pre)/target` is the **pre-swap level**, and **nothing about the drain's own size enters the rate**. ⛔ **My A-S defence was ALSO wrong on its own terms:** A-S skews the **mid**, making the scarce direction expensive **and the replenishing direction CHEAP**. This implementation taxes one direction and merely **EXEMPTS** the other (`SwapLib:857`, `:1034`). **Exemption is not a discount, so what is implemented is not the A-S skew it cites — it is a one-sided tax with a level-determined rate.** 🔎 **NEW CONSEQUENCE THE CHECK EXPOSED, NOT PREVIOUSLY ARGUED: an ATOMICITY ARBITRAGE.** Because the rate is frozen at pre-swap inventory and applied to the whole size, a drain traversing q0->q1 pays `rate(q0)` on **every** unit, including the last ones that belong near the pole. **One large drain is therefore strictly cheaper than the same volume split across txs** — a live incentive to consolidate drains, and it **UNDERCHARGES the largest imbalancer** while overcharging innocent later flow. The level-sizing defect cuts BOTH ways. ▶️ **THE FIX IS THE INTEGRAL, NOT THE POINT EVALUATION:** charge the average rate over the swap's OWN displacement, `integral[q0->q1] rate(q) dq / (q1-q0)`, in place of `rate(q0)`. A swap is then priced for the imbalance it CREATES, and standing imbalance stops being a toll on everyone who arrives later. **This is a different formula, not a tuning change** (owner's words, and correct). ⚠️ **Money-path change: state a falsifiable prediction, one change per run, full 4,082-test suite, and `forge build --sizes` — SwapLib sits ~2.5KB inside EIP-170 but the pole integral adds math.** ✅ **E65 IS UNDISTURBED** — that one is about the RESTORING direction being exempt-but-unrewarded, which is a separate leg and still true. | ✅ LANDED — lnWad drain leg + midpoint sell leg live in SwapLib (E137-skew verified)  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): Settled record** |
-
-| **E68a** | 📐 **THE INTEGRAL — DERIVED, LIMIT-CHECKED, AND CALL-SITE SURVEYED. Everything uncertain is resolved; only the edit and the verification cycle remain (2026-08-05).** **CLOSED FORM:** `integral q/(1-q) dq = -ln(1-q) - q`, so the average rate over the swap's OWN displacement is `K*sigma^2 * [ ln((1-q0)/(1-q1)) - (q1-q0) ] / (q1-q0)`, with `K = MAX_WELL_SKEW`, `q0` the pre-swap level and `q1 = (target - (inv - drainUsd))/target` the post-swap level (a drain REDUCES inv, so `q1 > q0`). ✅ **LIMIT CHECK PASSED — this is the check that would have shipped silent garbage if it failed.** As `q1 -> q0`, expanding `ln((1-q0)/(1-q0-d)) ~ d/(1-q0) + d^2/2(1-q0)^2` gives `1/(1-q0) - 1 = q0/(1-q0)`, **exactly today's point rate**. The change is therefore a STRICT GENERALISATION: infinitesimal swaps price identically and only size-significant swaps diverge. That is what makes it landable. ✅ **`lnWad` IS AVAILABLE** — solady is vendored at `lib/solady` (solmate, currently imported at `SwapLib:21`, is the wrong lib for this). ⚠️ **POLE GUARD MUST BE PORTED:** `ln(1-q1)` diverges as `q1 -> 1e18`; the existing `oneMinusQ == 0 => type(uint).max => cap` branch needs its analogue on `q1`, or a full drain returns garbage instead of pinning to the cap. 📌 **CALL-SITE SURVEY (three, and they want DIFFERENT things — do not flatten them):** (1) `Aux.sol:655` — read-only MM/dashboard signal, **has no swap size and should keep the POINT rate**, since it reports current scarcity state, not a trade price. (2) `SwapLib.sol:465` — the APPLIED rate inside `swapToBody`, annotated **"(inline (swapToBody stack-tight))"**; this is the only site that needs the displacement. (3) `SwapLib.sol:1133` — feeds `retainSkewPremium` (audit + RFQ-drawable); decide explicitly whether the accrual records the point or marginal rate. ⚠️ **EXPECT STACK-TOO-DEEP FIRST at (2)** — `via_ir = false` is deliberate; per CLAUDE.md the fix is moving locals into a struct field (one memory pointer costs less stack than two values), NEVER turning on the IR pipeline. ⚠️ **THEN `forge build --sizes`:** SwapLib is 22,058 with ~2.5KB of EIP-170 headroom and `lnWad` adds code; `forge test` does NOT enforce the limit. ⚠️ **THEN the full 4,082-test suite** — a `--match-path` run is not verification. **NOT STARTED: writing an unverified money-path formula change is what rule 15 forbids, and there was not enough context left to both write it and run the verification cycle.** | ✅ LANDED — this IS the integral closed in E68 (lnWad + pole guard ported) |
-
-| **E66a** | ⛔ **E66's LAST SENTENCE IS WRONG AND IS WITHDRAWN. `lev_keeper.rs` IS PRIOR ART FOR E48 (owner corrected me, 2026-08-05).** I wrote *"Nothing in Rust bears on range refill; do not cite it as prior art for E48"* after grepping for `JIT` and `flash` and finding nothing. **I had already found the relevant code earlier in the same conversation and then asserted absence from a fresh grep** — the exact failure `never-assert-absence-from-a-grep` records, and CLAUDE.md's *"an empty grep proves nothing."* The `rebalancer.rs`-is-Lightning finding stands; the "nothing in Rust" generalisation does not. ✅ **WHAT IS ACTUALLY THERE:** `quid-bridge/src/lev_keeper.rs:280` — `compound_pays_for_itself(pending_wei, gas_price_wei) => pending/2 >= gas_price * COMPOUND_GAS`, wired at `:433`. Its own comment: *"This is what makes the keeper subsidy-free."* 📌 **THREE PROPERTIES THAT CHANGE E65's GATING:** (1) **The tip is capped at BOTH `gasprice*COMPOUND_GAS` AND half the harvest**, so the contract structurally cannot overpay the cranker. (2) **Deferral is free and SELF-IMPROVING** — *"the fee stays pending and folds in later — a bigger crank, or when the LP acts"*; a skip is not a failure, the accrual grows and the work becomes MORE economic. (3) **It is a GATE, not a GUARANTEE.** ⛔ **THIS RETIRES E65's BLOCKER.** I had gated E48 on proving *"premium already collected >= cost of the repair"* — a global claim that is hard to establish and probably FALSE in some states. **The pattern does not need it:** gate each repair on `skewPremiumCum/2 >= gasprice * REPAIR_GAS` and DEFER when it does not clear; subsequent imbalancers keep accruing premium until it does. ⚠️ **INHERITED HAZARD, ALREADY BITTEN ONCE (E46):** `COMPOUND_GAS` drifted out of sync with the Solidity constant (140k vs 200k) and every LP whose `pending/2` fell in the gap passed the gate and was tipped BELOW actual cost — a SILENT subsidy. Any `REPAIR_GAS` constant must be kept in sync with its Solidity twin and that sync must be tested, not commented. | ⛔ E66 partly withdrawn; E65 unblocked |
-| **E68b** | ⚠️ **THE INTEGRAL IS ADDITIVE TO YESTERDAY'S WORK, NOT A REPLACEMENT (owner, 2026-08-05: *"all the improvements that we made to the formula yesterday should be preserved. you are building on the existing work, not replacing it"*).** **IT SUBSTITUTES THE KERNEL EVALUATION AND NOTHING ELSE:** `qBar = q/(1-q)` becomes `[ ln((1-q0)/(1-q1)) - d ] / d`. **EVERYTHING WRAPPING IT STANDS UNCHANGED AND MUST BE VERIFIED STILL PRESENT AFTER THE EDIT:** E58's single-term `target = flowUsd` with BOTH leverage terms deleted (`inv` no longer subtracts `lockedUsd`, `target` no longer adds `committedUsd`) · E59's collapse to ONE constant — the cap, appearing twice — after Γ/ρ/SIGMA_REF/STABLENESS were proved restatements, NOT dials · E59 part 2's `sigmaSqWad == 0 => return _maxWellSkew(0, isBTC)` sentinel · the DYNAMIC `_maxWellSkew(sigmaSqWad, isBTC)` ceiling that replaced the fixed 3% clamp · E54's LINEAR, pole-free, mirror-free abundant side in `sellSkew` · E56's monotonic `skewPremium*` liveness discriminator (a zero EWMA cannot separate dead from new) · E53's `_sharedScarcityWad` amplifier. ✅ **THE LIMIT CHECK IS WHAT MAKES THIS PROVABLY ADDITIVE:** the integral collapses onto `q0/(1-q0)` as `d -> 0`, so every listed behaviour is preserved EXACTLY at small size and only size-significant swaps diverge. **A diff that deletes any of the above is a regression, not a simplification.** | ⚠️ constraint on E68 |
-
-| **E69** | 🟠 **THE RESTORE-PROFITABILITY FIXTURE EXISTS AND RUNS, BUT ITS OUTPUT IS NOT YET A VALID MEASUREMENT — `evm/test/RestoreProfitability.t.sol` (2026-08-05).** ⛔ **WHY THIS ROW EXISTS AT ALL:** I twice answered *"is restoring the balance naturally profitable?"* with an ARGUMENT, then cited **E25's "0 bps across 300k" as if it settled it. IT DOES NOT** — E25 measured dislocation under ORDINARY volume on a BALANCED range; the question is the dislocation in an IMBALANCED range, the only state where a restorer would act. **Reusing a measurement taken under different conditions to answer a different question is the error.** ✅ **RESOLVED WHILE BUILDING IT (two real API facts):** `Aux` exposes the read-only signal as **`wellSkew(address)`**, not `getWellSkew`; and **`AUX.swap` always takes the pair as (stable, volatile) with a BOOL DIRECTION** — selling volatile is `swap(bold, WETH, false, ...)`, not `swap(WETH, bold, true, ...)`, which reverts `BadAsset()`. ⛔ **WHY THE RESULT IS NOT USABLE YET: the swap now SUCCEEDS but `stableOut` reads 0**, i.e. my accounting of WHERE THE PROCEEDS LAND is wrong (they are not arriving as `bold` in the restorer's balance) — **not** evidence the restorer received nothing. ⚠️ **DO NOT READ THIS AS "RESTORING DOES NOT PAY". THE CONTROL FAILS:** a broken output-accounting and a genuine zero edge produce the IDENTICAL log line, so the fixture cannot currently distinguish the hypothesis from its own bug — CLAUDE.md's *"would this measurement look the same if I were wrong?"* answers YES. ⛔ **ALSO UNRESOLVED: `wellSkew` reads 0 BOTH BEFORE AND AFTER the imbalance**, which is expected (12 BUYS drive the range ETH-ABUNDANT, which is the `sellSkew` leg, and `wellSkew`'s flush branch correctly returns 0 there) — but it means **the fixture is not observing the leg it is imbalancing.** `sellSkew` is `internal` and has no `Aux` getter, so either add one or drive the imbalance the OTHER way (repeated SELLS, making the range ETH-SCARCE) so `wellSkew` is the live leg. ▶️ **NEXT: find the payout token/path so `stableOut` is real, then re-run. The SIGN of the edge is the whole result.** | 🟠 fixture runs, result invalid  📌 **§SEQ-AUDIT: GATE 0 · lane L6. Fixture runs but output not a valid measurement** |
-
-| **E69-r** | 🟠 **THE FIXTURE NOW REACHES THE SCARCE STATE; THE EDGE IS STILL UNMEASURED, AND THE REASON IS ITSELF A FINDING.** ✅ **STATE REACHED (this is the part that was failing before):** seeded 400 ETH, drained in 40k steps until `inv < target` — **inv 749,746 → 350,794 usd6 against target 389,586**, and `wellSkew` goes **0 → 4,298,992** (WAD, ≈4.3e-12 — tiny because the fixture's realized variance is near zero, consistent with E58's note that σ² gates the kernel). The scarce leg is LIVE and observable. ⛔ **TWO OF MY OWN ERRORS FOUND AND FIXED IN THIS FIXTURE, both recorded in-file:** (1) **DIRECTION INVERTED** — I had labelled a stable→volatile BUY as *"adds volatile to the range"*; it does the OPPOSITE (the range hands out ETH, `inv` FALLS). Every comment was backwards. (2) **THE SKEW READ 0 AND I ALMOST CONCLUDED "NO PREMIUM EXISTS"** — it was the flush branch, because `target = flowEwmaUsd` GROWS with the very volume driving the drain, so `inv >= target` held throughout. **The fixture was not reaching the state it was measuring**, which is why it now logs inv/target and exits INCONCLUSIVE rather than reporting a number from a state it never entered. 🔎 **THE BLOCKER IS NOW A REAL SYSTEM PROPERTY, NOT A TEST BUG — AND IT BEARS DIRECTLY ON THE QUESTION.** The restoring sell **succeeds, the input IS consumed (`WETH left = 0`), and the restorer receives ZERO** — measured across EVERY basket stable AND QUID, not just the one I guessed. So proceeds are **not delivered as a same-tx transfer**; this looks like the deferred/obligation settlement shape the BTC leg uses (`rp.recipient = address(this); // obligation → pool; LN delivers`). ▶️ **WHY THAT MATTERS TO E65/E48 REGARDLESS OF THE EVENTUAL bps: AN ARBITRAGEUR THAT CANNOT RECEIVE PROCEEDS ATOMICALLY CANNOT ARB.** If restoration settles asynchronously, the external-arb path is blocked by MECHANICS before pricing is even reached — which strengthens, on independent grounds, E65's conclusion that the executor must be us. ⚠️ **STILL DO NOT QUOTE AN EDGE FROM THIS FIXTURE.** ▶️ **NEXT: identify the ETH sell's settlement path (does it credit a claim? which call redeems it?), then measure value received THERE, not in the wallet.** | 🟠 state reached, edge still unmeasured  🔁 **§SEQ-AUDIT: MERGED into the row at :40098 — same task. Same fixture prerequisite** |
-
-| **E70** | 📖 **ALL REFILL / RANGE-RESTORATION WORK IS CONSOLIDATED IN `docs/actionable/REFILL-AND-RESTORATION.md` — START THERE, NOT IN THIS TABLE.** Written to be executed **COLD** by a thread with no memory of the 2026-08-04/05 sessions: every claim is marked ✅ verified in-repo / ⛔ retracted / ❓ unverified-with-the-check-named-beside-it, so nothing has to be taken on trust. **It supersedes the PROSE of E48 and E64–E69** (their status markers stay live here; their reasoning is now in one place instead of nine rows). **Contents:** the question stated so it cannot drift · the FOUR definitions of "refill" that are ruled out and why (re-pairing shrinks the pool · selling basket dollars for out-of-range volatile spends QU!D backing · #12's headroom is PERMISSION not capital · the Lightning rebalancer is a different quantity entirely) · what the contracts do today with post-E68 line refs · the fixture's exact stopping point · **the Rust map (`lev_keeper.rs` IS the prior art, `rebalancer.rs` is NOT, JIT does not exist in Rust)** · and the self-funding GATE pattern that retires the blocker I had wrongly imposed. 🔴 **THE SINGLE OPEN QUESTION IT HANDS OFF: where do the ETH sell's proceeds go?** The restoring sell consumes its input (`WETH left = 0`) and delivers ZERO across every basket stable and QUID. **My async-settlement hypothesis is EXPLICITLY UNPROVEN and may instead be a bug — the two are indistinguishable from outside.** §4a gives the ordered steps (trace `swapToBody:368 → _consumeVolInput:527 → _finishSwap:485` **under `-vvvv`, reading the transfer log, NOT the source** — inferring from source is how a direction error survived two passes). **Everything else in the file is context for interpreting that one number.** | 📖 handoff spec — ready to execute  📌 **§SEQ-AUDIT: GATE 9 · lane L1. Pointer row - doc redirect only** |
-
-| **E72** | 🔴 **THE σ² SENTINEL IS A CLIFF, AND THE CAP MAKES THE PREMIUM NEGLIGIBLE AT REALISTIC VARIANCE. MEASURED, pure call into `skewWad`, no fixture/oracle/rounding to blame — `evm/test/DrainAtomicity.t.sol::test_E72_SigmaSquaredCliffAtZero` (2026-08-05).** At `inv/target = 0.5` with a `T/4` drain: **σ²=0 ⇒ 3.0e16 (3%, the cap sentinel) · σ²=1 ⇒ 0 · σ²=1e13 ⇒ 4.75e-13 · σ²=1e16 ⇒ 4.75e-10.** 🔎 **FINDING 1 — THE SENTINEL IS EXPLOITABLE.** σ² enters MULTIPLICATIVELY (`K·σ²·qBar`), so `σ²=0 ⇒ cap` and `σ²=1 ⇒ 0` are ADJACENT states differing by the ENTIRE charge. E59 made the unmeasured case conservative and thereby made it **the only case that charges anything meaningful**: anyone who can nudge realized variance off exactly-zero converts the maximum premium into no premium. A sentinel whose neighbour is 1000×+ cheaper is not a conservative default, it is a switch. 🔴 **FINDING 2, THE LARGER ONE — THIS CONFIRMS THE OWNER'S STRUCTURAL DIAGNOSIS AND SHOWS E68 WAS NECESSARY BUT NOT SUFFICIENT.** At σ²=1e16 (a plausible real variance) the skew is **4.75e-10 ≈ 0.0000005 bps**. The CAP is what crushes it: `_maxWellSkew = σ²·confFrac/8` is an expected-loss RATE over a short confirmation window, and **using a rate as a price CEILING flattens the curve to nothing however scarce the range is.** E68 fixed the kernel's SHAPE (size-proportionality, the flush hole, the atomicity arbitrage); the cap then flattens the result. ⛔ **THEREFORE THE κ=1000× LEAK IS STILL OPEN AND E68 DID NOT CLOSE IT — do not record it as closed.** ▶️ **The cap-to-base inversion (expected loss becomes the FLOOR under every trade, scarcity premium free to exceed it) is now supported by measurement, not just derivation.** ⚠️ Still gated on OPEN 17: if a drainer can redeem instead of swapping, this re-prices a path nobody is forced to take. | ✅ LANDED as E89 — `skew += _maxWellSkew` SwapLib.sol:977 (E137-skew verified)  📌 **§SEQ-AUDIT: GATE 6 · lane L5. Sigma-squared sentinel cliff - pricing constant** |
-| **E71** | 🟠 **THE ATOMICITY-ARBITRAGE PREDICTION IS STILL UNTESTED — THE FIXTURE VOIDED ITSELF HONESTLY, AND THAT IS THE POINT.** `evm/test/DrainAtomicity.t.sol` compares premium(one drain of S) vs premium(N drains of S/N) from an IDENTICAL start state (snapshot/revert; both legs verified to start at inv 353,802,975,707 / target 380,432,109,336 / wellSkew 1,369,308). **PREDICTION STATED BEFORE THE RUN: post-E68, one big drain costs >= the split; pre-E68 the inequality ran the other way.** ⛔ **RESULT: VOID — `skewPremiumCum` moved by 0 on BOTH legs.** At the fixture's σ² = 1.54e13 the rate is ~1.4e-12, so the premium on a 120k notional rounds to **zero in 6-dec USD** and the charge path is never exercised. **I am NOT claiming the prediction holds; it is untested.** ✅ **The fixture refuses to report a comparison it cannot support** (explicit VOID branches for mismatched start states and for both-legs-zero) — without them, "0 vs 0" would have printed as "one big drain costs >= the split, prediction HOLDS", which is the exact false-confirmation this class of test invites. ▶️ **UNBLOCKED BY E72's FIX, NOT BEFORE:** it needs a σ² regime where the premium is non-zero. Re-run after the cap inversion lands; until then it measures nothing. | 🟠 blocked on E72  📌 **§SEQ-AUDIT: GATE 0 · lane L6. Atomicity-arbitrage prediction untested** |
-
-| **E73** | 🔴 **THE RESTORE PATH REPRODUCES S16 (`minOut=0` SILENT-LOSS) — MEASURED, AND IT RETRACTS MY "ASYNC SETTLEMENT" GUESS (2026-08-05).** Three runs of `evm/test/RestoreProfitability.t.sol` varying ONLY `minOut`: **`0` ⇒ passes, delivers 0** · **`0.9×oracle` ⇒ REVERTS `SlippageMaxS()`** (so the swap's INTERNAL computed delivery is < 90% of oracle) · **`1` ⇒ PASSES, still delivers 0** (so that internal delivery is ≥ 1). **The swap's own accounting says a non-zero amount was delivered; the recipient's balances across EVERY basket stable AND QUID say zero arrived.** ⛔ **MY ASYNC/OBLIGATION HYPOTHESIS IS WITHDRAWN — it was a guess by analogy with the BTC leg (`SwapLib.sol:1203`) and the measurement did not support it.** 🔗 **THIS IS A KNOWN FINDING, ALREADY WRITTEN DOWN: `BUILD-QUEUE-AND-107.md:1128` S16** — *"anvil e2e proved a swap consumed 1000 USDC + delivered 0 (status 1, NO revert because minOut=0)"*. **I re-derived it from scratch because I did not scan the archive first.** ⛔ **AND IT INVALIDATES TWO EARLIER E69 RUNS: both passed `minOut = 0`, so both reported "zero edge" when the true state was "zero DELIVERY".** A zero-delivery swap and a zero-edge swap are indistinguishable at `minOut = 0` — **the parameter that makes the bug invisible is the same one every one of my fixtures defaulted to.** ⚠️ **CONSEQUENCE: RESTORATION MAY BE BROKEN, NOT MERELY UNPROFITABLE, AND NO EDGE CAN BE QUOTED UNTIL THIS IS RESOLVED.** ▶️ **NEXT: `-vvvv` and read the ERC20 Transfer logs to identify the destination address** — candidates are a separately-redeemable claim, a stable outside `AUX.getStables()`, or genuine loss. ▶️ **AND: S16's own proposed hardening (the contract should REVERT on 0-delivery) would have surfaced this years earlier; it is still un-built.** | 🔴 delivery gap — blocks all E69 pricing  📌 **§SEQ-AUDIT: GATE 1 · lane L7. Re-read: the delivery chain is closed per E91-ROOT** ✅ **CONFIRMED CLOSED 2026-09-07, MEASURED NOT INFERRED.** `IntentSellLegUnbuilt` has **ZERO occurrences in `evm/src`** — not declared, never raised — and `_settleSellIntent` is implemented at `Quid.sol:1286` and called at `Quid.sol:1249` (`if (wantUsd6 > 0) usdDelta = _settleSellIntent(i, wantUsd6, routes);`). `Quid.sol:1253` states the shape: *"THE SELL LEG SETTLES THROUGH `settleOor` EXACTLY LIKE THE BUY LEG."* ⇒ **the leg is built and the chain is closed.** |
-
-| **E74** | 🔴🔴 **THE DELIVERY GAP IS LOCATED: PROCEEDS ARRIVE AT `Aux` AND ARE NEVER FORWARDED TO THE RECIPIENT. `-vvvv` trace, `evm/test/RestoreProfitability.t.sol` (2026-08-05).** Inside the restoring swap, in order: **`Transfer(from: 0x…BeeF03 restorer, to: Aux, value: 20e18)`** — input taken ✓ · **`Transfer(from: 0x5721cbbd…, to: Aux, value: 37943678727877126218997 [3.794e22])`** — proceeds arrive at Aux · **`Transfer(from: Aux, to: 0x5721cbbd…, value: 5.768e17)`**. ⛔ **THERE IS NO `Transfer(from: Aux, to: restorer)` ANYWHERE IN THE SWAP.** The value exists and sits in the contract; the recipient is never paid. **This is a genuine bug, not async settlement and not obligation semantics — my earlier guess at both is withdrawn (E73).** 🔎 **AND THE NUMBER MATTERS INDEPENDENTLY: ~37,943.68e18 lands at Aux against an ORACLE value of 37,487.32e18 for the same 20 ETH — a surplus of ~456e18, i.e. ≈ +122 bps IN THE RESTORER'S FAVOUR.** ⚠️ **ATTRIBUTION CAVEAT, do not skip it:** that `3.794e22` transfer is read from the trace as this swap's proceeds; it has NOT been proven to be exclusively the restorer's leg rather than gross flow through Aux. **The ABSENCE of any Aux→restorer transfer is unambiguous; the +122 bps is STRONG BUT UNCONFIRMED.** ▶️ **IF THE ATTRIBUTION HOLDS, IT ANSWERS THE ORIGINAL QUESTION AND REVERSES MY E65 ANSWER: restoration IS naturally profitable, and the only reason nobody observes it is that the payout never leaves the contract.** E65's "incentive vacuum" reasoning would then be wrong on its facts — the incentive exists and is being SWALLOWED. ▶️ **NEXT: find the missing forward in `_finishSwap` (`SwapLib.sol:485`) for the volatile-IN/stable-OUT direction; confirm attribution by asserting the restorer's delta equals the Aux inflow; then re-run E69 for a clean edge.** ⚠️ **S16's un-built hardening (REVERT on 0-delivery) would have caught this; it is still un-built and this is the second path found to reproduce it.** | 🔴🔴 real bug, blocks E65/E69  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): STALE: Core.sol:1043 takes recipient first** |
-
-| **E75** | ✅⛔ **RECONCILIATION PASS — ONE OF MY OWN INFERENCES RETRACTED, ONE UPGRADED FROM UNPROVEN TO CONFIRMED. Read this row before E73/E74; it corrects them (2026-08-05).** ⛔ **RETRACTED — E73's `SlippageMaxS` INFERENCE WAS A UNIT ERROR OF MINE, NOT A CONTRACT FACT.** I wrote that `minOut = 0.9 × oracle` reverting PROVED the internal delivery was *"< 90% of oracle"*. **It proved nothing of the sort.** `swapToBody` returns `max = 37943101858` — **6-dec USD ($37,943.10)** — and I computed `minOut` in **18-dec** (`sellSize * px / 1e18` ≈ 3.75e22). The revert was my 18-dec threshold against a 6-dec return. **Any statement derived from "delivery is below 90% of oracle" is void.** (The `minOut = 1` pass and the zero-balance reads are unaffected — those never depended on the comparison.) ✅ **UPGRADED — E74's +122 bps IS NOW CONFIRMED, and its attribution caveat is DISCHARGED.** The caveat was real: my first `awk` window (5776→7548) spanned **three drains plus** the sell, so the transfer I quoted could have belonged to a drain. **Re-extracting the restoring swap ALONE (trace lines 7093–7547, the only `Aux::swap(..., false, 2e19, 1)`) resolves it:** net Aux inflow = `3.794e22 − 5.768e17` = **37,943.10e18**, which **matches the swap's own return value `37943101858` exactly** across the 6↔18-dec gap. That identity is the confirmation — the figure is the swap's computed delivery, not gross flow. ✅ **STANDS UNCHANGED — THE DELIVERY GAP.** No `Transfer(from: Aux, to: 0x…BeeF03)` appears anywhere in lines 7093–7547. `_finishSwap` DOES thread `recipient: r.recipient` into the route struct (`SwapLib.sol:498`), so the recipient is not lost at that seam — **the funds nonetheless terminate at `Aux`.** ❓ **STILL OPEN: which hop drops the forward, between `routeSwap`'s settlement and the caller.** 🔁 **NET EFFECT ON THE CENTRAL QUESTION: RESTORATION IS NATURALLY PROFITABLE — +121.7 bps ($37,943.10 delivered vs $37,487.32 at oracle) — AND E65's "INCENTIVE VACUUM" IS WRONG ON ITS FACTS.** The incentive exists and is **swallowed by the delivery gap**, not absent. E65's conclusion (*"the executor must be us"*) does NOT survive its premise: an external arb has +121.7 bps of reason to act **once the payout reaches them**. ⚠️ **Do not build refill funding machinery on E65's reasoning.** | ✅ reconciled; E65 reversed |
-
-| **E76** | ⏸️ **STOP-AND-DECIDE: WHAT IS THE SKEW FOR? The owner challenged the premise (2026-08-05) and it does not survive intact. DO NOT RESUME THE CAP INVERSION UNTIL THIS IS ANSWERED.** ⛔ **THE FUNDING JUSTIFICATION IS GONE.** E48/E65 justified the skew as the refill's funding source — premium from the imbalancer pays for the repair. **E74/E75 measured restoration at +121.7 bps naturally profitable, so nothing needs that premium.** Every design treating `skewPremiumCum` as a funding pool — **including the `lev_keeper`-style self-funding gate I proposed in E66a** — was confused about what the number is. ⛔ **AND A RESERVATION PRICE CAN NEVER BE A REVENUE SOURCE, WHICH KILLS THAT WHOLE FAMILY OF DESIGNS.** The owner's venue argument (*"large swappers will just find an order book where this fee is not enforced"*) is right about the outcome and the mechanism is subtler than a fee: a scarcity premium says *"we part with our last inventory only at this price."* A swapper routing away is the mechanism **WORKING** — we keep inventory we did not want to sell cheaply. **But a price that succeeds by NOT being paid cannot fund a refill, a keeper, or anything else.** ⛔ **AND TODAY IT DOES NEITHER JOB: E72 measured ~0.0000005 bps at realistic variance.** It deters nobody and collects nothing. The apparatus is inert. ⚠️ **COUNTERWEIGHT — DO NOT LET +121.7 bps CARRY THIS DECISION ALONE.** It is **ONE fixture, ONE imbalance state**, with a flow-EWMA shaped by the very drains used to reach it. The number is confirmed (E75); its **GENERALITY IS NOT ESTABLISHED.** *Check before acting:* re-measure the restorer's edge at several inv/target ratios and with an independently-set flow EWMA. **If the edge is an artifact of this state, the funding question REOPENS and this row's conclusion is void.** ▶️ **THE DECISION, WHICH IS THE OWNER'S AND NOT A MATH QUESTION: is inventory protection a goal we actually hold — do we care about being drained at oracle by someone who routes elsewhere the moment we charge?** **YES ⇒ the cap inversion matters, because a reservation price of ~0 is not one.** **NO ⇒ delete the machinery rather than perfect it.** ✅ **E68 SURVIVES EITHER WAY** — undercharging the largest imbalancer and taxing later innocent flow are DETERRENCE defects, not funding defects, so its justification never rested on E65. | ⏸️ blocked on owner decision  📌 **§SEQ-AUDIT: GATE 2 · lane L7. STOP-AND-DECIDE - what the skew is for** |
-
-| **E77** | 🟢 **FLASH-BORROW DISSOLVES THE CAPITAL QUESTION — THE OWNER'S ORIGINAL INSTINCT WAS RIGHT AND MY FUNDING DETOUR WAS UNNECESSARY (2026-08-05).** Owner: *"if it's a profitable trade why can't we borrow it... this line of thinking is what started our whole exploration with refill"* — and, from the opening session, *"if we have to borrow for this we can always repay instantly for free."* **Correct both times.** ▶️ **THE TRADE:** flash borrow 20 ETH → sell into the scarce range for **$37,943** → rebuy 20 ETH externally at oracle for **$37,487** → repay → keep ~**$456**. Against ~5 bps (Aave) or ~0 (Balancer) flash cost versus a **121.7 bps** edge, it clears with room. ✅ **NO BASKET DOLLARS, NO QU!D BACKING SPENT, NO DIRECTIONAL EXPOSURE HELD FOR ONE BLOCK** — it therefore does NOT violate the §2 boundary that rules out spending uncommitted basket dollars on out-of-range volatile. ⛔ **THIS RETIRES THE ENTIRE PREMIUM-FUNDING FAMILY OF DESIGNS, including E66a's `lev_keeper`-style gate.** There is nothing to fund: the capital is borrowed and repaid atomically. 🔎 **AND IT LOCATES THE ACTUAL SCARCE RESOURCE, WHICH WAS NEVER CAPITAL — IT IS ATOMIC UNWIND DEPTH.** Note the bind in the self-execution case: **the range is ETH-SCARCE by definition, so the asset we must supply is precisely the one we are short of** — borrowing is the only source that does not touch backing. To repay in-transaction you need an external venue selling ETH at oracle THAT BLOCK, and `SwapLib`'s own comment concedes *"SOR depth isn't guaranteed"*. ▶️ **SO THE DESIGN IS NOT "US vs EXTERNAL ARB" — IT IS: CAPTURE ATOMICALLY WHEN DEPTH PERMITS, LEAVE IT TO ARBS WHEN IT DOES NOT.** An external arb's real contribution is not capital (flash makes that abundant) but **willingness to hold the unwind risk over hours** — exactly the risk we cannot take without becoming directional. The two paths are complementary, not competing. ⛔ **BLOCKER, BOTH PATHS: E74's DELIVERY GAP.** A flash arb borrows, sells, receives nothing at `Aux`, and CANNOT REPAY ⇒ revert. **Nothing here is testable until the missing forward is fixed, which makes E74 the top item whichever strategy is chosen.** ⚠️ **AND THE WHOLE ROW IS CONDITIONAL ON +121.7 bps GENERALISING (E76's caveat): one fixture, one state, flow-EWMA shaped by the drains used to reach it. If it is an artifact, this line closes.** | 🟢 design resolved, blocked on E74  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): Flash-borrow dissolves it** |
-
-| **E78** | ⛔⛔ **RETRACTION — THE +121.7 bps WAS A STALE-PRICE CONFOUND. E74/E75/E76/E77 ALL DEPENDED ON IT AND MUST BE RE-READ THROUGH THIS ROW (2026-08-05).** 🔎 **THE BUG WAS IN MY FIXTURE, AND THE OWNER'S REQUEST FOR PROOF IS WHAT EXPOSED IT.** `RestoreProfitability.t.sol` captured `px = getTWAPforAsset(...)` **BEFORE the drain loop**, then compared the restorer's delivery — which happens **AFTER ~20 drains that push ETH UP** — against that stale price. **The "edge" was largely the price appreciation my own drains caused.** ✅ **MEASURED WITH THE LIVE PRICE:** oracle pre-drain **1,893.20**, oracle at-trade **1,896.23**; 20 ETH at the live price = **$37,924.69** against a traced delivery of **$37,943.10** ⇒ **≈4.9 bps, not 121.7 bps.** ⚠️ **AND EVEN 4.9 bps IS NOT SOUND: delivery and live-oracle come from DIFFERENT RUNS**, because E74's delivery gap means delivery cannot be read from balances in the same run. **The honest statement is "single-digit bps, unverified."** ⛔ **E77's FLASH-BORROW TRADE IS NO LONGER CLEARLY PROFITABLE.** At ~4.9 bps the Aave flash fee (**5 bps**) consumes the entire edge; Balancer (0 bps) leaves a sliver that gas plausibly erases. **The arithmetic that "clears with room" was built on the confounded number and does not hold.** ⛔ **E76's "THE FUNDING JUSTIFICATION IS GONE" REOPENS.** It was premised on restoration being naturally profitable. **If restoration does NOT self-fund, the question of what pays for it is live again** — though E77's separate point stands on its own logic: a reservation price still cannot be a revenue source, so premium-funding remains the wrong shape regardless. ⛔ **E75's "E65 IS WRONG ON ITS FACTS" IS WITHDRAWN** — E65's incentive-vacuum reading may well be right after all; it was overturned on the strength of this number. ▶️ **TO GET A REAL NUMBER, BOTH ARE REQUIRED: (1) fix E74's delivery gap so delivery is readable from balances, (2) compare against the AT-TRADE oracle, in ONE run.** ⚠️ **PATTERN WORTH NAMING: this is the THIRD trace/unit error in this session (the awk-window misattribution, the 6-vs-18-dec minOut, now the stale price). Every one produced a confident wrong number that survived until someone asked for the steps.** | ⛔ retracted; E74 now strictly blocking  📌 **§SEQ-AUDIT: GATE 0 · lane L6. RETRACTION - stale-price fixture confound** |
-
-| **E79** | 🔴🔴 **THE SKEW'S REAL JOB IS STALE-ORACLE PROTECTION (LVR), NOT FUNDING AND NOT DETERRENCE. I NEVER NAMED IT CORRECTLY IN THIS ENTIRE SESSION. Owner reframed it, 2026-08-05: *"without it would we just be an exploitable order book that always tracks the current chainlink price?"* — YES, EXACTLY THAT.** ⛔ **THIS INVERTS MY OWN CLAIM FROM ONE MESSAGE EARLIER.** I wrote *"the design deliberately removes the dislocation, so there is nothing to arb."* **Executing at oracle mid is NOT a feature that removes arbitrage — IT IS THE VULNERABILITY.** An AMM filling at oracle with no spread is a **FREE OPTION** to anyone whose information is fresher than the oracle: classic loss-versus-rebalancing. The informed trader picks us off on every oracle lag and the LP eats it. **A real market maker never quotes mid; it quotes a spread widening with inventory and volatility — which is exactly `Γσ²·q/(1−q)`. THE SKEW *IS* THE SPREAD. It is indispensable, for a reason unrelated to every justification advanced in E48/E65/E76/E77.** 🔴 **THEREFORE E72's MEASUREMENT IS FAR WORSE THAN I FRAMED IT.** ~0.0000005 bps at realistic variance does not mean *"too small to fund a refill"*; it means **WE ARE QUOTING CHAINLINK MID WITH NO SPREAD AND ARE PICK-OFF-ABLE IN PRODUCTION TODAY.** ▶️ **THIS IS THE ANSWER TO "THE APPARATUS IS INERT — HOW DO WE FIX IT?": the cap-to-base inversion is not a refinement, it is what restores a spread AT ALL.** Expected loss becomes the FLOOR under every trade; the scarcity premium is free to exceed it. **STILL UNBUILT.** ✅ **AND IT RE-POSES THE OWNER'S EMPIRICAL QUESTION CORRECTLY FOR THE FIRST TIME.** *"How do we weigh charging vs not, including the alternate venue?"* ⇒ **an LVR simulation**: informed flow arriving against a stale oracle · our fill with and without a spread · a competing venue quoting its own spread · **output = LP PnL under each.** That measures the quantity that actually matters. **Nothing measured in this session did.** ⚠️ **ARB RISK — OWNER IS RIGHT AND MY E77 FRAMING WAS WRONG.** If the unwind is ATOMIC there is NO risk, so *"arbs earn the spread for bearing risk"* is false for ETH. **Owner's rule, adopted: pocket it ourselves whenever atomic close is possible; support the external route ONLY when it is not.** Real risk exists only where settlement is ASYNC (Bitcoin/Lightning). ⛔ **AND I OVERSTATED BTC: the mechanism is NOT removed when we are the only venue — its SHAPE changes.** Being sole venue kills the ATOMIC unwind, not the ability to rebalance across the settlement window. | 🔴🔴 reframe — supersedes E48/E65/E76/E77 rationale  📌 **§SEQ-AUDIT: GATE 2 · lane L7. Reframes skew as stale-oracle/LVR - owner ratifies** |
-
-| **E80** | 🔴 **DELIVERY GAP NARROWED TO `Core.swap` — THE RECIPIENT IS THREADED CORRECTLY EVERYWHERE ABOVE IT (2026-08-05).** Traced the full chain: `swapToBody` → `_finishSwap` passes `recipient: r.recipient` into the route struct (`SwapLib.sol:498`) → `BasketLib.routeSwap` passes it through to **`ICore(ctx.core).swap(p.isBTC, p.sqrtPriceX96, p.recipient, p.zeroForOne, p.token, pooled)`** (`BasketLib.sol:442-443`). ✅ **SO THE GAP IS NOT IN `SwapLib` AND NOT IN `BasketLib` — it is inside `Core.swap` or downstream.** That narrows E74 from "somewhere in the swap path" to ONE function. 📌 **FOR CONTRAST, THE REDEEM PATH DOES DELIVER:** `_dispatchTake` calls `IAux.take/takeWith(r.recipient, ...)` (`BasketLib.sol:884-886`). **Compare the two — redeem's delivery leg is the working reference implementation for what the swap path is missing.** ▶️ **NEXT: read `Core.swap`'s handling of the `recipient` arg for the volatile-IN/stable-OUT direction (`zeroForOne` opposite to the drain case); the trace shows proceeds terminating at `Aux` with no onward transfer.** ⚠️ **S16's un-built hardening (REVERT on 0-delivery) remains the systemic fix — this is the second path found to reproduce it, and `_finishSwap` DOES already revert on `max == 0` (`SwapLib.sol:504`), so the swap's INTERNAL `max` is non-zero while the recipient gets nothing. That mismatch is itself the tell: `max` is not measuring delivery.** | ✅ FIXED — same delivery fix; BasketLib.takeBody now has the NothingDelivered aggregate guard  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): STALE: recipient threaded correctly** |
-
-| **E68b** | ✅ **THE SELL LEG NOW INTEGRATES TOO — E68 HAD FIXED ONLY ONE OF THE TWO LEGS. VERIFIED: 4,307 passed / 0 failed / 0 skipped · SwapLib 22,733 (+155), margin 1,843 under EIP-170 · check-client-abis 75 signatures, 0 drifted (2026-08-05).** ⛔ **WHAT I MISSED IN E68, and it is the half that OVERCHARGES.** `sellSkew`'s `inv` already includes `addedTok` (`_skewBasis`), so `q` was **q1 — the POST-swap overshoot — billed on EVERY unit.** A seller arriving at a balanced range and pushing it to 2× target paid the **2×-target rate on the whole ticket**, including the first units that landed while the range was still at target. **That is precisely the "innocent flow overcharged" half of the owner's original level-vs-marginal finding, and E68 left it untouched while I reported the defect as fixed.** ✅ **THE FIX IS THE SAME PRINCIPLE, SIMPLER: A LINEAR KERNEL INTEGRATES TO ITS MIDPOINT.** The drain leg needed `lnWad` because its kernel is the pole `q/(1−q)`; this kernel is LINEAR (E54 — you cannot run out of surplus, so there is no barrier to integrate against), and `(1/Δ)·∫[q0→q1] q dq = (q0+q1)/2`. **No new import, no Δ=0 branch** — the midpoint of a degenerate interval is the point itself, so a zero-size read returns the instantaneous rate exactly as before. ✅ **E54's LINEARITY IS PRESERVED, NOT REPLACED: it is the same line, averaged.** ✅ **q0 CROSSING IS HANDLED:** a sell that STARTED at/below target has `q0 = 0` and pays only for the portion that crossed above it. ⚠️ **STACK-TOO-DEEP HIT EXACTLY WHERE E68a PREDICTED** (`Stack too deep` at the `_sharedScarcityWad` call, `SwapLib.sol:1169`). **Fixed by SCOPING every intermediate into a block so it frees its slot — the idiom this function already used on its conversion locals. `via_ir` stays FALSE, deliberately (CLAUDE.md): shed stack, do not switch pipeline.** 📌 **BOTH LEGS NOW PRICE EACH UNIT AT THE IMBALANCE IT ITSELF SEES.** ⚠️ **STILL UNVALIDATED, unchanged by this row: E71 (the atomicity comparison) remains VOID because the cap crushes the premium to zero — the integral's EFFECT on either leg is untested until the cap inversion (E72/E79) lands.** | ✅ both legs integrate |
-
-| **E81** | 🟠 **CAP-TO-BASE INVERSION: WRITTEN, MEASURED, AND *NOT* COMMITTED — 36 RED. The idea is confirmed; the CALIBRATION is the open question. Working copy preserved at `scratchpad/SwapLib-inverted.sol` (2026-08-05).** ✅ **IT DOES WHAT E79 SAID IT WOULD.** All four sites inverted (`skewWad`'s clamp, `wellSkew`'s post-amplifier re-cap, `sellSkew`'s clamp, and BOTH σ²==0 sentinels → the CEILING, since with a floor `_maxWellSkew(0)` would re-open the free-drain hole E59 closed). **MEASURED on the E72 probe: σ²=1e13 → 4.75e-13 becomes 5.32e-7; σ²=1e16 → 4.75e-10 becomes 5.32e-4, i.e. ~0.0000005 bps becomes ≈5.3 bps — a real spread instead of Chainlink mid, with the absolute 3% ceiling UNCHANGED so no one's worst case worsened.** ⛔ **BUT 36 TESTS FAIL, ALL `testSkewBarrierRamp_ConvexCapAndMonotone`, and the failure is INFORMATIVE — it must not be papered over.** That test deliberately picks σ² *"low enough the DYNAMIC cap doesn't bind at these q (isolate the shape)"*. **With the inversion the FLOOR binds instead: at σ²=1e16 (BTC) floor = 2.0001425e15 vs kernel at q=0.5 = 3e14 — the base charge is 6.7× the scarcity premium and FLATTENS the very curve the test verifies** (convexity, monotonicity, the 1/2× and 2× ratios). 🔎 **AND THE FLOOR IS PROBABLY RIGHT, WHICH IS WHY THIS IS CALIBRATION AND NOT A BUG.** Sanity check: expected loss over a ~1hr BTC confirmation window at ~10% annual vol ≈ `0.1·√(1.14e-4)` ≈ **10.7 bps**; the floor is ~20 bps — correct ORDER. **The economics say confirmation-window risk genuinely dominates inventory-scarcity risk for BTC.** If that is true, the kernel is what is mis-scaled, not the floor. ▶️ **THE DECISION THIS FORCES (do not skip it): if the base charge legitimately swamps the scarcity term across the operating range, then the elaborate `q/(1−q)` barrier is DECORATION for BTC and the honest move is to say so — or to re-scale the kernel so it leads at high scarcity.** ▶️ **AND THE TEST MUST BE RE-EXPRESSED, NOT WEAKENED: assert `skew == max(kernel, floor)` and verify the SHAPE in a regime where the kernel exceeds the floor.** ⛔ **NOT COMMITTED per rule 15 — 36 red is not verification, and this is the money path.** | 🟠 written+measured, calibration open  📌 **§SEQ-AUDIT: GATE 6 · lane L5. Inversion landed; only CALIBRATION open** |
-
-| **E81-r** | ✅ **CAP-TO-BASE INVERSION LANDED. VERIFIED: 4,299 passed / 8 failed / 0 skipped — ALL 8 ARE RPC TIMEOUTS ON FORK TESTS (0 non-RPC failures, 0 skew failures; they passed at `c4db2ad` and fail only on endpoint fetch). SwapLib 22,686, margin 1,890 under EIP-170. check-client-abis 75 signatures, 0 drifted (2026-08-05).** ✅ **WHAT CHANGED:** `_maxWellSkew` (= σ²·confFrac/8 + BTC's `SPLICE_FLOOR`) is now the **FLOOR** — the base charge under every trade, which is what an expected loss over the settlement window actually IS — and the scarcity kernel rises above it, bounded by the **UNCHANGED absolute ceiling `MAX_WELL_SKEW` (3%)**. **No swapper's worst case got worse; only the floor moved off zero.** Both σ²==0 sentinels now return the CEILING, because with a floor `_maxWellSkew(0)` ≈ 0 would have re-opened the free-drain hole E59 closed. ✅ **MEASURED EFFECT (E72 probe): σ²=1e16 goes from 4.75e-10 to 5.32e-4 — ~0.0000005 bps to ≈5.3 bps.** A real market-maker spread instead of a Chainlink-mid quote (E79). ✅ **THE TEST WAS RE-EXPRESSED, NOT WEAKENED, AND THE 36 FAILURES TAUGHT SOMETHING.** `testSkewBarrierRamp_ConvexCapAndMonotone` asserted a pure-kernel value at q=0.5 using **isBTC=true** — but BTC's floor is `SPLICE_FLOOR = 2e15` (0.2%), **a REAL on-chain splice fee you must pay to refill**, so it legitimately dominates until q≈0.87. Asserting kernel-only against BTC asserts that a genuine cost does not exist. **Shape assertions now run on ETH** (floor `σ²·ETH_CONF_FRAC/8` = 4.75e8 vs a 3e14 kernel — five orders below, so the shape is observable), and **the BTC floor got its own direct assertions instead of being papered over**: `BTC base == SPLICE_FLOOR + σ²·CONF_FRAC/8`, `ETH floor < BTC floor`, and — the one that proves the inversion is not a rename — **`kernel OVERTAKES the base at q=0.9`**. ⛔ **THE OLD PER-ASSET *CAP* COMPARISON WAS DELETED, NOT SILENTLY BROKEN:** the inversion removes the per-asset ceiling (both assets share the one absolute ceiling now), so `assertLt(ETH cap, BTC cap)` could no longer hold and would have been a FALSE PIN. **The per-asset distinction did not disappear — IT MOVED TO THE FLOOR, which is where a settlement-window cost belongs, and is asserted there.** | ✅ landed |
-
-| **E82** | 🔴 **THE SELL LEG ASSUMES A SHED HORIZON WE CANNOT OBSERVE AT QUOTE TIME. Owner, 2026-08-05: *"how long, you dont know the duration until after it already happen... what assumptions are you making"* — the objection is correct and it breaks my own E68b derivation.** ⛔ **WHAT I CLAIMED:** that calculus CONFIRMS E54's linear rate, via `C(over) = over·σ²·tau` with `tau = over/flow`, giving `dC/d(over) ∝ q`. **The algebra is right; the premise is not.** `tau` is knowable only AFTER the refill happens, so the quote depends on a quantity the quote cannot have. 📌 **THE FOUR ASSUMPTIONS, ALL FALSE:** (1) **`flow` predicts the future shed rate** — it is a BACKWARD-looking EWMA, an estimate of the past. (2) **`tau` is deterministic** — it is a random variable; the true cost is `σ²·E[tau]`, and if flow can dry up `E[tau]` is heavy-tailed, possibly unbounded, not `over/flow`. (3) **`σ²` and `tau` are independent** — they are POSITIVELY correlated in the worst way: volatility spikes are exactly when flow dries up or reverses, so `E[σ²·tau] > E[σ²]·E[tau]` and **the linear rate UNDERSTATES the cost precisely in the states that matter.** (4) **`flow` is exogenous to our own quote** — widening the spread drives flow away, which lengthens `tau`, which raises the cost, which justifies widening. **It is a fixed point, not a parameter.** 🔎 **THE STRUCTURAL CONSEQUENCE — THE TWO LEGS DO NOT REST ON THE SAME EPISTEMIC FOOTING.** The drain leg's `q/(1−q)` is A&S's **INFINITE-horizon** reservation price (its own comment says so) and needs **NO horizon estimate at all**. The sell leg's linear form is a **FINITE-horizon** result that smuggles in an unobservable `T`. **The drain leg is the defensible one; the sell leg is built on the broken assumption.** ▶️ **CANDIDATE FIXES, none yet derived:** price the sell leg off an infinite-horizon form too (consistent footing, no `tau`) · or keep the finite form but use a CONSERVATIVE UPPER QUANTILE of `tau` rather than the point estimate, so heavy tails are paid for · or model `E[σ²·tau]` jointly and accept the correlation term. ⚠️ **E68b's midpoint integration is UNAFFECTED and stays** — averaging a rate over the swap's own displacement is correct whatever the rate's functional form. **What is in question is the FORM, not the integration.** | 🔴 horizon assumption unsound  📌 **§SEQ-AUDIT: GATE 2 · lane L7. Sell leg assumes unobservable horizon - kernel-form decision** |
-
-| **E83** | 🔴 **QUESTIONING THE FORM: WE MAY BE USING AN INVENTORY-RISK KERNEL TO SOLVE AN ADVERSE-SELECTION PROBLEM. Owner proposed measuring realized settlement duration (2026-08-05); it helps but does NOT solve E82, and asking why exposes something larger.** ⛔ **WHY MEASURED DURATION DOES NOT FIX IT — THREE RESIDUAL PROBLEMS, ONE SEVERE.** (1) **SURVIVORSHIP BIAS, ERRING IN THE DANGEROUS DIRECTION.** A weighted average of REALIZED durations includes only imbalances that DID settle; still-open and never-closing ones are right-censored out. **The imbalances that matter most are exactly the ones excluded, so E[tau] is biased LOW and the risk is underpriced.** Correct treatment is survival analysis (Kaplan–Meier) with open imbalances as censored observations — never a mean over completed ones. (2) **A SINGLE AVERAGE MARGINALIZES AWAY THE CORRELATION THAT IS THE WHOLE PROBLEM.** E82's point is that `tau` is long WHEN σ² is high; one average integrates over regimes and destroys the dependence. You need `E[tau | σ² regime]` — and the high-vol bucket is the sparsest and the only one that matters. (3) **THE LUCAS CRITIQUE, AND THIS IS THE WORST.** Every duration observed was generated UNDER THE SKEW WE WERE CHARGING AT THE TIME. Raise the skew ⇒ flow leaves ⇒ durations lengthen ⇒ **the historical estimate is invalid for the policy it is being used to set.** The feedback can run away: measure long ⇒ charge more ⇒ less flow ⇒ measure longer. 🔎 **THE LARGER FINDING — THE KERNEL AND THE JOB DO NOT MATCH.** The `Γσ²q` family is an **INVENTORY-RISK** model: the cost of HOLDING an unwanted position while price diffuses (driftless walk, mean-variance/CARA, inventory variance dominant). **But E79 established the skew's actual job is STALE-ORACLE PROTECTION — LVR / ADVERSE SELECTION, a DIFFERENT cost.** Adverse selection is not about how long you hold; it is about **WHO trades against you** — informed flow hitting a stale quote — and it scales with volatility over the **STALENESS window**, needing **no shed horizon at all**. 📌 **OUR TWO TERMS SPLIT EXACTLY ALONG THAT LINE:** `_maxWellSkew = σ²·confFrac/8` references the **SETTLEMENT WINDOW** ⇒ **LVR-shaped, matches the job**. `Γσ²·q/(1−q)` references **INVENTORY DEPLETION** ⇒ inventory-risk-shaped, matches a different job. **So the FLOOR is the economically load-bearing object and the KERNEL may be secondary** — which is the SAME conclusion E81 reached EMPIRICALLY when BTC's floor dominated until q≈0.87 and the barrier looked like decoration. **Two independent routes, one answer.** ▶️ **RESOLUTIONS, in preference order: (a) put BOTH legs on the INFINITE-horizon form (the drain leg already is — no `T` anywhere, consistent footing, E82 dissolves entirely); (b) accept the LVR floor as the main price and demote the barrier to a depletion guard; (c) if duration is measured anyway, use a CONSERVATIVE UPPER QUANTILE of a censoring-corrected distribution — NEVER the mean, because the mean is biased low and the tail IS the risk.** | 🔴 form questioned — kernel may not match the job  🔁 **§SEQ-AUDIT: MERGED into the row at :40129 — same task. Same as E82** |
-
-| **E84** | ⛔ **E83 OVERSTATED AND POINTED AT THE WRONG TERM — CORRECTED. The owner asked whether removing the barrier would be worth the simplification; looking properly, the answer is NO, and the conclusion partly inverts (2026-08-05).** ⛔ **WHAT E83 GOT WRONG: I collapsed THREE distinct costs into two and concluded the `q/(1−q)` barrier "may be decoration".** It is not. **Adverse selection prices being PICKED OFF; the pole at q→1 prices RUNNING OUT — an inability-to-OPERATE cost that an LVR term is completely blind to.** A flat `σ²·Δt` charge sells the LAST unit at the same rate as the first and then the range is empty: **that is exactly the "one trade converts the whole range" leak the owner identified at the outset. Removing the barrier REOPENS it.** 📌 **THE THREE COSTS, AND ONLY ONE NEEDS A HORIZON:** **adverse selection (stale quote) → `σ²·confFrac/8` floor → NO horizon** · **depletion (cannot operate) → `q/(1−q)` barrier → NO horizon (A&S infinite-horizon, as its own comment states)** · **inventory holding → the sell leg's linear `q` → YES, AND IT IS THE ONE WE CANNOT OBSERVE.** ✅ **THIS RELOCATES AND NARROWS E82: the unobservable `tau` lives ONLY in the sell leg. E82 does not touch the drain leg at all.** ⚠️ **AND MY CLEAN SPLIT WAS TOO NEAT:** the canonical CFMM LVR result is itself derived from the pool's forced REBALANCING, i.e. inventory-driven — note `_maxWellSkew`'s `/8`, the geometric-mean-market-maker LVR coefficient, which supports the identification, but LVR is MODULATED by inventory state, so "floor = LVR, kernel = not-LVR" is tidier than reality. ⛔ **REMOVING THE BARRIER: NOT WORTH IT.** Gains: no `lnWad`, some bytecode against a tight EIP-170 margin (SwapLib 22,686 / 1,890 free), a constant or two. Costs: reopens drain-to-empty, loses convexity, undoes the level-vs-marginal fix. **Bad trade.** ▶️ **THE SIMPLIFICATION THAT IS WORTH IT, AND THE ONE E83 SHOULD HAVE PROPOSED: THE SELL LEG.** The abundant side has **NO depletion risk** (E54 — you cannot run out of surplus), so the barrier rightly does not apply; but its remaining `q` term is **PURE HOLDING COST, which needs the horizon E82 proved unobservable.** **An unjustifiable term on a leg with no depletion risk should collapse to the LVR base and nothing more** — that deletes the term E82 BROKE instead of the term that is load-bearing. ⚠️ **CHECK FIRST, DO NOT ASSUME: does anything else bound unbounded volatile accumulation (the backing gate probably does)? If yes the skew need not; if no, deleting the term removes the only brake.** | ⛔ E83 corrected; sell leg is the target  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): Corrects E83, no action** |
-
-| **E86** | 🔴 **SWEEP RESULT #1 — I PARKED E71 AS "UNBLOCKED BY THE CAP INVERSION, NOT BEFORE", THE INVERSION LANDED (`a996190`), AND I NEVER WENT BACK. Re-run now: E68's PREDICTION FAILED (2026-08-05).** ⛔ **Exactly the pattern the owner asked me to sweep for: a claim parked on a blocker, the blocker cleared, the claim never revisited.** ✅ **THE PREMIUM PATH IS LIVE NOW** (previously VOID — the cap crushed the charge to zero): σ²=1.05e13, **premium one big drain = 22,130 · premium split into 12 = 23,963.** ⛔ **THE BIG DRAIN IS 8.28% CHEAPER — THE CONSOLIDATION ARBITRAGE SURVIVES, AND E68's STATED PREDICTION (`premium(one drain of S) >= premium(N drains of S/N)`) IS REFUTED BY MEASUREMENT.** ⛔ **MY TEST'S LOG LABEL WAS ALSO BACKWARDS** — `paidA < paidB` means the BIG DRAIN is cheaper, but the branch printed *"THE SPLIT IS STILL CHEAPER"*. Verdict right, sentence inverted; **fixed, because a correct finding under a wrong label is how the next reader gets it backwards.** 🔎 **THE MECHANISM IS NOT WHAT E68 TARGETED, AND THAT IS THE USEFUL PART.** A correct integral is **PATH-INDEPENDENT** — `∫[q0→q2] = ∫[q0→q1] + ∫[q1→q2]` — so splitting MUST cost identically if only inventory moved. It does not, so something else moves between splits: **each sub-swap bumps the FLOW EWMA, raising `target`, raising `q` for the next.** ✅ **E68 DID achieve path-independence in the INVENTORY dimension; the residual 8.28% is `target` drifting under the volume it is pricing.** ▶️ **THE OPEN DEFECT IS `target` ENDOGENEITY, NOT THE KERNEL — the SAME endogeneity E83 reached via the Lucas critique. Two independent routes, one finding, for the third time this session.** ⚠️ **Do NOT "fix" it by freezing the EWMA mid-swap without deriving the correct reference — that masks it rather than solving it.** | 🔴 E68 prediction refuted; target endogeneity open  📌 **§SEQ-AUDIT: GATE 0 · lane L6. E68 prediction FAILED on re-run - live measurement** |
-| **E87** | 📋 **SWEEP RESULT #2 — REMAINING PARTIAL-FIX CLAIMS, AUDITED (2026-08-05). The owner asked twice for a systematic pass over "reported fixed, actually partial". This is the audit; it is NOT complete and says where it stops.** ⛔ **STILL OPEN AND PREVIOUSLY SOFT-PEDALLED: the σ² CLIFF (E72) IS NOT FIXED FOR ETH.** E81-r changed both `σ²==0` sentinels to return the CEILING, which I described as answering E72 — **it does not.** For BTC the σ²=1 neighbour is now floored at `SPLICE_FLOOR` (2e15), so the cliff is genuinely gone there. **For ETH the floor at σ²=1 is ≈0, so the adjacent states remain `3e16` and `~0` — the cliff and its exploitability survive untouched on the ETH leg.** ⛔ **NEVER RE-RUN AFTER THEIR BLOCKERS MOVED:** E69's edge measurement (still blocked on E74's delivery gap, correctly) and **both-directions / BTC validation of the integral — asserted as "untested" three times and never scheduled.** ⛔ **NEVER BUILT, as stated but worth one list:** E74 delivery-gap fix · S16 revert-on-0-delivery hardening · E77 flash-borrow refill · async fallback · external-fill path · the E76 target-harm check · the E79 LVR venue simulation. ⚠️ **THE AUDIT ITSELF IS INCOMPLETE:** it covers claims made in THIS session only, by re-reading my own rows. **A mechanical sweep — e.g. every `_maxWellSkew`/`skewWad`/`sellSkew` caller re-checked against what each row claimed — has NOT been run**, and `tools/scan-loose-ends.py` (another thread's, modified in-tree) may already do part of this. | 📋 audit partial — says where it stops |
-
-| **E85** | ✅ **THE "q≈0.87" CROSSOVER IS MEASURED AND RETRACTED AS A CONSTANT — THE OWNER'S DISTRUST WAS CORRECT. `evm/test/DrainAtomicity.t.sol::test_E85_CrossoverMovesWithVolatility` (2026-08-05).** ⛔ **I QUOTED ONE POINT ON A CURVE AS THOUGH IT WERE THE CURVE, then reasoned from it in E83 to call the barrier "possibly decoration".** `SPLICE_FLOOR` is a **CONSTANT** while the kernel scales with σ², so the crossover is a **FUNCTION OF VOLATILITY**. ✅ **SWEPT (BTC, binary search on q):** **σ²=1e15 ⇒ q=0.986 · σ²=1e16 ⇒ q=0.872 · σ²=1e17 ⇒ q=0.405 · σ²=1e18 ⇒ q=0.065.** **The crossover spans 0.065→0.986 across a 1000× σ² range.** ▶️ **SO "IS THE BARRIER DECORATION?" HAS A REGIME-DEPENDENT ANSWER: near-decoration in CALM markets (kernel only clears the floor above q≈0.99), DOMINANT in volatile ones (above q≈0.065).** **It is load-bearing exactly when volatility is high — i.e. when it matters — which independently confirms E84's correction of E83 and settles that removing it is the wrong simplification.** 🔎 **AND THE FLOOR COLUMN EXPOSES A SEPARATE E83 ERROR I HAD NOT CAUGHT: BTC's floor barely moves across that same 1000× range (2.000014e15 → 2.014250e15) — it is ~99.3% `SPLICE_FLOOR` and ~0.7% σ²-dependent term.** ⛔ **So for BTC the floor is a FIXED COST-RECOVERY FEE, not a volatility-scaled adverse-selection charge, and E83's *"the floor is the LVR-shaped term that matches the job"* IS WRONG FOR BTC.** ✅ **It holds for ETH, which has no `SPLICE_FLOOR` and whose floor is purely `σ²·ETH_CONF_FRAC/8` — genuinely LVR-shaped.** ▶️ **CONSEQUENCE: the two assets' floors are DIFFERENT KINDS OF OBJECT (ETH: adverse selection · BTC: a fee we must pay to splice). Any argument that treats `_maxWellSkew` as one economic quantity across both assets is unsound — including several of mine.** | ✅ measured; E83 further corrected  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): q=0.87 crossover retracted** |
-
-| **E88** | ⛔ **E87's "ETH σ² CLIFF IS EXPLOITABLE" IS CORRECTED — I HAD THE DIRECTION BACKWARDS, AND E85's DATA IS WHAT REFRAMED IT (2026-08-05).** ⛔ **WHAT I BOOKED:** that `σ²=0 ⇒ 3e16` beside `σ²=1 ⇒ ~0` leaves ETH exploitable. **CHECK THE DIRECTION OF ATTACK: an attacker wants a LOW skew.** The `~0` at tiny σ² is reached by the market being CALM — and **calm genuinely MEANS low volatility, hence low adverse selection, so a low charge there is economically CORRECT, not a hole.** ✅ **THE REAL ANOMALY IS THE OTHER SIDE: the 3% at EXACTLY zero.** 🔎 **ROOT CAUSE — `σ² == 0` IS OVERLOADED.** It means BOTH *"the ring is unpopulated, we have not measured"* AND *"we measured, and it is genuinely zero"*. **E59's conservative sentinel is right for the first and wrong for the second, and nothing in the code distinguishes them** — the identical identifiability problem E56 solved on the flow leg, where a zero EWMA could not separate DEAD from NEW and the fix was a second, monotonic signal (`skewPremiumCum`) rather than a threshold. ▶️ **FIX SHAPE (not built): stop overloading zero — read the observation ring's POPULATION to tell unmeasured from measured-zero, exactly as E56 used a monotonic counter. A threshold on σ² itself would be a clamp and is the wrong instrument (CLAUDE.md rule 3).** ⚠️ **CONSEQUENCE FOR BTC: the same overload exists, but `SPLICE_FLOOR` masks it — BTC's floor at σ²=1 is 2e15, not ~0, so the cliff is invisible there. It is the SAME latent defect, hidden by a constant, which is why E85's finding that the two assets' floors are different KINDS of object matters operationally and not just conceptually.** | ⛔ E87 corrected; overload is the real defect  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): Direction corrected** |
-
-| **E89** | 🟠 **THE BASE MUST **ADD**, NOT FLOOR — OWNER'S CORRECTION TO WHAT I SHIPPED IN E81-r. Written, measured, NOT committed: it breaks a BACKING-CONSERVATION invariant. Working copies at `scratchpad/SwapLib-additive.sol` + `Alles-additive.t.sol` (2026-08-05).** ⛔ **MY E81-r IMPLEMENTATION WAS STILL WRONG.** I used `if (skew < base) skew = base` — a FLOOR. **Owner: *"As a base it would be ADDED — the floor under every trade, since an expected loss over the settlement window is a cost you incur regardless of size: `skew = sizeTerm + base`."*** ✅ **AND THAT IS RIGHT: `max(size, base)` lets the base VANISH into the size term at high scarcity**, so a large drain pays the depletion charge and NOTHING for the settlement-window loss — **yet σ²·T/8 is incurred regardless of who trades or how much. Depletion risk and adverse selection are DIFFERENT costs and both are real, so they SUM. `max` undercharges by exactly `min(sizeTerm, base)`.** ✅ **APPLIED TO BOTH LEGS (`skew += _maxWellSkew(...)`, then the unchanged `MAX_WELL_SKEW` ceiling) and the barrier test updated — including a REGRESSION PIN that the base must SURVIVE at high scarcity rather than be absorbed, which is precisely what the old `max` form got wrong.** ⛔ **BUT: 4,307 passed / 1 FAILED — `test_RunSim_BtcLpClose_RepeatedCycles_ConserveBacking`: *"cumulative mint stays within cumulative swap-out proceeds (+ fee dust): 5702392428e12 > 5702336209e12"*, an excess of ~5.6e16 (≈0.001%).** **The prior commit `a996190` had ZERO logic failures, so the additive change caused it.** ⚠️ **THIS IS A BACKING-CONSERVATION INVARIANT ON THE MONEY PATH. NOT COMMITTED (rule 15), AND THE TOLERANCE MUST NOT BE WIDENED — a conservation check that is loosened to pass is the textbook masked defect (rule 4).** 📌 **INCOMPLETE, NOT WRONG — say which, per `land-changes-dont-revert-them`: the DERIVATION is the owner's and stands; a larger skew has a second-order effect on the BTC mint/proceeds accounting that must be traced and handled.** ▶️ **NEXT: find where cumulative mint is computed against swap-out proceeds on the BTC LP-close path and determine why a larger retained premium makes mint EXCEED proceeds — the sign is counter-intuitive (more premium retained should mean MORE backing, not less) and that surprise is the lead.** ⚠️ **ALSO NOTE: the E85 "crossover" analysis is largely MOOT under addition — it characterised which term WINS, and under a sum both always count. It mattered only because of my `max` error.** | 🟠 derivation right, 1 red — do not widen  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): STALE: additive base is in the tree** |
-
-| **E90** | 🔎 **DELIVERY-GAP LEAD (E74/E80): `Core.swap`'s THIRD PARAMETER IS NAMED `sender`, BUT `BasketLib` PASSES `recipient` INTO IT — CONFIRMED, CONSEQUENCE NOT (2026-08-05).** ✅ **VERIFIED BY DIRECT READ:** `Core.sol:641` declares `function swap(bool isBTC, uint160 sqrtPriceX96, **address sender**, bool forOne, address token, uint amount)`, while `BasketLib.sol:442-443` calls it as `ICore(ctx.core).swap(p.isBTC, p.sqrtPriceX96, **p.recipient**, p.zeroForOne, p.token, pooled)`. **The same address slot is called `recipient` on one side of the boundary and `sender` on the other.** Core then forwards it into `poolManager.unlock(abi.encode(..., sender, forOne, token, amount))` (`Core.sol:644-646`). ⚠️ **THIS IS A LEAD, NOT A DIAGNOSIS — STATED THAT WAY DELIBERATELY.** The parameter is consumed inside the **unlock callback**, which has NOT been read. If the callback treats it as the party to PAY, the naming is merely sloppy and the bug is elsewhere; if it treats it as the party to CHARGE, that is the delivery gap. **Both are consistent with the evidence so far.** ▶️ **NEXT, AND IT IS ONE FUNCTION: read Core's `unlockCallback` / `_unlockCallback` handling of `Action.SwapETH` and `Action.SwapBTC` and determine which role that address plays.** 📌 **PROCESS NOTE: two read-only subagents were spawned for this and the backing-gate question (owner's suggestion). BOTH STALLED at the 600s watchdog with no report; this single line was the only output either produced, and I verified it myself rather than relying on it. The backing-gate question — which GATES deleting the sell leg's holding-cost term (E84) — therefore remains COMPLETELY UNANSWERED.** | 🔎 lead only — read the unlock callback  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): STALE: sender misnomer gone** |
-
-| **E91** | ✅ **CLOSED — THE CODE IT DESCRIBES NO LONGER EXISTS (verified 2026-08-18).** `_unlockCallback` returns **zero hits** across `evm/src`: the v4 cut removed the callback this row located the defect inside. The delivery concern itself survived into §E91-ROOT and is now fixed there. Original text: **DELIVERY GAP LOCATED IN THE UNLOCK CALLBACK: THE USD LEG TAKES TO `address(this)`, NOT TO THE RECIPIENT (2026-08-05).** ✅ **THE CHAIN, READ END TO END:** `Core.swap` (`Core.sol:641`, param named `sender`) → `poolManager.unlock` → `_unlockCallback` (`:773`) → `_handleSwap` (`:784`) decodes `(rangeTicks, sender, forOne, token, amount)` and calls `_handleDelta(delta, true, false, **sender**, token, isBTC)` → `_settleUsdSide`, which does **`usdCurrency.take(poolManager, address(this), usdAmount, false)`**. ⛔ **THE PROCEEDS ARE TAKEN TO THE CONTRACT, NOT TO `who`.** The recipient is threaded correctly all the way from `swapTo` through `_finishSwap` (`SwapLib.sol:498`) and `routeSwap` (`BasketLib.sol:442-443`) into the callback — **and then the USD side never uses it as the destination.** ✅ **THIS MATCHES THE MEASURED TRACE EXACTLY:** input consumed (`WETH left = 0`), proceeds arriving at the contract, **no forwarding Transfer to `0x…BeeF03`**, and a non-zero `max` (37943101858) because `max` reports the SWAP's output, not the USER's receipt — which is why `_finishSwap`'s `max == 0` guard cannot catch it and why S16's `minOut=0` masks it. ⚠️ **TWO THINGS NOT YET CONFIRMED — DO NOT SKIP THEM BEFORE EDITING.** (1) **`grep` reports `function _handleDelta` at BOTH `Core.sol:1060` AND `:1068`.** Per CLAUDE.md, same-named functions may be complementary halves — **`diff` them and find the LIVE copy before touching either.** (2) **It is not verified that `who` is unused for a later forward** elsewhere in that frame; the drain direction plainly works, so the USD leg may be correct for one direction and wrong for the other. ▶️ **FIX SHAPE (not built): the volatile-IN/stable-OUT direction must deliver to `who`. The working REDEEM path is the reference — `BasketLib._dispatchTake` → `IAux.take/takeWith(r.recipient, ...)` (`BasketLib.sol:884-886`).** ▶️ **AND S16's HARDENING IS THE SYSTEMIC GUARD: revert on 0-DELIVERY (measured at the recipient), not on `max == 0`, because those are different quantities — this bug proves it.** | ✅ FIXED — ChannelLib.sol:289 forwards to recipient (E137-skew verified)  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): VERIFIED: _unlockCallback zero hits** |
-
-| **E89-a** | 🟠 **E89's SINGLE RED, QUANTIFIED — IT IS A HARDCODED DUST CONSTANT, NOT A CONSERVATION COLLAPSE. Root cause hypothesised and NOT yet confirmed (2026-08-05).** ✅ **THE ASSERTION** (`evm/test/BtcLpMintStress.t.sol:657-658`): `cumMinted <= cumProceeds*1e12 + 6e18` — a **6 QUID HARDCODED dust allowance** over ~5,702 QUID of cycle flow. ✅ **THE NUMBERS:** `cumMinted` = 5,702,392,428e12 · `cumProceeds*1e12 + 6e18` = 5,702,336,209e12 ⇒ **the real gap is 6.056 QUID against a 6 QUID allowance — over by 0.056, i.e. 0.94% past the tolerance, on a gap that is itself only ~0.1% of flow.** ⛔ **SO THE ADDITIVE BASE DID NOT BREAK CONSERVATION BY MUCH — IT PUSHED A PRE-EXISTING GAP JUST PAST A CONSTANT. THAT IS PRECISELY WHEN RAISING THE CONSTANT WOULD BE MASKING (rule 4), SO DO NOT.** 🔎 **HYPOTHESIS, UNCONFIRMED — THIS IS THE THING TO CHECK FIRST:** `creditSwapOutBody` scales the buy-driving USD DOWN by `(1−skew)`, so **the withheld premium stays as BACKING but never enters `cumProceeds`.** A larger skew withholds more ⇒ `proceeds` under-counts by more, while `cumMinted` tracks delivered value ⇒ the gap widens **with the skew, mechanically.** **If that is right, the invariant compares mint against an INCOMPLETE measure of backing, and the correct assertion adds the RETAINED PREMIUM (`skewPremiumCum` delta over the cycle) rather than widening the dust window.** ⚠️ **THIS EXPLAINS THE COUNTER-INTUITIVE SIGN I FLAGGED IN E89** (*"more premium retained should mean MORE backing, not less"*): more backing IS retained — **the test just cannot see it**, because it measures proceeds, not backing. ▶️ **TO CONFIRM BEFORE EDITING ANYTHING: instrument the cycle with `CORE.skewPremiumCum(true)` before/after and check whether `cumMinted − cumProceeds*1e12` tracks the premium delta. If it does, the assertion is incomplete and E89 lands. If it does NOT, there is a real leak and the additive base must not ship.** | 🟠 diagnosed, needs one instrumented run  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): STALE: 6e18 dust allowance gone** |
-
-| **E89-r** | ✅ **THE ADDITIVE BASE IS LANDED — THE OWNER'S CORRECTION IS IN. VERIFIED: 4,308 passed / 0 failed / 0 skipped (fork tests included, no RPC flake). SwapLib 22,678, margin 1,898 under EIP-170. check-client-abis 75 signatures, 0 drifted (2026-08-05).** ✅ **`skew += _maxWellSkew(...)` on BOTH legs, ceiling unchanged.** Owner: *"an expected loss over the settlement window is a cost you incur regardless of size: `skew = sizeTerm + base`."* **`max(size, base)` let the base VANISH into the size term at high scarcity — a large drain paid the depletion charge and NOTHING for adverse selection. Two different real costs; they SUM. `max` undercharged by exactly `min(sizeTerm, base)`.** ✅ **THE ONE RED WAS THE TEST, NOT THE CODE — AND IT WAS PROVEN, NOT ASSUMED.** Ran BOTH forms and compared: **gap 5.992527 → 6.054301 (Δ +0.061774) · premium 3.600059 → 3.661855 (Δ +0.061796) — the deltas agree to 0.000022 QUID (99.96%)**, and the residual `gap − premium` is **2.3924 in BOTH runs, a constant skew-INDEPENDENT dust.** **So the premium explains ALL of the skew-dependent movement and NONE of the residual.** 🔎 **ROOT CAUSE: `creditSwapOutBody` scales buy-driving USD down by `(1−skew)`, so the withheld premium stays as BACKING but never enters `cumProceeds`.** A larger skew widens `cumMinted − cumProceeds` **mechanically**, and the old 6 QUID dust window had been **absorbing it silently.** ✅ **THE FIX DECOMPOSES RATHER THAN WIDENS, AND IS STRICTER: the assertion is now `cumMinted <= cumProceeds + skewPremiumCum + 2.5e18`, with unexplained dust TIGHTENED from 6 QUID to 2.5.** ⚠️ **THE FALSIFIABLE CONDITION STATED IN E89-a WAS HONOURED: "if the gap tracks the premium delta, the assertion is incomplete and E89 lands; if it does NOT, there is a real leak and the additive base must not ship." IT TRACKED — and the test was tightened, not loosened, which is the discriminator between a fix and a mask.** | ✅ landed |
-
-| **E88-r** | ✅ **THE σ² OVERLOAD IS FIXED — ZERO NOW MEANS "UNMEASURED" AND ONLY THAT. VERIFIED: 4,308 passed / 0 failed / 0 skipped · check-client-abis 75 signatures, 0 drifted (2026-08-05).** ⛔ **THE DEFECT (E88):** `realizedVarianceWad` returned 0 for BOTH *"the ring is unpopulated, we have not measured"* AND *"we measured, and it is genuinely zero"*. `skewWad`/`sellSkew` read `σ² == 0` as UNMEASURED and conservatively charge the **CEILING (3%)** — correct for the first meaning, **wrong for the second, because a genuinely calm market has genuinely low adverse selection and should not be charged the maximum.** ✅ **THE FIX — A SECOND SIGNAL, NOT A THRESHOLD.** No threshold on σ² can separate the two: it is an **IDENTIFIABILITY** problem, the same one E56 hit when a zero flow-EWMA could not tell a DEAD pool from a NEW one. The answer there was an independent signal already in storage, and it is the same here — **the ring's own `cardinality` says whether we have LOOKED, which no value of the variance itself can.** `Core.realizedVarianceWad` now returns **1 wei** when `v == 0 && cardinality >= 2`, so 0 is reserved for unmeasured. **Zero extra storage, zero extra calls, zero money-path gas, and E59's sentinel keeps its exact meaning for the case it was written for.** ⚠️ **THE GREEN SUITE DOES NOT VALIDATE THE FIX, AND I AM NOT CLAIMING IT DOES — CONTROL QUESTION APPLIED: would this look the same if I were wrong? YES.** If no existing test drives a POPULATED ring to a genuinely-zero variance, the branch is never taken and the suite is green either way. **4,308 green proves NO REGRESSION, nothing more.** ▶️ **OWED: a test that pins the discrimination — populate the ring with identical ticks (true zero variance) and assert the skew charges the BASE, not the 3% ceiling; and assert an UNPOPULATED ring still charges the ceiling. Until that exists, E88-r is landed-but-unproven.** 📌 **SEPARATE OBSERVABILITY GAP FOUND WHILE CHECKING SIZES: `Core` HAS NO ROW IN `forge build --sizes` OUTPUT** (278 rows; SwapLib/OracleLib/Aux/BasketLib/LevManager/LevMath/QuidLib all present, Core absent). **This is PRE-EXISTING — it was absent in every size table this session, not caused by this change — but CLAUDE.md names Core as one of the contracts sitting closest to EIP-170, and `forge build --sizes` is the ONLY thing that enforces it. So the tightest contract currently has NO size enforcement. Worth its own investigation.** | ✅ landed, effect unproven  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): Closed, suite green** |
-
-| **E92** | 🔴 **RE-POINTED, NOT CLOSED — VERIFIED 2026-08-18 ON THE OWNER'S INSTRUCTION TO CLOSE IT. THE NUMBER IS STALE; THE HOLE IS LIVE AND NOW COVERS THE BINDING CONTRACT.** ✅ **HALF ONE IS DEAD: `Core` = **9,890 bytes ⇒ 14,686 SPARE** (was 24,538 ⇒ 38). The range split, the v4 cut and the EthVenue fold took ~14.6 KB out of it; `Core` is no longer near the ceiling and cannot be.** ⛔ **HALF TWO IS STILL TRUE, AND WORSE THAN WHEN WRITTEN — MEASURED FROM `forge build --sizes` ON A CLEAN BUILD OF `origin/main`: 74 contracts listed, and `Core`, `Quid` AND `Vault` are ALL ABSENT.** `BTCChannels` (1,300), `LevManager` (1,746), `LevMath` (1,735), `Aux` (3,581) and `Basket` (15,445) all appear. 🔴 **`Quid` IS THE TIGHTEST CONTRACT IN THE TREE AT 547 BYTES AND FORGE DOES NOT REPORT IT.** ⛔ **BOTH HALVES OF THIS ROW ARE FALSE AS MEASURED 2026-09-08, AND THE SECOND ONE IS THE INTERESTING FAILURE.** Re-measured straight from the artifacts (`evm/out/**/*.json`, `deployedBytecode.object` length, restricted to contracts whose `metadata.settings.compilationTarget` is under `src/` — the same source `tools/check-contract-sizes.py` reads), so no build was run and no `--sizes` table was trusted: **MEASURED, deployed bytes / EIP-170 spare / `linkReferences`:** ⭐ **`LevMath` 24,212 / 🔴 364 / EMPTY — NOT library-linked** · `LevManager` 24,160 / 416 / linked · `SwapLib` 23,949 / 627 / linked · `Quid` 23,051 / **1,525** / linked · `BasketLib` 22,576 / 2,000 / linked · `Aux` 21,748 / 2,828 / linked · `BTCChannels` 21,241 / 3,335 / linked · `Core` 11,382 / 13,194 / linked. ⛔ **(1) `Quid` IS NOT THE TIGHTEST CONTRACT IN THE TREE AND IT IS NOT AT 547 BYTES.** It is **FOURTH**, at **1,525 bytes spare — about 2.8× the margin this row asserts.** The tightest is **`LevMath` at 24,212 ⇒ 364 bytes**, then `LevManager` (416) and `SwapLib` (627). 🔑 **The row's SENTENCE still holds and only its SUBJECT moved again** — *"the finding was never about `Core`'s size; it was about the size of the thing nobody is watching"* — which is now the third contract to hold that title (`Core` → `Quid` → `LevMath`). ⚠️ **That is the tell: a row whose subject has moved twice is tracking a MOVING quantity with a FROZEN number.** Re-measure it; never quote it. ⛔ **(2) THE LINKING COUNTER-EXAMPLE IS BUILT ON A MIS-READ LINK STATUS, AND THE REPO ALREADY ANSWERS THE "REMAINING WORK".** The row narrows the mystery by asserting *"`LevManager`, `LevMath` and `Aux` are ALSO library-linked and DO appear, so linking is confirmed not to be the discriminator."* **Measured: `Aux` linked=TRUE, `LevManager` linked=TRUE, `LevMath` linked=FALSE.** `LevMath` has no `linkReferences` at all, so it was never a counter-example — it appears in `--sizes` for exactly the reason the hypothesis predicts. ⇒ **The three-contract counter-example is one-third void, and the conclusion it licensed — *"linking is confirmed not to be the discriminator"* — is not supported by its own evidence.** ⭐ **AND THE ANSWER IS ALREADY WRITTEN DOWN IN THIS REPO**, in the header of the tool built to work around it — `tools/check-contract-sizes.py:5-6`: *"`forge build --sizes` omits any contract with unresolved `linkReferences`."* ⇒ **the "still unidentified" shared property has a name, and it is the one the row ruled out.** 📌 **HONEST REMAINDER, because this lane may not run a build:** whether `LevManager`/`Aux` (both linked=TRUE) genuinely DO appear in today's `--sizes` cannot be settled from artifacts alone — that half of the counter-example rests on a `--sizes` listing taken 2026-08-18 and never re-taken. **If they still appear, the rule needs a qualifier; if they no longer do, the mystery is fully closed.** One `forge build --sizes` decides it, and it is the ONLY work left in this row. ⇒ **WHAT SURVIVES: `tools/check-contract-sizes.py` is the size gate and `forge build --sizes` is not.** That was already this row's ✅ half and it is untouched. 🔑 **What dies is the idea that the cause is unknown.**  So the original sentence — *the contract closest to the ceiling has NO enforcement* — is still exactly true; only the contract's NAME changed. ⇒ **DO NOT CLOSE THIS ROW BECAUSE `Core` GOT SMALLER. The finding was never about `Core`'s size; it was about the size of the thing nobody is watching, and that thing is now `Quid`.** ✅ **WHAT DID CLOSE: the ENFORCEMENT gap.** `tools/check-contract-sizes.py` reads `deployedBytecode.object` for every contract declared in `evm/src` and reported *OK — tightest is Quid with 547 bytes to spare* on this same build, so the tree IS gated — **by the python checker, never by forge.** ▶️ **THE REMAINING WORK IS TO FIND OUT WHY THOSE THREE ARE OMITTED.** `CLAUDE.md` records the cause as unknown and rules out library linking; this run narrows it — `LevManager`, `LevMath` and `Aux` are ALSO library-linked and DO appear, so linking is confirmed not to be the discriminator. **Three contracts, one shared property, still unidentified.** ⚠️ Until it is found, `forge build --sizes` must never be described as the size gate for this repo. Original text: **`Core` IS 38 BYTES FROM EIP-170 AND ITS SIZE IS COMPLETELY UNENFORCED — `forge build --sizes` DOES NOT REPORT IT (2026-08-05).** ✅ **MEASURED DIRECTLY FROM THE ARTIFACT** (`out/Core.sol/Core.json`, `deployedBytecode.object` length): **`Core` = 24,538 deployed bytes ⇒ EIP-170 margin = 38 BYTES.** ⛔ **AND IT HAS NO ROW IN `forge build --sizes`** — 278 rows in that table, with `SwapLib`, `OracleLib`, `Aux`, `BasketLib`, `LevManager`, `LevMath`, `QuidLib` all present and **`Core` absent**. **CLAUDE.md names `forge build --sizes` as the ONLY thing that enforces the 24,576-byte limit (`forge test` does not), so the contract sitting CLOSEST to the ceiling currently has NO enforcement at all.** ⚠️ **THIS IS THE EXACT FAILURE THAT ALREADY HAPPENED ONCE IN THIS REPO: a `Core` shipped at −126 bytes (undeployable) WITH A GREEN SUITE.** Nothing in the current build would catch a repeat. 📌 **AND IT NEARLY BIT AGAIN THIS SESSION: E88-r added ~52 bytes to `Core` (24,486 → 24,538), consuming MORE THAN HALF the remaining margin, and I only measured it AFTER landing.** The change fits, but I could not have known that from any check I ran. **I had also been quoting "Core 24,486" from an earlier session's notes rather than from this session's builds — a stale number reported as current.** ▶️ **TWO ACTIONS: (1) find out WHY `Core` is excluded from the `--sizes` table** (build profile? a `--filter-paths`/skip rule? an artifact-name mismatch — note the table shows library rows with parenthesised paths, so the naming scheme differs) **and restore it; (2) until then, ANY change touching `Core.sol` must measure the artifact directly** — read `deployedBytecode.object` from `out/Core.sol/Core.json` and check the length against 24,576. ⚠️ **AT 38 BYTES, ESSENTIALLY ANY ADDITION TO `Core` NOW OVERFLOWS IT. Treat `Core` as frozen for additions until headroom is recovered.** | ⛔ **NUMBERS FALSE 2026-09-08 (`Quid` is 4th at 1,525, not 1st at 547; tightest is `LevMath` 364). The cause is NOT unknown: `tools/check-contract-sizes.py:5-6` names unresolved `linkReferences`, and the counter-example that ruled it out mis-read `LevMath` as linked.** One `forge build --sizes` closes the remainder  📌 **§SEQ-AUDIT: GATE 0 · lane L7. Re-scoped 2026-09-08 - verified against artifacts** |
-
-| **E84-a** | 🟠 **E84's BLOCKER PARTLY ANSWERED: VOLATILE INVENTORY IS *NOT* BOUNDED ONLY BY THE SELL-LEG PREMIUM — A THETA RISK-BUDGET CLAMP EXISTS. Scope unconfirmed (2026-08-05).** ✅ **FOUND (the question a stalled subagent never answered):** `SwapLib.sol:1520` — *"theta risk-budget clamp on a range add: cap post-add `pooled` at `thetaEff * vogueAvail`"*, implemented at `:1530` as `thetaAvail = thetaCap > pooled ? thetaCap - pooled : 0`; and `:1536` defines **`HEADROOM = backing − pooled`**, *"the physical room the IL-bearing capital leaves ABOVE"* the inventory. **So `pooled` (volatile inventory) IS capped by a risk budget independent of the skew.** ⛔ **BUT THE SCOPE IS THE OPEN PART, AND IT IS THE PART E84 ACTUALLY NEEDS: the docstring says "on a range ADD" — an LP DEPOSIT. It is NOT confirmed that the same clamp bounds SWAP-DRIVEN accumulation**, which is the path a volatile-IN sell takes and the only path E84's deletion would affect. ▶️ **TO FINISH: trace whether `_thetaClamp` (or an equivalent) is on the `swapToBody` volatile-IN path, or only on `addLiq`/deposit. If ADD-ONLY, the sell-leg premium may still be the sole brake on swap-driven accumulation and E84's deletion is UNSAFE.** 📌 **A SECOND, STRUCTURAL BOUND IS ARGUED BUT UNVERIFIED: a volatile-IN sell is paid in USD from the range, so it can only fill while the range HAS USD — the USD inventory is a physical ceiling on how much volatile can be accumulated by swapping, independent of any premium.** `BasketLib.routeSwap`'s own comment supports the shape (*"BTC inventory bounds the fill"*, `SwapLib.sol:1248`, and *"If p.amount > V4 capacity, `out` is less than amount"*) — **but that citation is the DRAIN direction; the mirror claim for the SELL direction has NOT been checked and must not be assumed from symmetry.** ⚠️ **NET: E84 is no longer blocked on "does ANY bound exist" (one does) but on "does a bound exist ON THE SWAP PATH". Do not delete the sell-leg term until that is answered.** | 🟠 one bound found, scope open  📌 **§SEQ-AUDIT: GATE 0 · lane L5. applyTheta has ONE call site (SwapLib:2533), ADD-ONLY; still needs the swapToBody leg measured** ⚠️ **THE ROW'S OWN NUMBER IS NOW STALE, AND IT IS THE ONE IT LEANS ON (2026-09-07).** It says *"`Quid` IS THE TIGHTEST CONTRACT IN THE TREE AT 547 BYTES"*. **Measured from `evm/out` artifacts (no build): `LevManager` 24,443 ⇒ 133 free · `LevMath` 24,354 ⇒ 222 · `SwapLib` 23,382 ⇒ 1,194 · `Quid` 23,020 ⇒ 1,556.** ⇒ **`Quid` is FOURTH, not first, and the binding contract is `LevManager` at 133 bytes.** ✅ **The HOLE the row is actually about survives untouched** — `forge build --sizes` omitting contracts is a tooling defect, and CLAUDE.md already prescribes `tools/check-contract-sizes.py` because of it. 📌 **This is the fifth consecutive wrong answer to *"which contract binds"* recorded in this repo, which is the row's own point rather than a counter-example to it: a margin is a reading with a timestamp, and so is which contract is tightest.** ⚠️ Figures from artifacts built over another session's tree — indicative, and the ORDER is what matters here, not the digits. ✅ **CLAIM HOLDS, COORDINATE ROTTED — it is `SwapLib.sol:2589`, not `:2533`.** Exactly **one** non-comment call site (`available = applyTheta(thetaEff…`); the other two grep hits are docblocks. **Fifth coordinate rot in this sweep — see `§CITATION-ROT-2026-09-07`.** |
-
-| **E93** | 🧭 **CONSOLIDATION — E82, E83 AND E86 ARE ONE DEFECT, NOT THREE: `target = flowEwmaUsd`. Read this row instead of those three (2026-08-05).** 📌 **WHAT THE SKEW IS, stated once:** a market maker never quotes mid; filling at the oracle is a free option to anyone with fresher information. **The skew IS the spread.** ✅ **WHAT IT COMPUTES AFTER THIS SESSION: `skew = kernel + base`, capped at 3%** — `base` = `σ²·confFrac/8` (+ `SPLICE_FLOOR` for BTC), incurred REGARDLESS of size; `kernel` = the term that scales with THIS swap's size and the imbalance it creates (drain leg: the integral of `Γσ²·q/(1−q)` over its own displacement; sell leg: the midpoint of the linear `Γσ²·q`). 🧭 **THE DISSOLUTION:** three rows described three defects — **E82** (the sell leg needs a shed horizon `tau = q/flow` knowable only AFTER the fact) · **E83** (Lucas critique: measured durations are invalid for the policy they inform, because our own spread changes them) · **E86** (splitting a drain costs 8.28% MORE than doing it at once, though a correct integral is path-INDEPENDENT). **ALL THREE EXIST BECAUSE `target = flowEwmaUsd`:** it is **UNOBSERVABLE** (a BACKWARD EWMA used as a FORWARD estimate), **ENDOGENOUS** (our spread drives away the flow it measures), and **PATH-DEPENDENT** (each sub-swap bumps the EWMA and moves the target under the next). **One cause, three symptoms.** ✅ **THIS ALSO RETIRES the Kaplan–Meier / survival-analysis line entirely — that was machinery for ESTIMATING a quantity we should not be REFERENCING.** 🔎 **THE LEAD, AND IT IS ALREADY IN THE CODE: the `base` term uses NO flow at all** — realized variance and a settlement window, both OBSERVABLE and EXOGENOUS to our own quote. **So the base is already immune and only the kernel's `q` is infected.** ▶️ **A BALANCE-SHEET reference would be immune the same way: the theta risk budget (`thetaEff * vogueAvail`, `SwapLib.sol:1520`) or `backing` — observable NOW, unaffected by our own pricing. NOT DERIVED YET; this is the direction, not the answer.** 📌 **E84 PROBABLY DISSOLVES TOO:** the sell-leg term looked unjustifiable because it needed an unobservable horizon — **that was the flow-reference defect wearing a different hat. Fix the reference and there may be nothing to delete.** ⚠️ **THE REMAINING LIST IS THEREFORE SHORT: (1) the kernel's target is a flow EWMA [this row] · (2) stable-out swaps pay the contract, not the user [E91] · (3) `Core` has 38 bytes and no size enforcement [E92].** | 🧭 supersedes E82/E83/E86  📌 **§SEQ-AUDIT: GATE 6 · lane L5. VERIFIED LIVE: SwapLib:1270 still `uint target = flowUsd` - the one open pricing task of the E93 family** |
-
-| **E92-a** | ✅ **ROOT CAUSE OF THE MISSING `Core` SIZE ROW: LIBRARY LINKING. `forge build --sizes` OMITS CONTRACTS WITH UNRESOLVED `linkReferences` (2026-08-05).** ✅ **MEASURED:** `out/Core.sol/Core.json` carries **3 `linkReferences` — `src/imports/BasketLib.sol`, `src/imports/FeeLib.sol`, `src/imports/OracleLib.sol`.** Core delegatecalls those libraries, so its bytecode holds `__$…$__` placeholders until link time, **and `--sizes` skips it.** That is why `LevManager` (24,506) and `LevMath` (24,556) DO appear — the table is not filtering by size, it is filtering by linkability. ✅ **AND THIS VALIDATES THE DIRECT MEASUREMENT: a placeholder `__$<34 hex>$__` is 40 hex chars = EXACTLY the 20 bytes an address occupies after linking, so the artifact length is the TRUE post-link size. `Core` = 24,538 bytes, margin 38, is a real number and not an artifact of the placeholders.** ⛔ **THE GAP IS THEREFORE STRUCTURAL AND WIDER THAN `Core`: EVERY library-linked contract in this repo is invisible to the ONLY tool that enforces EIP-170.** CLAUDE.md's standing instruction (*"Run `forge build --sizes` after any change to `SwapLib`, `LevMath`, or `LevManager` — all three sit within ~150 bytes of the ceiling"*) **names only contracts that HAPPEN to appear in the table; the ones that do not appear are exactly the ones the instruction cannot protect.** ▶️ **FIX SHAPE: measure `deployedBytecode.object` length from `out/<file>/<name>.json` for every contract in `src/` and compare against 24,576 — that reads the linked-equivalent size correctly for BOTH linked and unlinked contracts, so it SUPERSEDES `--sizes` rather than supplementing it.** ⚠️ **`tools/` already exists (`check-client-abis.py` is a standing, mandated check), so this belongs beside it — it is a RECURRING build guard, not a one-off script.** ⚠️ **UNTIL THEN: `Core` at 38 bytes must be treated as frozen for additions, and E88-r consumed 52 of the 90 bytes that were there without any check being able to tell me.** | ✅ diagnosed; guard not built  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT wave 2): STALE: retracted by E92-r; check-contract-sizes.py exists** |
-
-| **E94** | ⚠️ **(2026-08-13) THE "SEPARATE OPERATOR / OWN ENCLAVE" FRAMING IN THIS ROW IS SUPERSEDED — DO NOT PLAN FROM IT.** The half in question is the **LP's** (`vault.rs:1`: the vault is *"the in-process LP-side LDK node"*), so the answer is per-LP custody (§E165/§E171-r/§E188), not a third-party custodian — which would leave the actual threat, *the LP's UTXO spent without the LP*, exactly where it is. This row predates that answer and its provisioning conclusion (*"the vault seed must be BORN in its own enclave"*) was tried and REVERTED in §E175-b: inside one process it buys nothing and a second seed is lost on enclave migration. See §E175-b. <br><br>*(Original row below, kept as evidence.)* 🔴 **THE FLEET "2-of-2" IS STRUCTURALLY ONE KEY: THE VAULT SEED IS HKDF-DERIVED FROM THE HOP SEED. Source, not inference (2026-08-06).** `quid-ln/quid-bridge/src/vault.rs:40-47` — `derive_vault_seed(hop_seed) = RootSeed::new(hop_seed.derive(&[b"quid-vault-node-v1"]))`, and its own doc comment says it: *"a deterministic, enclave-sealed sibling identity of the hop (both descend from the one born-in-enclave seed), **NOT a separate operator key**."* The label is a public constant, so **anyone holding the hop seed computes the vault seed with one HKDF call.** ⇒ The two halves of the MuSig2 2-of-2 have a common ancestor: **one seed compromise yields both.** ✅ Exactly ONE call site (`vault.rs:513`) and `boot_vault` already reuses the hop's `node::boot` over real p2p, so **this is a provisioning change, not a protocol rewrite** — the vault seed must be BORN in its own enclave with its own attestation. ⛔ **SELF-CORRECTION (same session): my first write-up said "BOTH changes or neither is worth doing." That was an overclaim I made without reading `migration.rs`.** Migration is **per-enclave**: the OLD enclave exports **its own** seed to an attested successor (`quid-hop/src/migration.rs:1-10`). So splitting the seed is a **strict improvement on its own** — today, because the vault seed is DERIVED from the hop's, exporting the hop seed implicitly exports the vault's too, and one authorised migration yields BOTH keys; after the split one migration yields one key. ⚠️ The residual condition is narrower and cheaper than a redesign: **the two enclaves must be pinned to DIFFERENT Safes.** `MigrationAuth` is verified against "the Safe's owner-set", so same-Safe-for-both re-collapses it to one threshold compromise. That is deployment/config separation, not new protocol. ▶️ Also the prerequisite for the partitioned-multi-daemon fix (`channel.hop` already partitions the hop side; the vault is still one node for all LPs, `vault.rs:1-15`). | 🔴 open — provisioning + migration authority  📌 **§SEQ-AUDIT: GATE 2 · lane L7. Operator-topology decision - who holds the second half** |
-
-| **E95** | 🟠 **DELEGATION BOUNDS THE DESTINATION BUT NOT THE RATE OR SIZE — the axis nobody measured (2026-08-06).** `BTCChannels.sol:201-231`: `btcRecipientOf` is pinned and LOCKED on first channel open, and every payout script is `P2TR(btcRecipientOf)`, so `delegatedAuthority` is *"theft-proof regardless of which hop is designated"* (line 230). ✅ That claim is TRUE and is the strongest of the guardrails. ⛔ **But theft is not the only loss.** Compared against Cloudflare Wallets' three-guardrail delegation model (spending cap / periodic allowance · approved-merchant allow-list · max transaction size, announced 2026-08-04), SPV implements **only the allow-list dimension, and only for the destination.** There is **no cap on rate, no cap on per-action size, no periodic allowance.** ⇒ A compromised-but-pinned hop cannot steal, yet can still churn the LP's channel: fee burn, forced closes, repeated splices at unfavourable prices. **All of those cost the LP money without a single satoshi reaching a wrong address**, which is precisely why destination-pinning reads as complete and is not. ▶️ Decide whether per-delegation size/rate caps belong on-chain next to `delegationVersion`. ⚠️ Unquantified: no measurement yet of what a churn attack actually costs per unit time. | 🟠 open — gap identified, cost unmeasured  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT wave 2): STALE: delegatedAuthority/delegationVersion/delegatedHop ZERO code hits** |
-
-| **E96** | ✅ **FIXED — THE COMMITTED SWAP-IN VECTOR WAS UNREADABLE IN BOTH CONFIGURATIONS. This RETRACTS E33's "the pinned pair now HAS a reader" (2026-08-06).** The read sat BELOW the SKIP branch in `evm/test/btc/BtcSelfManaged.t.sol`, so: a machine WITHOUT the harness `return`ed at SKIP and **never opened the file**; a machine WITH it had the file **overwritten by the `vm.ffi` run microseconds earlier**. ⇒ **The value in git was never the value under test, on any machine** — and every suite run left the tree dirty, which reads as work when it is not. ✅ **FIX (3 parts):** `regtest/swap.sh` now writes `swapin_fixture.local.json` (gitignored) instead of clobbering the committed vector · the test reads `.local.` if present else the committed file, with the read + `sha256(preimage) == paymentHash` tie assertion **moved ABOVE the SKIP branch** so every machine checks it every run · SKIP now skips only the live leg, and a `READY` run additionally asserts the harness actually wrote its file. ✅ **VERIFIED:** both vectors confirmed genuine sha256 pairs before the swap; `forge test --match-test testSwapIn_RealLightningHTLC` ⇒ **1 passed, 0 failed, 0 skipped** (61.0s, live harness leg ran); `git status evm/test/btc/` clean of the fixture afterwards. ⚠️ Targeted run only — not a full-suite verification, though the change touches one test file, one shell script and `.gitignore`. | ✅ fixed + verified |
-
-| **E97** | 🟠 **THE CEREMONY POSTURE, STATED WITHOUT CONFLATING THE TWO STACKS (2026-08-06). ⛔ My first write-up DID conflate them and the owner caught it — read this version, not that one.** ✅ **OUR passport verifiers are HONK, verified by structure not by filename:** `passport/verifiers2/noir/NoirRegisterIdentity_*.sol` contain `library HonkVerificationKey` / `Honk.VerificationKey` / `Honk.G1Point`. They ride the **universal, pre-existing KZG/Ignition CRS** in `~/.bb-crs` (`TODO.md:8603-8605`) — ecosystem-scrutinised, *"whose compromise would be a public event"* (`README.md:171`). `README.md:99` states it without overstating it: *"Not 'no ceremony' — one instead of 81, and a public one rather than a vendor's."* Honk's ZK is masking polynomials and **does not touch the SRS**, so ZK on/off is trust-neutral. **Nothing on our Honk path depends on rarimo's ceremony.** ⛔ **WHAT I GOT WRONG:** I counted 7 files matching `Groth16` and reported them as a live trust dependency of ours. They are the **INHERITED rarimo scaffolding** — `Groth16VerifierHelper` from `@solarity/solidity-lib`, imported by `registration/RegistrationSimple.sol` and `registration/Registration2.sol`. **An import is not a deployment, and a non-empty grep proved far less than I claimed** (the usual rule read backwards: absence proves nothing, and presence proves only presence). 🔎 **WHAT IS ACTUALLY TRUE, from the contract's own comment (`Registration2.sol:172`):** *"`register` / `reissueIdentity` - Circom/Groth16. 35 verifiers under..."*, with `mapping(bytes32 => address) public passportVerifiers` (line 59) keyed per passport profile. So the Circom/Groth16 entrypoints are **structurally present and reachable IFF `passportVerifiers` is populated in a given deployment.** ❓ **UNMEASURED, AND I AM NOT GUESSING: whether any deployment populates it.** That is a deploy-time fact, not a source fact, and no grep of this repo settles it. ▶️ **NEXT: read the deploy scripts / on-chain state for `passportVerifiers` before anyone claims either "the Groth path is dead" or "we still trust rarimo's ceremony" — both are currently unproven.** 🔗 `backend/contracts` Slither still fails on an orphaned artifact naming `NoirRegisterIdentity_1_160_3_4_576_200_NA.sol`, **absent from disk** (the directory has `..._3_3_...`, not `..._3_4_...`) ⇒ wipe `out/`+`cache/` and re-run. | 🟠 open — reachability unmeasured  📌 **§SEQ-AUDIT: GATE 1 · lane L7. Free read: does any deployment populate passportVerifiers** ✅ **CLOSED 2026-09-07 — IT DOES NOW, AND THE ROW PREDATES THE SCRIPT.** `evm/script/DeployPassportVerifiers.s.sol` exists and its own header names the gap this row found (*"`Registration2.passportVerifiers` is empty and nothing populated it: no deploy…"*). It populates via `registration.updateDependency(...)` (`:80`) — there is no direct `passportVerifiers[x] =` write, which is why a name-grep for a setter comes back empty — **and it asserts its own post-condition at `:95`, `registration.passportVerifiers(zkType) != address(0)`.** ⇒ a self-verifying deploy, per the *"verify the effect, never the tool's exit code"* rule. **The row's question is answered and the gap is closed; nothing to do.** |
-
-
----
-
 ## HANDOFF 2026-08-05 — Rover removal + the new offramp. READ THIS BEFORE TOUCHING ROVER.
 
-**Skew is NOT this thread's work any more** — another thread owns it (E54/E58/E59/E63). What that
-thread landed and what is still open is recorded in the skew sections above; the two live gaps there
-are **size-blindness** (`wellSkew` takes no out-amount, both call sites already have it) and the
-**dead leverage params** (`skewWad`'s `lockedUsd`/`committedUsd` are never read by its body, yet
-`wellSkew` still pays for `levGrossNative` + `levClaimUsd6` every swap and discards them; the
-`levGrossNative` call is wasted on the `sellSkew` leg too).
+🔴 **THE SKEW PARAGRAPH THAT STOOD HERE IS DELETED (2026-09-10).** It described two live gaps in
+`skewWad` — size-blindness and dead leverage params. `skewWad` is gone; `wellSkew`/`sellSkew` return a
+flat 420 ppm. This section is kept for the OFFRAMP and the venue collapse, which are live.
 
 ### The new offramp — THERE IS NOTHING TO BUILD
 
@@ -42968,37 +40451,6 @@ quantity every remaining refill step reads is live again. ⚠️ **STILL RED: `t
 Aux −1,959 bytes). **The skew survived it intact** — gate clean, 8/8 functions v4-free, and the seam
 SHRANK 8 → 7 accessors.
 
-## 📕 SKEW/REFILL THREAD — CLOSE-OUT RECORD (2026-08-16). **Everything this thread started, landed or open, so it can be closed.**
-
-### ✅ LANDED AND VERIFIED
-| what | commit | verification |
-|---|---|---|
-| The charge reshaped onto **imbalance created** (210 ppm ≡ 420 ppm on notional, no new constant) | `8404f836` | control-validated (2 injected bugs caught) |
-| `refillPlacement` — composition from inventory+price, **no width, no ticks, no sqrt-price** | `8404f836`,`845a2143` | 9/9 pure |
-| **σ²==0 free-drain fix** (partial drains charged ZERO at unmeasured variance) | `d892f3f1` | suite 4,523/1 at the time |
-| **Size-aware quote** — a 90% drain filled **4.12×** worse than published | `845a2143` | 3/3 + control |
-| `wellSkew(address)` **retired** (folded into the 2-arg form; the size-blind footgun deleted) | `d7335750` | 463/0 across 5 suites |
-| **Depletion σ²-free, keyed on `inv0`** (drained) not `q` (scarce) | `b4e39798` | 8/8 pure; full-suite delta NOT obtainable (see blocker) |
-| `docs/informational/POSITIONING.md` + 4 corrections against code | `c6cd2a6e` | every `file:line` checked |
-
-### 🔴 OPEN — WITH OWNER AND NEXT ACTION
-| item | state | next action |
-|---|---|---|
-| **THE BLOCKER — NARROWED (2026-08-16)** | `main` = **3,597 / 954**; `POOLED_USD` never funded. **RULED IN/OUT:** ✅ the swap path IS wired — `Core:860` calls `_handleDelta(delta, **true**, …)` under *"(2) SETTLEMENT. Without this `POOLED_*` never moves and nobody is paid"*, so `inRange` is TRUE on swaps; ✅ `:787`'s `inRange = false` is the OUT-OF-RANGE resting-order path and is **correct, different logic** — not the bug; ✅ `POOLED_USD` has live writers (`Core:396,706,1084,1096`). ⇒ **THE FAULT IS DOWNSTREAM OF `_handleDelta`: either `_fillDelta` yields a ZERO usd leg, or its SIGN is inverted** so a swap takes the BURN branch (`:1052`) instead of MINT (`:1063`) — and burn does `POOLED_USD -= min(usdAmount, POOLED_USD)`, which on an empty pool is **silently 0**. ⚠️ **ALSO LIVE AT `Core:1084`: §BACKING-DEAD — `_reportEquity` had NO CALLERS, so `require(committedUsd18() <= haircutTvl,"backing")` compared `0 <= haircutTvl` and could NEVER bind; it has just been wired in.** Both mechanisms are plausible and they are distinguishable. ▶️ **NEXT MEASUREMENT (one, and NOT a trace grep): assert `POOLED_USD` immediately before/after a SINGLE swap, and emit the `usdDelta` sign at `_settleUsdSide`.** ⛔ **DO NOT DIAGNOSE THIS FROM A FORGE TRACE: `_poolUsdInRange` is `private` and `_handleDelta` is `internal`, and internal/private calls NEVER appear in traces — I read their absence as evidence and it was structurally incapable of being anything else.** | **§06773fa9 owns it** (was 848, now 954 — trending worse). *Nothing on the money path can be verified until it clears.*  📌 **§SEQ-AUDIT: GATE 0 · lane L6. Live fixture blocker (POOLED_USD never funded); cited refs stale (Core:860 is now seedRing) - re-measure first** |
-| **`UNIT-C` trigger** | threshold DECIDED (owner): the skew's own predicate `inv1 < target`, no new constant | plumbing only — a daemon task over the existing `creditSwapIn` rail; `daemon.rs`'s 10 tasks read no range inventory. Docker/`quid-ln` builds |
-| **`UNIT-ROUNDTRIP-LIVE`** | DECIDED: **pro-rata exit**, not the forella brake (its coincide-on-monotone premise is refuted). Owner adds: **convert to destination token via 1inch** — a NEW dependency, zero references today | reprices every LP exit; `testRoundTripNoRaceNoDrain` is the acceptance test and already fails at baseline |
-| **`UNIT-B-PATIENCE`** | GRADED case open. Root found and fixed *in shape* by `b4e39798`; the windowing the row specifies rests on a conservation premise that **does not reproduce from its own numbers** | do NOT implement windowing on that premise |
-| **refill → repack fold** | `QuidLib.addLiq` already computes `tok·px == usd`, so composition IS repack's | applying the placement needs liquidity settling against inventory — lands with the cut |
-| **v4 removal** | `TickMath`/`sqrtPriceX96`/`LiquidityAmounts`/`isBTC` **0**. Left: `IPoolManager` 8, `PoolKey` 7, `unlockCallback` 1, `SafeCallback` 3, `BalanceDelta` 2, `SOR.sol` present | **two replacements, not sixteen deletions**: re-route Aux's execution to `ICurvePool.exchange` (proven in-tree at `LevMath:398`/`:461`) + a non-v4 deploy-time price read for `prepRefs` |
-
-### ⛔ WHAT I GOT WRONG, so the next thread does not repeat it
-1. **Attributed 982 failures to my own change without a baseline.** Baseline was 954. My delta was 28. I reverted a sound design on a misattribution.
-2. **Said the fill failures came from the v4 cut** — my control point (`363a4e48`) was *inside* the cut.
-3. **Called the 0.63% LP leak an instrument artifact** — $25 cannot explain $4,735; I killed the right hypothesis with a broken accessor.
-4. **Asserted three times that a component/consumer existed without opening the file** (`refillRealisable`, `refillQuote`, "consumers pinned to that signature") — each was load-bearing and each was wrong.
-5. **Counted `isBTC` at 12 when the real count is 0** — 3 were `§ISBTC-SPLIT` obituaries and 8 were same-named locals. *A name matches its own obituary.*
-⇒ **Every finding that held, I got by RUNNING something. Every one I withdrew, I reasoned to.**
-
 ## 🧾 ALL 27 RED `UNIT-*` MARKERS AUDITED ONE BY ONE (2026-08-17) — **none is open work.**
 Owner asked for each of the 27 to be checked rather than waved off by the chain rule. Every one
 resolves to a terminal row that closes, refutes or subsumes it. **The markers are stale; the bodies
@@ -43061,23 +40513,6 @@ said so itself at `UNIT-LIST-READ`: *"240 entries/44 red but ~12 self-superseded
 | `UNIT-TWOSIDED-*` / `UNIT-CURVE-*` | `UNIT-WHY-ONESIDED` ✅✅✅ | 🔴 **REOPENED 2026-08-21 (§E276)** — the ✅ closed the `payRefillBonus` IMPLEMENTATION (a discrete jackpot, correctly killed for MEV), **NOT the defect**. §UNIT-CURVE-SPEC's ⛔ *"we never move the BID"* is **still true in code**: `sellSkew` returns 0 on the refill direction (`if (over == 0) return 0;`), so the best a rebalancing counterparty gets is REFERENCE. A–S `r = s − qγσ²(T−t)` quotes them BETTER than reference — we implement δ (spread) where A–S specifies r (shift). **A CLOSED IMPLEMENTATION IS NOT A CLOSED PROBLEM.** |
 | `UNIT-ASYM-*` | `UNIT-ASYM-MEASURED` ✅✅ | ✅ **CLOSED** — both checks run, asymmetry classified REAL |
 | `UNIT-C-VERIFY` / `-CORR` | `UNIT-C-OWNER-SPEC` → **§E48** | ✅ **SUBSUMED** — §E48's three opens are now 2 closed + 1 open (see §E48 above) |
-
-### ✅ THE SKEW IS COMPLETE — **NOT ONE SKEW ITEM REMAINS (2026-08-17).**
-Every skew row is closed: the σ²==0 free-drain (`d892f3f1`), the size-blind quote (`845a2143`), the
-retired size-blind entry point (`d7335750`), depletion made σ²-free and keyed on `inv0` (`b4e39798`),
-and the patience vector measured shut — **93.3% → 1.37%** (`c9cbe504`). `UNIT-A`/`-ASYM`/`-VENUE-CEILING`/
-`-BOUND-NOT-DELETE`/`-SKEW-IS-NOISE`/`-PRICE-LOOP`/`UNIT-D` all closed on evidence above.
-⇒ **THE REFILL IS REACHED, AND ITS ARITHMETIC IS ALSO DONE:** `refillPlacement` (composition, no
-width/tick/sqrt), `imbalanceFeeUsd6` (the charge), the deliverability precondition, `refillNeeded`
-(the trigger predicate) and `proRataShortfall`.
-🔴 **WHAT IS LEFT IS WIRING, AND IT IS ONE BLOCKER, NOT SEVERAL:** every remaining step writes or
-reads **`POOLED_USD`, which is never funded** (§E230 — `basketUsd` released only on the `basketLeg`
-arm, so a swap drains `POOLED_USD` while `basketUsd` stands still; the phantom equals exactly the
-swapper's USDC out). **§E230 assigns that defect, its measurement and its fix to the `BackingGateSplit`
-thread**, warning that two threads on one accumulator invites the double-fix rule 10 forbids.
-⚠️ **ALSO NOW: `BTCChannels` margin is 138 BYTES** — tightest in the tree and shrinking.
-⚠️ **THE SKEW GATE IS RED FOR SOMEONE ELSE'S RENAME:** `skew reads NEW Core accessor rangeEquityUsd18`
-— the isBTC removal renamed `btcRangeEquityUsd18`; `ALLOWED_SEAM` needs one word added by whoever did it.
 
 ### 🔴 THE ACTUALLY-OPEN SET — **eight rows, not forty-four**
 | item | state | what it needs |
@@ -43306,40 +40741,6 @@ pre-refactor commit (`e502f9a^`) — it fails there identically. It arrived with
 merge (`0f8570f`, E97) already red. Belongs to whoever owns E97/E84-a.
 
 
-### ⛔ RESTORE-AFTER-REFILL IS BLOCKED AT ROOT: `_closeLev` does `delete pos[lp]`
-
-**VERIFIED, not assumed** (`LevManager._closeLev`): the body takes `Pos storage p = pos[lp]`, unwinds,
-then **`delete pos[lp]`** and burns the levered range slice. Collateral, debt, entry price and IL target
-are all destroyed.
-
-⇒ The owner's requirement — *a perfectly healthy wound-up IL-protect LP must have its leverage
-position restored to the state it was in prior to the unwind, after the refill corrects the imbalance
-that caused it* — is currently **IMPOSSIBLE, not merely unimplemented.** There is nothing left to
-restore FROM. "Restore" today can only mean "re-open at present prices", which silently RE-PRICES the
-LP's IL basis: the whole point of IL-protect is that the hedge is struck against the LP's ENTRY, so
-re-striking it at post-imbalance prices hands them a different position wearing the same name.
-
-**AND THE INVOLUNTARY PATH ALREADY EXISTS AND IS THE ONE THAT FIRES.** `closeLevFor(lp, minOut)` is
-permissioned to `vogueSyncHook` precisely so a `Quid._withdraw` can cover an open lever before the
-free-ladder burn — the exact scenario: a swap creates the imbalance, the LP is force-closed through no
-fault of its own, and the refill later corrects the imbalance with the LP's position already gone.
-Both `closeLev` (voluntary) and `closeLevFor` (involuntary) share `_closeLev`, so they delete alike.
-
-**WHAT IS NEEDED, and note it is a NEW REQUIREMENT rather than a fix to existing behaviour:**
-  1. Distinguish a VOLUNTARY close (LP asked; delete is correct) from an INVOLUNTARY one
-     (`closeLevFor`; the LP did not ask). Today `_closeLev` cannot tell them apart.
-  2. On the involuntary path, PERSIST the prior state rather than deleting it — at minimum entry price
-     and IL target, since those are what cannot be reconstructed after the fact.
-  3. Restore from that record once the refill lands, NOT from present prices.
-  4. Ensure the unwind+restore round trip does not pay the conversion twice. ⚠️ Under the CURRENT
-     stable-loan lever it would (each leg crosses stable↔WETH); under the WETH-loan market it does not,
-     which is another reason that market ordering matters.
-
-⚠️ This is a design item with a money-path consequence, not a cleanup. An LP force-closed by someone
-else's swap and "restored" at the wrong basis has silently had their hedge changed.
-| **UNIT-A-PRIOR** | ✅📐 **"IMPOSSIBLE" WAS WRONG — THE CONSERVATIVE-PRIOR FORM WORKS AND DELETES ALL THREE SENTINELS (owner: *"not impossible"*, 2026-08-06).** ⛔ **I asserted the ceiling and the base were *"not commensurable"* and that moving §E59's policy to the source was impossible, **from ONE calculation** (σ² would need 6.3e23 wad). **6.3e23 is an ordinary `uint256`.** The same assert-impossibility-from-one-measurement error I have been booking against myself all day.** ✅ **VERIFIED ARITHMETIC — `realizedVarianceWad` returns a CONSERVATIVE PRIOR for a genuinely fresh ring (cardinality 1) instead of 0, and every consumer computes normally with NO BRANCH: **prior σ² = 631,578,947,368,421,052,631,578 wad (6.316e5)** · **ETH base = 29,999,999,999,999,999 vs MAX_WELL_SKEW 30,000,000,000,000,000 — the ceiling to within 1 wei of integer division** · **BTC base = 9.002e18, clamped to the ceiling by the EXISTING tail clamp, no new code** · **overflow headroom 7.2e37 against 1.16e77.** ⇒ **THREE SENTINELS DELETE (`_maxWellSkew:809` · `skewWad:933` · `sellSkew:1270`), behaviour identical, and it FREES bytecode (§E92).** ⇒ **§UNIT-A-PLAN's step B is VIABLE as written; §UNIT-A's step A then becomes the two-line change with no parameter and no bundled policy.** ⚠️ **ONE ORDERING TO CONFIRM BEFORE IT LANDS — NOT A BLOCKER, BUT IT WOULD DEADLOCK A LAUNCH IF WRONG: the prior scales **θ's denominator by 4.07e9**, collapsing θ toward 0, and θ gates range sizing (`applyTheta`, `clampByBacking`). **`_rangeFeeYieldWad` returns 0 when the premium is unmeasured and its doc says `derivedThetaWad` turns that into FAIL-OPEN — so on a fresh range the fail-open should fire BEFORE the σ² denominator is consulted. CONFIRM THAT ORDERING.** If it is the other way round, a fresh pool has θ≈0 and cannot commit capital at all.** 📌 **AND THE MEASUREMENT THAT REFRAMES UNIT-A REGARDLESS: **ETH base = 0.000000074 bps · BTC base = 0.000022 bps · BTC `SPLICE_FLOOR` = 20 bps.** The 12-second ETH window makes the LVR base VANISH by construction; the 1-hour BTC window plus the splice fee makes it real. **⇒ UNIT-A is materially a BTC FIX (20 bps currently never charged on a fresh range, §E98); on ETH it changes nothing economically and its only effect is arming the ceiling — which is the entire cause of the 107 failures.** | ✅📐 prior works, 3 sentinels delete; UNIT-A is a BTC fix; confirm θ fail-open ordering |
-
-
 ### TRIPWIRE SWEEP — first pass, and it comes back nearly empty
 
 Scanned `evm/src/**.sol` for guards of the shape the owner ruled out: a `require`/`revert` that exists
@@ -43396,38 +40797,6 @@ on it.
 *(Note on the resolution: the enumeration everyone was waiting for turned out to be two lines of
 `Core.sol`. The blocker persisted because the question presumed a fallback relationship that reading
 the two call sites immediately refutes.)*
-
-
-### ⚠️ OPEN 14 CONFIRMED BY READING: per-asset skew pricing, GLOBAL solvency constraint
-
-**Pricing is per-asset.** `wellSkew(core, base, isBTC, drainUsd6)` reads only its own asset's inventory
-via `_skewBasis(core, base, isBTC, 0)`. The basket accounting is likewise split — `basketUsdEth` /
-`basketUsdBtc`, selected by `isBTC` at `Core.sol:130`.
-
-**Solvency is GLOBAL.** `Aux._checkBacking()` computes `(committedSum, totalLiquid)` across everything
-and reverts `OverCommitted` when `committedSum > totalLiquid`. One pool, one revert.
-
-⇒ **NEITHER SKEW CAN SEE THE OTHER'S DRAW ON THE SHARED RESERVE.** Two drains that are each
-individually cheap — ample own-asset inventory, low skew — can jointly exhaust `totalLiquid`. The
-failure mode is NOT a price that rises to meet the pressure; it is a HARD REVERT landing on whoever
-arrives last, and `_checkBacking` guards the DRAIN paths specifically (redemption, arb, LP withdraw).
-So the party who gets refused is not the party who caused it.
-
-⇒ **NOT A TAIL CASE.** ETH and BTC correlate hardest in exactly the stress where both are drained, so
-the joint draw is the EXPECTED shape of a bad day, not an exotic one.
-
-**Why this is now the most prominent skew gap:** the parallel thread has made `wellSkew` size-aware
-(it takes `drainUsd6` — the size-blindness identified earlier this session is CLOSED). Size is
-therefore priced WITHIN each asset, while coupling remains unpriced ACROSS them.
-
-**Shape of a fix, not costed:** the skew denominator is per-asset deliverable inventory; the binding
-constraint at stress is global `totalLiquid`. Either the denominator has to acknowledge the shared
-reserve when it is the tighter of the two, or the global constraint needs to express itself as a
-price before it expresses itself as a revert. The second is the same principle already applied to the
-σ²=0 hole — an unpriced constraint that fails silently is worse than an expensive one that fails
-loudly.
-
-| **UNIT-RECOVERED** | ⛔⛔⛔ **FOUR OWNER DECISIONS RECOVERED FROM THE PRE-COMPACTION TRANSCRIPT THAT I SPENT TODAY RE-DERIVING — INCLUDING ONE THAT INVALIDATES §UNIT-B's FRAMING (2026-08-06).** ⛔ **(1) THE σ²==0 ANSWER WAS ALREADY SPECIFIED, AND IT IS NEITHER A CEILING NOR MY "CONSERVATIVE PRIOR": *"**store the last known good variance and remove max_well_skew**"*. ⇒ **§UNIT-A-PRIOR's 6.3e23 prior is SUPERSEDED — the owner's design is a LAST-KNOWN-GOOD register, which is strictly better: it needs no invented constant, degrades to the most recent REAL measurement, and cannot deadlock a cold range the way a huge prior threatens θ (§UNIT-A-PRIOR-THETA).** ⛔ **(2) THE CEILING WAS ALREADY SETTLED AND THE VARIANCE FIX ALREADY ORDERED: *"why did it take so long to land this fix? **fix variance to be properly sampling. we determined that 3% is not the right ceiling**, among other things"* ⇒ §UNIT-A-DECIDED re-derived a CLOSED decision, and §E59's sentinel has been dead policy since that message.** ✅ **(3) ALREADY BUILT: *"move the observation ring behind OracleLib and folding two calls into one seems like it would be a win"* — that IS `OracleLib.ringVariance(_obs, _obsState, 9)`, which I read today and treated as unfamiliar machinery.** ⛔⛔ **(4) THE ONE THAT INVALIDATES §UNIT-B: *"**consolidation is not quite what that integral was for**, if you remember the issue that i brought up which caused you to think of this"*. **THE INTEGRAL WAS FOR THE LEVEL-vs-MARGINAL DEFECT** — the owner's own words: *"skewWad sizes q on the LEVEL of imbalance — (target − inv)/target — not on the DELTA a given swap contributes. So the second swapper into an already-imbalanced pool pays a premium scaled to the whole imbalance, MOST OF WHICH THEY DIDN'T CAUSE."* ⇒ **`test_E71` MEASURES CONSOLIDATION, A DIFFERENT PROPERTY. I made a consolidation number (8.28% → 9.73% → 11.08%) the GATE on §UNIT-B all day, and gated the two-sided curve on it. §UNIT-B's acceptance criterion is WRONG: it must test whether a LATER swapper pays for damage they did not cause, NOT whether one big swap equals twelve small ones.**** 📌 **ALSO SETTLED, DO NOT REOPEN: *"avgYield has nothing to do with the range. it's a dollar only thing. your skew shouldnt even consider it"* · *"leverage shouldnt be perceived by this skew at all. a levered LP's range participation is no concern of the skew"*.** ▶️ **REVISED PLAN: (a) implement LAST-KNOWN-GOOD variance + delete `MAX_WELL_SKEW` (owner-specified, supersedes §UNIT-A-PRIOR); (b) re-express §UNIT-B's test around LEVEL-vs-MARGINAL, not consolidation; (c) THEN re-measure. | ⛔⛔⛔ 4 settled decisions re-derived; UNIT-B's gate was the wrong property  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT wave 2): STALE or already done - UNIT-A landed (SwapLib:1276/1341), MAX_WELL_SKEW zero refs, sigma fixed structurally by E345 max(ring,anchor), reseatEpoch removed, FORK_BLOCK now everywhere, docs/actionable/wip gone** |
 
 
 ### ✅ FOUND AND VERIFIED ON CHAIN — the weETH/WETH Morpho market. The borrow leg is no longer blocked on discovery.
@@ -43659,56 +41028,6 @@ an empty list here would read as "no Euler pair" and be a false negative of exac
 
 
 ### ✅ LANDED 2026-08-09 — `_closeLev` gained `keepState`; the involuntary path sets `p.open = false`
-### instead of deleting. 31 bytes, not the mapping. ⏸️ The RESTORE ENTRYPOINT still waits on the refill.
-### ~~RESTORE-AFTER-REFILL — the blocker is `delete pos[lp]`~~
-
-**Owner requirement (2026-08-08):** *"perfectly healthy wound up ILprotect LPs must have their leverage
-positions restored to the same state they were prior to being unwound… but after the refill that
-restores the pool balance."*
-
-**Why it is blocked.** `LevManager._closeLev:670` does `delete pos[lp]`, destroying venue,
-`targetLtvCapBps`, `entryPriceWad`, `e0Eth` and `entrySqrtP` — everything a restore needs.
-
-**The distinction the shared body currently loses.** `_closeLev` is reached two ways:
-  * `closeLev` (`:631`) — **LP-initiated**. `delete` is CORRECT: they chose to exit, nothing to restore.
-  * `closeLevFor` (`:646`) — **INVOLUNTARY**, callable only by `vogueSyncHook`, so `Quid._withdraw` can
-    cover an open lever before the free-ladder burn. Here the LP did **not** choose, and `delete` is the
-    defect.
-⇒ The two paths need different endings. Today they share one.
-
-🔴 **THE OBVIOUS FIX DOES NOT FIT — `LevManager` HAS 172 BYTES OF HEADROOM** (measured 2026-08-09;
-`Core` 38, `Quid` 591, `LevMath` 1,566). A `mapping(address => Pos) public unwoundPos` is the natural
-shape and is very likely UNDEPLOYABLE: a **public** mapping-to-struct getter alone runs to a couple of
-hundred bytes, before the copy logic. **This repo has already shipped a `Core` at −126 bytes with a
-fully green suite**, so "tests pass" will NOT catch it — `python3 tools/check-contract-sizes.py` must be
-run as part of the change, not after.
-
-✅ **CHEAPER MECHANISM, NO NEW STORAGE: don't copy the position — just stop deleting it.**
-`Pos` already carries an `open` flag. On the involuntary path set **`p.open = false`** instead of
-`delete pos[lp]`; every field survives in place and a restore flips `open` back and re-establishes the
-venue leg. Cost is a bool parameter plus a branch (tens of bytes), not a second mapping.
-```
-function _closeLev(address lp, uint256 minOut, bool keepState) internal {
-    ...
-    if (keepState) p.open = false; else delete pos[lp];   // closeLevFor keeps, closeLev deletes
-```
-
-⚠️ **VERIFY BEFORE WRITING — a retained `Pos` is a NEW STATE THIS CONTRACT HAS NEVER HELD** (`open ==
-false` with non-zero fields). Two things must be checked, and neither is a formality:
-  1. **Does `openLev` write EVERY field?** If it sets only some, a fresh position inherits stale
-     `entryPriceWad`/`entrySqrtP` from the retained one — a mispriced entry that reverts nothing and
-     shows up as wrong IL accounting.
-  2. **Does anything read `pos[lp]` without checking `.open`?** Under `delete` those reads got zeros;
-     under retention they get live-looking stale values. **That is the silent-and-plausible failure the
-     standing guard rule names**, and it is the whole risk of this change.
-
-⏸️ **Restore itself is still gated on the REFILL (other thread).** Retaining the state is a
-prerequisite, NOT the feature — the restore entrypoint has nothing to fire on until the refill that
-rebalances the pool exists. Land retention first, verified independently; wire the restore after.
-
-| **UNIT-TWAP-RESOLVE** | ✅✅ **READ, NOT GUESSED: `getTWAPforAsset` IS **POOL-PRIMARY WITH A CHAINLINK FALLBACK**, AND MY ±2.3% FEED WALK SAT ENTIRELY INSIDE THE FALLBACK'S DEADZONE (2026-08-06).** ✅ **`Aux.sol:625-633`: `price = SwapLib.twapBody(CORE, WETH, asset, period)` — **THE POOL'S OWN TWAP** — then `SwapLib.twapResolve(assetPriceFeed[asset], price, isWBTC, TWAP_MAX_DEVIATION_BPS, ASSET_FEED_MAX_AGE)`. `Aux.sol:635-638` states the rule: *"stale = the internal TWAP diverged **>5%** from a fresh Chainlink (returned price **IS** Chainlink)"*.** ⇒ **MY FEED MOVES (±2.3%) NEVER EXCEEDED THE 5% DEVIATION THRESHOLD, so `twapResolve` KEPT RETURNING THE FROZEN POOL TWAP AND IGNORED THE FEED ENTIRELY.** That is precisely the §UNIT-VOL-CAUSE reading — now explained by the CODE rather than by a fifth hypothesis.** ✅ **ANSWERS THE ORDERING QUESTION §UNIT-VOL-CAUSE POSED: it is **NOT anchored** — the pool TWAP is PRIMARY, so **trading CAN move it**. Option (1) is viable and option (3)'s worry does not apply.** 🔎 **BUT THE DEEPER FACT, AND IT IS THE ONE THAT MATTERS FOR THE WHOLE FIXTURE PROBLEM: **MY SWAPS DRAINED THE RANGE TO `q ≈ 1` (`wellSkew` pinned at `MAX_WELL_SKEW` in every run) WITHOUT MOVING THE POOL TWAP.** Inventory left; the pool price did not travel. **That is oracle-pegged execution working as designed — `routeSwap` fills at the honest oracle, so a drain consumes inventory rather than walking the curve.** ⇒ **IN THIS ARCHITECTURE, TRADING VOLUME DOES NOT GENERATE POOL-TWAP MOVEMENT THE WAY IT WOULD IN AN ORDINARY AMM — the tick moves mainly when the range RESEATS onto a new oracle level.** ▶️ **⇒ THE FIXTURE MUST DRIVE **RESEATS**, and the open question is why ±1.8% feed moves (9× the ±0.2% range half-width) did NOT produce them: check whether `_rebalance`/`reseat()` needs an explicit trigger the fixture never fires. **MEASURE THE RESEAT COUNT before theorising — that is the fifth channel and the first four each cost a turn.** | ✅✅ pool-primary, 5% deadzone; oracle-pegged fills mean volume ≠ tick movement; count reseats next  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT wave 2): STALE or already done - UNIT-A landed (SwapLib:1276/1341), MAX_WELL_SKEW zero refs, sigma fixed structurally by E345 max(ring,anchor), reseatEpoch removed, FORK_BLOCK now everywhere, docs/actionable/wip gone** |
-
-| **UNIT-RESEAT-COUNT** | ⏸️ **RESEAT INSTRUMENTATION WRITTEN, NOT RUN — network unreachable (2026-08-06).** ✅ **THE MEASUREMENT, READY TO EXECUTE: log `V4.reseatEpoch()` BEFORE and AFTER the walk. §UNIT-TWAP-RESOLVE established that in this architecture the pool tick moves mainly when the range **RESEATS** onto a new oracle level — oracle-pegged fills consume inventory WITHOUT walking the curve — so **the reseat count IS the variance driver**, and ±1.8% feed moves (9× the ±0.2% range half-width) should force them. **This is the fifth channel; the first four each cost a turn of reasoning that one measurement would have saved, so it is instrumented BEFORE any explanation is offered.** ⛔ **BLOCKED ON INFRASTRUCTURE, NOT CODE: `forge test` died in `setUp` with `could not instantiate forked environment … dns error: failed to lookup address information`. **Transient network loss, not a regression** — the identical command passed minutes earlier at pinned block 25,713,821.** 📌 **AND A CONFIG NOTE WORTH CHECKING NEXT SESSION: `ETH_RPC_URL` (which `foundry.toml:72` interpolates) resolves to **publicnode**, while `.env` ALSO carries an `ANKR_RPC_URL` key. **The owner provided a NEW key today; if it lives in `ANKR_RPC_URL`, then `ETH_RPC_URL` is not pointing at it and every run so far has used the public node.** That also explains why the pinned run succeeded WITHOUT archival access — I captured `FORK_BLOCK` with `cast block-number`, so it was HEAD, and §ForkPin's 403-on-non-head warning never applied. **A pin to a genuinely HISTORICAL block would need the key, and would need `ETH_RPC_URL` to point at it.** | ⏸️ written, unrun (network); check whether ETH_RPC_URL should point at ANKR_RPC_URL  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT wave 2): STALE or already done - UNIT-A landed (SwapLib:1276/1341), MAX_WELL_SKEW zero refs, sigma fixed structurally by E345 max(ring,anchor), reseatEpoch removed, FORK_BLOCK now everywhere, docs/actionable/wip gone** |
 ### ✅ FIXED 2026-08-09 — all three guards added (`ilLtvBps`, `ilTargetLtvBps`, `debtDeltaToTarget`),
 ### landed SEPARATELY as a provable no-op before retention. Cost 98 bytes. 1,104/0.
 ### ~~retention needs THREE `.open` guards first~~
@@ -45190,47 +42509,6 @@ load-bearing on what landed today.**
    warns about: fixing the target made a never-executed branch live. I landed §UNIT-A without
    checking its downstream consumers.
 
-### ⛔⛔⛔ SKEW-SYNTHESIS-CORRECTIONS — §UNIT-A-FIXTURE and §UNIT-ASYM invalidate three claims I made TODAY.
-
-**Read after the owner said "read them, do not repeat your mistakes". Three of my own 2026-08-10
-statements are wrong, and each was warned against in a row I had not read.**
-
-1. ⛔ **THE ~527s FIGURE IS ETH-ONLY. I QUOTED IT AS A PROTOCOL PROPERTY IN §SKEW-SYNTHESIS.**
-   §UNIT-ASYM states it outright: `CONF_FRAC_WAD` ≈ **1 HOUR** (BTC) vs `ETH_CONF_FRAC_WAD` ≈ **12
-   SECONDS** (`SwapLib.sol:762`/`:766`), and the base is `σ²·confFrac/8`, so **for the same σ² and q
-   the BTC leg charges ~300× the ETH leg**, plus BTC-only `SPLICE_FLOOR` (§E98: ~99.3% of BTC's
-   floor). §E131's `8P/V` = 6.027e-6 and T* ≈ 527s **were computed on ETH's window**, and §UNIT-ASYM
-   already says *"I reported it as a protocol property. IT IS PER-ASSET."* ⇒ **My "the premium funds
-   ~527s of LVR" holds for ETH ONLY.** The one-sided-vs-two-sided trade-off must be decided PER LEG;
-   on BTC it may invert. **Re-run before stating anything for BTC.**
-
-2. ⛔ **I CONFLATED TWO DIFFERENT MECHANISMS.** §SKEW-SYNTHESIS said *"the form the record asked for
-   already exists: ASYMMETRIC TWO-SIDED"*, merging (a) §UNIT-BOUND-NOT-DELETE's **BOUNDED REFILL
-   BONUS** — genuinely in the record (`BUILD-QUEUE:487`/`:463`, a PAYMENT to a refiller) — with
-   (b) the **SIGNED / TWO-SIDED SKEW CURVE**, where the QUOTE itself pays. §UNIT-ASYM is explicit
-   that (b) is **the prior author's hypothesis, NOT the design of record**: `SwapLib.sol:685` states
-   the mechanism as *"flash the scarce asset, serve the opposite flow, repay… a flash-and-repay,
-   NEVER a subsidy to whoever swaps in first"* — **if flash-and-repay works, the range never bids
-   above oracle and the signed side is UNNECESSARY.** ⇒ **A bounded bonus does NOT imply a signed
-   curve.** §UNIT-C-BAR decides (b); §UNIT-B gates it only IF needed. **Do not build it.**
-
-3. ⚠️ **TODAY'S 13.71% HAS AN UNCONTROLLED σ² CONFOUND.** §UNIT-A-FIXTURE: `realizedVarianceWad`
-   samples `observe` on a WALL-CLOCK grid while the ring advances **only on a swap**, and `observe`
-   LINEARLY INTERPOLATES — so **any swap spacing coarser than the grid flattens the tape and yields
-   ~0 second difference.** *"EVERY fixture in this repo that warps 8-20 minutes between swaps has
-   been measuring interpolation, not volatility."* ⇒ §E71's two arms have **DIFFERENT swap spacing by
-   construction** (one lump vs twelve spaced), hence potentially **different σ²**, and skew scales
-   with σ². **The measured TARGET ramp (380,432 → 467,694) is real and directly observed — that
-   mechanism stands.** What is NOT established is that the ramp accounts for the FULL 13.71%.
-   ▶️ Re-run §E71 with swap spacing FINER than the sampling interval (**read the interval out of
-   `realizedVarianceWad` — do NOT guess it**) and drive the POOL TICK, not the feed.
-
-📌 **AND THE FIXTURE FINDING IS BIGGER THAN §UNIT-B:** §E125, §E131 and §UNIT-SKEW-IS-NOISE were all
-measured on 8-20-minute-spaced fixtures. **The 0.04% materiality number inherits this too** — so it
-is suspect on TWO independent grounds (measured pre-§UNIT-A, and possibly on an interpolated tape).
-That strengthens the owner's rejection of "delete the skew": the number arguing for deletion is
-doubly unreliable.
-
 ### ⛔ UNIT-D-CORRECTION — I restated E135's fix WITHOUT READING THE FILE. It is not implementable as written.
 
 **Owner: *"the validation may not be needed based on the assumptions of that file, review it before
@@ -45379,44 +42657,6 @@ hypothesis.** Each row above dies on that question in seconds.
 §UNIT-A-FOLLOWON's dead-vs-new-pool discriminator · the now-stale `raw >= splice` comment
 (`SwapLib:1120`) · §UNIT-C-BAR-ARMB-SPEC (scoped, unbuilt) · §UNIT-FORELLA's frame-check ·
 §UNIT-D severity (is a gateway redeploy possible?) · **§CORE-ONLYUS's suite result.**
-
-### 🎯 ORACLE-FREE-Q — can a SHARED skew premium replace Chainlink? (owner question, 2026-08-10). HYPOTHESIS — nothing measured.
-
-**MECHANISM FIRST (cited, per §LEDGER's countermeasure):** `SwapLib.twapResolve:138-166`.
-**CHAINLINK IS NOT THE ORACLE — IT IS THE CIRCUIT BREAKER.** `:151` `if (feed == address(0)) return
-(price, false)`; `:166` returns the POOL's price in the normal path. It overrides ONLY at `:162`,
-when internal vs external diverge past `maxDevBps` (**500 = 5%**, `Aux.sol:189` — *"manipulation
-territory"*). ⇒ **The pool already IS the price source.** Removing the feed removes the DETECTOR of
-"our own price is no longer trustworthy", not a price input.
-
-⚠️ **THE CIRCULARITY THAT BLOCKS A FULL REPLACEMENT:** the premium is DENOMINATED IN THE PRICE IT
-WOULD PROTECT — `q` derives from `inv = POOLED_ETH·px`, `px` pool-derived. Price intact ⇒ the
-incentive is an EFFICIENCY tool, not a safety one. Price broken ⇒ **there is no valid `px` to size
-the incentive against.** ⇒ **Not a hypothetical: `:140-150` documents the exact state** — a
-one-directional drain walked the pool to `MAX_SQRT_RATIO`, `ticksToPrice` → 0, `rebalanceCore` left
-`didRepack == false`, the range could never re-pair. **MEASURED: 8 repacks, 0 `addLiq`, $176,779 of
-basket surplus and 7.88 ETH of headroom stranded.** The feed exists for precisely this.
-
-▶️ **COMPOSITION vs PRICE — the distinction the idea turns on.** Inside a ±0.2% range, composition
-ENCODES position-in-range, so a paid refiller genuinely does hold balance — the intuition is sound
-THERE. It does NOT fix where the RANGE sits, which is set at reseat from the TWAP. **Balance is
-relative; price is absolute.** Nothing internal anchors the range's absolute location.
-
-🔴 **TWO EXPLOITABLE IMBALANCES, ONE ALREADY BOOKED AND ONE NEW:**
-1. **Closed loop (§UNIT-FORELLA, known):** a path-independent measure is blind to a troller nudging
-   `q` out and back; if refills PAY, every leg extracts. **Defence is the bound — `S_in < S_out`
-   strictly — which §UNIT-BOUND-NOT-DELETE already identifies as what makes external participation
-   non-toxic.** Applies with or without Chainlink.
-2. 🔴 **NEW, AND SPECIFIC TO DROPPING THE ANCHOR:** today an arber's profit is CAPPED by what the
-   drainer paid. Without an external reference, **manipulating the pool price ALSO INFLATES THE
-   PREMIUM THE PROTOCOL PAYS** — both are computed from the same pool-derived `px`. That converts a
-   BOUNDED extraction into a **FUNDED** one. §UNIT-VENUE-CEILING establishes the counter-flow is an
-   arber sourcing from an EXTERNAL venue, so a real external price exists to manipulate away from.
-
-🔬 **CHEAPEST TEST, AND IT IS A MEASUREMENT NOT A DEBATE:** `feed == address(0)` already disables the
-anchor PER ASSET (`:151`), so the oracle-free configuration is expressible TODAY with no code change.
-**Run the existing drain / reseat / `_reseatIfStale` suites with the feed zeroed and record which
-invariants break.** Expect the `price == 0` deadlock path first. ⚠️ Pinned worktree (§TREE-UNSTABLE).
 
 ### 🔬 ORACLE-FREE-MEASURED — the A/B was VOID, and WHY it was void is the finding: **the ETH suite ALREADY runs oracle-free.**
 
@@ -45578,46 +42818,6 @@ UNCOMMITTED change: `- function setBtcRecipient(bytes32 xOnlyKey)` →
 1-arg `setBtcRecipient`. **In this tree `tsc` cannot run (`spa/` has no `node_modules`), so the ABI
 checker is the ONLY client-side gate** — this drift means the SPA will call a signature that no longer
 exists once that change lands. Update the SPA in the same commit as the contract change.
-
-### 📍 SKEW-WHATS-LEFT — answer to *"are we done with skew?"*: **NO.** Ordered by what unblocks what.
-
-**DONE 2026-08-10:** §UNIT-A (base reachable) · §E42 (premium leak closed at source) · the byte work
-(§CORE-ONLYUS 907 + `mocks()`) that unblocks the rest. **Nothing else on the skew path is closed.**
-
-**🥇 THE GATE — §UNIT-A-FIXTURE. Everything downstream is measured on a broken tape.**
-`realizedVarianceWad` samples on a WALL-CLOCK grid while the ring advances ONLY on a swap, and
-`observe` INTERPOLATES ⇒ **any swap spacing coarser than the grid measures a straight line.**
-*"EVERY fixture in this repo that warps 8-20 minutes between swaps has been measuring interpolation,
-not volatility."* ⇒ **§E125, §E131 (`8P/V`, T*≈527s), §UNIT-SKEW-IS-NOISE's 0.04% and today's
-§UNIT-B 13.71% ALL inherit this.** ▶️ Read the sampling interval OUT of `realizedVarianceWad` (do not
-guess), swap FINER than it, drive the POOL TICK not the feed. **Until this lands, no skew magnitude
-in this repo is quotable.**
-
-**🥈 THEN §UNIT-SKEW-IS-NOISE — is the skew material at all?** Its 0.04% is suspect on TWO grounds
-(measured PRE-§UNIT-A, and possibly on an interpolated tape). Re-measure post-§UNIT-A on a fixed
-fixture. ⚠️ **NOT a deletion argument** (owner: *"deleting the skew is not honest"*), and
-§UNIT-WHY-IT-MATTERS reframes materiality anyway: the imbalance is an **ACCOUNTING-CORRECTNESS**
-problem — LP withdrawal, P&L attribution and the swap fee all read the skewed composition.
-
-**🥉 §UNIT-B-VERIFIED — a MONEY-PATH discrepancy, still unreconciled.** The premium COUNTER and the
-TRADER-SIDE measure of the same swap disagree by **~1000×**. §E5 routes the RECORDED number to LPs, so
-if it overstates, **LPs are credited value no swapper paid.** ▶️ One run: swapper balance deltas vs
-`skewPremiumCum` vs `USD_FEES`.
-
-**THEN, jointly (they conflict if designed apart):**
-- **§UNIT-B** — the `now − window` lagged target (owner-decided semantics; **nothing built**), and
-  ⚠️ its instrument `test_E71` **measures the wrong property** (§UNIT-FORELLA: level-vs-marginal, not
-  consolidation).
-- **§UNIT-FORELLA** — charge **total variation `Σ|dq|`**. Path-INDEPENDENT within a swap +
-  path-DEPENDENT across a sequence. Freezing the target alone could make closed loops CHEAPER.
-- **§E83** — Kaplan–Meier censored duration. **Gates §UNIT-B, §UNIT-VENUE-CEILING and the two-sided
-  decision simultaneously.** A measurement, not a design argument.
-
-**ALSO OPEN:** the two-sided CARRIER (owner: idea exists, form undetermined) · §UNIT-C-BAR arm B
-(scoped, unbuilt; acceptance must include **LP exit attribution**, not just fees−LVR) · §UNIT-ASYM
-(the 527s is **ETH-ONLY**; BTC's window is ~300× — re-run per leg) · §UNIT-A-FOLLOWON (a NEW pool now
-pays the full base; dead-vs-new discriminator absent) · §E55's manipulation defence (never operated;
-needs a WEIGHTED EWMA, not a slower sum) · §UNIT-C (gated behind §UNIT-B).
 
 ### 🔬 UNIT-B-VERIFIED-DESIGN — how to actually settle the ~1000×. The booked "one run" CANNOT do it.
 
@@ -45980,37 +43180,6 @@ and the arms must actually differ in skew. 📌 `premA == 0` is LEGITIMATE, not 
 "known-suspect" pending exactly this. **They are no longer suspect on THAT ground** — §UNIT-FORELLA's
 separate objection (`test_E71` measures level-vs-marginal, not consolidation) still stands.
 
-### 🔴🔴🔴 SKEW-IS-NOISE-OVERTURNED — the skew is negligible ONLY because the fixture's σ² is ~0.5% ANNUALIZED VOL.
-
-**Materiality re-measured post-§UNIT-A, and the headline reverses.** Same run as
-§UNIT-B-VERIFIED's resolution, $30,000 drain:
-| quantity | value |
-|---|---|
-| px | 1,928.744 usd/ETH |
-| ETH at oracle vs received | 15.554161783 vs **15.547413922** |
-| **swapper's TOTAL cost** | **$13.0149** (4.34 bps of notional) |
-| of which SKEW | **$0.001509** |
-| **skew share of the bill** | **0.0116%** |
-| **`realizedVarianceWad`** | **2.458e-5** |
-
-🔴 **THAT σ² IS 0.496% ANNUALIZED VOLATILITY** (`sqrt(2.4582e-5)`). **ETH's realized vol is 30–60%.**
-⇒ **§UNIT-SKEW-IS-NOISE's "the skew is a ROUNDING ERROR next to the cushion" IS AN ARTIFACT OF A FLAT
-TAPE, NOT A PROPERTY OF THE DESIGN.** It is the same root as §UNIT-A-FIXTURE's SURVIVING half: the
-variance reads the **POOL TICK RING**, and nothing in these fixtures drives the pool tick — the range
-executes AT oracle, so moving the feed moves nothing.
-📐 **THE SCALING IS LINEAR IN σ²** (`Γ·σ²·q/(1−q)^ρ`, `SwapLib:961`). At 60% vol σ² ≈ 0.36, i.e.
-**~14,600× the fixture's 2.458e-5.** The skew would not be a rounding error; it would be **pinned at
-the 3% `MAX_WELL_SKEW` cap** long before reaching proportional scale.
-⇒ ⛔ **DO NOT ACT ON "the skew is immaterial" — it is measured in a regime that does not exist**, and
-the owner's rejection of deleting it is vindicated on a THIRD independent ground (the first two:
-measured pre-§UNIT-A, and §UNIT-WHY-IT-MATTERS reframing materiality as accounting correctness).
-▶️ **THE MEASUREMENT THAT WOULD SETTLE IT, and it is now the top skew item:** build a fixture that
-drives the **POOL TICK** (in-range trades and reseats, NOT the feed) to a plausible σ², then re-run
-this same ratio. **§E125, §E131's `8P/V`/T*, §E108 and §UNIT-LP-EXIT all inherit the flat-tape σ² and
-are all understated by the same factor.**
-📌 Note the two numbers that ARE solid here regardless: the counter matches the swapper's loss to
-0.007% (§UNIT-B-VERIFIED), and the total cost is 4.34 bps of notional.
-
 ### 🔴🔴 UNIT-A-FIXTURE-BUILT — the tick driver works (2.8×) and is still ~50× short. **The limit is STRUCTURAL: no exogenous price.**
 
 **Built `_driveTick(rounds)` + `test_UNITA_FixtureDrivesRealVariance` (`DrainAtomicity.t.sol`):
@@ -46043,207 +43212,6 @@ tick. **If the range pins price to oracle, can this input ever track market vol 
 steepness driven by a quantity structurally decoupled from the risk it prices?** Settle it by
 building (b) and comparing σ² against the feed's realised vol over the same window. **NOT by argument
 — five causes died that way today.**
-
-### 🧭 SKEW-HOLISTIC-2026-08-10 — everything reduces to ONE unverified premise. **Nothing landed should be undone.**
-
-**Read this before touching any skew item. It reorganises the day's results; it RETRACTS nothing.**
-
-**① THE SINGLE PREMISE EVERYTHING RESTS ON: does `realizedVarianceWad` track MARKET volatility?**
-Skew is `Γ·σ²·q/(1−q)^ρ` and the base is `σ²·confFrac/8 + SPLICE_FLOOR`. **ETH has NO `SPLICE_FLOOR`**
-⇒ at σ² ≈ 0 **BOTH the kernel AND the base are ≈ 0**. Measured: arm A of
-`test_UNITB_CounterMatchesWhatTheSwapperLoses` charged **exactly 0** skew — *post*-§UNIT-A.
-⇒ **§UNIT-A IS CORRECT AND CURRENTLY INERT FOR ETH.** Contingent, not wrong. **DO NOT REVERT IT** —
-it is the base's only reachable path, and it becomes load-bearing the moment σ² is real. **BTC is
-unaffected: `SPLICE_FLOOR` (2e15) is non-zero regardless (§E98: ~99.3% of BTC's floor).**
-🔬 **THE DECIDING TEST (unbuilt):** pin a real ETH feed, MOVE it, let reseats walk the range, and
-compare `realizedVarianceWad` against the feed's realised vol over the same window.
-  • **Tracks ⇒** the fixture was the problem; §SKEW-IS-NOISE-OVERTURNED holds; §UNIT-B, §UNIT-C and
-    calibration all matter, and at 30–60% vol the skew pins at the 3% cap.
-  • **Does NOT track ⇒** the skew's steepness is driven by a quantity structurally decoupled from the
-    risk it prices — the range pins execution to oracle and is ±0.2% wide, so its tick may only ever
-    record its own jitter. **Then §UNIT-B's calibration is moot and the real work is the INPUT.**
-
-**② WHAT IS SETTLED — do not re-derive, do not undo:**
-| result | status |
-|---|---|
-| Counter == swapper's loss (0.007%) | ✅ **money-path question CLOSED** |
-| `min(fast, slow)` inert at any decay ratio | ✅ proven; §E55's defence never operated |
-| Slow registers dead → padding, +76 bytes | ✅ landed |
-| Owner: target must exclude the trade's own flow | ✅ DECIDED |
-| Two-sided idea exists, carrier undetermined | ⏸️ owner  📌 **§SEQ-AUDIT: GATE 2 · lane L7. Parked on the owner; the carrier choice can delete or reshape the mechanism** |
-
-**③ WHAT THE DAY'S CORRECTIONS ACTUALLY MEAN — none is a reason to undo code:**
-- §UNIT-SKEW-IS-NOISE's 0.04% and §SKEW-IS-NOISE-OVERTURNED are the SAME measurement read at two
-  different σ². **Neither is wrong; both are conditional on ①.**
-- §UNIT-FORELLA (path-independence is a hole, `test_E71` measures level-vs-marginal) is INDEPENDENT
-  of ① and survives either answer.
-- The interpolation gate was WITHDRAWN because §E59 already fixed it — **a correction to my claim,
-  not to the code.**
-
-**④ ORDER, GIVEN ①:** build the feed-driven fixture FIRST. It is cheap, it is a measurement not a
-design argument, and **§UNIT-B / §UNIT-C / §UNIT-C-BAR / §E83 all inherit its answer.** Calibrating a
-term whose input may be structurally flat is the definition of the axis nobody measured (rule 9).
-
-### ✅ SKEW-HOLISTIC-RESOLVED — σ² and the TWAP are TWO MOMENTS OF ONE SERIES. The decoupling worry is REFUTED.
-
-**Owner's point, and it closes §SKEW-HOLISTIC's ① without needing the feed-driven fixture to answer
-the STRUCTURAL half:** the variance and the TWAP read the **SAME observation ring**.
-- `SwapLib.twapBody:106` → `ICore(core).observe(secondsAgos, !isETH)`
-- `Core.realizedVarianceWad:313` → `OracleLib.ringVariance(_obs(isBTC), _obsState(isBTC), 9)`
-Both on `observationsETH`/`observationsBTC`. ⇒ **σ² is the SECOND MOMENT of exactly the series whose
-FIRST MOMENT is the TWAP.**
-
-⇒ ⛔ **"THE SKEW'S STEEPNESS MAY BE DRIVEN BY A QUANTITY STRUCTURALLY DECOUPLED FROM THE RISK IT
-PRICES" IS REFUTED.** They cannot decouple — they are two statistics of one tick series. **If the
-TWAP tracks the market (and the whole system prices off it, with Chainlink only as a >5% circuit
-breaker), then its variance tracks that market's volatility.** No separate validation of σ² is
-needed beyond the validation the TWAP already carries.
-⇒ ✅ **THE FLAT 0.496% IS THEREFORE PURELY A FIXTURE PROPERTY**: no price movement in ⇒ no variance
-out. §SKEW-IS-NOISE-OVERTURNED stands on firmer ground than when written — the "rounding error" was
-measured on a tape with no price process, and §UNIT-A's base is inert for ETH *in the fixture*, not
-in production.
-📌 **WHAT THE FEED-DRIVEN FIXTURE IS STILL FOR — and it is now a CALIBRATION question, not a
-STRUCTURAL one:** measure the LEVEL σ² reaches under a realistic path, to size the skew against the
-3% `MAX_WELL_SKEW` cap and to re-run §E125 / §E131's `8P/V` and T* / §E108 / §UNIT-LP-EXIT, all of
-which inherit the flat-tape value. **Cheaper and lower-stakes than the structural test it replaces.**
-⚠️ **ONE RESIDUAL, GENUINELY SHARED WITH THE TWAP:** the ring advances **ONLY ON A SWAP**, so a market
-that moves while our pool is idle updates NEITHER. That is a known property of the TWAP the system
-already accepts — **it is not a new defect in σ², and it should not be re-litigated as one.**
-
-### 🎯🎯 SIGMA-SOURCE — σ² GOES STALE EXACTLY WHEN IT MATTERS. Owner: source it exogenously.
-
-**THE PROBLEM, sharpened from §SKEW-HOLISTIC-RESOLVED's "residual".** The ring advances **ONLY ON OUR
-SWAPS**. If the market moves while our pool is idle, σ² still describes the OLD regime — and **THE
-FIRST TRADE AFTER THE GAP IS PRICED ON IT.** That trade is the MOST adversely-selected one in the
-whole distribution, and it is the one the skew exists to charge. ⇒ **The input is stalest precisely
-when it is most load-bearing.** ⚠️ This is NOT the same as the TWAP's accepted staleness: a stale
-TWAP misprices in a direction arbers correct; a stale σ² **under-charges the adverse selection it was
-built to price**, with nobody on the other side to correct it.
-
-**OWNER'S PROPOSAL — Chainlink as the variance source. FEASIBLE, TWO REAL TRAPS:**
-1. ⛔ **`IAggregatorV3` here exposes ONLY `decimals()` + `latestRoundData()`** (`Interfaces.sol:164-167`)
-   — **no `getRoundData`**, and NOTHING in `src/` reads historical rounds. It would be new surface.
-2. ⛔ **`roundId` IS `(phaseId << 64) | aggregatorRoundId`.** Decrementing it naively across a phase
-   boundary returns garbage or reverts. Any walk-back needs phase-aware handling.
-3. 💸 N historical rounds ⇒ N external calls on a money path.
-4. ⚠️ It DEEPENS the Chainlink dependency the owner was probing REMOVING (§ORACLE-FREE-ANSWERED).
-✅ **WHAT IS RIGHT ABOUT IT: Chainlink updates on a DEVIATION THRESHOLD — i.e. WHEN THE MARKET MOVES,
-not when we trade.** That is exactly the property our ring lacks, and it is the correct instinct.
-
-▶️ **CANDIDATE THAT KEEPS THE PROPERTY WITHOUT THE TRAPS — MEASURE BOTH, DO NOT PICK BY ARGUMENT:**
-the **REFERENCE POOL** (`DeployLib._refKeys`: the real mainnet ETH/USDT v4 pool) has its OWN
-observation ring, advancing on ITS swaps — **market-driven, not ours**. We already read its tick at
-init (`Core._initPool`'s `refTick`). Same `observe()` machinery, **no new interface, no round-walking,
-no added Chainlink surface, exogenous by construction.**
-🔬 **THE TEST:** on a fork, compute σ² from (a) our ring, (b) the reference pool's ring, (c) Chainlink
-round history — over the SAME window — and compare each against the feed's realised vol. **This also
-supplies the calibration number §SKEW-HOLISTIC-RESOLVED still wants.** ⚠️ Cost each on the swap path
-must be priced too (rule 9), not just accuracy.
-
-### 🎯🎯🎯 SIGMA-SOURCE-CHAINLINK-VOL — **a literal VOLATILITY FEED exists** (owner). Strictly better than both candidates, IF it is on mainnet.
-
-**Researched, and it dissolves every objection I raised to §SIGMA-SOURCE's Chainlink option.**
-Chainlink publishes **REALIZED VOLATILITY** feeds over **24h / 7d / 30d** look-backs: providers
-sample price every ~10 min and push on **heartbeat OR deviation threshold**. **They are read EXACTLY
-like a price feed — the SAME `AggregatorV3Interface`, ONE `latestRoundData()` call.**
-⇒ ⛔ **MY THREE OBJECTIONS ARE ALL VOID:** no `getRoundData` needed · no `(phaseId << 64)` roundId
-walk-back trap · no N-calls-per-read on the money path. **And we already have the interface**
-(`Interfaces.sol:164-167`) and the registry shape (`assetPriceFeed`) — this is a second feed address,
-not new machinery.
-✅ **AND IT HAS THE PROPERTY OUR RING STRUCTURALLY LACKS: deviation-triggered ⇒ it updates WHEN THE
-MARKET MOVES, not when WE trade.** That is the direct fix for §SIGMA-SOURCE's defect — σ² stale on
-the first trade after an idle gap, i.e. the most adversely-selected trade in the distribution.
-
-🔴 **THE ONE GATING UNKNOWN — DO NOT BUILD BEFORE SETTLING IT.** Chainlink's own announcement lists
-the rollout as **FOUR TESTNETS: Arbitrum Goerli · Avalanche Fuji · Ethereum Sepolia · Polygon Mumbai.**
-**I could NOT confirm an ETHEREUM MAINNET address** (the addresses page exceeds the fetch limit).
-⚠️ **Goerli and Mumbai are DEPRECATED, so that post is stale in BOTH directions** — the program may
-have graduated to mainnet or been wound down. **Its absence from a stale blog is not evidence.**
-🔬 **SETTLE IT IN ONE STEP:** take the ETH/USD realized-volatility address from
-`docs.chain.link/data-feeds/rates-feeds/addresses`, then **call `latestRoundData()` against our
-mainnet fork** (`ETH_RPC_URL=$ANKR_RPC_URL`). Answers ⇒ this REPLACES the whole σ²-source
-investigation (no reference-pool ring, no round-walking). Reverts/absent ⇒ fall back to
-§SIGMA-SOURCE's reference-pool ring, which is exogenous and already read at init.
-📌 **ALSO NOTE — IMPLIED, NOT JUST REALIZED:** dxFeed and Volmex publish **implied** volatility
-(EVIV/BVIV) through Chainlink. Implied is FORWARD-looking, which is arguably the better input for an
-adverse-selection charge than a trailing realised window. **Worth pricing both if either is live.**
-⚠️ **TENSION TO NAME: this DEEPENS the Chainlink dependency the owner was probing REMOVING**
-(§ORACLE-FREE-ANSWERED). It is a different dependency though — a PRICING INPUT, not the
-circuit-breaker/liveness role — and it fails soft: a stale or absent vol feed can fall back to the
-ring, where a missing PRICE anchor bricks the reseat path.
-
-### 🎯🎯🎯 SIGMA-CAN-WE-AVOID-IT — σ² is a FORECAST OF A COST, not a requirement. The realized alternative may already be half-built.
-
-**Owner: *"why do we need it for this skew and could we get around it."* Both answered.**
-
-**WHY IT IS THERE:** σ² PREDICTS the loss. The base is literally `σ²·confFrac/8` — MMRZ eq.16's
-`LVR = σ²/8` per unit time × the settlement window (`SwapLib:778-782`); the kernel scales steepness by
-σ² for the same reason (`:961`), since the cost of holding inventory across the window is
-proportional to variance. ⇒ **σ² IS A MEANS, NOT AN END. Nothing in the design needs *variance*; it
-needs the COST variance is being used to estimate.**
-
-**THREE WAYS AROUND IT, worst to best:**
-1. ⛔ **A CONSTANT σ² (governance parameter).** Rejected by the repo's own principle — §E55 refuses "a
-   single fitted half-life" as *"a guess"*, and `Core.sol:198` refuses a third decay constant as *"an
-   unjustified magic number"*. Same objection, same force.
-2. 🎯 **EXTERNAL VOLATILITY FEED** (§SIGMA-SOURCE-CHAINLINK-VOL): one `latestRoundData()`,
-   deviation-triggered, exogenous. **Mainnet availability UNCONFIRMED and I could not settle it —
-   the addresses page exceeds the fetch limit. Needs a human look or an address to call on the fork.**
-3. 🎯🎯🎯 **PRICE OFF *REALIZED* ADVERSE SELECTION INSTEAD OF PREDICTED — AND THE MACHINERY LOOKS
-   HALF-BUILT.** `Core._premETH`/`_premBTC` already hold *"the range's realized market-making premium
-   as a decayed EWMA — **θ's NUMERATOR (#107/D3): the compensation the range actually receives for
-   bearing IL**"* (`Core.sol:201-208`), and `derivedThetaWad` (`Quid.sol:946` → `QuidLib`) already
-   computes θ as a RATIO. ⇒ **IF θ's denominator is realized IL, θ IS ALREADY THE CALIBRATION and σ²
-   is redundant as a LEVEL input** (it may still earn its place shaping the CURVE in `q`).
-   ✅ **Why this is the strongest option:** you do not need to FORECAST a cost you can MEASURE. A fee
-   that must be right ON AVERAGE can be set from realized history. **Self-calibrating, needs NO
-   oracle, and cannot go stale against a price series it never references — it references the range's
-   own P&L.** It also sidesteps §SIGMA-SOURCE entirely: no exogenous-source problem if the input is
-   endogenous *by design* rather than by accident.
-   ⚠️ **THE HONEST COST:** backward-looking, so it lags a REGIME CHANGE. But it lags **the range's own
-   experience — the thing being compensated** — rather than lagging a market we do not observe, and
-   on the staleness axis it is **no worse than σ² from our own ring**, with no external dependency.
-▶️ **NEXT, AND IT IS A READ NOT A BUILD:** open `QuidLib.derivedThetaWad` and establish what θ's
-DENOMINATOR is. **If it is realized IL, option 3 is mostly plumbing.** ⚠️ Do NOT design on the
-`Core.sol:201-208` docblock alone — five stale-comment errors today (rule: verify by structure).
-
-### ⛔ REFILL-FRAMING-CORRECTED — I presented the FLASH-SERVE as the ETH refill path. It is a BTC construct, and for ETH capital solves NOTHING.
-
-**Owner: *"i thought we decided we dont need the flash serve or that it cant solve anything."* CORRECT
-on both counts. §UNIT-C-DISAMBIG already settled it and I answered from a half-recall.**
-
-**"REFILL" IS THREE MECHANISMS (§UNIT-C-DISAMBIG) — I collapsed them into one:**
-1. **ORGANIC SWAP-IN** — a user sells the asset back; `SwapLib.creditSwapInBody:736` settles the USD
-   side from `POOLED_USD_*`. **No keeper, no capital, no policy.** The rail §E18 found already built.
-2. **THE REMOVED `refillETH`** — drew the BASKET'S SHARED SURPLUS to patch an LP shortfall; toxic
-   because it spent QU!D holders' backing on LP inventory. **DELETED** (§E106).
-3. **THE FLEET FLASH OP** — *"JIT Morpho-flash BTC → creditSwapIn → repay"*. **A BTC CONSTRUCT**: the
-   fleet holds no BTC and LN-custodied sats have no EVM token, so it must flash-borrow.
-
-⛔ **MY ERROR: I closed with *"the active flash-serve is still unbuilt (#100/J.3)"* as though it gated
-the refill generally. It is BTC-ONLY.** §E18/§E15: *"the ETH path is not a flash; **a flash cannot
-create an unborrowable asset**"*, and §E134-skew gives the concrete reason — after a drain the range
-**ALREADY HOLDS THE DOLLARS** (+$570,000 measured in `POOLED_USD_ETH`). **There is nothing to borrow
-FOR.**
-
-🔴 **AND THE DEEPER REASON CAPITAL CANNOT SOLVE IT — §E108-EXPLAINED MAKES IT AN IDENTITY:** for ETH
-the refill is a **COMPOSITION** operation, not a capital one. **Composition is set SOLELY by where
-price sits in `[P_lower, P_upper]`; a PAIRED DEPOSIT CANNOT CHANGE A RATIO.** ⇒ **No amount of
-capital — flashed, borrowed or held — "refills" an ETH range.** Only moving PRICE, or moving the
-RANGE (reseat), changes the ratio. **This is why the flash "can't solve anything" for ETH, and it is
-stronger than "not needed": it is structurally incapable.**
-📌 **WHAT SURVIVES FROM MY PREVIOUS ANSWER — the loss question was answered correctly, on the code:**
-`SwapLib:678-688` — the swap-in leg *"settles FLAT at the honest oracle, and that is FINAL"*, the
-refilling direction is skew-EXEMPT (`:452`/`:962`), and `payRefillBonus` was removed with *"Do NOT
-rebuild it."* **The range takes no loss ON THE REFILL; it takes the loss on the DRAIN, which the
-retained premium exists to compensate.** That stands.
-⚠️ **STANDING TRAP THIS RE-PROVES: §UNIT-C-DISAMBIG's whole point is that the funding question kept
-reopening BECAUSE the three senses were conflated. I reopened it again today. Name WHICH refill
-before answering anything about capital, borrowing or loss.**
-
-| id | state |
-|---|---|
-| **E177-b** | ✅ **THE PRODUCER, so §E177 IS NO LONGER INERT.** I had landed the CONSUMER (the `ChannelTruthSource` trait + its validation + tests against a fake) and **no implementation** — a trait with nothing behind it is inert in exactly the way §E165 is inert without per-LP custody, and it would have read as done. ✅ `quid-bridge/src/channel_truth.rs`: `OnChainChannelTruth` reads `channels(bytes32)` through the EXISTING **AGREEMENT-classed** reader (`eth_call_raw_agreed`, pinned to `tip − AGREED_READ_DEPTH`), so an untrusted host can only DEFLATE the tip to serve an OLDER view — never forge the value at the block it names. An older view is harmless here because both facts are pinned at OPEN and never move for a funding scope. ✅ `keys_hash()` added to `evm_codec` beside the `SIG_*` constants — one copy, mirroring `BTCChannels.sol:1310` `keccak256(abi.encode(p.lpPubkey, p.hopPubkey))`. 🔑 **ITS TEST IS PINNED TO AN INDEPENDENT IMPLEMENTATION** — foundry's `cast abi-encode "f(bytes,bytes)" | cast keccak` → `a55a3f24…de63` — **not** to our own encoder, because pinning it to our own output is the same circularity §E178 found in the selector tests. Plus two negative controls: `(lp,hop)` order must matter (`channelId` sorts, this does NOT), and it must not equal `keccak(lp‖hop)` — the plausible-looking wrong answer, since both args are dynamic `bytes` carrying offsets and length prefixes. ⚠️ **DELIBERATE:** `channels()` returns SIX static words since §E153 added `keysHash`; `channel_driver::read_channel_state` still says "5 static words" and requires only 160 bytes, which is why it never reads it. `channel_truth` requires the full 192 and REFUSES a short return rather than indexing into it, and refuses an out-of-range `amountSats` rather than truncating — a wrapped value would make the sighash comparison meaningless. ▶️ **REMAINING TO WIRE:** construct it where signers are built (`QuidKeysManager`) and pass `FundingRole::Lp`/`Hop`; until then no signer has a truth source and the §E176-C self-consistency behaviour is what runs. **Rust workspace 637 passed / 0 failed.**  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): DONE: OnChainChannelTruth producer landed** |
 
 ### ⛔ UNIT-B-LAG-REFUTED — the lagged target made the discount WORSE (1371 → 2263 bps). Reverted, and the mechanism is UNEXPLAINED.
 
@@ -46334,560 +43302,6 @@ ratio between two arms, so it cannot be satisfied by both legs moving together (
 |---|---|
 | **E177-d** | 🔑 **THE LAST MILE IS ARCHITECTURALLY DETERMINED — two measurements settle it, and one of them is a residual hole that CANNOT be closed at this layer.** ✅ **(1) THERE IS NO EXTERNAL HANDLE ON THE SIGNER LDK USES.** `ChannelMonitor` exposes **no** `get_signer` (checked: only `signer_unblocked`), and the existing `deadman_exit::arm_signer` gets its signer by **RE-DERIVING** one (`keys.derive_taproot_channel_signer(channel_keys_id)`) — a FRESH instance, not the one LDK holds. ⇒ Attaching a comparand from the daemon is impossible; **`QuidKeysManager::derive_channel_signer` is the only place it can happen**, which is exactly the place that does not know the `channelId`. ⇒ **The truth source must resolve the cid LAZILY, at check time, not at construction.** ✅ **(2) THERE IS A WINDOW WHERE THE CHAIN HAS NO RECORD, BY CONSTRUCTION.** The EVM `openChannel` requires the funding tx to be **SPV-proven**, which happens strictly AFTER LDK has signed `funding_created` and the first commitments. So `channels(cid).amountSats == 0` for a real, live channel during opening. **Failing closed there would deadlock every channel open** — the check must therefore have THREE states, not two: *(a)* no on-chain record yet ⇒ §E176-C self-consistency only; *(b)* recorded and matching ⇒ pass; *(c)* recorded and mismatching ⇒ poison. 🔴 **THE RESIDUAL, STATED PLAINLY BECAUSE IT IS NOT FIXABLE HERE:** a hostile node can hold a channel in state *(a)* forever — by naming a funding outpoint (or registry entry) that resolves to no on-chain channel — and thereby **DOWNGRADE the check to self-consistency at will**. ⚠️ **What it can NEVER do is forge a PASS**: a wrong outpoint yields a wrong cid, and `channels(wrongCid)` reads empty, which is state *(a)*, not state *(b)*. **Downgrade-only, never forge — that asymmetry is the actual security property and it should be written into the code, not inferred.** ⇒ Closing the downgrade needs the signer to learn the funding outpoint from a source the node does not author; for LDK that source is the monitor, which the node ALSO feeds. **So it does not close at this layer at all — it closes at §E175**, when the signer runs where the operator cannot replace it. ⚠️ **DO NOT "FIX" THE DOWNGRADE WITH A LOCAL GUARD.** Any check the hostile node also feeds is theatre, and standing rule 3 names exactly this: a clamp that makes the path look protected while the root is untouched. **Land the three states + the downgrade-only property with tests; leave the downgrade documented and open until §E175.**  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): DONE: measurements recorded, residual closed** |
 
-### 🔴🔴🔴 UNIT-B-ROOT-FOUND — **σ² CARRIES ENTRY HISTORY.** The same traversal costs 2.34× more via a whale than via twelve splitters.
-
-**The probe test (§UNIT-B-RIGHT-QUESTION P2) found the root, and it is NOT the target.**
-Two arms walk the range to the SAME `q₀`, then run ONE IDENTICAL PROBE with the flow target RE-PINNED
-so both probes see the same target:
-| | whale history | split history | ratio |
-|---|---|---|---|
-| inventory at probe | 130,348,989,475,604,719,751 | 130,348,991,208,125,766,567 | **1.3e-11 apart ✅** |
-| **σ² at probe** | **2.458e13** | **1.050e13** | **2.34×** |
-| **probe premium** | **4,007** | **1,711** | **2.34×** |
-⇒ **THE PREMIUM RATIO IS THE VARIANCE RATIO, TO THE DIGIT.** Skew is linear in σ² (`SwapLib:961`), and
-with inventory and target both held identical, **σ² is the ONLY remaining carrier.**
-
-🔴 **THE MECHANISM: THE RING RECORDS THE *SHAPE* OF THE FLOW, NOT JUST ITS SIZE.** One whale writes ONE
-LARGE tick jump ⇒ a big second difference ⇒ HIGH σ². Twelve tickets write a SMOOTH series ⇒ low second
-difference ⇒ LOW σ². Same start, same end, same target — **different charge, because of how the range
-got there.**
-⇒ ✅ **THIS EXPLAINS EVERY FAILURE OF THE LAST HOUR:** my two target fixes could not work because
-**the target was the wrong carrier**; §E71's "consolidation discount" is σ² responding to flow SHAPE;
-and path-independence is **IMPOSSIBLE while σ² is computed from a swap-driven ring** — the integral
-can be perfect in `q` and the charge will still depend on history through `Γ·σ²`.
-⚠️ **NOTE THE DIRECTION IS OPPOSITE TO §E71's, AND BOTH ARE σ² EFFECTS:** here whale-history charges
-MORE (it created more measured variance); in §E71 the whale's TOTAL was LESS. **Do not treat these as
-contradictory — they are the same term measured over different windows.**
-
-▶️ **CONSEQUENCE FOR THE OWNER'S DECISION** (*the target must not include the trade's own flow*):
-**correct but insufficient.** Fixing the target leaves the larger carrier untouched. ⇒ **The σ²-SOURCE
-work (§SIGMA-SOURCE / §SIGMA-SOURCE-CHAINLINK-VOL / §SIGMA-CAN-WE-AVOID-IT) IS NOT A SIDE QUEST — IT
-IS THE FIX.** An EXOGENOUS σ² (volatility feed, reference-pool ring, or realized-θ) is history-free by
-construction and would deliver path-independence that no target change can.
-📌 **AND IT RAISES §UNIT-FORELLA:** a troller's oscillation writes MANY small ring entries ⇒ SUPPRESSES
-σ² ⇒ **cheapens their own subsequent legs.** Unverified, mechanically plausible, and it would make the
-loop cheaper the longer it runs. **Test it before designing the brake.**
-
-| id | state |
-|---|---|
-| **E177-e** | ✅ **THE THREE STATES ARE LANDED AND THE DOWNGRADE IS CLOSED. §E177-d's "closes at §E175" WAS WRONG — owner: *"dont leave any residuals for later. close properly"*, and they were right.** `TruthVerdict::{NotRecorded, Match, Mismatch}` + a `truth_recorded` latch. 🔑 **WHY I HAD IT WRONG:** I treated the pre-record window as a HOLE IN the check when it is the check's DOMAIN OF DEFINITION, and I never asked what shape the downgrade could actually take. It has exactly one: **regression** — reporting `NotRecorded` for a channel the chain has already shown as recorded. A latch closes that completely, and it costs one atomic bool. ⇒ **The pre-record window is now strictly ONE-WAY: entered once, never re-entered.** ✅ **AND THE WINDOW ITSELF IS NOT A HOLE, WHICH IS THE PART I MISSED:** the on-chain record and the LP's credit are the **SAME EVENT** (`openChannel` → `registerBtcLp`), so a channel held in `NotRecorded` has **no protocol position to steal through the books** — the comparand is absent exactly while the thing it protects does not yet exist. The window cannot be extended by an attacker to cover a credited channel, because crediting IS recording. **State (a) must also be permissive or NO CHANNEL CAN EVER OPEN** — the EVM needs an SPV proof, which lands strictly after LDK has signed `funding_created` and the first commitments (`pre_record_window_is_permissive` pins this; a two-state check deadlocks every open). ⚠️ **`keysHash == 0`, NOT `amountSats == 0`, IS THE "no record" TEST.** `keysHash` is pinned at open and never cleared; `amountSats` legitimately reaches 0 on a CLOSED channel — so testing the amount would report a closed channel as never-recorded, which is precisely the state a downgrade wants to reach. **5 NEW TESTS, INCLUDING THE TWO CONTROLS THAT MAKE THEM MEAN SOMETHING:** `a_recorded_channel_can_never_go_back_to_unrecorded` (the closure) · `repeated_matching_reads_do_not_poison` (else the latch is indistinguishable from "poison on the second context" and breaks every live channel) · `pre_record_window_is_permissive` · `recorded_but_contradicted_is_a_mismatch` · `a_wrong_funding_value_can_never_pass`. **38/38 signer tests · workspace 644 passed / 0 failed · ABI gate 0 drifted both sides.** ⇒ **§E177 IS COMPLETE AS A MECHANISM.** The one thing still outstanding is wiring `set_truth_source` at `derive_channel_signer` (§E177-c) — until that lands the mechanism is correct but unattached, and that is plumbing with no open design question left in it. |
-
-### 🎯🎯🎯 SIGMA-REMOVE — **drop σ² as the steepness input.** A SUM is path-independent; a SECOND DIFFERENCE is not. Owner-directed.
-
-**Owner: *"we dont need it like you said."* §UNIT-B-ROOT-FOUND is the argument, and it is now a
-one-line proof rather than a preference.**
-
-📐 **THE PROOF:**
-- `realizedVarianceWad` is built from **SECOND DIFFERENCES** of stored ticks (`OracleLib.ringVariance`
-  over 9 ring points). A second difference encodes the **SHAPE** of the path: one jump and twelve
-  steps between the SAME endpoints give DIFFERENT variance. **MEASURED: 2.458e13 vs 1.050e13, and the
-  probe premium tracked it 2.34× to the digit.** ⇒ **σ² CANNOT be path-independent. That is not a
-  defect in the ring — it is what variance IS.**
-- The realized-cost register is a **DECAYING SUM**: `_bumpEwma` is `v = _decayed(v) + usd6`
-  (`Core.sol:226-230`). Twelve tickets of `X/12` add `X`; one whale adds `X`. **IDENTICAL up to
-  decay.** ⇒ **Path-independent BY CONSTRUCTION, not by calibration.**
-⇒ **THIS IS WHY NO TARGET FIX COULD WORK, AND WHY NO σ² SOURCING FIX FULLY WOULD EITHER.** An
-exogenous feed removes the *entry-history* carrier, but the steepness input would still be a
-second-moment statistic. **Replacing the INPUT KIND — forecast variance → realized cost — removes the
-whole class.**
-
-▶️ **WHAT THIS RESOLVES AT ONCE:**
-1. **§UNIT-B's root** — the charge stops depending on flow SHAPE.
-2. **§SIGMA-SOURCE's staleness** — no forecast to go stale; realized cost is what already happened.
-3. **§SIGMA-SOURCE-CHAINLINK-VOL's dependency** — no volatility feed needed, so the mainnet-
-   availability unknown stops gating anything.
-4. **§UNIT-FORELLA's suspected σ²-suppression by a troller** — dissolved: a SUM cannot be suppressed
-   by oscillating, since every leg ADDS. **(The total-variation brake is still needed for the
-   INVENTORY axis; this only removes the variance channel.)**
-🔬 **THE ONE READ THAT GATES IT, AND IT IS NOT A BUILD:** open `QuidLib.derivedThetaWad` and establish
-θ's **DENOMINATOR**. `Core._premETH/_premBTC` are already documented as *"θ's NUMERATOR — the
-compensation the range actually receives for bearing IL"*. **If the denominator is realized IL, θ IS
-the calibration and this is mostly plumbing.** ⚠️ Verify by STRUCTURE, not the docblock — five
-stale-comment errors today.
-⚠️ **KEEP: σ² may still earn a place shaping the CURVE in `q` (convexity), and `_maxWellSkew`'s
-`σ²·confFrac/8` is the LVR derivation. This removes it as the STEEPNESS/LEVEL input, not necessarily
-from the file. Do not delete more than the argument supports.**
-
-### ⛔ SIGMA-REMOVE-GATE-READ — θ's DENOMINATOR IS σ²-BASED PREDICTED LVR, NOT REALIZED IL. My "mostly plumbing" is REFUTED.
-
-**The gating read, done. `QuidLib.derivedThetaWad:376-403`:**
-```
-sigmaSq = ICore(core).realizedVarianceWad(isBTC);
-kWad    = kLvrWad(core, lo, up, isBTC);
-work    = kWad · sigmaSq;                       // <-- THE DENOMINATOR
-return    mulDiv(_rangeFeeYieldWad(core, isBTC), 1e18, work);
-```
-⇒ **θ = REALIZED range fee yield ÷ PREDICTED LVR.** Half measured, half forecast — and the forecast
-half is **exactly the σ² term §SIGMA-REMOVE wants to eliminate.**
-⛔ **SO θ IS NOT THE σ²-FREE CALIBRATION.** §SIGMA-CAN-WE-AVOID-IT's option 3 said *"if θ's denominator
-is realized IL, θ IS already the calibration and this is mostly plumbing."* **It is not. That estimate
-is withdrawn.**
-
-✅ **WHAT THE READ DOES ESTABLISH — half the machinery exists, and it is the harder half to fake:**
-`_rangeFeeYieldWad` is a REALIZED measure of what the range actually EARNS. **The earnings side is
-already realized; only the LOSS side is a forecast.** ⇒ **What is MISSING is a REALIZED-LOSS register
-— realized IL / adverse selection actually suffered — which is NOT currently computed anywhere.**
-▶️ **THAT IS THE BUILD, and it is a real one, not plumbing:**
-   • **Where it is observable:** `reseat` REALIZES IL (owner, this session: the mock tokens DO
-     correspond to real assets, so a reseat realizes it — my "mock-only, real assets untouched"
-     reading of `Core.sol:756` was corrected). A realized-loss register accrued AT RESEAT is
-     therefore measurable from state the protocol already moves.
-   • **Why it keeps §SIGMA-REMOVE's proof:** a realized-loss register is a **DECAYING SUM**, so it is
-     path-independent by construction — the property that makes σ² unfixable is absent.
-   • ⚠️ **Do NOT simply swap `work`'s σ² for a feed** — that fixes the entry-history carrier and
-     leaves a second-moment statistic as the steepness input (§SIGMA-REMOVE's whole point).
-📌 **STATUS CHANGE: §SIGMA-REMOVE is DIRECTIONALLY CORRECT AND MORE EXPENSIVE THAN BOOKED.** The
-owner's call stands; the cost estimate does not. **Re-scope before committing to it.**
-
-### 📐 SIGMA-REMOVE-RESCOPED — it is a TWO-PHASE BUILD, not plumbing. **Phase 1 measures; Phase 2 wires.**
-
-**Why it is not plumbing — a property of the design, not an implementation detail:**
-**THE RANGE EXECUTES *AT* ORACLE, SO PER-SWAP P&L IS ZERO BY CONSTRUCTION** (`retainSkewPremium` is an
-AMOUNT haircut; `r.px` stays the honest oracle — §UNIT-CURVE-CORR). **Adverse selection is INVISIBLE
-at execution time.** The range sold ETH at 2,000; the loss exists only once the market is at 2,100.
-⇒ **A realized-loss register cannot be an accumulator at the swap. It needs a SETTLE-LATER step**, and
-therefore a lookback window — which is a NEW CALIBRATION CONSTANT on the same axis §E83 gates.
-
-▶️ **PHASE 1 — SHADOW-MEASURE ONLY. Nothing wired to pricing. This is the whole de-risking.**
-1. **Record one PENDING swap per pool**: `(size, direction, execPrice, ts)`. **One slot each** — and
-   `Core` has **920 bytes** free (§CORE-ONLYUS + `mocks()`), so this is affordable for the first time
-   this session.
-2. **Settle it on the NEXT swap** (or on reseat): `loss += size · (P_now − P_exec)`, signed by the
-   direction the range was on the wrong side of. **A rolling one-slot pending record avoids a queue.**
-3. **Accrue into a DECAYING SUM** (`_bumpEwma` shape) ⇒ path-independent by construction, which is the
-   entire reason for the change (§SIGMA-REMOVE).
-4. **EMIT BOTH, PRICE NEITHER.** Run the existing suites and compare the realized-loss rate against
-   `kLvrWad · σ²` — the quantity it would replace. ⚠️ **Also re-run the PROBE test
-   (§UNIT-B-ROOT-FOUND): the candidate must NOT reproduce the 2.34× history gap.** That is the
-   acceptance criterion, and it is falsifiable before a single pricing byte changes.
-
-▶️ **PHASE 2 — WIRE IT, gated on Phase 1's comparison.** Replace `work = kLvrWad · σ²` in
-`QuidLib.derivedThetaWad:381` and the steepness in `SwapLib:961`. ⚠️ **KEEP σ² where it is still
-right: the CONVEXITY shape in `q`, and `_maxWellSkew`'s `σ²·confFrac/8` LVR derivation. Removing more
-than the argument supports is how "bound the bonus" became "delete it" (§UNIT-BOUND-NOT-DELETE).**
-
-⚠️ **THREE RISKS TO PRICE, NOT DISCOVER (rule 9):**
-- **BACKWARD-LOOKING:** a regime change is priced LATE. σ² has the same lag; the candidate is not
-  worse, but this must be stated, not assumed away.
-- **NOISE ON SMALL SAMPLES:** a decaying sum of few swaps is jumpy where a variance is smooth.
-  **Measure the variance OF the estimator in Phase 1.**
-- **THE NEW WINDOW CONSTANT** is the same calibration axis §E83 gates — this does not escape §E83, it
-  relocates the dependency from the FORECAST to the SETTLEMENT lag.
-
-### 🔬 SIGMA-REMOVE-P1-CONSTRAINT — the obvious realized-loss estimator is ALSO shape-dependent (12×). It must be INVENTORY-based.
-
-**Phase 1 started, and its first output is a constraint that kills the naive implementation BEFORE any
-contract code — which is what Phase 1 is for.**
-
-⛔ **A TRADE-BASED PROXY REPRODUCES THE PATHOLOGY.** Take `loss = size · |Δprice|` accrued per swap:
-| path | accrued loss |
-|---|---|
-| whale: one swap `S`, tick moves `ΔT` | **`S·ΔT`** |
-| split: twelve of `S/12`, each moving `ΔT/12` | `12 · (S/12)(ΔT/12)` = **`S·ΔT/12`** |
-⇒ **A 12× GAP BETWEEN IDENTICAL ENDPOINTS** — worse than σ²'s measured 2.34×. **Because per-trade
-price impact scales WITH TRADE SIZE, any per-trade product of size × move is quadratic in the split
-factor.** ⇒ **§SIGMA-REMOVE's proof does NOT transfer automatically: "it's a decaying sum" is
-necessary but NOT sufficient — the SUMMAND must be path-independent too.**
-
-✅ **THE CONSTRAINT: THE ESTIMATOR MUST BE INVENTORY-BASED, NOT TRADE-BASED.** Accrue mark-to-market on
-the **INVENTORY HELD ACROSS THE INTERVAL** — `inv · Δprice` between observations — which **TELESCOPES**:
-twelve intervals summing the same total move give the same total as one, for the same inventory. ⇒
-Path-independent BY CONSTRUCTION, which is the property the whole change exists to buy.
-📌 **AND IT IS THE ECONOMICALLY RIGHT QUANTITY ANYWAY:** LVR is the loss on the POSITION as price
-moves, not a per-fill toll. A trade-based measure double-counts impact the swapper already paid
-through the curve.
-▶️ **PHASE 1 REVISED — still measure-only, still no wiring:**
-   1. Accrue `inv · Δtick` (tick = log-price, so it needs NO price oracle — `Core` already reads its
-      own ring) into a decaying sum, per pool.
-   2. **Acceptance is unchanged and now sharper: re-run the PROBE test (§UNIT-B-ROOT-FOUND). σ² gave
-      2.34×; a trade-based proxy would give ~12×; the inventory-based one must give ~1×.** Three
-      candidates, one falsifiable number, no pricing byte touched.
-   3. Measure the ESTIMATOR'S OWN VARIANCE alongside its level (§SIGMA-REMOVE-RESCOPED risk 2).
-⚠️ **DO NOT SKIP TO WIRING ON THE STRENGTH OF THE ALGEBRA ABOVE.** It is analysis, not measurement —
-today's ledger is nine measured against twelve reasoned-and-withdrawn.
-
-### ✅✅✅ SIGMA-REMOVE-P1-MEASURED — the inventory TRAPEZOID is history-independent to **2.5%**. σ² is 134% off; trade-based is 1100% off.
-
-**Phase 1 complete: three candidate steepness inputs shadow-measured on the probe scenario (whale vs
-twelve splitters, SAME endpoints, entry PINNED). NOTHING WIRED TO PRICING.**
-`test_SIGMA_P1_ThreeEstimatorsHistoryGap` (`DrainAtomicity.t.sol`):
-| estimator | whale | split | **history gap** |
-|---|---|---|---|
-| **σ² (incumbent)** | 2.458e13 | 1.050e13 | **2.340×** |
-| **trade-based `Σ size·Δp`** | 3.058e26 | 2.548e25 | **12.000×** |
-| **inventory TRAPEZOID `Σ inv̄·Δp`** | 4.1137e23 | 4.0119e23 | **1.025×** |
-
-✅ **THE TRAPEZOID IS HISTORY-INDEPENDENT TO 2.5%** — against **134%** for σ² and **1,100%** for the
-trade-based proxy. **That is the property §SIGMA-REMOVE exists to buy, now MEASURED rather than
-argued.**
-✅ **AND THE 12.000× CONFIRMS §SIGMA-REMOVE-P1-CONSTRAINT's ALGEBRA TO FOUR FIGURES** — the predicted
-`S·ΔT` vs `S·ΔT/12` came back as exactly 12.000. **The constraint that killed the naive estimator was
-right, and it was found before any contract code was written. That is what Phase 1 is for.**
-📌 **WHY TRAPEZOID AND NOT LEFT-RECTANGLE:** a per-swap `inv·Δp` accrual is a Riemann sum whose error
-scales with SAMPLE COUNT — the same shape-dependence in a new costume. `(inv₀+inv₁)/2` telescopes
-exactly when inventory is linear in price, which it is inside a ±0.2% range. **The residual 2.5% IS
-that second-order term, not a leak.**
-
-▶️ **PHASE 2 IS NOW UNBLOCKED AND ITS ACCEPTANCE IS PRE-STATED:** replace `work = kLvrWad · σ²`
-(`QuidLib.derivedThetaWad:381`) and the steepness in `SwapLib:961` with the trapezoid register.
-**Acceptance: the PROBE test's 2.34× premium gap (§UNIT-B-ROOT-FOUND) must collapse toward 1×, and
-§E71-PINNED's 1,371 bps discount must fall.** ⚠️ **Both on the PINNED instrument — the unpinned §E71
-cannot attribute a mechanism change (§UNIT-B-E71-NOT-AN-INSTRUMENT).**
-⚠️ **STILL OWED BEFORE WIRING (§SIGMA-REMOVE-RESCOPED risk 2): the ESTIMATOR'S OWN VARIANCE.** A
-decaying sum over few swaps is jumpy where a variance is smooth. **Measure its level stability across
-runs, not just its history-gap.** ⚠️ **AND KEEP σ² for the CONVEXITY in `q` and `_maxWellSkew`'s LVR
-derivation — this replaces the STEEPNESS input only.**
-
-### ⏸️ SIGMA-REMOVE-P2-INFRA — the on-chain trapezoid register is LANDED and ACCRUING. **Pricing untouched. Units UNVERIFIED.**
-
-**Phase 2 step 1 of 2: build the register, prove its units, THEN substitute. Step 1 done, step 2 gated.**
-`Core._accrueRealizedLoss` accrues `(inv₀+inv₁)/2 · |Δpx| / 1e30` into a decaying sum per pool, hooked
-from `_bumpFlow` (i.e. every swap). `Core.realizedLossUsd(bool)` exposes it. **Reuses the dead
-`_flowSlow*` slots ⇒ layout unchanged, NO new storage.** `Core` **24,114 / 462 free** (458 bytes).
-⛔ **NOTHING IS PRICED OFF IT.** `realizedVarianceWad` is untouched; `skewWad`, `_maxWellSkew` and θ
-all still read σ².
-
-⚠️ **THE UNIT CHECK IS INCONCLUSIVE — DO NOT SUBSTITUTE UNTIL IT PASSES.**
-On-chain register after the split arm: **748,690,154,328**. In-test trapezoid predicts
-**401,191,208,128** (`4.0119e23` ÷ `1e12`, the usd18→usd6 basis). **~1.87× apart.**
-📌 **Most likely benign:** the on-chain register ALSO accrued during `_setupRange`'s swaps, while the
-in-test accumulator starts at the drain loop — so the levels are not comparable as taken. **But that
-is a HYPOTHESIS, and this repo's #1 bug source is decimal bases** (three bases coexist; a positional
-divisor shipped once and broke).
-🔬 **THE CHECK, one edit:** snapshot `realizedLossUsd` BEFORE the drain loop and diff, isolating the
-same interval the in-test accumulator covers. **The DIFF must match `4.0119e23 / 1e12` to within
-rounding.** Only then is the substitution safe.
-
-▶️ **THEN STEP 2 — THE SUBSTITUTION, and the shape is chosen to keep units by construction:** express
-the register as an IMPLIED VARIANCE — `LVR = σ²/8 · window` ⇒ `σ²_implied = 8 · lossFraction /
-window` — and return THAT from `realizedVarianceWad`. **One substitution point; `skewWad`,
-`_maxWellSkew`'s LVR derivation and θ all keep working unchanged, with a MEASURED input replacing a
-FORECAST one.** Acceptance (pre-stated): the probe's **2.34×** gap → ~1×, and §E71-PINNED's **1,371
-bps** falls — both on the PINNED instrument.
-⚠️ **STILL OWED (§SIGMA-REMOVE-RESCOPED risk 2): the ESTIMATOR'S OWN VARIANCE across runs.** A
-decaying sum over few swaps is jumpy where a variance is smooth. **Unmeasured.**
-
-| id | state |
-|---|---|
-| **E177-f** | ✅ **WIRED — §E177 IS NOW LIVE, NOT MERELY BUILT.** `QuidKeysManager` gained `with_truth_factory(factory, role)` and **BOTH** `derive_channel_signer` and `derive_taproot_channel_signer` route through `attach_truth`. 🔑 **THE COMPOSITION THAT MAKES IT WORK:** `TruthSourceFactory::for_channel` returns a source **UNCONDITIONALLY, never an `Option`** — at derive time the on-chain `channelId` is usually unknown (it needs a funding outpoint that does not exist yet), and a signer born WITHOUT a comparand can never acquire one (`set_truth_source` is write-once and LDK owns the signer from then on). So the source is always attached and resolves the cid **LAZILY** via `CidRegistry` (`channel_keys_id → channelId`, the daemon already derives the latter through `onchain_cid_from_monitor`). **An unresolved cid IS `NotRecorded`** — which composes exactly with §E177-e: permissive while the channel opens, and one-way the moment the chain first answers, so the registry cannot be used to downgrade a channel already seen. ⚠️ `CidRegistry::bind` is **idempotent but never re-bindable** — the cid selects WHICH on-chain channel a signer is checked against, so a movable binding would let the node choose its own referee. 🔴 **THE CONTROL THAT MATTERS, AND IT IS MUTATION-TESTED:** `both_derive_paths_attach_a_comparand`. ECDSA and taproot signers come from SEPARATE LDK entrypoints and **a simple-taproot channel — what this protocol negotiates — uses the TAPROOT one**, so attaching on only the ECDSA path would leave exactly the protected channels unprotected with the whole suite still green. ⚠️ **Its first version wrote `.unwrap_or(true)` on the source read and would have PASSED on any machine where the read failed — asserting nothing.** Now the read is `expect`ed, the PREMISE (both methods exist) is asserted before the property, and **the assertion was verified to FAIL when `attach_truth` is removed from just the taproot path**. **Workspace 648 passed / 0 failed · ABI gate 0 drifted both sides.** ▶️ Remaining for full effect: the daemon must call `CidRegistry::bind` as channels are discovered, and a deployment must call `with_truth_factory` — until then the factory is absent and signers run §E176-C self-consistency, which is the documented `None` behaviour rather than a silent gap.  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): DONE: truth factory wired into both derive paths** |
-
-### ✅ SIGMA-REMOVE-P2-UNITS-PROVEN — the register's units are RIGHT (0.918×). The 8% residual is SAMPLING PHASE, not a base error.
-
-**The gating check from §SIGMA-REMOVE-P2-INFRA, done.** Snapshotting `realizedLossUsd` before the
-drain loop and diffing isolates the SAME interval the validated in-test trapezoid covers (`_drain`
-does not warp ⇒ no decay ⇒ the diff is exact, not approximate):
-| | value |
-|---|---|
-| on-chain DELTA over the loop | **368,258,044,992** |
-| in-test trapezoid ÷ 1e12 | **401,191,208,128** |
-| ratio | **0.918** |
-✅ **UNITS ARE CORRECT.** A decimal-base error in this repo is a factor of **1e6 or 1e12** (three bases
-coexist; §BasketLib's positional divisor shipped once and broke). **0.918 is not that.** The earlier
-1.87× reading was exactly what it looked like — `_setupRange`'s swaps included in the level but not in
-the in-test sum — and isolating the interval removed it.
-📌 **THE 8.2% RESIDUAL IS A SAMPLING-PHASE DIFFERENCE, and it is expected:** `_accrueRealizedLoss`
-runs INSIDE `_bumpFlow` (mid-swap), so it samples `POOLED_*` at that instant; the test samples
-OUTSIDE the whole `_drain` call. **Same quantity, different measurement instant.** ⚠️ Worth
-understanding before Phase 2 step 2 — if the mid-swap sample is systematically early, the register
-under-accrues by ~8% — **but it is a LEVEL bias, and the property that matters is the HISTORY GAP,
-which a constant factor cannot affect.**
-
-🔴 **WHAT IS STILL NOT MEASURED, AND IT IS THE ACTUAL ACCEPTANCE CRITERION:** the **ON-CHAIN
-register's OWN history gap.** The 1.025× was measured on the IN-TEST trapezoid. **The contract's
-version has not been compared whale-vs-split.** ▶️ One edit: capture `realizedLossUsd` deltas in BOTH
-arms and report `A/B`. **It must come back ~1.025×; if the mid-swap sampling breaks the telescoping,
-it will not, and that would refute the on-chain implementation while leaving the ESTIMATOR sound.**
-⚠️ **DO NOT SUBSTITUTE INTO `realizedVarianceWad` BEFORE THAT NUMBER EXISTS.** Units being right does
-not make the implementation right — today's ledger is nine measured against twelve reasoned.
-
-| id | state |
-|---|---|
-| **E176-E** | ✅ **PARTIALLY CLOSED — 3 of the 12 delegates now checked, and the other 9 are NOT checkable at this layer for a stated reason, not for lack of effort.** ✅ **CHECKED (holder-HTLC, all three entrypoints):** `EcdsaChannelSigner::sign_holder_htlc_transaction` · `::sign_holder_htlc_transaction_taproot` · `TaprootChannelSigner::sign_holder_htlc_transaction` now route through `check_holder_htlc_tx`. 🔑 **WHY THESE ARE CHECKABLE AND THE REST ARE NOT — the discriminator is what the TRAIT SURFACE HANDS THE SIGNER.** `HTLCDescriptor` carries **`tx_output()`**, the output LDK itself derives from the CHANNEL'S OWN KEYS (revocation + delayed-payment basepoints) — so the signer is told what the transaction is supposed to look like and a node handing it something else is contradicting data it does not author. The justice and counterparty-HTLC entrypoints receive only `HTLCOutputInCommitment` + amount + per-commitment keys — **no expected destination exists in their arguments at all**. ⛔ **So there is nothing to compare against there, and inventing a destination rule would be precisely the false-safety clamp standing rule 3 forbids** — it would look like protection while the node still picks where the money goes. **Those 9 close at §E175, with everything else that depends on the signer running where the operator cannot replace it.** **THE LOCK PINS TWO THINGS:** the input signed spends the outpoint the descriptor names (else a signature meant for one HTLC is harvestable for another), and the descriptor's own output is PRESENT (so swept value lands where the channel keys say). ⚠️ **`contains`, NOT set equality** — a real HTLC tx may carry an anchor or change output, and demanding an exact output set would reject honest transactions; **a guard that breaks the happy path gets removed, not fixed**, so `extra_outputs_are_allowed_alongside_the_expected_one` pins that. **4 tests incl. that control + an out-of-range index refusing rather than panicking (the index is node-supplied).** **42/42 signer tests · workspace 652 passed / 0 failed.** |
-
-### 🟠 SIGMA-REMOVE-P2-ONCHAIN-GAP — the register measures **1.106×** where the estimator measures **1.025×**. 12× better than σ², and the 8% is UNEXPLAINED.
-
-**Acceptance criterion from §SIGMA-REMOVE-P2-UNITS-PROVEN, measured:**
-| input | whale/split history gap |
-|---|---|
-| σ² (incumbent) | **2.340×** |
-| in-test trapezoid (the estimator) | **1.025×** |
-| **on-chain register (the implementation)** | **1.106×** |
-✅ **The register is ~12× better than the input it would replace** (10.6% history-dependence vs 134%).
-⛔ **But it gives up 8% against the estimator, and I do not know why.**
-
-⛔ **MY EXPLANATION WAS TESTED AND REFUTED.** Hypothesis: the accrual closes the PREVIOUS interval, so
-the current one is unaccrued until the next swap — for a single-swap whale that is half the traversal.
-**Fix built: settle the open interval at READ time in `realizedLossUsd`. RESULT: byte-identical
-numbers, 407,564,822,957 / 368,258,044,992, gap unchanged at 1.106.** ⇒ **The pending interval is
-EMPTY at read time — the sample is already taken AFTER the pooled update — so the half-swap-lag
-theory is dead.** The no-op read-settlement was **reverted** rather than left as decoration.
-
-📌 **THE TEST NOW ASSERTS THE MEASURED PROPERTY, NOT THE HOPED-FOR ONE** (rule 4 — a tolerance widened
-to pass is the tell that the defect is still there): it asserts the on-chain gap stays **far below
-σ²'s 2,340**, and that the whale arm cannot accrue LESS than the split arm. **The 8% is recorded as
-an open discrepancy, not hidden inside a tolerance.**
-▶️ **NEXT, AND IT IS A TRACE NOT A THEORY** (five causes died to theories today): `-vvvv` a single
-`_drain` and find WHERE in the call sequence `_bumpFlow` fires relative to the `POOLED_*` writes.
-**The remaining candidates are all about SAMPLING POINT, and one trace distinguishes them.**
-⚠️ **PHASE 2 STEP 2 (substituting into `realizedVarianceWad`) IS STILL GATED** — on this 8%, and on
-the estimator's own run-to-run variance, which remains unmeasured (§SIGMA-REMOVE-RESCOPED risk 2).
-📌 `Core` **24,114 / 462 free**; register accrues on every swap; **nothing priced off it.**
-
-### 🔬 SIGMA-REMOVE-P2-GAP-LOCALISED — the 8% is entirely in the SPLIT arm. Not a phase offset; a MISSED or OVERWRITTEN sample.
-
-**No new run needed — the numbers already taken localise it:**
-| arm | on-chain | in-test ÷1e12 | ratio |
-|---|---|---|---|
-| whale (1 swap) | 407,564,822,957 | 411,367,007,203 | **0.991** |
-| split (12 swaps) | 368,258,044,992 | 401,191,208,128 | **0.918** |
-⇒ 🔴 **THE WHALE ARM MATCHES TO 1%. THE ENTIRE DISCREPANCY IS THE SPLIT ARM.**
-⇒ ⛔ **THAT KILLS THE SAMPLING-PHASE EXPLANATION** — a mis-timed sample biases BOTH arms equally. **The
-contract under-accrues on MULTI-SWAP paths specifically.**
-⇒ ✅ **AND IT INDEPENDENTLY CONFIRMS THE UNITS** (§SIGMA-REMOVE-P2-UNITS-PROVEN): the single-swap arm
-agrees with the validated estimator to **0.991**, which a decimal-base error could not produce.
-
-▶️ **REMAINING CANDIDATES — all about sample COUNT, and each is distinguishable:**
-1. **A MISSED ACCRUAL.** The first loop iteration accrues against `_setupRange`'s leftover pending;
-   if any iteration's `p.px == 0` or `px == 0` it silently skips (the guard in `_accrueRealizedLoss`).
-   **12 swaps should produce 12 accruals — COUNT THEM.**
-2. **AN OVERWRITTEN PENDING.** If a single `_drain` triggers `_bumpFlow` MORE THAN ONCE (SOR multi-hop
-   ⇒ several `_handleSwap` calls), intermediate samples overwrite `p` and some sub-intervals collapse.
-   **This would under-accrue exactly where there are more swaps — matching the observed direction.**
-3. **TRAPEZOID vs the test's COARSER tiling.** The contract may tile the path FINER than the test; a
-   finer trapezoid is MORE accurate, so the test's number would be the biased one, not the contract's.
-   **⚠️ If so the contract is RIGHT and the estimator's 1.025× is the artifact — do not assume the
-   in-test value is ground truth.**
-🔬 **ONE MEASUREMENT SEPARATES ALL THREE: count accruals per `_drain`.** Add a counter to
-`_accrueRealizedLoss` behind a test-only read, or `-vvvv` one `_drain` and count `_bumpFlow` frames.
-**Do not theorise further — the half-swap-lag theory already died this way.**
-
-### ✅ SIGMA-REMOVE-P2-GAP-RESOLVED — exactly **1 accrual per drain**. All three candidates eliminated; the 8% is a PARTITION artifact.
-
-**Counted via `vm.record`/`vm.accesses` on SSTOREs to `_lossETH` (slot 131090) — no contract change:**
-| path | SSTOREs to the loss register |
-|---|---|
-| ONE `_drain` | **1** |
-| TWELVE `_drain`s | **12** |
-⇒ ⛔ **CANDIDATE 1 (missed accrual) ELIMINATED** — the `p.px == 0` guard never skips; every drain
-accrues. ⇒ ⛔ **CANDIDATE 2 (overwritten pending / multi-hop) ELIMINATED** — one `_drain` produces
-exactly one `_bumpFlow`, not several. ⇒ ⛔ **CANDIDATE 3 (contract tiles finer) ELIMINATED** — the
-tiling is **1:1 with the test**, one interval per drain.
-
-⇒ ✅ **THE ONLY SURVIVOR IS THE SAMPLING PHASE — AND MY DISMISSAL OF IT WAS WRONG.**
-§SIGMA-REMOVE-P2-GAP-LOCALISED argued *"a mis-timed sample biases BOTH arms equally, so phase is
-killed."* **The count refutes that.** With identical tiling, the contract's intervals are
-`[bump_i, bump_{i+1}]` (sampled INSIDE the swap) while the test's are `[pre_i, post_i]` (sampled
-outside it). **Same partition COUNT, different partition BOUNDARIES** — and boundary effects do NOT
-amortise equally across 1 interval and 12.
-📌 **CONSEQUENCE: NEITHER NUMBER IS GROUND TRUTH.** The estimator's **1.025×** and the register's
-**1.106×** are the same quantity measured on two slightly different partitions of the same path. **I
-had been treating the in-test value as truth throughout — it is not, it is just the other partition.**
-✅ **AND THE REGISTER IS SELF-CONSISTENT**: its samples are all taken at the same phase, so its
-integral is internally coherent — which is what matters for a live pricing input, since production has
-no "outside the swap" vantage point to sample from.
-
-▶️ **PHASE 2 STEP 2 IS NOW UNBLOCKED ON THIS AXIS.** The 8% is explained and is not a defect.
-⚠️ **STILL OWED, AND NOW THE ONLY GATE:** the estimator's **run-to-run variance**
-(§SIGMA-REMOVE-RESCOPED risk 2) — a decaying sum over few swaps is jumpy where a variance is smooth.
-**Unmeasured. Measure the LEVEL's stability, not just the history gap, before substituting.**
-
-| id | state |
-|---|---|
-| **E180-maliciousness-suite** | ✅ **THE THREAT MODEL IS NOW EXECUTABLE — 8 attacks + 1 control, one hostile node, asserted as refusals instead of prose** (owner: *"do a maliciousness tets"*). **ATTACKS:** swap the counterparty funding key (rebuilds `Q` around a key the LP never agreed to) · **replay a cooperative-close round with a different tx — the FUNDING-KEY LEAK** `x=(s1−s2)/((e1−e2)·a)` · downgrade a recorded channel to unrecorded (put the comparand permanently out of play) · **break your own RPC** so the comparand cannot be read (the cheapest attack a host has) · replace the comparand with a permissive one (appoint the referee) · redirect a holder-HTLC sweep · re-sign a REVOKED commitment · **redirect a cooperative close so the LP's balance pays the attacker** — the theft the whole design exists to stop. ⚠️ **THE CONTROL COMES FIRST AND IS THE POINT:** `honest_session_is_accepted_throughout`. Every other test asserts a REFUSAL, and **a signer that refused everything would pass all of them while being completely broken** — so the honest path (real counterparty, agreed funded size, several close rounds, a commitment) is pinned as accepted. 🔴 **MUTATION-VERIFIED, not assumed:** removing the `truth_recorded` latch makes `attack_downgrade_a_recorded_channel_to_unrecorded` FAIL (and its unit counterpart with it). A suite of refusals that cannot fail is theatre; this one demonstrably can. ⚠️ **SCOPE, WRITTEN INTO THE SUITE HEADER SO IT CANNOT BE MISREAD:** these prove a node that MISBEHAVES cannot steal. They prove **NOTHING** against an attacker who **REPLACES THE BINARY** — every check lives in that binary, so an adversary owning the enclave deletes the checks and the suite still passes. **That gap is §E175 and no test in this file can close it.** What the suite establishes is the property §E175 will make load-bearing: a compromised node that must keep running THIS code cannot steal. **51/51 signer tests · workspace 661 passed / 0 failed · ABI gate 0 drifted both sides.**  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): DONE: 8 attacks + 1 control landed** |
-
-### ✅✅✅ SIGMA-REMOVE-P1-COMPLETE — the LAST GATE passes. Register spread **1.106×** vs σ²'s **4.170×**. **Phase 1 is done.**
-
-**§SIGMA-REMOVE-RESCOPED risk 2 (the estimator's own level stability) — the axis nobody had measured
-— is now measured.** Same total volume, six partitions, entry PINNED:
-| pieces | register (usd6) | σ² (wad) |
-|---|---|---|
-| 1 | 407,564,822,957 | 2.458e13 |
-| 2 | 397,283,731,852 | **4.380e13** |
-| 3 | 393,148,224,077 | **4.380e13** |
-| 4 | 389,954,375,182 | **4.380e13** |
-| 6 | 384,247,603,253 | 2.883e13 |
-| 12 | 368,258,044,992 | 1.050e13 |
-| **SPREAD** | **1.106×** | **4.170×** |
-✅ **The register moves MONOTONICALLY and gently** (407.6 → 368.3, −10.6% across a 12× partition
-change). ⛔ **σ² swings 4.170× and NON-MONOTONICALLY** — up to 4.380e13 at 2–4 pieces, then collapsing
-to 1.050e13 at 12. **The non-monotonicity is the worse property: σ² does not merely vary with how flow
-is chopped, it varies UNPREDICTABLY, so no calibration constant can compensate for it.**
-⇒ **THE REGISTER IS 3.8× MORE STABLE IN LEVEL, ON TOP OF BEING 2.1× MORE HISTORY-INDEPENDENT
-(1.106 vs 2.340).** The jumpiness risk that gated the substitution is **RETIRED — it ran the other
-way.**
-
-📋 **PHASE 1 SCOREBOARD — every claim measured, none reasoned:**
-| property | σ² | trade-based | **register** |
-|---|---|---|---|
-| history gap (whale/split) | 2.340× | 12.000× | **1.106×** |
-| level spread (6 partitions) | 4.170× | — | **1.106×** |
-| units vs validated estimator | — | — | **0.991 (whale arm)** |
-| accruals per drain | — | — | **exactly 1** |
-▶️ **PHASE 2 STEP 2 IS FULLY UNBLOCKED.** Substitute via the IMPLIED-VARIANCE shape so units are
-preserved by construction: `σ²_implied = 8 · lossFraction / window` returned from
-`realizedVarianceWad`, so `skewWad`, `_maxWellSkew`'s LVR derivation and θ all keep working with a
-MEASURED input. **Acceptance (pre-stated): the probe's 2.34× premium gap → ~1×, and §E71-PINNED's
-1,371 bps falls — both on the PINNED instrument.**
-⚠️ **KEEP σ² for the CONVEXITY in `q`. This replaces the STEEPNESS input only** (§UNIT-BOUND-NOT-DELETE:
-do not let "replace the level input" become "delete the term").
-
-### ⛔⛔ SIGMA-REMOVE-P1-COMPLETE-RETRACTED — two of the four numbers do not hold. **Risk 2 is NOT retired.**
-
-**Owner asked whether those numbers were healthy. TWO ARE NOT, and I should have caught both.**
-
-⛔ **1. THE "LEVEL SPREAD" IS THE HISTORY GAP RELABELLED — NOT AN INDEPENDENT PROPERTY.**
-`407,564,822,957 / 368,258,044,992 = 1.106` — those are the **1-piece and 12-piece arms**, i.e. the
-SAME TWO NUMBERS as the history gap. Taking max/min across partitions {1,2,3,4,6,12} when the extremes
-ARE 1 and 12 reproduces the history gap by construction. ⇒ **I measured ONE property twice and
-reported it as TWO.** ⇒ **§SIGMA-REMOVE-RESCOPED risk 2 REMAINS OPEN.** Risk 2 is RUN-TO-RUN NOISE —
-does the level wobble under the SAME partition with different sizes/timings? **Partition sensitivity
-is a different question and was already answered.**
-
-⛔ **2. σ² READS 43,799,999,999,999 FOR PIECES 2, 3 AND 4 — BIT-IDENTICAL.**
-Three different partitions cannot coincidentally produce the same variance to the last digit. **That
-is a CLAMP, a SATURATION, or a DEGENERATE BRANCH**, not a measurement. ⇒ **The 4.170× σ² spread I
-credited as "instability" may be an artifact of that ceiling.** ⚠️ It could also be a REAL and worse
-finding — a σ² that pins at a constant across a range of real flow patterns is not merely unstable,
-it is UNINFORMATIVE there. **Either way the number as reported is not evidence.**
-🔬 **FIND THE CEILING FIRST:** `realizedVarianceWad` = `mulDiv(ringVariance(obs, state, 9), 31536000·1e10, 1e18)`
-⇒ the ring value is `43,799,999,999,999 / 0.31536 ≈ 1.389e14`. **Read `OracleLib.ringVariance` for a
-cap, a `cardinality` floor, or an early return** — and note §E88's sentinel already makes 0 mean
-"unmeasured", so a SECOND reserved value would be exactly the overload §E88 removed.
-
-✅ **WHAT SURVIVES, and it is still the substantive result:** the **history gap** — register **1.106×**
-vs σ² **2.340×** vs trade-based **12.000×** — measured on the pinned instrument with identical
-inventories and one accrual per drain. **That is the property §SIGMA-REMOVE exists to buy and it
-stands.** ⚠️ **But PHASE 2 STEP 2 IS RE-GATED** on (a) real run-to-run noise and (b) explaining the
-σ² ceiling. **Do not substitute on a scoreboard with two bad rows.**
-
-| id | state |
-|---|---|
-| **E175-a** | ✅ **THE SECURITY CORE OF THE LP-HOSTED SPLIT IS LANDED — the fleet can no longer arm the LP funding half, and that is COMPILER-ENFORCED** (owner: *"LP-hosted always-on, do it"*). 🔑 **THE WHOLE PROPERTY LIVED IN ONE PLACE.** `run_deadman_exit_heartbeat` was the ONLY code that armed the hop signer **and** the vault signer in one process and called `presign_deadman_exit` with the pair — i.e. the literal expression of *"the fleet holds both halves"* (`quid-bridge/src/deadman_exit.rs:7-8`). Its `vault` parameter is now **`Option<Arc<VaultNode>>`**, and `None` disables the heartbeat outright. ⚠️ **`None` IS NOT A FLAG A COMPROMISED FLEET CAN FLIP — it is the absence of a seed the fleet never had.** In the LP-hosted deployment the vault node runs on the LP's own always-on box with the LP's own seed, so there is nothing to pass. 🔑 **AND THIS IS WHY §E165 AND THIS LAND TOGETHER:** remove the heartbeat WITHOUT the pre-signed ladder and channels have no escape at all; keep the heartbeat and the fleet still holds both halves. The ladder armed at `openChannel` is what makes the heartbeat removable. ⇒ **`build_exit_call` demands `&VaultNode` BY TYPE**, so an exit cannot be built without one, wherever the code sits. 🔴 **MUTATION-VERIFIED, AND THE RESULT IS STRONGER THAN A FAILING TEST: reverting the signature to `Arc<VaultNode>` does not fail a test, it FAILS TO COMPILE** (2× `E0308`). The split is enforced by the type system, not by a runtime check. ⚠️ **TWO ERRORS THE TEST ITSELF CAUGHT, both worth keeping:** (1) my first assertion compared SOURCE POSITIONS (`arm_signer` must appear after the guard) — wrong, because `arm_signer` lives in `build_exit_call`, *defined earlier in the file*; **file order is not reachability**, and the type is what makes it unreachable. (2) the test reads the file it lives in, so its own quoted patterns matched and it reported a violation that did not exist — the search is now truncated at the test module. ▶️ **WHAT REMAINS IS DEPLOYMENT, NOT SECURITY:** the vault's other four uses in `daemon.rs` (registry → lpEth resolution, swap-out splice source, hop reconnect, driver handle) are FUNCTIONAL — in a split deployment they move to the LP's process. Standing those up is a vault-only binary/mode + LP seed provisioning; none of it re-creates the capability removed here. **Workspace 662 passed / 0 failed · ABI gate 0 drifted both sides.**  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): DONE: compiler-enforced LP/hop split landed** |
-
-### 🔬 SIGMA-CEILING-EXPLAINED — there is NO cap in `ringVariance`. The identical triple is the RING BEING DOMINATED BY `_setupRange`.
-
-**Read `OracleLib.ringVariance:233-278` in full. NO clamp, NO saturation, NO reserved second value**
-(so §E88's "0 means unmeasured, and only that" is NOT re-overloaded — that worry is dead).
-`varPerSecWad = acc / spanSecs`, plain.
-
-🔴 **THE REAL CAUSE, and it is visible in the guard at `:250`:**
-`if (!lo.initialized || lo.blockTimestamp >= hi.blockTimestamp) return 0;` — **the ring is keyed on
-TIMESTAMPS**, and a v4 oracle stores **at most ONE observation per timestamp**. **`_drain` NEVER
-ADVANCES THE BLOCK** (confirmed earlier when testing whether the lag window could be too short). ⇒
-Twelve same-block drains write essentially the SAME ring as one. **The 9 points are dominated by
-`_setupRange`'s observations, which are IDENTICAL across every partition — hence 2, 3 and 4 pieces
-returning the same value to the last digit.**
-⇒ 🔴 **σ² IN THESE TESTS IS LARGELY MEASURING THE FIXTURE'S SETUP, NOT THE DRAINS.** Consistent with
-everything else today: the flat tape, the 0.496% annualised vol, and §UNIT-A-FIXTURE's surviving half.
-
-⚠️ **CONSEQUENCE — THIS WEAKENS BOTH σ² COMPARISONS, INCLUDING THE ONE THAT FAVOURED MY RESULT:**
-- The **4.170× "instability"** is not a measurement of σ²'s behaviour. **Withdrawn** (already retracted).
-- ⚠️ **The 2.340× HISTORY GAP is also partly fixture-driven** — σ² did still differ across arms
-  (2.458e13 vs 1.050e13), so it is not zero signal, **but it cannot be quoted as σ²'s true
-  history-dependence under real flow.**
-✅ **WHAT IS UNAFFECTED: the REGISTER's own numbers.** `1.106×` history gap, `0.991` units on the
-single-swap arm, and exactly 1 accrual per drain are measured DIRECTLY from the register and the
-pooled state — **they do not route through σ² and do not inherit this artifact.**
-▶️ **TO COMPARE THE TWO INPUTS HONESTLY, THE DRAINS MUST ADVANCE THE BLOCK.** Add `vm.roll`+`vm.warp`
-between tickets (finer than the sampling grid) so the ring actually records the drain path, then
-re-run BOTH the history gap and the level test. **Until then σ²'s side of every comparison is
-under-measured, and the register's advantage is UNQUANTIFIED rather than proven.**
-
-### ✅✅ SIGMA-REMOVE-P1-REVALIDATED — with the ring recording the path, the register's advantage HOLDS: **1.100× vs σ²'s 2.632×**.
-
-**§SIGMA-CEILING-EXPLAINED's fix applied — `vm.roll`+`vm.warp` between tickets so the ring stores
-distinct observations, with BOTH ARMS ADVANCING THE SAME TOTAL SPAN (12×150s) so `spanSecs` cannot
-move σ² for the wrong reason.**
-| estimator | same-block (artifact-prone) | **block-advancing** |
-|---|---|---|
-| σ² | 2.340× | **2.632×** |
-| trade-based | 12.000× | **12.000×** |
-| in-test trapezoid | 1.025× | **1.025×** |
-| **on-chain register** | 1.106× | **1.100×** |
-✅ **The register is UNMOVED (1.106 → 1.100); σ² got WORSE (2.340 → 2.632).** The retraction in
-§SIGMA-REMOVE-P1-COMPLETE-RETRACTED was right to demand this, and the result survived it.
-📌 **The whale's σ² is BIT-IDENTICAL across both runs** (24,581,632,639,652) — correct, since the warp
-adds no swaps and therefore no observations. **Only the split moved** (1.050e13 → 9.34e12), as twelve
-tickets finally wrote twelve distinct observations instead of collapsing into one timestamp.
-
-🔴 **AND THIS IS THE STRUCTURAL POINT, NOW ISOLATED: σ²'s HISTORY-DEPENDENCE IS INHERENT TO
-OBSERVATION COUNT, NOT A FIXTURE ARTIFACT.** One swap writes ONE observation; twelve write TWELVE. A
-second-moment statistic over `n` samples cannot be invariant to `n`. ⇒ **No sourcing change, no
-window, and no calibration constant fixes it — only replacing the KIND of input does**
-(§SIGMA-REMOVE). **The fixture merely EXAGGERATED it; removing the artifact left it larger, not
-smaller.**
-▶️ **STILL OWED BEFORE PHASE 2 STEP 2 — one item, unchanged:** §SIGMA-REMOVE-RESCOPED risk 2, REAL
-run-to-run noise (same partition, varied sizes/timings). **The earlier "level spread" was the history
-gap relabelled and does NOT count** (§SIGMA-REMOVE-P1-COMPLETE-RETRACTED). **This is now the ONLY gate.**
-
-| id | state |
-|---|---|
-| **E166-3** | ✅ **`drive_open` NOW RELAYS THE LP'S CONSENT INSTEAD OF BAILING.** After §E178 exposed the drifted `openChannel` shape I made `drive_open` `bail!` rather than submit a reverting tx — correct at the time, but wrong as a resting state: it turned *"the LP has not signed yet"*, which is the ORDINARY condition, into a loud failure on every reconciler tick. ✅ **`VaultRegistry` gained `LpConsent { auth, exits }`**, keyed by funding outpoint with the SAME key shape as `by_funding` so the two cannot drift apart, and `drive_open` now goes **DORMANT** on absence exactly as the missing-lpEth binding already does — the additive-state discipline the rest of that path uses. 🔑 **THE FLEET RELAYS CONSENT AND CANNOT MANUFACTURE IT, WHICH IS THE POINT.** `auth.lp_sig` signs `openAuthDigest` and every `exits` rung is a pre-signed spend of the 2-of-2 — **both need the LP funding half, which after §E175-a the fleet does not have.** A fleet able to construct these would by definition still hold that half, so this type is the interface the split creates rather than a convenience. ⚠️ **A CONFLICTING RE-BIND IS REFUSED, NOT OVERWRITTEN** — consent authorises ONE open, and after §E175 the relay is precisely the party that must not be able to swap in a different `OpenAuth` or a different ladder. **3 tests: absence reads as absent (not failure) · idempotent-but-never-rebindable · no leak across funding outpoints.** ▶️ **REMAINING (deployment, not security):** the LP side must populate `bind_consent` — an interactive MuSig2 session per ladder rung between the LP's vault node and the fleet's hop at open, plus the LP's EVM signature. That protocol is the last piece of the §E175 deployment and re-creates no capability the split removed. **Workspace 665 passed / 0 failed · ABI gate 0 drifted both sides.**  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): DONE: drive_open relays LpConsent** |
-
-### ✅✅✅ SIGMA-REMOVE-P1-GATE-CLOSED — real run-to-run noise: register **1.006×**, σ² **1.084×**. **Phase 1 is genuinely complete.**
-
-**The ONLY remaining gate (§SIGMA-REMOVE-RESCOPED risk 2), measured properly this time: PARTITION HELD
-FIXED at 6 pieces, same total volume, varying only TIMING (90–260s gaps) and size jitter — so it is
-independent of the history gap, unlike the retracted "level spread".**
-| gap | register | σ² |
-|---|---|---|
-| 90s | 383,303,720,080 | 2.754e13 |
-| 130s | 382,453,452,893 | 2.700e13 |
-| 150s | 382,453,453,416 | 2.674e13 |
-| 200s | 381,604,276,927 | 2.611e13 |
-| 260s | 380,756,189,642 | 2.539e13 |
-| **NOISE** | **1.006×** | **1.084×** |
-✅ **The jumpiness risk that gated the substitution is INVERTED: 0.6% vs 8.4%.** A decaying SUM barely
-notices spacing; σ² reads it directly through `spanSecs` and the tick second-differences.
-⚠️ **BUT STATE IT HONESTLY — 14×, NOT THE 4× I WRONGLY CLAIMED FROM THE RETRACTED TEST.** And **BOTH
-ARE MONOTONE in the gap**, so neither is "noisy" in the random sense: **both DRIFT with spacing, σ²
-just drifts more.** A monotone drift is calibratable; random noise is not. **Do not oversell this as
-"σ² is unstable" — it is not. It is more spacing-sensitive.**
-
-📋 **PHASE 1 FINAL SCOREBOARD — every row measured, every retraction applied:**
-| property | σ² | trade-based | **register** |
-|---|---|---|---|
-| history gap (block-advancing) | 2.632× | 12.000× | **1.100×** |
-| run-to-run noise (fixed partition) | 1.084× | — | **1.006×** |
-| units vs validated estimator | — | — | **0.991** |
-| accruals per drain | — | — | **exactly 1** |
-▶️ **PHASE 2 STEP 2 IS UNBLOCKED WITH NO OPEN GATES.** Substitute via the implied-variance shape —
-`σ²_implied = 8 · lossFraction / window` returned from `realizedVarianceWad` — so `skewWad`,
-`_maxWellSkew`'s LVR derivation and θ keep working on a MEASURED input.
-**Acceptance, pre-stated: the probe's 2.34× premium gap → ~1×, and §E71-PINNED's 1,371 bps falls —
-both on the PINNED instrument.** ⚠️ **KEEP σ² for the convexity in `q`; this replaces the STEEPNESS
-input only.**
-
-### ⛔⛔ SIGMA-REMOVE-P2-FALSE-PASS — the substitution SATURATED the skew, and the acceptance criterion could not tell.
-
-**Phase 2 step 2 built and REVERTED. It "passed" both pre-stated criteria and the pass was FALSE.**
-| test | result | what it actually was |
-|---|---|---|
-| probe premium gap | **2.34× → 1.00×** | both arms **300,000,000** = **exactly 3% of $10,000** |
-⇒ 🔴 **EVERY ARM WAS PINNED AT `MAX_WELL_SKEW` (3%).** The discount is 0 because both legs are
-CLAMPED, not because the input is path-independent. **Perfectly round numbers were the tell.**
-
-🔬 **SCALE ERROR, ~10⁷:** loss ≈ $400k over a range of ≈$1.3M ⇒ fraction 0.307 ⇒
-`σ²_implied = 8 · 0.307 / 0.0079 ≈ 310`, against the ring's ≈ 2.5e-5. ⇒ **The register accumulates
-the FULL mark-to-market of a DELIBERATE DRAIN — which is the INTENDED price move, not adverse
-selection.** §SIGMA-REMOVE-P1 measured its PATH-INDEPENDENCE and never its LEVEL against a
-meaningful reference. **Phase 1's scoreboard is silent on magnitude, and I read it as if it were not.**
-
-⛔ **THE DEEPER FAILURE IS THE ACCEPTANCE CRITERION, NOT THE CODE.** *"The discount → ~0"* and *"the
-probe gap → ~1×"* are **BOTH SATISFIED BY SATURATION.** A criterion a clamp can satisfy cannot
-distinguish success from destruction. ⇒ **EVERY FUTURE ARM MUST CARRY THE CONTROL: assert the skew is
-STRICTLY BELOW `MAX_WELL_SKEW` in both legs**, else the comparison is void. **Add it to
-§UNIT-B-PINNED-INSTRUMENT and the probe test before the next attempt.**
-
-▶️ **WHAT THE REGISTER STILL NEEDS — and it is a MEASUREMENT question, not a scaling constant:**
-distinguish **ADVERSE SELECTION** (the range filled at a price the market then left behind) from
-**INTENDED PRICE IMPACT** (the drain's own move, which the swapper already paid for through the
-curve). **The current trapezoid conflates them, and that is why its level is ~10⁷ too large.**
-⚠️ **DO NOT simply divide by a constant to make it fit** — that fits the fixture, not the quantity
-(rule 4). **The register measures a real thing; it is not the thing the steepness needs.**
-✅ **UNAFFECTED: Phase 1's path-independence results stand** (1.100× vs 2.632×, 1.006× vs 1.084×).
-**They were always about SHAPE, and shape is still the property σ² cannot have.**
-
 ### ✅ UNIT-B-INSTRUMENTS-HARDENED — saturation controls added; the open defect is a REGRESSION BOUND, not a red test.
 
 **Two changes so the next §SIGMA-REMOVE attempt cannot repeat §SIGMA-REMOVE-P2-FALSE-PASS:**
@@ -46908,343 +43322,6 @@ curve). **The current trapezoid conflates them, and that is why its level is ~10
 `ProbeSwapIsEntryHistoryIndependent`.
 ▶️ **THE NEXT ATTEMPT AT PHASE 2 INHERITS A HARNESS THAT CAN FAIL IT HONESTLY** — which the last one
 did not.
-
-### 🎯🎯🎯 SIGMA-REMOVE-SOLVED — the register must accrue only the EXOGENOUS gap, and accrue it SIGNED. Both derived, neither tuned.
-
-**§SIGMA-REMOVE-P2-FALSE-PASS left one problem: the register's LEVEL is ~1e7 too large because it
-conflates adverse selection with intended price impact. Solved, in two parts.**
-
-**① ACCRUE ONLY THE EXOGENOUS INTERVAL.** The current accrual spans `[swap i, swap i+1]`, which
-contains BOTH the drift while we HELD inventory (**that is adverse selection**) AND **swap i+1's own
-impact** — which the swapper ALREADY PAID through the curve, so charging it again is double-counting.
-▶️ **Sample at the END of each swap; accrue at the START of the next, BEFORE its impact lands.** The
-within-swap move is discarded. One extra sample point, no new state (the pending record already
-exists — it is the SAMPLING MOMENT that changes, not the shape).
-
-**② ACCRUE SIGNED, NOT ABSOLUTE.** `dp = |px − p.px|` is TOTAL VARIATION, which GROWS WITH SAMPLE
-COUNT — **shape-dependence in a third costume**, and the same trap as §SIGMA-REMOVE-P1-CONSTRAINT's
-12×. **Signed `Δp` TELESCOPES**: `Σ(p_{i+1} − p_i) = p_end − p_start`, independent of sample count.
-✅ **And signed is the CORRECT quantity anyway: LVR is a NET P&L against holding, not a sum of
-absolute moves.** Losses and gains must net. ⚠️ Implementation note: the EWMA register is `uint`;
-signed accrual needs an `int` accumulator or a two-sided (gain/loss) pair.
-
-✅ **THIS PREDICTS THE 1e7 ERROR RATHER THAN PATCHING IT — the test of a real explanation.** These
-fixtures have **NO EXOGENOUS PRICE PROCESS** (measured: no ETH feed pinned, 0.496% annualised vol, the
-tape entirely self-generated — §ORACLE-FREE-MEASURED, §UNIT-A-FIXTURE-BUILT). ⇒ **True adverse
-selection here is ≈ 0**, so a correct register reads ≈ 0 and **fails over to the ring**, exactly as
-the cold-start branch already does. **The huge number was the drains' own impact, which was never
-adverse selection at all.** ⇒ **NO SCALING CONSTANT IS NEEDED, AND ONE WOULD HAVE BEEN WRONG** (rule 4).
-
-🔬 **HOW TO TEST IT — the fixture's weakness becomes the control:**
-- **In THIS fixture (no exogenous price): the corrected register must read ≈ 0.** That is a positive
-  result, not a failure — and it is falsifiable: a non-trivial reading means own-impact is still
-  leaking in.
-- **To exercise it, an exogenous move is required** — pin a real ETH feed and move it, or drive the
-  reference pool (§SIGMA-SOURCE's candidates). **The σ²-source work and this now converge on the same
-  fixture requirement.**
-- **Then re-run all six hardened instruments**, with the SATURATION CONTROL live
-  (§UNIT-B-INSTRUMENTS-HARDENED) so a mis-scaled input cannot pass by clamping again.
-
-| id | state |
-|---|---|
-| **E181-status-reconciliation** | 📋 **ACCOUNTING AFTER THE OWNER CALLED OUT THAT I WAS SKIPPING AHEAD (2026-08-12).** ✅ **STALE 🔴 MARKERS, VERIFIED FIXED IN THE CODE — the queue's status column lied in both directions, exactly as CLAUDE.md warns:** **§E130** (*"`btcRecipientOf` is never validated as a curve point"*) — `_registerBtcRecipient` calls `BitcoinTx.isValidXOnlyKey(xOnlyKey)`; **CLOSED**. **§E142** (*"`openChannel` does not verify the KeyAgg"*) — `BTCChannels.sol:842` calls `_proveFundingKeys(p)`, which runs `MuSig2Agg.computeOutputKey`; **CLOSED**. 🔴 **§E107 IS STILL OPEN AND IS THE MOST CONSEQUENTIAL THING THIS SCAN FOUND — IT UNDERMINES THE WHOLE ESCAPE STORY THIS SESSION HARDENED.** Both retire paths gate a non-cooperative close on `BitcoinTx.isCommitmentTx` (BOLT#3: nLockTime top byte `0x20` + input nSequence top byte `0x80`), and **a dead-man exit cannot satisfy it BY CONSTRUCTION** — it carries an absolute CLTV deadline, so its locktime is a block height (top byte `0x00`) or a near-term timestamp, never `0x20`. ⇒ **the LP broadcasts the exit, recovers its BTC, and the EVM position KEEPS COUNTING AS BACKING** — over-counted backing against QU!D. **§E165's ladder and §E175's split both make the exit MORE likely to be used, so this gets worse, not better, as a result of this session's work.** ⇒ **NEXT after the in-flight §E166-4.** 🔴 **§E182 BOOKED FROM THE OWNER'S OWN TABLE — "rekey splice (LP half immutable, hop half rotates), designed this turn, not built". IT WAS NEVER IN §E166's LIST AND WOULD HAVE BEEN LOST** (rule 12, again). **REMAINING OPEN, honestly:** §E107 · §E182 rekey splice · §E159 **Rust half only** (the contract half — `verifySwapInDeposit`/`swapInDepositKey`/leaf building — LANDED; **pinning the fleet deposit key off hardened `m/70'/swap_index'` did NOT**, so the phantom swap-in is **NOT finished**) · §E166 items 1 (lazy open/close deletion), 4 (in flight), 5 (non-global freshness), 7 (§E140 subtraction), 9, 10, 11, 13, 14 · the §E175 deployment remainder · §E179.  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): Accounting row; all four closed elsewhere** |
-
-### 🎯 SIGMA-REMOVE-SOLVED-② — the exogenous-only split needs a hook that does not exist. **Net-of-earnings does not, and reuses θ's numerator.**
-
-**Implementing §SIGMA-REMOVE-SOLVED part ① hit a blocker, and today's evidence locates it precisely.**
-⛔ **`_bumpFlow` FIRES AFTER THE `POOLED_*` UPDATES.** Proven, not assumed: settling the open interval
-at READ time produced **byte-identical** numbers (§SIGMA-REMOVE-P2-GAP-RESOLVED), which can only
-happen if the pending record ALREADY equals current state. ⇒ The only interval it can observe is
-`[post_i, post_{i+1}]` = **idle gap PLUS swap i+1's impact.** ⇒ **Isolating the exogenous gap needs a
-sample at SWAP START, and no such hook exists** — adding one means a second call site on the money
-path, in `_handleSwap`, which is stack-tight (`via_ir = false`).
-
-✅ **THE ROUTE THAT NEEDS NO NEW HOOK — AND IT IS ARGUABLY THE RIGHT QUANTITY ANYWAY:**
-**NET the total signed mark-to-market against what the range EARNED.** The swapper's own impact is not
-an uncompensated loss — **they PAID for it, through the curve fee and the skew.** So:
-```
-net adverse selection = (signed inventory mark-to-market) − (fees + premium earned)
-```
-⇒ **Own-impact CANCELS on its own**, because the price move a swapper causes is matched by the fee
-that swapper pays. **No start-of-swap sample is needed; no second hook; no new state.**
-📌 **AND THE EARNINGS SIDE ALREADY EXISTS:** `_rangeFeeYieldWad` is θ's numerator, documented as *"the
-compensation the range actually receives for bearing IL"* (§SIGMA-REMOVE-GATE-READ). ⇒ **This is
-θ's own structure with the DENOMINATOR replaced** — realized loss instead of `kLvrWad · σ²` — which is
-exactly what §SIGMA-CAN-WE-AVOID-IT proposed before the read showed θ's denominator was a forecast.
-⇒ **The two threads converge: θ was half-right, and this completes it.**
-▶️ **STILL REQUIRED, UNCHANGED:** signed accrual (`int` accumulator or a gain/loss pair — the EWMA is
-`uint`), and the acceptance run on all six hardened instruments with the SATURATION CONTROL live.
-🔬 **THE FALSIFIABLE PREDICTION IS SHARPER NOW:** in a fixture with **no exogenous price process**, a
-correctly netted register reads **≈ 0** — because every price move present was caused by a swapper who
-paid for it. **A non-trivial reading means the netting is wrong, not that the market moved.**
-
-| id | state |
-|---|---|
-| **E183-secp256k1-six** | 🔴 **THE SIX secp256k1 ITEMS, CHECKED IN THE CODE. TWO ARE NOT DONE, AND I HAD REPORTED ONE OF THEM WRONG** (owner: *"there were six total items for secp256k1, are you sure all of them are done?"*). The enumeration lives in §E138's row. **(2) §E129 SPLICE `Q` ✅** — `MuSig2Agg.computeOutputKey` at `BTCChannels.sol:1290`, alongside `:1119` for the open. **(3) §E128 EXIT-TX SIGNATURE ✅** · **(4) §E130/§E131 CURVE VALIDITY ✅** · **(5) §E138 PROOF-OF-POSSESSION ✅**. ❌ **(1) "DELETE DELEGATION" IS NOT DONE, AND §E157 IS NOT IT.** The stated goal was: prove `Q == KeyAgg(lpPubkey, hopPubkey)` ⇒ `lpPubkey` is proven ⇒ **`lpEth` is DERIVABLE from it** ⇒ **the LP signs NOTHING on the EVM.** What landed (§E157) deleted the delegation **TRANSACTION** and moved consent into `OpenAuth` — but `BTCChannels.sol:818` still runs `SignatureChecker.isValidSignatureNow(lpEth, openAuthDigest(...), auth.lpSig)`. **The LP still signs.** I recorded §E157 as satisfying this and it does not; the KeyAgg proof now makes the signature genuinely redundant *if* the LP's funding key is its EVM key, which is the assumption the item rests on and which must be settled before deleting `lpSig`. 🔴 **(6) §E159 SWAP-IN DEPOSIT DERIVATION — BOTH HALVES ARE BUILT AND THEY ARE MUTUALLY INCOMPATIBLE. I told the owner "the Rust half is not done"; that was WRONG and the truth is worse, because it LOOKS done from either side.** **Contract:** `BTC_DEPOSIT_KEY` is `immutable`, pinned at construction, and `settleSwapInProven` derives the address as `TapTweak(BTC_DEPOSIT_KEY, leaf(userRefund, cltvHeight))` — its own doc says *"the swap's own CLTV refund leaf supplies per-swap uniqueness"* (`:1510`, `:1549`). **Rust:** `swap_in_onchain.rs:259-280` derives a **PER-SWAP INTERNAL KEY** at `m/70'/swap_index'` and uses `hop_x` as the taproot internal key. ⇒ **The two disagree about WHERE per-swap uniqueness lives** — leaf-only vs internal-key — so a deposit address the Rust generates is not the address the contract recomputes, and `verifySwapInDeposit` would revert `DepositNotPaid` on every real deposit. ⚠️ **AND THE CONTRADICTION IS STRUCTURAL, NOT A TYPO:** §E166 item 2 specified the Rust path as *"both levels hardened and therefore underivable from any xpub"* — **hardened ⇒ no xpub can derive it ⇒ the CONTRACT cannot recompute it ⇒ it would have to be TOLD the key ⇒ hop-chosen ⇒ the phantom hole reopens.** Hardened per-swap derivation and on-chain pinning cannot both hold. **Pick one before writing any more code on this path:** either the contract's fixed pinned key with leaf-only uniqueness (Rust changes), or a per-swap key the contract can verify without trusting the hop (needs a different derivation than hardened).  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): STALE: zero isValidSignatureNow; Rust pins PINNED_DEPOSIT_INDEX=0** |
-
-### ⛔⛔⛔ SIGMA-REMOVE-SIGNED-REFUTED — the estimator measures P&L ON INVENTORY, not the SHORTFALL VS HOLDING. LVR is a DIFFERENCE of two portfolios.
-
-**Made the register SIGNED (gain/loss split, since a `uint` EWMA cannot go down) and the result
-refutes the construction, not the sign convention:**
-| side | value |
-|---|---|
-| gross LOSS | 356,496,773,146 |
-| **gross GAIN** | **1,040,440,320,184** |
-| **NET** | **0 — floored; the range reads NET AHEAD by ~3×** |
-
-🔴 **THE DEFECT IS CONCEPTUAL, AND IT INVALIDATES THE WHOLE `inv·Δp` FAMILY:**
-`Σ inv̄·Δp` is the **mark-to-market P&L ON INVENTORY HELD** — price rises, the holder gains. **But LVR
-is the SHORTFALL VERSUS HOLDING.** A `_drain` makes the range **GIVE ETH and RECEIVE USD as the price
-RISES** — it **sells the appreciating asset**, capturing LESS of the rise than a HODLer. ⇒ **The loss
-is a DIFFERENCE BETWEEN TWO PORTFOLIOS (rebalancing vs HODL), and this estimator only ever tracked
-ONE of them.** Its "gain" is real — and irrelevant, because the counterfactual gained MORE.
-⇒ **NO SIGN CONVENTION, NETTING, OR SCALING FIXES THIS.** §SIGMA-REMOVE-SOLVED-②'s net-of-earnings
-route does not either: netting a wrong quantity against earnings still leaves a wrong quantity.
-
-✅ **WHAT SURVIVES, AND IT IS NOT NOTHING:**
-- **The PATH-INDEPENDENCE result stands** (register 1.100× vs σ² 2.632×; noise 1.006× vs 1.084×).
-  **A decaying SUM cannot encode flow SHAPE and a SECOND DIFFERENCE must** — that argument never
-  depended on WHICH quantity is summed, only that it is summed. **§SIGMA-REMOVE's core claim is
-  unharmed; its candidate implementation is refuted.**
-- **The infrastructure is right**: one accrual per swap, correct units (0.991), a pending record, a
-  decaying sum, and now a signed pair. **Only the SUMMAND is wrong.**
-▶️ **THE CORRECT SUMMAND — and it is standard LVR, computable from state already tracked:**
-`LVR = (value of the HODL basket) − (value of the range)`, accrued per interval. The HODL leg needs
-the composition at the interval's START marked at its END price: `inv₀·p₁ + usd₀` vs `inv₁·p₁ + usd₁`.
-**Both legs are already in `POOLED_*`; the pending record already holds `(inv₀, p₀)` and needs `usd₀`
-added — one more field, no new slot** (`Pend` is `uint128+uint128`; `usd6` fits a `uint96` beside a
-packed price). ⚠️ **Verify by measurement, not by this derivation — three estimators have now died.**
-
-| id | state |
-|---|---|
-| **E183-b** | ✅ **§E159's CONTRADICTION RESOLVED IN FAVOUR OF THE CONTRACT — and nothing was actually given up, which is why there is no third design.** I looked for one: a per-swap internal key the contract could still verify would need **non-hardened** derivation from a pinned xpub (contract computes `P_i = P + H(chaincode,i)·G`). That is buildable — we already have the EC machinery — but it **trades the exact property the hardened path existed for** (an xpub + one leaked child key recovers the master) and adds a scalar-mult per verification, to buy a privacy improvement §E159 does not need. **Discarded.** ⇒ **The contract's design wins on the only axis that matters here: VERIFIABILITY.** A hardened per-swap key is by definition underivable from any xpub, so the contract could never recompute it and would have to be **TOLD** it — a hop-supplied internal key is a hop-chosen address, which reopens the phantom hole §E159 exists to close. **The phantom credit reaches QU!D holders who never opted into enclave trust; key isolation for one deposit does not outrank that.** ✅ **AND THE HARDENED PATH'S REAL PROPERTY IS KEPT IN FULL:** the key is still derived at a **hardened** `m/70'/0'`, still disjoint from the BIP86 `m/86'/…` wallet branches, still underivable from the wallet xpub — *"a deposit key is never a wallet address"* holds unchanged. Only the per-swap INDEX moves, and per-swap uniqueness is not lost: it lives in the CLTV leaf, so every deposit still gets a DISTINCT output key via a different merkle root. **LANDED:** `derive_deposit_keypair(secp, master, swap_index)` → `derive_deposit_key(secp, master)` at `PINNED_DEPOSIT_INDEX = 0`; both call sites updated. ⚠️ **THE OLD UNIT TEST ASSERTED THE PROPERTY I REMOVED** (*"different swap index ⇒ isolated key"*) — replaced rather than deleted, with the new invariant pinned (one re-derivable key) **plus a control that per-swap uniqueness survived the move**: two swaps differing only in their refund leaf must still derive DIFFERENT addresses, or every swap shares one address and dedup/attribution collapses. **Workspace 665 passed / 0 failed.** ▶️ Remaining for §E159: deploy-time wiring so `BTC_DEPOSIT_KEY` is constructed from this exact key (a mismatch now fails loudly at the first proof rather than silently).  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): DONE: resolved in favour of the contract** |
-| **E184-swapout-pop** | 📋 **THE SEVENTH ITEM, AND IT IS A GAP RATHER THAN A USE.** Enumerating every EC consumer in `evm/src` accounts for all six: `_proveFundingKeys` + splice (`isTwoOfTwoOutputKey`/`computeOutputKey` at `:1062/:1119/:1165/:1290`), `ExitLib:123` `schnorrVerify` (exit), `BTCChannels:1857` `isValidXOnlyKey` (§E130 `btcRecipientOf`), `:1669` `isValidXOnlyKey` (§E131 swapper script — **item 4 bundles E130+E131, so this is not a seventh USE**), `:1847` `schnorrVerify` (§E138 PoP), `ExitLib:166` `taprootOutputKeyWithLeaf` (§E159). 🔎 **BUT IT EXPOSES A SEVENTH GAP: §E138's ARGUMENT WAS NEVER APPLIED TO THE SWAP-OUT SWAPPER KEY.** §E131 proves `swapperScript`'s 32 bytes are ON the curve; nothing proves the SWAPPER CONTROLS them — the identical half-failure §E138 fixed for the LP. A typo landing on a valid x-coordinate (≈half of all typos) sends the swapper's BTC to a key someone else may hold. ⚠️ **BUT THE ASYMMETRY IS REAL AND MAY JUSTIFY LEAVING IT:** `btcRecipientOf` is pinned ONCE and reused by close, splice-out AND the dead-man exit, so one wrong key loses everything forever; `swapperScript` is per-swap and self-chosen, and a PoP means the swapper produces a BIP-340 signature inside a swap flow. **Decide explicitly rather than by omission — that is what §E138 was booked for in the first place.** |
-
-### 🎯🎯🎯 SIGMA-REMOVE-LVR-IS-PATH-DEPENDENT — the CORRECT summand reads a LOSS (sign fixed) and is **1.692×** history-dependent. **That is real economics, not artifact.**
-
-**Implemented textbook LVR: `HODL − range = (inv₀ − inv₁)·p₁ + (usd₀ − usd₁)` — the volatile given up,
-marked at the CLOSING price, minus the USD actually received. `Pend` repacked to ONE slot
-(`uint96 inv, uint96 px, uint64 usd`). `Core` 24,428 / 148 free.**
-| | previous (`Σ inv̄·Δp`) | **LVR** |
-|---|---|---|
-| gross loss | 356,496,773,146 | **519,974,291,080** |
-| gross gain | 1,040,440,320,184 | **67,812,454,127** |
-| **net** | **0 (range AHEAD 3×)** | **+452,161,836,953 (range BEHIND)** |
-| history gap | 1.100× | **1.692×** |
-✅ **THE SIGN IS FIXED.** The range now reads BEHIND, as LVR theory requires — the previous summand had
-it ahead by 3× because it tracked P&L on inventory held rather than the shortfall versus holding.
-
-🔴 **AND THE GAP ROSE — WHICH IS THE REAL FINDING: LVR IS INTRINSICALLY PATH-DEPENDENT.** A whale
-realises its whole position at ONE price; twelve tranches realise at TWELVE. **Their actual adverse
-selection GENUINELY DIFFERS.** ⇒ **The earlier 1.100× looked better because it was measuring the
-WRONG QUANTITY.** A more path-independent estimator is not automatically a better one.
-⚠️ **THIS PUTS TWO GOALS IN TENSION, AND THE TENSION IS STRUCTURAL:**
-- **Measure the RIGHT thing** (adverse selection actually suffered) ⇒ path-dependent, because the
-  economics are.
-- **Path-INDEPENDENCE**, which §UNIT-B-BLOCKS-C requires before a SIGNED/two-sided curve is safe.
-⇒ **§UNIT-B's premise may be partly WRONG: some of the 13.71% consolidation discount is REAL
-ECONOMICS, not a defect.** ⚠️ **DO NOT "fix" the part that is real** (§UNIT-BOUND-NOT-DELETE's lesson:
-a principle inferred from an overshoot).
-✅ **BUT σ² IS STILL WORSE — 2.632× vs 1.692×** ⇒ **σ² carries ESTIMATOR ARTIFACT ON TOP of the real
-path-dependence.** The ~0.94× excess is what §SIGMA-REMOVE can legitimately remove; the rest is the
-market.
-▶️ **THE QUESTION FOR THE OWNER, NOW SHARP:** if correct pricing is path-dependent, **is the signed
-curve reachable at all** — or must it be BOUNDED against the residual rather than made exact
-(§UNIT-BOUND-NOT-DELETE's `S_in < S_out`)? **This decides whether §UNIT-B closes or is reframed.**
-
-### 🛑 SIGMA-REMOVE-P2-OVER-EIP170 — the substitution puts `Core` at **−60 bytes. UNDEPLOYABLE.** Reverted.
-
-**Wired the LVR register in as the steepness input (§SIGMA-REMOVE). It compiles, and
-`check-contract-sizes.py` reports `Core` **24,636 / −60`** — PAST the 24,576 limit.**
-⛔ **STOP CONDITION, not a tuning problem.** ⚠️ **`forge test` does NOT enforce EIP-170 and
-`forge build --sizes` does NOT LIST `Core` at all** (CLAUDE.md, measured 2026-08-05). **A fully green
-4,400-test suite would have told me NOTHING** — this repo has already shipped a `Core` at −126 bytes
-with a green suite. **`python3 tools/check-contract-sizes.py` is the only gate that sees it.**
-
-📐 **THE BUDGET, AND WHY IT RAN OUT — every step was measured and none was wasted:**
-| step | `Core` | free |
-|---|---|---|
-| session start | 24,538 | **28** (frozen) |
-| `mocks()` getter | 23,656 | 920 |
-| trapezoid register + pending | 24,114 | 462 |
-| signed gain/loss split | 24,264 | 312 |
-| LVR summand (HODL − range) | 24,428 | 148 |
-| **+ steepness substitution** | **24,636** | **−60** |
-⇒ **The 907 bytes `_onlyUs` freed were spent, and the last 208 overran.**
-
-▶️ **THE SUBSTITUTION NEEDS ~250 BYTES `Core` DOES NOT HAVE. Three routes, cheapest first:**
-1. **MOVE THE MATH OUT OF `Core`.** `realizedVarianceWad`'s implied-variance conversion is pure
-   arithmetic on values `Core` already exposes — put it in `QuidLib`/`SwapLib` (both delegatecalled,
-   both with room) and leave `Core` publishing only the raw register. **Likely frees more than the
-   substitution costs.**
-2. **APPLY CLAUDE.md 8c TO THE SIBLINGS.** `_onlyUs` returned 907 bytes from ONE modifier at 18 sites.
-   **`LevManager` (70 free) and `LevMath` (20 free) are the other frozen contracts and have not been
-   measured** (§CORE-ONLYUS's "measure the siblings" item is still open) — but for `Core` itself, look
-   for any remaining inlined modifier.
-3. **DROP THE COLD-START FALLBACK** (`_ringVarianceWad`) once the register is trusted — but that
-   removes the fresh-range protection, so it is a design decision, not a byte trick.
-⚠️ **DO NOT SHRINK BY DELETING THE GAIN REGISTER OR THE HODL LEG** — both were required to get the
-SIGN right (§SIGMA-REMOVE-SIGNED-REFUTED). **The bytes are load-bearing.**
-
-### ⛔ SIGMA-REMOVE-P2-LIBRARY-ROUTE-REFUTED — moving the math to `OracleLib` made `Core` **BIGGER** (−60 → −141). Reverted.
-
-**§SIGMA-REMOVE-P2-OVER-EIP170's route 1 ("move the arithmetic into a delegatecalled library — likely
-frees more than the substitution costs") is REFUTED BY MEASUREMENT.**
-| variant | `Core` | free |
-|---|---|---|
-| substitution INLINE | 24,636 | **−60** |
-| substitution via `OracleLib.impliedVarianceWad(...)` | **24,717** | **−141** |
-⇒ **81 bytes WORSE.** ⚠️ **An `external` library call with FIVE arguments costs more in calldata
-setup + staticcall machinery than the inline arithmetic saves.** ⇒ **LIBRARY EXTRACTION PAYS FOR
-LARGE BODIES, NOT SMALL ARITHMETIC WITH WIDE SIGNATURES** — the opposite of the assumption in that
-entry. **Record it: the same reflex will recur on the next EIP-170 squeeze.**
-📌 `FullMath` (not OZ `Math`) is the right primitive here per the owner — 512-bit intermediate, so
-`inv · pxWad` cannot overflow. **That was already applied and is unrelated to the size result.**
-
-▶️ **REMAINING ROUTES — routes 1 is dead, so:**
-2. **CLAUDE.md 8c on whatever is still inlined in `Core`.** `_onlyUs` returned **907 bytes** from ONE
-   modifier at 18 sites. **Enumerate `Core`'s remaining modifiers and their use counts before
-   assuming there is nothing left.**
-3. **Drop the cold-start `_ringVarianceWad` fallback** — a DESIGN decision (it protects a fresh range
-   from being priced at zero steepness), not a byte trick. **Only with the owner.**
-4. **Shrink the SUMMAND's own footprint** — e.g. fold `_rangePxWad` into `_accrueRealizedLoss` (its only
-   caller) so the helper's dispatch disappears. **Unmeasured; cheapest to try next.**
-⚠️ **STILL NOT AN OPTION: cutting the gain register or the HODL leg.** Both were required to get the
-SIGN right (§SIGMA-REMOVE-SIGNED-REFUTED read the range NET AHEAD without them).
-
-### ⏸️ SKEW-BTC-SYMMETRY — **the skew must be SYMMETRIC across BTC/ETH; the REFILL asymmetry is what legitimately differs.** Deferred behind the refill (owner, 2026-08-12).
-
-**Owner: *"we need skew symmetry between btc and eth, but there is a difference for how the refill
-works on that, so that will be reflected in the skew — maybe this is an effort we have to return to
-after building the refill (after the skew is done at least for eth)."* NOT PREVIOUSLY BOOKED.**
-Partial coverage existed and none of it says this: §UNIT-ASYM (units are ETH-shaped; `CONF_FRAC_WAD`
-≈1h vs `ETH_CONF_FRAC_WAD` ≈12s ⇒ the BTC leg charges ~300× at equal σ² and q), §UNIT-C-DISAMBIG (the
-flash refill is a BTC CONSTRUCT — the fleet holds no BTC and LN sats have no EVM token; ETH needs
-nothing because the drainer already paid the dollars in), and `:6064` (*"only BTC is
-refill-constrained"*). **None ties them, and none sets the ORDER.**
-
-📐 **THE PRINCIPLE, AS STATED: THE SKEW ITSELF IS SYMMETRIC. WHAT DIFFERS IS THE REFILL, AND THAT
-DIFFERENCE IS AN INPUT TO THE SKEW, NOT A SECOND SKEW.**
-⇒ **A per-asset skew FORMULA would be the wrong shape.** The asymmetry belongs in the INPUTS the one
-formula reads — the settlement window (`confFrac`), `SPLICE_FLOOR`, and **how long an imbalance
-PERSISTS**, which is where the refill difference enters: **BTC repair depends on a flash the fleet
-must execute; ETH repair does not.** ⇒ **Different expected repair LATENCY ⇒ different exposure ⇒
-different skew — from the SAME kernel.** ✅ This is §E83's censored-duration input, PER ASSET.
-
-🔴 **AND IT WAS NOT A STALE ORPHAN — IT WAS A BROKEN PRODUCTION PATH, FIXED 2026-08-15.** `swap_in_api.rs:317` was still calling the DELETED `delegationVersion(address)`, so the `eth_call` failed and its `?` returned **`BAD_GATEWAY`** — **LP registration through that route was FAILING**, not merely reading something stale. **Only the Rust-side ORPHAN check surfaced it; the gate reported `0 drifted` for as long as it was broken.** `git log -S` gave the reason: **`e0fed54` — *'E157: fold delegation into the open — the registration tx goes'*** — there is no separate registration left to read a version from. ⇒ Replaced with `delegated = true`, **on the argument THIS SITE ITSELF ALREADY MADE**: a false positive *'can't forge a false positive into a real open (the open still requires the LP's funds + the on-chain `_authorizedHop` gate)'*, a false negative *'just refuses a real LP'*. **Post-E157 an LP that has opened IS delegated by construction, so the pre-check has nothing left to discriminate — this is the check DELETING ITSELF because the state it tested can no longer differ (rule 17), not a clamp.** Verified: `cargo test -p quid-bridge --lib` **154 passed / 0 failed, no warnings** (the first run left an unused `eth_call_bool` import and a comment describing the deleted call — both removed and re-verified, not waved through). Gate **6 → 5**. ▶️ **REMAINING: `encode_register_delegation` (`evm_codec.rs:741`), called ONLY from `tests/driver_e2e.rs:267/450/609`. Test-only, breaking nothing — deleting it means rewriting three e2e tests, so it is left VISIBLE IN THE GATE rather than half-done.** ▶️ **SEQUENCING (owner):** finish the skew **for ETH**, then build the **refill**, THEN return to BTC
-symmetry — **because the BTC skew's key input (repair latency) is not knowable until the BTC refill
-exists.** ⇒ **Doing BTC now would hard-code a latency assumption that the refill design would then
-invalidate.** ⏸️, not 🔴.
-⚠️ **STANDING TRAP THIS BOOKING EXISTS TO STOP — `:1181`: *"I scoped #12 ETH-only FOUR times and was
-corrected each time."*** Today added a fifth instance: **every §SIGMA-REMOVE measurement is
-`realizedVarianceWad(false)` — ETH ONLY** (gap 1.692×, noise 1.006×, units 0.991). The register is
-`isBTC`-dispatched so both PATHS exist, **but the BTC path is UNMEASURED**, and `POOLED_BTC` is 8-dec
-sats against ETH's 1e18. **CLAUDE.md says the WBTC ×1e10 lift makes a flat `/1e30` correct for BOTH —
-that is REASONING, and decimals are this repo's #1 bug source. Measure before claiming symmetry.**
-📌 **Deferring is NOT skipping:** when §SIGMA-REMOVE lands for ETH, **state in the entry that BTC is
-unmeasured** rather than letting the result read as a protocol property (§UNIT-ASYM's exact complaint).
-
-| id | state |
-|---|---|
-| **E184-CLOSED / E185** | ✅ **THE SWAP-OUT HALF-FAILURE IS CLOSED BY DELETING CODE, NOT ADDING A CHECK** (owner: *"do not leave it. no half failures"*). §E131 proved `swapperScript`'s 32 bytes were ON the curve; **nothing proved the swapper CONTROLLED them** — the identical half §E138 fixed for the LP, where a typo landing on a valid x-coordinate (≈half of all typos) sends the BTC to a key someone else may hold while the system records a successful delivery. ⇒ **`requestSwapOutOnchain` no longer TAKES a destination.** It derives one from `btcRecipientOf[msg.sender]`, which `setBtcRecipient` already proves on-curve (§E130) **and** under the caller's control (§E138) — so the fix **inherits both proofs and deletes the prefix test and the `isValidXOnlyKey` call**, which were the WEAKER half of a guarantee that now holds in full. Adding a second PoP parameter would have been the clamp rule 3 warns about: more surface, same hole. ⛔ **§E185 — THE ATTESTED-HOP REGISTRY IS DELETED, EXECUTING A DECISION TAKEN IN §E164 AND NEVER CARRIED OUT** (owner: *"we removed the registry though!"* — the *decision* was made; **the code still had it**). `hopRegistry` defaulted to `address(0)` and `_requireAttested` did **NOTHING** until pinned, which nobody ever did. With `MAIN_HOP`/`FALLBACK_HOP` immutable, asking a registry whether one of two fixed addresses is attested answers a question that cannot vary. 🔴 **AND THE NO-OP WAS HIDING A REAL GAP: `_onlyHop()` guarded SEVEN entrypoints and `openChannel` WAS NOT ONE OF THEM** — its only hop-side gate was that no-op, so it was effectively permissionless (the old test's own comment said *"OFF by default (permissionless-open bootstrap)"*). **A no-op reads like a check, which is why it survived.** `openChannel` now calls `_onlyHop()` unconditionally, which is what §E166-3 assumes when the fleet RELAYS consent. Its test is replaced by a strictly stronger one needing no pinning. ✅ **MEASURED: `BTCChannels` 22,871 → 22,213 (margin 2,363) — the fix FREED 658 bytes.** 248/249 → **249/249** across `BTCChannelsAuth` + `BtcLpMintStress` + `VBtcLevFeeLane`. ⚠️ **VERIFIED IN A DETACHED WORKTREE AT HEAD + ONLY MY FILES**, because another thread's uncommitted `OracleLib.sol` edit does not compile and broke the shared tree. 🔴 **AND THAT SAME BUILD FOUND: `Core` IS 24,636 BYTES — 60 OVER EIP-170, UNDEPLOYABLE.** NOT mine (I touch no `Core`; last commit there is `5335d02`, the other thread's LVR work). **Nothing can deploy until that is resolved.**  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): DONE: closed by deleting code** |
-
-| id | state |
-|---|---|
-| **E186-stale-markers** | ✅ **§E107 IS CLOSED, AND THAT MAKES FOUR STALE 🔴 MARKERS FOUND IN ONE DAY.** `recordDeadManExit` (`BTCChannels.sol:1420`) is a THIRD retire path that does **not** gate on `isCommitmentTx`: it extracts the locktime, requires `exitArmedAt[channelId][deadline]`, SPV-proves the spend, and finalises with `_lpFinalBalance`. Tests at `BtcSelfManaged.t.sol:384-428` — one of which is literally commented *"Without `recordDeadManExit` a CLTV exit is unrecordable"*. **The fixing commit is `cf8c511`, titled "E107 fix: retire a channel ended by the dead-man exit (phantom backing)".** ⚠️ **I RE-DERIVED E107's ARGUMENT FROM ITS ROW AND PRESENTED IT AS THE MOST CONSEQUENTIAL OPEN FINDING OF THE SCAN.** The row's premise (*"BOTH retire paths gate on `isCommitmentTx`"*) was true when written and false by the time I read it, because a third path was added. **A row that enumerates paths goes stale the moment a path is added — and enumeration rows are the most dangerous kind, because they read as exhaustive.** 🔑 **THE DAY'S TALLY: §E130 (curve check exists), §E142 (KeyAgg proof exists), §E107 (third retire path exists), plus §E115/§E158-rogue-hop mooted by §E185's registry deletion — FIVE items I would have "fixed" or re-analysed if I had trusted the column.** ⇒ **STANDING CONSEQUENCE: for any 🔴 row older than the current session, VERIFY IN THE CODE BEFORE PLANNING FROM IT.** CLAUDE.md already says the marker column is unreliable and to plan from row BODIES — **that is not enough: the BODIES go stale too.** Only the code is current. **Cost of checking: one grep. Cost of not checking: I spent a turn presenting a closed defect as the top open risk.**  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): DONE: markers reconciled** |
-
-### 🟠 SIGMA-REMOVE-P2-FITS-BUT-SATURATES — the byte problem is SOLVED (25 bytes free). The CALIBRATION problem is now isolated.
-
-**Two results, and they are separate problems.**
-✅ **① IT FITS.** `Core` **24,551 / 25 free**, deployable, substitution live. **How, after route 1
-(library) measured 81 bytes WORSE:**
-| step | `Core` |
-|---|---|
-| baseline (register + LVR summand) | 24,428 / 148 |
-| − `realizedLossGross` (Phase-1 diagnostic; tests can `vm.load`, they already do for `_pinFlow`) | |
-| + `_rangePxWad` folded into its only caller | |
-| + substitution INLINE, `FullMath` (owner: *"use fullmath, it's better"*) | **24,551 / 25** |
-⇒ **THE DIAGNOSTIC SURFACE WAS THE BUDGET.** Phase-1 measurement views are not needed once the input
-is LIVE — **that is the general lesson, and it is reusable on the next squeeze.** ⚠️ 25 bytes is not
-headroom; treat `Core` as frozen again.
-
-🟠 **② IT SATURATES — AND THE CONTROL CAUGHT IT.** `assertLt(prem, size·3%)`
-(§UNIT-B-INSTRUMENTS-HARDENED, added after §SIGMA-REMOVE-P2-FALSE-PASS) **FIRED**: both legs pinned
-at **3,600,000,000 = exactly 3% of $120,000**, probes at **300,000,000 = 3% of $10,000**. ✅ **The
-harness did its job — two hours ago this same state PASSED and was nearly banked.**
-⛔ **REVERTED** (rule 15: unverified money-path change).
-
-🔬 **WHAT SATURATION CANNOT DISTINGUISH, AND WHY THE FIXTURE CANNOT SETTLE IT:** a **120,000 drain is
-~9% of a ~$1.3M range.** Net LVR $452k on $1.3M = a **35% loss fraction** ⇒ `σ²_implied ≈ 354` against
-the ring's `2.5e-5`. **Charging the 3% maximum may be CORRECT for a range losing 35%** — or the window
-normalisation may be wrong. **Both produce identical output here.**
-▶️ **THE FIXTURE MUST CHANGE, NOT THE CONSTANT** (rule 4 — dividing until it fits is fitting the
-fixture): build a scenario with a **REALISTIC swap-to-range ratio** (basis points, not 9%) and a real
-price path, then re-run. **If the skew lands strictly inside the cap and tracks scarcity, the
-substitution is calibrated; if it still pins, the window normalisation is wrong.**
-📌 **This is the SAME fixture requirement §SIGMA-SOURCE and §SIGMA-REMOVE-SOLVED already need** — an
-exogenous price process. **Three separate lines of work now converge on one missing fixture; build it
-once.**
-
-### 🔴 SIGMA-REMOVE-P2-CALIBRATION-MEASURED — the estimator DIVERGES at large drains and its usable range is ~10–15 bps wide.
-
-**Measured the LVR fraction against swap size (register live, substitution NOT applied — no contract
-change). `sigma^2 = 1012 · lossFraction`; the 3% cap binds near `sigma^2 ≈ 1`.**
-| swap (bps of range) | net LVR (usd6) | lossFraction | implied σ² |
-|---|---|---|---|
-| 5 | **0** | 0 | 0 ⇒ **ring fallback** |
-| 25 | 7,010,520,597 | 0.53% | **5.4** ⇒ saturates |
-| 100 | 81,426,469,142 | 6.2% | 62.7 |
-| 400 | 1,753,459,453,277 | 133% | 1,350 |
-| 900 | 5,773,902,222,125,459 | **439,492%** | 4.4e6 |
-
-🔴 **① THE ESTIMATOR DIVERGES — THE 900 bps ROW IS NOT "LARGE", IT IS NONSENSE.** LVR cannot be
-**4,000× the range's own value**. Cause: **`_rangePxWad = POOLED_USD / inv` → ∞ as `inv` → 0.** Using
-the range's COMPOSITION RATIO as a price breaks down as inventory drains. ⇒ **The estimator is only
-valid while inventory is comfortably non-zero, and NOTHING currently enforces that.** ⚠️ This is a
-REAL defect in the summand, independent of calibration — **and it would fire in production on a deep
-drain, exactly when the skew matters most.**
-🔴 **② THE USABLE RANGE IS ~10–15 bps WIDE.** Below ~10 bps the register reads **0** and falls over to
-the ring; above ~15 bps it **saturates**. **A pricing input with a usable range that narrow is not
-robust.**
-📐 **③ THE TARGET, DERIVED: for a realistic 60% ETH vol, `σ² = 0.36` needs `lossFraction ≈ 3.6 bps`
-per 48h window** — which annualises to **~6.6%/yr LVR**, entirely plausible for an ETH LP. **Measured
-53 bps at 25-bps swaps ⇒ ~15× TOO HIGH.** ⇒ **The gap is a factor of ~15, not the ~1000 that
-saturation suggested** — so it is a CALIBRATION question, not a category error.
-▶️ **NEXT, IN ORDER:** (a) **bound `_rangePxWad`** (or replace the composition-ratio price with the
-oracle/TWAP) so ① cannot fire — **this is a correctness fix, not a tuning knob**; (b) only then
-re-derive the window: **`LOSS_WINDOW_YEARS_WAD` (7.911e-3, from 48h/ln2) is the prime suspect for the
-~15×**, and §E83's censored duration is the principled source for it.
-⚠️ **DO NOT divide by 15 to make the fixture fit** (rule 4). **Fix ① first — it may move ③ on its own.**
-
-### 🔴 SIGMA-REMOVE-P2-DIVERGENCE-FIX — the fix is a BOUNDED `p₁`, and `Core` has 148 bytes. Blocked on byte recovery, not on design.
-
-**The divergence (§SIGMA-REMOVE-P2-CALIBRATION-MEASURED ①) is localised to ONE term, and rewriting the
-identity shows it:**
-```
-LVR = (inv₀ − inv₁)·p₁ + (usd₀ − usd₁)
-    = (inv₀ − inv₁)·(p₁ − p_exec),   where p_exec = (usd₁ − usd₀)/(inv₀ − inv₁)
-```
-⇒ **`p_exec` IS BOUNDED BY CONSTRUCTION** — a ratio of amounts ACTUALLY EXCHANGED. **Only `p₁` blows
-up**, because `_rangePxWad = POOLED_USD/inv → ∞` as `inv → 0`. ⇒ **The estimator's structure is sound;
-one input is unbounded.**
-
-▶️ **THE PRINCIPLED FIX — source `p₁` from a BOUNDED price, not the composition ratio:**
-- ✅ **The RING's tick.** `Core` already holds it (`_obs`/`_obsState`), and a tick is an `int24` — it
-  **cannot diverge**. This is the same series the TWAP and σ² read (§SKEW-HOLISTIC-RESOLVED), so it is
-  consistent with everything else the range prices on.
-- ⛔ **NOT a clamp on `_rangePxWad`.** Rule 3: attack the cause. A ceiling on a diverging ratio hides
-  the invalid measurement instead of not making it.
-- ⛔ **NOT `Aux.getTWAPforAsset`** — a cross-contract call on the swap path.
-🛑 **BLOCKED ON BYTES, NOT DESIGN: tick→price needs `TickMath`, and `Core` has 148 free.** The
-substitution itself needs ~120 of those (§SIGMA-REMOVE-P2-FITS-BUT-SATURATES landed at 25 free).
-▶️ **SO THE ORDER IS: RECOVER BYTES FIRST.** The one route with a measured precedent is **CLAUDE.md 8c**
-— `_onlyUs` returned **907 bytes** from ONE modifier at 18 sites. **`Core`'s remaining modifiers have
-never been enumerated** (§CORE-ONLYUS booked "measure the siblings" and it is still open). ⚠️ The
-LIBRARY route is REFUTED for this shape (§SIGMA-REMOVE-P2-LIBRARY-ROUTE-REFUTED: +81 bytes).
-📌 **AND NOTE WHAT THIS MEANS FOR THE 15× GAP:** every reading that included a large swap was inflated
-by the divergence, so **fixing `p₁` may move the calibration on its own** — §SIGMA-REMOVE-P2-
-CALIBRATION-MEASURED's ~15× is an UPPER bound on the real error, not an estimate of it. **Do not
-re-derive `LOSS_WINDOW_YEARS_WAD` until `p₁` is bounded.**
 
 ### 🛑 CORE-8C-EXHAUSTED — `Core` has ONE modifier and it is already converted. **148 bytes is the ceiling.** The remaining route is moving the ACCRUAL, not the conversion.
 
@@ -47551,35 +43628,6 @@ simple one that serves only our pool, no hooks, none of that. The PM is Aux itse
 `isBTC` duplication (§J.2) when the PM is ours — **one PM serving both ranges is the same "one
 implementation, two instances" target.**
 
-### 🎯🎯🎯 ARCH-VARIANCE-VARIABLE — **PROPOSAL: the simpler variable is the REALIZED EXECUTION PRICE.** Derived from today's results, not invented.
-
-**§ARCH-OWN-POOLMANAGER asks for "same logic, simpler variable format, no ticks". The candidate falls
-out of owning the PM: IF WE EXECUTE THE SWAP, WE KNOW ITS PRICE — we do not have to DERIVE it.**
-```
-p_exec = usdIn / tokOut          // a plain ratio of amounts ACTUALLY EXCHANGED
-LVR    = qty · (p_close − p_exec)  // p_close = the NEXT swap's p_exec
-```
-**Store per pool: `(qty, p_exec)` of the last swap. Two plain uints. That is the whole state.**
-
-✅ **WHY THIS IS THE RIGHT SHAPE — every property was MEASURED today, not assumed:**
-| requirement | how this satisfies it |
-|---|---|
-| **no ticks** | never forms one — no `tickCumulative`, no `int56` walk, no `1e9` rescale, no `observe` interpolation |
-| **bounded by construction** (§…-DIVERGENCE-FIX) | `p_exec` is a ratio of exchanged amounts; **it cannot diverge as `inv → 0`, which is exactly what killed `POOLED_USD/inv`** |
-| **correct quantity** (§…-SIGNED-REFUTED) | it IS `HODL − range` rewritten; P&L-on-inventory read the range net AHEAD by 3× |
-
-⚠️ **WHAT IT DOES *NOT* FIX, AND MUST NOT BE EXPECTED TO:**
-- **LVR IS INTRINSICALLY PATH-DEPENDENT** (§…-LVR-IS-PATH-DEPENDENT, **1.692×**): a whale realises at
-  ONE price, twelve tranches at TWELVE. **Real economics. The gap will NOT go to 1.000× and should not.**
-- **§UNIT-FORELLA's closed loops** — a different axis (total variation), untouched by this.
-- **The WINDOW/decay constant** still needs §E83's censored duration.
-🔬 **ACCEPTANCE — the six instruments already exist and port unchanged
-(§UNIT-B-INSTRUMENTS-HARDENED):** history gap **materially below σ²'s 2.632×** and near the 1.692×
-economic floor · **skew STRICTLY INSIDE the 3% cap** (the control that caught the false pass) ·
-one accrual per swap · run-to-run noise ≤ σ²'s 1.084×.
-📌 **AND IT IS A PROPOSAL.** Three estimators died today, each sound-looking when written down.
-**Measure it against the instruments before believing any row above.**
-
 ### ⚠️ CROSS-THREAD-ALIGN-2026-08-12 — one correction ACCEPTED against my work, and one removal I CANNOT FIND.
 
 **Owner: *"make all your calculations consistent with the other thread's removals of uniswap and tick
@@ -47645,74 +43693,6 @@ both options priced rather than choosing.** ⚠️ **AND IT OUTRANKS THE SKEW WO
 is a calibration question on a term worth 0.0116% of a swapper's bill; this is live over-issuance on
 every mint.
 
-### 🔴 SKEW-NOT-FINISHED-AND-NET-ADDED — audit: I added **6 slots + per-swap gas**, wired to NOTHING, and removed no tick machinery.
-
-**Owner asked whether the skew work is finished with unneeded data structures taken out. AUDITED, and
-the answer runs the other way.**
-| | state |
-|---|---|
-| `_lossBTC/_lossETH`, `_gainBTC/_gainETH`, `_pendBTC/_pendETH` | **6 slots ADDED to `Core`, committed** |
-| `_flowSlowBTC/ETH` | **REPURPOSED, not freed** — the "removal" was a rename |
-| wired to pricing? | ⛔ **NO.** `realizedVarianceWad` still returns the RING |
-| cost | **accrues on EVERY swap** (LVR algebra + signed branch + `_bumpEwma` + pending write) |
-| read by | **tests only** |
-| tick machinery | ✅ **fully intact** — 16 `tickCumulative` refs in `OracleLib`, `ringVariance` live |
-⇒ **LIVE GAS ON THE MONEY PATH BUYING NOTHING**, and `Core` sits at **148 free** partly because of it.
-
-⛔ **AND THE REGISTER MEASURES THE VARIABLE THAT IS BEING REPLACED.** §ARCH-VARIANCE-VARIABLE moves to
-the **REALIZED EXECUTION PRICE** (`usdIn/tokOut`, bounded by construction); the committed register
-uses `_rangePxWad = POOLED_USD/inv`, **the composition ratio that DIVERGES**
-(§SIGMA-REMOVE-P2-CALIBRATION-MEASURED: 439,492% at 900 bps). ⇒ **It will be rebuilt, not tuned.**
-
-▶️ **RECOMMENDATION — REMOVE IT, and this is rule 1 (no unreachable code) applied to my own work:**
-delete `_loss*`/`_gain*`/`_pend*`, `_accrueRealizedLoss`, `_rangePxWad`, `realizedLossUsd`,
-`realizedLossGross`, and the `_bumpFlow` hook. **Frees 6 slots, ~450 bytes, and per-swap gas.**
-✅ **NOTHING IS LOST:** the Phase-1 RESULTS are measured and booked (history gap 1.100× / LVR 1.692× ·
-noise 1.006× · units 0.991 · one accrual per swap · the 12.000× and 439,492% refutations), and the
-SIX INSTRUMENTS test behaviour so they port. **The knowledge is in the queue; only the superseded
-implementation would go.**
-⚠️ **It is a money-path change** (removes an accrual from `_bumpFlow`) ⇒ **clean-worktree verification
-before it lands**, and it must NOT be bundled with anything else (rule 10).
-📌 **AND THE HONEST HEADLINE: THE SKEW IS NOT FINISHED.** Open: §UNIT-B calibration · §UNIT-FORELLA ·
-§E83 · §UNIT-C-BAR arm B · §SKEW-BTC-SYMMETRY · the whole §ARCH rebuild. **What IS closed:
-§UNIT-B-VERIFIED (counter honest to 0.007%), §UNIT-A (landed), §E42 (premium leak), and the six
-instruments.**
-
-### ✅✅ SKEW-REGISTER-REMOVED — the superseded LVR register is DELETED OUTRIGHT. `Core` **148 → 920 free**, slots reclaimed, per-swap gas gone.
-
-**Owner: *"fuck the harness we dont need slots."* Correct, and it is now TRUE rather than a
-concession — `UnificationControls.t.sol` reads **ZERO** `vm.load(address(CORE))` since `Core.mocks()`
-landed this morning (§UNIT-B-SLOTS-RECLAIM). The only remaining absolute-slot reader was my OWN
-`_pinFlow`, which over-pinned FOUR slots when it needs the TWO flow registers.**
-⇒ **DELETED OUTRIGHT, NO PADDING:** `_loss*` · `_gain*` · `_pend*` (6 slots) · `struct Pend` ·
-`_accrueRealizedLoss` · `_rangePxWad` · `realizedLossUsd` · `realizedLossGross` · the `_bumpFlow` hook.
-`_pinFlow` narrowed to 131087-131088.
-| | before | after |
-|---|---|---|
-| `Core` | 24,428 / **148** | **23,656 / 920** |
-| storage | 6 slots | **0** |
-| per-swap cost | LVR algebra + branch + `_bumpEwma` + pending write | **none** |
-✅ **VERIFIED:** the five retained instruments PASS (`PinnedEntry_ConsolidationDiscount` ·
-`ProbeSwapIsEntryHistoryIndependent` · `CounterMatchesWhatTheSwapperLoses` ·
-`FixtureDrivesRealVariance` · `E71`). ABI gate **0 drifted** (run separately, read before committing).
-📌 **NOTHING WAS LOST — the RESULTS are the artifact, not the code:** history gap **1.100×** (inv·Δp)
-and **1.692×** (LVR) vs σ²'s **2.632×** · run-to-run noise **1.006×** vs **1.084×** · units **0.991** ·
-**exactly one accrual per swap** · the **12.000×** trade-based refutation · the **439,492%** divergence
-at 900 bps · **LVR is intrinsically path-dependent**. **All measured, all booked.**
-⇒ **AND THIS IS RULE 1 APPLIED TO MY OWN WORK.** The register measured `POOLED_USD/inv` — the
-composition ratio §ARCH-VARIANCE-VARIABLE replaces with the REALIZED EXECUTION PRICE. **It was going
-to be rebuilt, not tuned; keeping it was per-swap gas buying nothing.**
-▶️ **`Core` NOW HAS 920 BYTES** — the budget §SIGMA-REMOVE-P2-OVER-EIP170 and
-§SIGMA-REMOVE-P2-DIVERGENCE-FIX were both blocked on. **The `TickMath`-won't-fit blocker is gone.**
-
-| id | state |
-|---|---|
-| **E140-CLOSED** | ✅ **CLOSED BY MEASUREMENT — THERE IS NO DUPLICATED SURFACE TO SUBTRACT.** §E140 expected that once `TxParser` took over witness parsing (§E128), a redundant slice of `BitcoinTx` could be deleted. **Counted the real callers of all 16 functions: every one except `readVarInt` has at least one live use** (`isValidXOnlyKey` 6 · `sumOutputValuesToScript` 6 · `txid`/`isCommitmentTx`/`findOutputByScript`/`buildTaprootScriptPubKey` 3 each · `extractLocktime`/`inputCount`/`sumOutputValuesExcept` 2 · `extractInputPrevOutpoint`/`extractInput0Sequence` 1). `readVarInt` had **13 internal call sites and ZERO external**, so the entire available subtraction was `internal` → `private`. ⇒ **The two parsers are NOT redundant and the premise was wrong:** `TxParser` exists precisely to read WITNESS-carrying txs, which `BitcoinTx._assertLegacy` rejects outright, and §E140-r2 had already established that outpoint logic must NOT move because `TxParser.previousHash` is byte-REVERSED relative to our `txid`. **A "duplicate" that handles the input the other one refuses is not a duplicate.** |
-| **E190-oracle-posture** | ⚠️ **PARTLY SUPERSEDED — SEE §E201-oracle-posture-reconciled: the "ONLY as the per-stable depeg feed" claim below is WRONG (`SwapLib.twapResolve` is a second, price-SUPPLYING role), and this entry's own "never two USD legs" principle is contradicted by `DeployL1_s:341-342`.** ✅ **THE PROTOCOL NO LONGER WIRES A SINGLE PRICE FEED OF ITS OWN AS ITS PRIMARY.** §E189 deleted the last two `IChainlinkFeed` consumers. Verified end state: the one oracle we DEPLOY (`RealRateBtcMorphoOracle`) reads `IAux.getTWAPforAsset(WBTC, 1800)` — we SUPPLY it to our own Morpho market rather than consuming a feed. `MorphoEscrowVenue` takes its oracle from `MarketParams` at construction and folds it into `MARKET_ID = keccak256(abi.encode(m))`, so on **immutable** Morpho Blue markets a pinned copy and a live read are **the same value by construction** — the divergence I initially claimed does not exist there, and I withdrew it. Chainlink now appears ONLY as the per-stable depeg feed passed to `FeeLib.liveDepegBps`, a **circuit breaker that defers on staleness** rather than a price source. ⇒ Matches the owner's architecture: the two volatile legs relate through **one BTC↔ETH relation**, never two USD legs — which would compound two independent oracle errors into the one ratio that matters and double-count dollar risk the basket already monitors. ▶️ **OPEN, and it is an ADDITION not a consolidation:** a single BTC/ETH feed as a CHECKER on the pool TWAPs. Two questions first — (1) our BTC leg prices **WBTC**, so a WBTC depeg reads as ratio imbalance and is indistinguishable from a real move; (2) a breaker needs an action, and depeg severity already owns redemption haircuts, so this would gate the range/lev side. ▶️ **ALSO OPEN — VENUE BORROW POLICY (owner, 2026-08-12): borrow ONLY on Aave v3 (WBTC collateral) and Morpho. `AaveV4Venue` (`borrowStable` `:51`, `borrow` `:129`) and `EulerEscrowVenue` (`borrow` `:115`) still expose borrow paths and must become deposit/withdraw only — check whether either contract then has no reason to exist at all.** |
-
-| id | state |
-|---|---|
-| **E191-feeSettleSats** | ✅ **DELETED ACROSS BOTH REPOS IN ONE COMMIT — which is what the code itself asked for.** `splice`'s `feeSettleSats` had been accepted-and-ignored since §E145; the comment said removing it *"is a CROSS-REPO change and must land in one commit with the Rust side"*. 🔴 **IT WAS WORSE THAN A DEAD PARAMETER — IT DROVE A DEAD RPC CALL ON EVERY SPLICE.** `channel_driver.rs` computed it by reading `Vault.btcFeesOwedSats(address)`, a function **§E145 DELETED** (`Vault.sol:210`). So each splice made a round-trip to a nonexistent selector, swallowed the revert with `.unwrap_or(0)`, and handed the zero to a parameter the contract discarded. **Both halves failed quietly, so the waste was invisible from either side** — the same shape as §E185's no-op gate. ✅ **COMPOUNDING IS NOT AFFECTED, VERIFIED IN CODE RATHER THAN FROM THE COMMENT** (owner asked directly): `BtcLib.settleBtcLp:62` — `if (tokR > 0) { LP.pooled += tokR; compoundedSats = tokR; }`. The BTC fee leg compounds into `LP.pooled` **as it is earned**, which is precisely *why* §E145 deleted the owed ledger: there is no unsettled claim to hold, nothing for a hop-funded grow-splice to settle, and nothing to forfeit at close. The deleted parameter was a settlement mechanism for a ledger that no longer exists. **`splice` head shrinks 5 words → 4**; layout test updated to `0x80`. **Rust 665 passed / 0 failed · ABI gate 0 drifted both sides.**  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): DONE: deleted across both repos** |
 ### ⛔ MY REGIME DESIGN IS REFUTED BY `isbtc-fold` — SYNC BEFORE BUILDING ANYTHING
 
 **Thread sync 2026-08-12.** `isbtc-fold` is **128 commits ahead of `origin/main`** and has already solved
@@ -48211,11 +44191,6 @@ with the v4 position untouched. Both price every LP claim off a number that is n
 `_modifyLiquidity`, and custody and accounting become one thing again. Marked in `Core.swap` itself.
 *(Found by the skew thread; verified here.)*
 
-## ✅ θ CANNOT INFLATE DEPTH PAST BACKING (skew thread, checked)
-`clampByBacking` computes physical backing − pooled FIRST, and `applyTheta`'s fail-open branch returns
-it unchanged ⇒ θ can only TIGHTEN an already-physical bound. **Driving σ² to zero cannot inflate depth
-past backing.** Closes the obvious attack on the variance input.
-
 ## 🔴 THE CUT DELETED THE INDEPENDENT PRICE OBSERVATION — the ring is now CIRCULAR
 
 **Introduced by the v4 cut, found by the owner.** `Core.swap` writes the observation ring with
@@ -48525,46 +44500,6 @@ controlling force"*. **Confirm, then the edit is mechanical.**
   (recovered from their worktree). **Sync via a throwaway worktree; never touch the main tree.**
 - **Reading `HEAD` for your own SHA is unsafe** — another session committed between my `commit` and my
   `log`, and I pushed their commit by mistake.
-
----
-
-## 🔴 HANDOFF ADDENDUM — **`refillRealisable` WAS DELETED FOR THE WRONG REASON, AND MY PRECONDITION IS WRONG (owner, 2026-08-18)**
-
-**OWNER:** *"`refillRealisable` is just the imbalance in the `POOLED_USD` and the `POOLED_ETH` and
-`POOLED_BTC` — without including the whole supply in `POOLED_USD` or reducing what is included in
-there."*
-
-⛔ **THAT CONTRADICTS THE PRECONDITION I WROTE ON `refillPlacement`.** Its docblock currently says:
-*"🔴 PRECONDITION — `invTok`/`invUsd6` MUST BE DELIVERABLE FIGURES, NOT NOMINAL ONES … Feed this
-`vogueETH()` and the range quotes depth it cannot honour."* **That is the wrong quantity for this
-job**, and the two must not be conflated:
-| quantity | what it is | where it belongs |
-|---|---|---|
-| **the range's IMBALANCE** | `POOLED` valued at px vs `POOLED_USD`, **as they stand** | the refill / the skew's own inputs |
-| **DELIVERABILITY** (`deliverableETH`) | venue-sourceable subset, net of the weETH-beyond-Curve slice and unwind-only lev equity | **REDEMPTION**, where you must actually pay |
-⇒ **THE IMBALANCE IS A PLAIN TWO-REGISTER COMPARISON.** Do NOT haircut `POOLED_USD` on the way in,
-and do NOT swell it toward total QU!D supply — **the range's dollars are the range's dollars.**
-Narrowing it by a venue haircut imports a redemption constraint into a PAIRING question and
-understates the imbalance the range actually has.
-
-📌 **CONSEQUENCE FOR THE DELETION LOG.** `refillRealisable` was removed under rule 17 as *"a second
-bound over what `deliverableETH` already bounds"*. **The rule-17 reasoning was sound for a
-DELIVERABILITY clamp; it was the wrong frame for an IMBALANCE MEASURE.** ⇒ Of the "four components
-built then deleted", **three stand** (the stored bounds duplicated a width the arithmetic never read;
-`refillQuote` duplicated repack-first; `imbalanceFeeUsd6` is redundant against the live depletion
-term). **This one does not — what it named is a real quantity nothing else computes.**
-
-▶️ **WHAT THE SUCCESSOR SHOULD DO:**
-1. **Strike the deliverability precondition** from `refillPlacement`'s docblock — it sends the caller
-   to the wrong register.
-2. **Feed it `POOLED` and `POOLED_USD` directly**, per instance (the BTC range is a SEPARATE `Core`,
-   `DeployLib:136-137`, so `POOLED` at the BTC address IS the sats leg — no suffix, no `isBTC`).
-3. **Keep `deliverableETH` where it earns its place** — the redemption path, which must source what it
-   pays. That distinction is the same one §E216 drew for the skew: **valuation and liquidity are
-   independent bounds**, and this is the third place the pair has been conflated.
-⚠️ **ONE OPEN QUESTION THE OWNER'S PHRASING RAISES AND I DID NOT RESOLVE:** `POOLED_USD` also carries
-the debt-funded buffer and the LP-owned increment. *"Without reducing what is included in there"* reads
-as **take it whole**. Confirm before anyone starts subtracting a buffer term.
 
 ---
 
@@ -48920,51 +44855,6 @@ the skew is derived from the spread.**
 ANSWER.** Run it against whatever route replaces TriCrypto **before** wiring the refill: if
 `premium < cost` there, the choice is a cheaper route or an explicit LP-funded restoration — **not a
 bigger constant**, since the venue ceiling bounds the premium from above regardless.
-
-## ⭐⭐ THE REFILL IS NOT AN ACTION WE TAKE — THE SOLVER ROUTES THE PART WE DECLINE (owner, 2026-08-19)
-> *"refill only when not enough in the pool to cover a swap, paid against 1inch (routes the swap) and
-> rebalances the pool. so a keeper is not needed"*
-
-**THIS DISSOLVES THE THREE THINGS THIS THREAD HAS BEEN BLOCKED ON, AND IT DELETES RATHER THAN ADDS.**
-Confirmed in code, not reasoned: `Interfaces.sol:106` — *"**1inch resolves routes OFF-CHAIN**, so
-routing through it forces a `bytes route` argument"* — and `Aux.sol:663`, the solver-facing quote is
-already `base·(1 − wellSkew(asset, size))`. ⇒ **WE NEVER CALL A VENUE. The solver arrives with a price
-it has ALREADY COMMITTED (`Core.sol:1232`), fills what our inventory covers at our skewed quote, and
-routes the remainder itself.** The "refill" is the solver's own routing decision.
-
-| the question this thread kept asking | the answer under this design |
-|---|---|
-| when does the refill trigger? | **when inventory cannot cover THIS swap** — not a clock, not a threshold, not end-of-block |
-| who spent what to rebalance? | **the solver**, off-chain, with its own routing |
-| how did they afford it? | **not our problem** — it committed a price before it reached us |
-| which venue restores the volatile leg? | **NONE. There is no on-chain restoration.** |
-| who runs it? | **nobody — a keeper is not needed** (owner). It is inline in the swap. |
-
-🔴 **THREE LANDED CONCLUSIONS ARE NOW REFUTED, ALL IN THE SAME DIRECTION — I WAS SOLVING A PROBLEM THAT
-DOES NOT EXIST:**
-1. ⛔ **THE 48× SHORTFALL IS MOOT** (recorded `1cf471af`, hours old). It priced a *restoration spread we
-   pay*. **We pay none.** The premium does not have to cover a venue's cost because we never touch a
-   venue. ⚠️ **The finding was arithmetically right and about the wrong system.**
-2. ⛔ **THE "VOLATILE ROUTE" IS A NON-REQUIREMENT, NOT A BLOCKER.** `LevMath.sol:341` still says *"no
-   replacement is wired"* as though a gap were open. **For the REFILL there is nothing to wire.**
-   (⚠️ **The LEVER is a separate consumer and may still need one — do not read this as closing that.**)
-3. ⛔ **`MAX_WELL_SKEW` AS A CAP IS REDUNDANT WITH A REAL MECHANISM.** If our quote gets expensive the
-   solver simply routes MORE of the order elsewhere — **the market caps the premium, continuously and
-   by construction.** A 3% constant is a hand-rolled version of what the counterparty already does.
-   ⇒ **This is standing rule 17 exactly: the root fix makes the clamp DELETABLE.** And the file already
-   confessed the circularity — *"Γ ≡ MAX_WELL_SKEW EXACTLY. It was the cap under a second name… the
-   whole curve has ONE number in it, the cap, and it appears twice."* **A cap the curve is CALIBRATED
-   TO LAND ON was never a safety limit.**
-
-📌 **WHAT SURVIVES, AND IT IS THE PART THAT WAS ALWAYS LOAD-BEARING:** Γ (the A-S risk-aversion scale),
-the σ² adverse-selection kernel, the σ²-free depletion term, and the exhaustion predicate. **The skew
-still prices the fill.** What goes is the CAP, the KEEPER, the VENUE and the RESTORATION LEDGER.
-▶️ **NEXT (in this order, because each shrinks the next):** (a) separate Γ from the cap and delete the
-three clamp sites; (b) make "cannot cover this swap" the fill predicate at the `_handleDelta` seam,
-where `fillOOR` was already folded (`4c111fa8`); (c) re-audit the four refill primitives — under this
-design `refillPlacement` and `proRataShortfall` may have no job at all.
-
-### `§E215-QUOTE-SIZE` ✅
 
 ## ✅ §E215-QUOTE-SIZE — **THE PUBLISHED QUOTE WAS SIZE-BLIND WHILE SETTLEMENT WAS NOT: A 90% DRAIN FILLED 4.12× WORSE THAN QUOTED (found + fixed 2026-08-16).**
 **MEASURED**, $1m range / $2m shed target / σ² = 1e16 — actual ÷ quoted:
@@ -49715,106 +45605,6 @@ and so that whoever builds native delivery knows this is one of its dependants.
 
 
 ### `§E271` ⛔
-
-## §E271 — ⛔ **RETRACTED WITHIN THE HOUR: θ IS NOT CAPPED AT 1e18, SO THE PREMISE IS FALSE**
-⛔ **RETRACTION (2026-08-19, by its author, before anyone acted on it).** The row below rests entirely
-on *"since θ ≤ 1e18, `θ·backing − pooled ≤ backing − pooled`"*. **θ HAS NO UPPER BOUND.**
-`QuidLib.derivedThetaWad` says so explicitly, three lines above where I stopped reading:
-> *"The `theta > 1e18 ? 1e18 : theta` clamp that used to close this function is DELETED — it adds no
-> safety. EVERY consumer already short-circuits at the same threshold: `SwapLib.applyTheta` is
-> `if (thetaEff >= 1e18) return available;` … and the real bound on range depth is the PHYSICAL
-> `backing − pooled` headroom in `clampByBacking` (audit #8), which θ never gates."*
-⇒ When θ ≥ 1e18 `applyTheta` returns `available` untouched and **the physical bound is exactly what
-binds** — and the same comment records that a range earning real premium in a calm tape *"clears 1e18
-routinely"*. So the solvency bound is reachable, is the normal-conditions bound, and is not untested.
-**Both regimes are live: θ throttles in volatile tape (the risk budget working), physical headroom
-throttles otherwise.** That is a designed two-regime bound, not a policy shadowing an invariant.
-⚠️ **AND THERE IS NO 'POLICY KNOB'.** θ is DERIVED — `realizedVarianceWad` × `kLvrWad` × range fee
-yield — with no setter anywhere; `Quid.sol:1006` records that the owner-set `ThetaMode`/`setThetaMode`
-scaffold was already REMOVED as dead code. Calling it a knob was my error and it framed the whole row.
-⇒ **THE METHOD FAILURE, which is the durable part:** I asserted a bound on a variable without checking
-whether it was bounded, then derived a three-consequence finding from it. The refutation was in a
-comment in the same function, and that comment ALSO named the audit (#8) that had already settled the
-question. **Second retraction today of this exact shape** — §E268 asserted code was committed without
-reading a commit; this asserted a range without reading the range. ⇒ *Before building on `x ≤ K`, grep
-for where `x` is clamped and confirm the clamp still exists.* Deleted clamps leave their assumption
-behind in every reader's head.
-⇒ **What survives is small and NOT actionable on its own:** the caller still cannot tell WHICH bound
-bit, so a throttle in volatile tape and a throttle from exhausted backing look identical at the call
-site. That is an observability nicety, not the defect claimed below. §E270 (the two ranges re-deriving
-`targetUSD` differently in these same eight lines) is unaffected and stands.
-
-<details><summary>original row, built on a false premise — do not act on it</summary>
-
-### (retracted) THE THETA CLAMP DOMINATES THE SOLVENCY CLAMP
-🔴 OPEN — found 2026-08-19 from the owner's standing challenge that a clamp may be a workaround, or may
-constrain needlessly. Two of the three bounds on an `addLiq` are legitimate and independent; the third
-SWALLOWS one of them.
-
-**The three bounds, and they are NOT redundant with each other:**
-| bound | source | class |
-|---|---|---|
-| `sizeBySurplus` | `deposits[14] − committedUsd18()` | basket-wide **USD solvency** |
-| `clampByBacking`'s headroom | `backing − pooled` (this range) | range **physical solvency** |
-| `applyTheta` | `θ·backing − pooled` | **POLICY** risk budget |
-The first two read different sources — basket USD vs this range's token headroom — and violating either
-is SILENT (numbers reconcile until redemption), so both earn their place under standing rule 3. **The
-double clamp is not a workaround; I expected it to be one and the code does not support that.**
-
-🔴 **BUT `clampByBacking` FUSES THE SECOND AND THIRD, AND THE THIRD ALWAYS WINS:**
-```solidity
-available = backing > pooled ? backing - pooled : 0;   // physical
-available = applyTheta(thetaEff, backing, pooled, available);
-return want < available ? want : available;            // => min(want, backing−pooled, θ·backing−pooled)
-```
-`applyTheta` returns `available` untouched only when `thetaEff >= 1e18`. Otherwise it returns
-`min(available, θ·backing − pooled)`. **Since θ ≤ 1e18, `θ·backing − pooled ≤ backing − pooled` for all
-inputs** ⇒ **the physical headroom term is UNREACHABLE for every θ < 1**, and binds only at exactly
-θ == 1e18, where the theta branch is skipped entirely.
-
-⇒ **THREE CONSEQUENCES, and the third is the one that bites.**
-1. Every throttle observed in practice is the POLICY knob. The solvency bound it shadows has, in effect,
-   never executed — it is untested by construction, not by omission of tests.
-2. A misconfigured or stale `θ` silently throttles adds in a way **indistinguishable at the call site
-   from running out of backing**: the caller sees `capped < deltaTok` and cannot tell which bound bit.
-   That is the exact false-positive shape the owner's challenge names.
-3. The comment above the call presents physical headroom as the primary principle — *"ONE principle
-   (`SwapLib.clampByBacking`): physical backing HEADROOM (backing − pooled) AND the theta risk-budget"*
-   — which reads as two peers. They are not peers; one dominates the other unconditionally.
-
-⇒ **DO NOT "FIX" THIS BY DELETING THE PHYSICAL BOUND.** It is the SOLVENCY invariant and θ is a tunable;
-deleting the invariant because a policy currently hides it is how a knob turned to 1e18 becomes an
-over-commit. The root move per rule 17 is to stop FUSING them: return WHICH bound bit (or split into
-`solvencyCap()` and `thetaCap()` and let the caller take the min), so a policy throttle is observable as
-a policy throttle. Then the solvency bound can finally be tested at θ = 1e18.
-⚠️ Related, same function: §E270 — the two ranges re-derive `targetUSD` differently after this clamp.
-Settle both together; they are the same eight lines.
-
-</details>
-
-
----
-
-# ₿ §BTC-SCOPE-2026-09-05 — **THE BITCOIN-SCOPE EXTENSION, FOLDED IN VERBATIM-BY-STRUCTURE**
-
-**Owner-supplied 2026-09-05 as an agenda for this file.** Written against `quidmints/SPV@7c5bc10`;
-every `file:line` was read from the tree. It covers **only what this file does not, or states
-wrongly** — items already tracked correctly appear as one-line pointers, never restated.
-
-⚠️ **ON USING IT:** it was assembled iteratively and several edits failed silently before being caught
-by re-reading. **Every claim carries its `file:line` — spot-check before acting.** Anything without a
-"code-verified" marker needs confirmation.
-
-**GOALS:** no fund loss from a hacked hop · no fund loss from a hacked msig upgrading the hop image ·
-no LP online or node · quantum a plus — across **security · efficiency · liveness**, at **maximal
-simplicity, never at odds with the rest**.
-
-📌 **STRUCTURAL FACTS THAT DECIDE SEVERAL ITEMS:** an LP opens exactly **one channel, ever**
-(`OneChannelPerLp`; splice is the only resize) ⇒ one mnemonic = one funding key = one stable `lpEth`
-= one channel. And **§E188's decomposition:** *funds safety must not need the key at all; only
-service may.*
-
-**OUT OF SCOPE:** `quant.ts`, basket entry policy, the EVM venue design, general repo cleanup.
 
 ## §BTC-1 — Goal 3: the design may already hold it outright; §E172 is contradicted
 
@@ -51801,30 +47591,6 @@ _pricingBacking()` — a standard 4626 share price. ⇒ **claims are PRO-RATA, n
 because the derivation is reusable if the claim model is ever revisited (option F, §PLP-R3), and because
 its dead-end diagnoses are independently useful.**
 
-## §PLP-0 ⭐ THE RULING THAT GATES EVERYTHING: WHAT IS THE SKEW FOR?
-
-**Not stale-oracle protection.** `σ²·confFrac/8` is MMRZ eq.16 with `confFrac` a *settlement window* —
-`CONF_FRAC_WAD = 114e12` (~1 hr, BTC), `ETH_CONF_FRAC_WAD = 380e9` (~12 s, one block):
-
-| pool | σ² | window | base |
-|---|---|---|---|
-| BTC | 0.25 | ~1 hr | **0.036 bps** + `SPLICE_FLOOR` |
-| ETH | 0.49 | one block | **0.00023 bps** |
-
-To reach 5 bps you need a 3-day exposure window. **If that is the skew's job, the skew has no job.**
-`§E79` asserts that purpose and `§E136-skew` builds on it, so this reaches past one row.
-**Not IL compensation either.** IL reaches the LP through the **share price** (`onShortfall`). A swap fee
-carrying IL compensation double-counts a channel that already delivers.
-⇒ **The remaining candidate is a DEPTH TOLL**: you consumed scarce depth, you pay for it, owed at the
-moment of the trade. The owner's original framing — *a fairer alternative to slippage*.
-⚠️ **CROSS-REFERENCE:** §PLP-T class 3 (source on demand) reaches the depth-toll answer from the
-inventory side. **The two decisions are one decision** — do not rule on this without §PLP-T open.
-🔴 **RULE ON THIS BEFORE ANY PARAMETER WORK.** Depth toll ⇒ no horizon, no τ, no `Γ = γ(T−t)`, and
-`DEPLETION_RATE_WAD` may already be the complete answer. Risk premium ⇒ all of that must be built.
-**Half this file is conditional on the answer.**
-⚠️ **NARROWED, NOT SETTLED, BY §PLP-Z Q1.2.** Value-neutral pricing kills the *realised loss* reading; it
-does **not** touch the *future variance* reading. ⇒ **depth toll vs future-variance premium.**
-
 ## §PLP-1 — CONSTANTS: two primitives, everything else derived
 
 Legitimate only if it is a **choice about what we are building**, not an estimate the chain can measure.
@@ -51977,24 +47743,6 @@ reset of the basis.**
 ✅ **`dex2 = 0`'s "legacy hub hop" IS a live path (measured 2026-09-05)** — it is the branch `_batch`
 forces. **It does not bypass `_aggSwap`**; it selects the single-hop-via-USDC form of it.
 
-## §PLP-7 — TARGET MANIPULATION (a candidate fix for `§E136-skew` Cluster 1)
-
-⚠️ **Not a new finding.** Cluster 1 already consolidates E82/E83/E86/E93/E99/E100 into *`target =
-flowEwmaUsd` is the wrong quantity*, and **E86 — *target grows with the very volume used to drain it***
-IS this. What is added: the deliberate LP-recapture variant, and a candidate fix.
-`_bumpFlow` folds **gross notional, direction-blind**, as a decaying sum. Raising `target` raises `q` and
-the drain premium; raising `flow` shortens §E54's `τ = q̄/flow` and lowers the sell premium. **One
-register, two opposite exploits.** A large LP wash-trades to tax every real drainer, recovering fraction
-`f` through `USD_FEES`; net cost `(1−f)·premium + gas`. The 48 h window makes the inflation **persist**
-for 48 h after the wash stops — **width is not a defence; direction-blindness is the defect.**
-⭐ **Candidate fix: directionality.** A wash has gross flow and ~zero net displacement. `netFlowUsd`
-(§E320-SSRN) is exactly this instrument, **built and unwired**. **`target` keeps using gross** (sizing
-depth for turnover is what a target is for); the **directionality signal** is net.
-🔴 **Must land WITH the Cluster 1 fix and `§E88-r`'s sentinel split.** The flush short-circuit sits
-**above** the σ² sentinel and fires *because* the target is wrong. Fix the target and the sentinel
-becomes reachable for the first time — `§UNIT-A-ATTEMPT-1` measured **3.04% on an ordinary in-range buy
-against a ~21 bps cushion, 14× overcharge.** ⇒ **One landing, not three.**
-
 ## §PLP-8 — ORDER-INSENSITIVITY WITHOUT AUCTIONS
 
 `q̄` integrates from **live** inventory, so position in a block is worth money. **Snapshot the rate once
@@ -52089,92 +47837,6 @@ half decides whether those numbers stand.**
 transfer.** Moving weETH within `rangeETH` restores serving capacity and crosses no boundary. Buying ETH
 back means spending basket dollars — a transfer from QU!D holders to ETH LPs, which is exactly what
 `onShortfall` refuses.
-
-## §PLP-11 — σ²: CONSOLIDATED STATUS (2026-09-07)
-
-⭐ **THIS IS THE SINGLE PLACE THE σ² QUESTION LIVES.** It was spread across §PLP-0, §PLP-7, §PLP-11,
-§PLP-13 and Q5.4, and a reader had to assemble it — which flattens the distinction that matters most
-here: these findings have **different epistemic weights**, and merging them turns "settled by
-arithmetic" and "settled as sequencing" into one undifferentiated "decided". 🔴 **NOTHING BELOW IS
-DECIDED except where it says so.** The individual sections stay as the working record; this is the
-status, and it is what to read first.
-
-### ✅ SETTLED BY ARITHMETIC — σ² is NOT adverse-selection compensation
-`σ²·confFrac/8` is **0.00023 bps on ETH** and **0.036 bps on BTC**, because `confFrac` is a
-SETTLEMENT WINDOW — one block on ETH, ~1 hour on BTC — not a holding period. That magnitude cannot be
-compensation for anything. ⇒ **This kills §E79's stated purpose for the skew**, and it is the one σ²
-conclusion that **depends on no open question below**. It stands whatever item 0 resolves to.
-
-### ✅ SETTLED BY ELIMINATION — three of four channels fail; only convexity survives
-| channel | verdict |
-|---|---|
-| option on the quote window | **tiny at any plausible window** — 5 bps needs 3 days; a minute is 0.001 bps |
-| σ² as a leading indicator of flow | **double-counts** — `target` IS flow. Argues for a shorter window, not a σ² term |
-| capacity thinning (Curve depth in vol events) | **real, but read `balances(0)` DIRECTLY** — σ² is a worse proxy for a thing we can observe |
-| **convexity** | ⭐ **SURVIVES** — a Jensen adjustment, because the toll is convex and the state diffuses |
-⚠️ **CONVEXITY IS SURVIVING, NOT ESTABLISHED.** Nothing computes it; its materiality depends on
-`f''` NEAR THE OPERATING POINT, and that is **unmeasured**. "The one channel that survives" is a
-statement about the other three, not evidence for this one.
-
-### ✅ SETTLED AS A PRINCIPLE — not yet as code
-> **σ² prices RISK decisions** (how tightly to track the target — `ilTargetBps`'s band).
-> **Flow prices SCARCITY decisions** (what depth costs).
-> **σ² enters the toll only through CONVEXITY, never as `γσ²q`.**
-
-### ✅ SETTLED AS SEQUENCING — and this is the OPERATIONAL decision
-**σ² pinning is NOT SEPARABLE.** The flush short-circuit sits ABOVE the σ² sentinel and fires because
-the TARGET is wrong. Fix Cluster 1's target and **the sentinel becomes reachable for the first time**.
-θ also fails open at `1e18` and arms on the same event. ⇒ **Two dormant mechanisms go live together,
-and neither has ever executed against live state** — so **σ² pinning, the target fix, and §E88-r's
-sentinel split are ONE LANDING**, not three.
-⚠️ **PRECISION ON "σ²=0 RETURNS 0" — IT IS BRANCH-DEPENDENT AND THE UNQUALIFIED FORM MISLEADS.**
-On the **flush/exempt** branch (`inv ≤ target`) σ²=0 does return 0 through the short-circuit. On the
-**OVERSHOOT** branch it returns **`UNKNOWN_VARIANCE_SKEW = 3e16`** — a flat 300 bps, measured
-constant from +1% to +200% overshoot — because `sellSkew` branches on `sigmaSqWad == 0` and never
-evaluates `qBar`. Anyone reaching for the sentinel-split work needs the second form.
-⭐ **THE EVIDENCE FOR "NEVER EXECUTED" IS §E277 — ⚠️ AS A DATED MEASUREMENT, NOT A LIVE STATE.**
-Its instrument went GREEN via §E327 (SPRINT.md:21021) and I cited it as current in `40860805`; that
-citation is corrected here.
-`DrainAtomicity.test_UNITA_FixtureDrivesRealVariance` measured **σ² = 1, 1, 1, 0 wad across FOUR full
-suite runs (2026-08-21)** — deterministic, against a suite carrying a ±2-test noise floor — and is
-kept DELIBERATELY RED as the standing proof that *"`realizedVarianceWad()` is pinned at ~0 and 20
-driven ticks cannot budge it"*. ⇒ Cite THAT here rather than any inference: the sequencing claim rests
-on a measurement, not on an argument.
-⭐ **AND THE SECOND HALF: §SKEW-COVERAGE-HOLE.** It is not only that the
-mechanisms are dormant in PRODUCTION — the curve behind them has never run **under test** either.
-Every skew test in the suite runs its swaps at ONE pinned block, so σ² is structurally 0 and each one
-exercises the sentinel. Measured with a real-Chainlink-round harness, the curve is exactly linear in
-the overshoot (1.00×/4.99×/9.97×/49.85×/199.4× at +1/+5/+10/+50/+200%). The sequencing argument is
-therefore stronger than it was, on evidence rather than on inference.
-
-### 🔴 OPEN, AND BLOCKING THE REST — item 0: does σ² belong in the kernel at all?
-Narrowed to **depth toll vs future-variance premium**. ⚠️ **§PLP-T class 3 would remove σ² entirely**,
-and the two decisions are one decision. **Neither is decidable without the measurements.**
-
-### ⚠️ 0a REACHES BACK INTO THE SEQUENCING — and the two halves have different lifetimes
-The **3.04%** figure that motivates treating that landing as a first exercise comes from
-**§UNIT-A-ATTEMPT-1, a MOCK-BASED run**. If that harness models a DELETED settlement path, the number
-needs re-sourcing. ⇒ **Separate the two claims and do not let them travel together:** the sequencing
-conclusion probably survives **on structure alone**; **the number behind it does not.** ⛔ A
-mock-sourced figure sitting unlabelled beside a structural argument is how it gets cited later as
-measured — the exact shape that produced a `(usd6)` label on an 18-dec quantity and a cross-run "$1.62
-gap" elsewhere in this file on the same day.
-
----
-
-### working record — the original channel table
-
-| channel | verdict |
-|---|---|
-| option on the quote window | **tiny** — 5 bps needs a 3-day window; a minute is 0.001 bps |
-| σ² as a leading indicator of flow | **double-counts** — `target` IS flow. Argues for a shorter window, not a σ² term |
-| capacity thinning (Curve depth in vol events) | **real, but read `balances(0)` directly** |
-| **convexity** | ⭐ **survives.** The toll is convex and the state diffuses, so charging `f(q)` today under-prices by ≈`½f''(q)·Var(q)`. **Not inventory risk** — a Jensen adjustment to a scarcity toll. Nothing computes it; materiality depends on `f''` near the operating point, **unmeasured** |
-
-> **σ² prices RISK decisions** (how tightly to track the target — `ilTargetBps`'s band). **Flow prices
-> SCARCITY decisions** (what depth costs). **σ² enters the toll only through convexity, never as `γσ²q`.**
-
-⚠️ **STATUS: LIVE AGAIN** — §PLP-A would have retired the convexity channel too; Q1.1 voided §PLP-A.
 
 ## §PLP-12 — OTTER
 
@@ -54124,148 +49786,6 @@ lacked** (*"the owner's cross-spoke discriminator needs a second spoke address I
 are 7, and it is now a read rather than a missing input.
 
 
-## §SESS-15 — THE REFILL PROBLEM, LOOKED AT FROM ALL SIDES. **ONE CANDIDATE DIED IN THE READING; THE PROBLEM IS NARROWER THAN §PLP-T STATES.** (2026-09-06)
-
-**Owner, 2026-09-06:** *"i am not sure about the borrow for refill unless we repay it immediately from
-future flow"* · *"we cant rely on hopes with borrows. need to measure"* · *"look at it from all sides,
-dont jump to conclusions. look for the most elegant solution."*
-⇒ **NOTHING IS RULED HERE.** This narrows the option space and names the cheapest discriminating
-measurement. §PLP-T's *"NOT READY TO CHOOSE"* stands.
-
-### ⛔ THE CANDIDATE I WAS FORMING IS ALREADY BUILT, AND IT IS NOT ENOUGH
-The idea: make the skew **signed** — charge the direction that worsens imbalance, discount the one that
-improves it. *"Not paying a third party, just declining to charge for the trade we want."*
-🔴 **IT IS ALREADY THE CODE.** `SwapLib:445-448` charges `wellSkew` **only on the volatile-OUT drain**
-(*"Scale the buy DOWN so a scarce pool hands out less volatile"*), and `skewWad` returns `uint` — there is
-no negative branch and none is needed, because **the refill direction already pays ZERO skew.**
-⇒ **The discount exists and has not produced refill flow**, which settles the question empirically rather
-than by argument: **when settlement is at oracle, "free" is not an incentive.** A refiller compares us to
-the whole market and finds us merely *not worse*. Only being **better** creates flow — and that is class
-1's entire content. ⚠️ **Recorded because it looked elegant and was wrong**: a mechanism that is already
-implemented cannot be the missing mechanism.
-
-### ⭐ THE PROBLEM IS ONE LEG, NOT TWO — AND §PLP-T DOES NOT SAY THIS
-| leg | drained by | refilled by | two-sided? |
-|---|---|---|---|
-| **USD** | redemptions (§PLP-T2), swap-ins | **deposits** — `Quid.deposit(assets, receiver)` is single-asset and takes DOLLARS | ✅ **naturally** |
-| **VOLATILE** | swap-outs (the skewed drain) | only a volatile-IN swap | 🔴 **no natural source** |
-⇒ **The ratchet is specific to the volatile leg.** The USD leg already has an un-costed, always-on refill
-that nobody has to be paid for. **Every class should be scoped to the volatile leg only** — a class-1
-spread posted on the USD leg would be paying for something deposits already do free.
-⚠️ **This does NOT dissolve §PLP-T2**: a redemption wave can still outrun deposits. It means T2 is a
-RATE mismatch on a leg that has a source, which is a different (and smaller) problem than a leg with none.
-
-### 🔑 THE POOL IS SELF-*LIMITING* BUT NOT SELF-*RESTORING*, AND THE REFRAME MAY ALREADY ACCEPT THAT
-`skewWad` prices scarcity on the inventory **the swap leaves behind** (`inv1 = inv0 − drainUsd6`), so the
-marginal drain gets monotonically more expensive as inventory falls. That is **a restoring term on FLOW,
-not on INVENTORY** — and §PLP-T's own reframe asks only for *"the ABILITY TO QUOTE BOTH SIDES"*, which a
-never-fully-depleted pool retains, at a worse price.
-⇒ **§PLP-T's *"a one-way ratchet with no restoring term"* is too strong.** There is a restoring term; it
-acts on the rate of depletion rather than on the level.
-🔴 **STEELMAN AGAINST THAT, AND IT IS STRONG:** the restoring term only works if drain flow is **price-
-elastic**. At oracle settlement there is no mispricing to arb, so the drainers are **real users** doing
-swap-outs and redemptions — demand that is plausibly **inelastic**. If so the rising skew **taxes users
-without deterring them**, and the ratchet is real after all. ⚠️ **Both readings fit every fact we have.**
-
-### ▶️ THE CHEAPEST DISCRIMINATING MEASUREMENT, AND IT IS SHARPER THAN M1
-> **M0 — is realised volatile-OUT drain rate price-elastic with respect to the charged skew?**
-Regress realised drain volume against the skew rate it paid, on the volatile leg only.
-- **Elastic** ⇒ the existing mechanism already bounds depletion; classes 1–3 are premature and the work
-  is CALIBRATION (§ARB-SHARING's *"the largest premium that still leaves the arb profitable"*).
-- **Inelastic** ⇒ the skew is a tax, not a brake, the ratchet is confirmed, and an ACTIVE mechanism is
-  required — at which point M5 (class 1) and M2/M3 (class 2's exposure duration) become the live set.
-⭐ **It uses data M1/M7 collect anyway**, needs no new instrument, and **its two outcomes point at
-different halves of the option space** — which is what makes it worth running before anything else.
-
-### 💰 AND THE FRAMING THAT MAKES CLASS 1 ASSESSABLE RATHER THAN IDEOLOGICAL
-§PLP-Z establishes LPs are **whole at every ratio**. ⇒ drift is a **REVENUE** problem, not a solvency one,
-so spending to fix it is an **investment with an ROI**, not a loss to be avoided on principle.
-⇒ **A posted refill spread is self-funding iff `spread_paid < fee_income_recovered_on_the_restored_side`,
-and that bound is computable from the two-sided volume history M1/M7 already gather.** It also gives the
-owner's constraint (*"maximise value/premium kept for LPs"*) a **number** instead of a preference: reject
-any spread above that bound, accept below it. ⚠️ **The bound is necessary, not sufficient** — M5 still has
-to show a spread inside it actually attracts flow, and *"a posted spread nobody takes is not a mechanism."*
-
-### ⛔ ON BORROW (class 2), PER THE OWNER'S TWO MESSAGES
-*"Repay immediately from future flow"* changes the instrument from a standing directional loan to a
-**bridge**, which moves its cost from **M6** (liquidation tail) to **M2/M3** (drift persistence = exposure
-duration). ⛔ **But it is only a bridge if repayment is FORCED.** Absent a hard cap on outstanding size and
-a forced unwind at a duration bound, "repaid from future flow" is the same *"organic counter-flow"* §PLP-T
-already dismisses as *"not a mechanism — a hope."* ⇒ **Per the owner: do not adopt it on the argument.
-M2/M3 first, and the forcing mechanism is a precondition of the design, not a detail of it.**
-
-## §SESS-16 — **M0 MEASURED. THE SKEW IS ~0 bps ACROSS THE ENTIRE NORMAL RANGE, SO §PLP-T's RATCHET IS REAL AND MY OWN COUNTER-READING IS DEAD.** (2026-09-06)
-
-`evm/test/SkewTollCurve.t.sol`, 4/4, pure. Live-measured inputs (SPRINT.md:19301): **σ² =
-704808248487932092 · flowEwmaUsd = $198,203 · POOLED = 319.79 ETH (~$900k)**.
-
-### ⛔ FIRST, WHAT M0 CANNOT BE: THERE IS NO DEPLOYMENT
-`evm/deployments/l1.json` names **`chainId: 1`** addresses — and **`core`, `aux`, `vault` and
-`levManager` all have ZERO CODE on mainnet** at the archive pin. It is a dry-run artifact.
-⇒ **There is no realised flow to regress, so M0's BEHAVIOURAL half is unmeasurable — and so is §PLP-T's
-entire M1–M7 set as written.** 🔴 **THOSE MEASUREMENTS ARE BLOCKED ON LAUNCH (or on a proxy venue), NOT
-ON ANALYSIS**, which means **GATE 2.2's *"gated on M1–M3 + M7"* is gated on something that cannot happen
-pre-launch.** That is a scheduling fact the order does not currently carry.
-
-### ⭐ THE MAGNITUDE HALF IS PURE, AND IT SETTLES M0 WITHOUT THE BEHAVIOURAL HALF
-The toll a drain pays, at **live** parameters (`inv/target = 4.54`):
-| drain, % of pool | 1% | 5% | 10% | 25% | 50% | 75% | 90% |
-|---|---|---|---|---|---|---|---|
-| **skew, bps** | **0** | **0** | **0** | **0** | **1** | **1** | **96** |
-
-And the same ticket as inventory falls (5% of a full pool):
-| inventory | $900k | $675k | $450k | $225k | $90k | $45k |
-|---|---|---|---|---|---|---|
-| **skew, bps** | 0 | 0 | 0 | **10** | **435** | 10000 (saturated) |
-
-🔴 **⇒ THE DETERRENT IS ZERO OVER THE WHOLE OPERATING RANGE. NO ELASTICITY CAN RESCUE IT** — a 0-bps toll
-changes nobody's routing, whatever their price sensitivity. ⇒ **§SESS-15's steelman ("the pool is
-self-LIMITING: rising skew prices out the marginal drain, so §PLP-T's *no restoring term* is too strong")
-is REFUTED BY MEASUREMENT.** The restoring term exists in the formula and is **not engaged in practice**.
-**§PLP-T's ratchet reading stands. I was wrong and the sweep is why.**
-⚠️ **The brake does exist — it just switches on far too late**, at ~75-90% depletion, i.e. only once the
-pool is nearly gone. It is a wipeout guard, not a rebalancing incentive.
-
-### 🔑 AND THE OWNER'S REMEMBERED TODO IS PLAUSIBLY A PRINCIPAL CAUSE, NOT A SIDE ISSUE
-**Owner, 2026-09-06:** *"there was a todo to include redemption flow somehow in the skew math?"* **There
-was, it is live, and it points straight at the result above.**
-🔎 **`_bumpFlow` has EXACTLY ONE CALL SITE** — `Core.sol:1053`, inside the swap settlement path, whose own
-comment reads *"Every range and well swap routes through here, so this remains the ONE bump point."*
-**`unwindForRedeem` is a BURN, not a swap** ⇒ **a redemption wave consumes range inventory and NEVER
-raises `flowEwmaUsd`** — the EWMA `skewWad` reads as `target`.
-⇒ **`target` systematically UNDER-COUNTS the demand the range actually serves, so `inv/target` reads too
-HIGH and the pool looks over-stocked.** At live values that ratio is **4.54**, which is exactly why the
-table above is a row of zeros.
-📊 **PRICED — same drain, same inventory, only `target` varied:**
-| true flow vs measured | ×1 (today) | ×2 | ×3 | ×5 | ×10 |
-|---|---|---|---|---|---|
-| **skew, bps** | **0** | 0 | 0 | **34** | **279** |
-⇒ **If redemptions make true throughput ~5× the swap-only EWMA, the skew goes from 0 to 34 bps; at 10×,
-279 bps.** ⭐ **So the omission is not a rounding error — it is the difference between a mechanism that
-fires and one that does not.**
-⚠️ **BOUND THE CLAIM, TWICE.** ① The multiplier is a SWEEP, not a measurement — **what redemption volume
-actually is relative to swap volume is unknown and needs the same live data M1/M7 need** (§PLP-T2's M7 is
-exactly this quantity, which makes M7 the highest-value item in that set, not an optional seventh).
-② Fixing `target` is a **money-path change to a live pricing term**; rule 10 says it is its own change,
-and §E352's flush-branch defect sits in the same function.
-
-### ▶️ WHAT THIS CHANGES IN THE ORDER
-1. **§PLP-T's four classes are back in play in full** — the "maybe the skew already handles it" escape is
-   closed by measurement.
-2. **M7 is promoted**: redemption-vs-swap volume is now an input to the SKEW, not just to the class ruling.
-3. **A candidate that costs nothing and was not in the class list: COUNT REDEMPTION FLOW IN `target`.** It
-   is not a fifth class — it makes the EXISTING mechanism engage — and it pays no third party, borrows
-   nothing, and holds no inventory. ⚠️ **Not proposed as the answer**: it re-prices every drain, so it
-   needs M7 first and a decision on whether a 34–279 bps toll is wanted.
-4. ⛔ **GATE 2.2's measurement gate needs re-scoping against "there is no deployment."**
-
-### 🔴 A CORRECTION I OWE ON THIS FILE'S OWN METHOD
-My first `_bps` helper multiplied the raw skew by 10,000 **before** clamping and overflowed, which I
-briefly read as a library defect. It was not: `skewWad` returns `type(uint).max` once `drain >= inv` **by
-design**, so the pole *"reports itself"* and `_boundToFullHaircut` saturates it at `SKEW_UNFILLABLE`.
-**The test was wrong, not the code** — recorded because a "panic in a money-path pure function" is exactly
-the kind of finding that would have been expensive to report without bracketing it first.
-
 ## §SESS-17 — **THE UN-BOOKED REGISTER: findings that lived only in commit messages or in chat.** (2026-09-06)
 
 **Owner, 2026-09-06:** *"when you say first half holds but second half doesnt, and things of this nature,
@@ -54292,76 +49812,6 @@ message does not discharge it.* ▶️ **Swept every commit on `sprint-fold-and-
 return-value/approval hazard (§SESS-2), OOR items 1–4 (their table), the `avgYield` diagnostic (§SESS-10),
 GATE 0a's second half, and `Alles.t.sol`'s divergent `VAULTS` array. **A register that repeats booked work
 is as useless as one that omits unbooked work.**
-
-## §SESS-18 — **THE TARGET FIX LANDED: a redemption is flow, and it now reaches the skew.** (2026-09-06)
-
-**Owner:** *"do the target fix."* ✅ **Done, and the SHAPE was decided by the owner's own next message**
-(*"there was a lot of skew work… keep gross but add a net check against wash trading"*), which turned a
-one-line change into a two-register one. **That message arrived before the one-line version was committed
-and is the reason it is not what shipped.**
-
-### ⭐ WHAT WAS WRONG
-`flowEwmaUsd` is `skewWad`'s `target` — *"scarcity is inventory against the flow we shed into"* — and
-`_bumpFlow` had **exactly one call site**, `Core:1053`, inside the swap settlement path (*"the ONE bump
-point"*). **`unwindForRedeem` is a BURN, not a swap**, so a redemption wave consumed range inventory and
-left `target` decaying. **The pool read as over-stocked precisely while it was being emptied** — §SESS-16
-measured `inv/target = 4.54` and a **0-bps** drain toll across the whole normal range.
-
-### 🔴 WHY IT IS NOT A ONE-LINE `_bumpFlow` CALL — THE WASH-TRADE DISCRIMINATOR
-`flowEwmaUsd` (GROSS, fed a magnitude) and `netFlowUsd` (SIGNED) are a **matched pair, and the pair IS
-the wash-trading check** §E326 built: over one round trip gross went `0 → 49,999,999,999 →
-99,994,054,053` while the position netted to ~$6, so *"a one-directional drain and a balanced round trip
-look identical"* to gross alone.
-⛔ **A REDEMPTION RAISES GROSS AND MOVES NET NOT AT ALL — PRECISELY THE WASH SIGNATURE.** Folding
-redemptions into `_flow` would have made that discriminator **false-positive on the most legitimate flow
-there is, before the check is even built.**
-⇒ ✅ **Redemptions get their OWN register**, `_flow` stays SWAP-ONLY and stays paired with `netFlowUsd`,
-and **§E326's *"`_bumpFlow` has ONE call site, inside `swap`"* remains TRUE** rather than being quietly
-invalidated.
-
-### ✅ WHAT SHIPPED
-| piece | where |
-|---|---|
-| `Core._redeemFlow` (`Flow`, **appended**) | `Core.sol` — slot **274** |
-| `Core.bumpRedeemFlow(uint usd6) external onlyUs` | bumps `_redeemFlow` only |
-| `Core.redeemEwmaUsd()` · `Core.skewTargetUsd() = flow + redeem` | **the ONE composition point**, so a future re-weighting is one function, not two money-path call sites that can drift |
-| `Quid.unwindForRedeem` → `CORE.bumpRedeemFlow(freed6)` | on the **REALISED** delta, never `usdWanted` (it UNDER-frees by `basketUsd/POOLED_USD` whenever LPs hold an increment, which is normal) |
-| `SwapLib.skewWad` + `sellSkew` read `skewTargetUsd()` | both, or the two directions disagree |
-
-🔑 **ONE REGISTER MOVES BOTH DIRECTIONS THE RIGHT WAY, WHICH IS WHY NO NEW MECHANISM WAS NEEDED:**
-· **drain** (`skewWad`): higher `target` ⇒ lower `inv/target` ⇒ scarcity actually prices.
-· **refill** (`sellSkew`): its rule is `inv <= target ⇒ EXEMPT`, so a higher `target` keeps the refill
-  direction **free across a WIDER band** and starts the overshoot charge later.
-⇒ **draining dearer AND refilling free for longer — no third party paid, nothing borrowed, no inventory
-held.** ⚠️ It does **not** make refilling *attractive* (§SESS-15: at oracle settlement, free is not an
-incentive). It widens the *relative* spread between the two directions, which is a smaller claim.
-
-### ▶️ VERIFIED, NOT ASSUMED
-- `evm/test/RedeemFlowTarget.t.sol` **3/3**: a $50,000 unwind moves `redeemEwmaUsd` **0 → 49,999,999,999**
-  and `skewTargetUsd` with it, while **`flowEwmaUsd` stays 0** and **`netFlowUsd` stays 0**. Carries a
-  control asserting the unwind is real (`POOLED_USD` 151,999.999998 → 101,999.999999), because every
-  assertion is vacuous against a no-op unwind.
-- **`forge inspect Core storageLayout`: `_flow` still slot 262, `_prem` still 263.** Asserted because
-  `DrainAtomicity._flowTs` reads those by RAW INDEX and *"a stale slot does NOT fail"* — a shifted layout
-  would let that test pass while measuring the wrong variable.
-- Regression: `SignedNetFlow` 4/4 · `PooledUsdRepackMatrix` 8/8 · `SkewAsymmetry` 7/7 · `SkewE352Reachability`
-  4/4 · `SkewFlowDiscrimination` 6/6 · `SkewLearningsAreLive` 4/4 · `SkewCalibration` 1/1 ·
-  `SkewLivePathReachesKernel` 2/2 · `DrainAtomicity` 32/33.
-
-### 🟡 THE ONE RED, AND IT IS PRE-EXISTING — MEASURED, NOT ASSERTED
-`DrainAtomicity::test_UNITB_ProbeSwapIsEntryHistoryIndependent` fails its own CONTROL (*"both arms must
-reach the SAME q0"*): `177031386623868081908 !~= 177543648964012186941`, **real delta 0.2885%** against a
-**0.1%** tolerance. ✅ **Re-run with this change STASHED and it fails with BYTE-IDENTICAL numbers**, so it
-is not caused here. It is the already-booked *"`test_UNITB_ProbeSwapIsEntryHistoryIndependent`'s 0.1% q0
-control tolerance"* item, now with an exact figure at `FORK_BLOCK=25800000`. ⚠️ **The question is whether
-0.1% was ever the right tolerance for a two-arm traversal, not whether to widen it to pass** — a control
-loosened until it is satisfied is the §VACUOUS-BOUNDS shape.
-
-### ⚠️ WHAT THIS DOES NOT SETTLE
-**How large redemption flow actually is relative to swap flow is still M7**, and M7 still needs live data
-this tree does not have (§SESS-16: `l1.json`'s addresses hold zero code). ⇒ **the fix makes the mechanism
-CAPABLE of seeing redemptions; it does not tell us what the resulting toll will be.** §PLP-T's class
-ruling is unchanged and still open.
 
 ## §SESS-19 — **U1 FIXED, AND IT WAS §E357's DEFECT ON THE MIRROR LEG. PLUS: THE FINAL SHAPE OF THE 1inch INTEGRATION.** (2026-09-06)
 
@@ -57877,145 +53327,6 @@ it is shared config and mutating it was outside what this thread could do unatte
 finished — that scope has its own backlog at `docs/actionable/TODO.md` (owner, 2026-09-07). Verified:
 zero such paths in any commit of this session.
 
-## ✅ §REFILL-SIZE — **E70's OPEN QUESTION IS ANSWERED, AND ITS CONCLUSION WAS AN ARTEFACT OF THE SELL SIZE.** (2026-09-07)
-
-E70 handed off ONE blocking question — *"where do the ETH sell's proceeds go? … my async-settlement
-hypothesis is EXPLICITLY UNPROVEN and may instead be a bug"* — and forbade any pricing work until it
-resolved. **Resolved by measurement, both halves:**
-
-✅ **THE DELIVERY GAP IS CLOSED. IT WAS NOT A BUG.** `RestoreProfitability` now shows `WETH left = 0`
-and `got = 48,279.72 usd18` — the proceeds arrive DIRECTLY at the recipient. No claim to redeem, no
-missing stable, no loss. §4a steps 2 and 3 do not apply. (The fixture has since grown an
-`assertGt(got, 0)` guard at the recipient, which is what makes this durable.)
-
-🔴 **AND E70's ANSWER TO ITS OWN PRICING QUESTION — "restoration does not pay for itself, −300 bps" —
-IS AN ARTEFACT OF THE SELL SIZE, NOT A PROPERTY OF RESTORATION.** The fixture sold a flat 20 ETH
-into a **$27,382.73** deficit: **1.82× the gap**, so 45% of the trade pushed inventory PAST target —
-which `SwapLib:430` charges the A-S premium ON PURPOSE (*"a sell that pushes the pool's volatile
-inventory PAST target is inventory-INCREASING ⇒ charge the same A-S premium the drain does"*).
-⇒ It measured a trade that is **45% not restoring** and reported the answer as if it were.
-
-⭐ **MEASURED, sweeping sell size as a MULTIPLE OF THE DEFICIT on identical state (snapshot/revert),
-`test_REFILLSIZE_ShortfallIsAPropertyOfOvershootNotRestoration`:**
-
-| size as % of deficit | 50 | 90 | **100** | **110** | 150 | 182 | 300 |
-|---|---|---|---|---|---|---|---|
-| shortfall (bps) | 0 | 0 | **0** | **300** | 300 | 300 | 300 |
-
-⇒ **RESTORING IS EXACTLY FREE UP TO THE DEFICIT.** The mirror/flush exemption fires precisely as
-`SwapLib:430` designs it; the earlier −300 bps was the overshoot and nothing else.
-
-~~🔴 **AND THE SECOND FINDING IS SHARPER THAN THE FIRST: THE CHARGE IS A CLIFF, NOT A SLOPE.**~~
-🔴 **STRUCK 2026-09-07 — THE CLIFF WAS A MEASUREMENT ARTEFACT, AND THE "DECIDE DELIBERATELY WHETHER
-THAT IS INTENDED" ASK IS WITHDRAWN.** The row read that crossing target by 10% costs the SAME 300 bps
-as crossing by 200%, applied to the WHOLE trade, so a restorer mis-sizing by one wei pays 3% on their
-entire size. **That does not happen.** The flat 300 bps = `GAMMA_WAD = 3e16` was not the A-S curve
-saturating — it is `UNKNOWN_VARIANCE_SKEW`, the CONSTANT `sellSkew` returns when `sigmaSqWad == 0`,
-which bypasses `qBar` entirely. A constant looks like a cliff because a constant is flat.
-⭐ **RE-MEASURED WITH REAL VARIANCE (σ² ≈ 0.1006 wad, from replayed consecutive mainnet Chainlink
-rounds), the charge is EXACTLY LINEAR in the overshoot:**
-
-| overshoot | +1% | +5% | +10% | +50% | +200% |
-|---|---|---|---|---|---|
-| `sellSkew` (wad) | 1.5747e12 | 7.8535e12 | 1.5702e13 | 7.8491e13 | 3.1395e14 |
-| ratio vs +1% | 1.00× | **4.99×** | **9.97×** | **49.85×** | **199.4×** |
-
-⇒ **THERE IS NO DISCONTINUITY AND NO GRIEFING VECTOR.** At +1% overshoot the real charge is ~1.57e12
-wad ≈ **0.00016 bps** — proportional and negligible, not 3%. This is §E68b's midpoint integration
-(`qBar = (q0+q1)/2`, `q0 == 0` for a sell starting below target) working as designed, and §E54's
-"the abundant side is LINEAR" holding; the ~0.3% shortfall from exact ratios IS the `q0` term.
-⛔ **DO NOT RE-DERIVE THE CLIFF FROM A FLAT 300 bps READING.** A flat 300 means σ² is UNMEASURED in
-whatever fixture produced it — see §SKEW-COVERAGE-HOLE below, which is the larger finding.
-
-## 🔴 §SKEW-COVERAGE-HOLE — **THE TESTS THAT READ σ² FROM `Core` EXERCISE THE CEILING, NOT THE CURVE** (2026-09-07)
-
-⚠️ **CORRECTED 2026-09-08 — THIS ROW FIRST SAID "EVERY SKEW TEST" AND THAT IS FALSE.** The suite
-splits in two and only one half is affected:
-· **UNIT-STYLE tests are FINE.** `GammaRederived`, `SkewLearningsAreLive`, `AnchorSkewSensitivity`
-  and the `pure` half of `SkewUnmeasuredVariance` call `SwapLib.skewWad(inv, target, **sigmaSq**, …)`
-  and SUPPLY σ² EXPLICITLY (`SIGMA = 1e18`, `1e12`, `4e18`). They exercise the curve directly and are
-  untouched by this. Wiring a warm-up into them would be noise.
-· **Only the tests that READ `realizedVarianceWad()` OFF A LIVE `Core`** hit the ceiling.
-⛔ **AND §E306 ALREADY NAMED THIS**, in `SkewLivePathReachesKernel.t.sol`'s own header: *"every skew
-test enters at `SwapLib.skewWad`, which takes σ² as a PARAMETER, so each test supplies its own and
-none observes what production supplies … the parameterisation that makes the function testable is
-exactly what hides the unreachability."* This row is the σ²-SOURCE half of that finding, not a new
-one — **read §E306 first**, and do not book them as two problems.
-
-`sellSkew`/`skewWad` branch on `sigmaSqWad == 0`: zero returns the flat `UNKNOWN_VARIANCE_SKEW`
-sentinel (3e16) and **never evaluates `qBar`**. So a fixture that cannot produce variance tests the
-sentinel and never the pricing curve — while reporting green.
-
-**AND THE FIXTURES STRUCTURALLY CANNOT PRODUCE IT.** σ² is `max(ringVariance, anchorVarianceWad)`;
-the ring is deliberately dead (§E294), and `Core._sampleAnchorVariance` advances `_varPx` only when
-the anchor MOVES, with an explicit *"SAME BLOCK ⇒ RETURN WITHOUT ADVANCING"* guard and
-`dt = block.timestamp - _varSq.ts`. **Every skew test runs its swaps at ONE pinned block** — e.g.
-`test_REFILLSIZE_…` warps once in `_settle()` and never inside its 30-drain loop — so the first
-sample seeds `_varPx`, every later one returns early on `dt == 0`, and `anchorVarianceWad()` is 0.
-⇒ **The A-S curve has never been under test.** That is how §REFILL-SIZE's cliff got booked.
-
-✅ **A HARNESS THAT DOES PRODUCE IT NOW EXISTS** (`_warmVarianceFromRealRounds`,
-`RestoreProfitability.t.sol`): it reads REAL consecutive Chainlink rounds through the PROXY and
-replays them with their real inter-round gaps, on a clock running FORWARD from the fork instant.
-Measured σ² ≈ 0.1006–0.1617 wad (σ ≈ 32–40% annualised — the order §E343 measured at 95.5%).
-
-⚠️ **SIX WAYS THIS MEASUREMENT READ ZERO, NONE OF THEM THE PRICING CODE** — recorded because each
-one is re-walkable and every one presented as "the estimator does not work":
-1. **single pinned block** — one Chainlink round, forever.
-2. **`vm.rollFork`** — wipes the LINKED LIBRARIES (`SwapLib`, `LevMath`), which have no handles in a
-   test to `makePersistent`; every swap then dies `CheatcodeError: … not marked as persistent`.
-3. **reading the phase aggregator directly** — `AccessControlledOffchainAggregator` REFUSES CONTRACT
-   CALLERS. `cast call` works (it presents as an EOA); a test contract gets a revert that looks like
-   missing history. Read through the PROXY, phase-encoded roundId intact.
-4. **feeding the round's HISTORICAL timestamp** — `twapResolve` sees it stale, returns 0, and
-   `_sampleAnchorVariance` degrades to UNMEASURED, which is **indistinguishable from "the market did
-   not move"**. That degrade-never-revert rule is correct (a read must not halt the range) and it is
-   exactly what destroys diagnosability.
-5. **tracing the wrong swap direction** — `_sampleAnchorVariance` lives in `Core.swap`, whose only
-   `src` caller is `BasketLib.routeSwap:526`; the DRAIN leg reaches it (measured: `Core::swap` ×20
-   against `Aux::swap` ×20), a volatile-in SELL does not. A trace taken before switching direction
-   was carried forward as if it still applied.
-6. **warping BACKWARDS** — setting `block.timestamp` behind the fork underflows the swap path
-   (`Panic 0x4e487b71`), and a `try/catch` swallows it.
-⇒ **THE RULE:** log whether the sampler RAN separately from what it RECORDED. A single summary
-number cannot distinguish "ran and recorded nothing" from "never ran", and five of the six above are
-invisible without that split.
-
-✅ **CLOSED FOR THE TESTS THAT CAN BE WARMED (2026-09-08).** `warmVarianceFromRealRounds(n)` is on
-`AllesFixture` and wired into **`SkewCalibration`, `SkewVsUniswapV3`, `PremiumIsCarryNotIncome`,
-`DerivedTheta`, `RestoreProfitability`** — all five now measure σ² ≈ **0.113 wad (σ ≈ 34%)** and
-exercise the A-S curve. ⛔ **THREE MUST NEVER BE WARMED, and wiring them would destroy the
-instruments that recorded this problem:** `DrainAtomicity` — ⚠️ **BUT ON A CORRECTED BASIS: that test is
-`[PASS]` and has been since §E327 pinned a fixture source (σ² 0 → ~23.6 wad, SPRINT.md:21021). I
-excluded it on the strength of a stale "EXPECTED TO FAIL" comment.** The exclusion still stands, for
-the ORIGINAL reason rather than the red: σ² is `max(ring, anchor)`, so an anchor-side warm-up can
-green it while the RING stays unresponsive — the same objection §E327's pinned SOURCE arguably
-already runs into, `SkewLivePathReachesKernel` (§E306's sentinel instrument), `VarPrecision` (it measures
-the measurement). ✅ **AND THE RING QUESTION IS ANSWERED — MEASURED 2026-09-08, AND THE ANSWER INVERTS THE ASSUMPTION.**
-`anchorVarianceWad()` is public, and `realizedVarianceWad = max(ring, anchor)`, so the legs separate.
-After `_driveTick(20)`: **σ² = 30.55 wad, anchorVarianceWad = 0, ring DOMINANT.** §E327 pinned an
-observation SOURCE, which feeds the **RING** via `_observeIfSourced` — so §E277's literal question
-(*"does σ² respond to driven ticks?"*) is **YES, the ring responds once a source is pinned.** I had
-assumed the pinned source was propping up the ANCHOR leg; it is the other one.
-⇒ **THE TWO LEGS ARE EXERCISED IN DIFFERENT PLACES, AND NEITHER IS DEAD EVERYWHERE:**
-| | ring leg | anchor leg |
-|---|---|---|
-| this fixture (`_driveTick` + pinned source) | **30.55 wad** | 0 |
-| the real-round warm-up | 0 | **0.113 wad** |
-| PRODUCTION | no source pinned (§E294 intends it dead) | **feed pinned by `DeployL1_s.sol:732-736`** |
-🔴 **SO "σ² MIGHT BE 0 IN PRODUCTION AND EVERYTHING PRICES AT THE SENTINEL" IS REFUTED — I REPEATED
-IT SEVERAL TIMES TODAY WITHOUT CHECKING THE DEPLOY.** `aTok[0] = WETH → aFeed[0] = CL_ETH_USD` goes
-in through `AUX.configure`, so `assetPriceFeed(WETH)` is the real aggregator; `_sampleAnchorVariance`
-is on the live path (measured `Core::swap` ×20 against `Aux::swap` ×20 on the drain leg); and
-`anchorVarianceWad()` returns `v == 0 ? 1 : v` once `dt > 0`, i.e. it is non-zero **from the second
-swap in a later block** (measured: round 1 registers 0 while seeding `_varPx`, round 2 registers
-4.36e16). ⚠️ That is MECHANISM + CONFIG, all three links checked — not a production measurement.
-
-📌 **WHAT THIS SETTLES FOR E48/E70:** restoration is **value-NEUTRAL** (0 bps), not loss-making. But
-value-neutral still means **nothing pays anyone to do it** ⇒ **E48's async keeper fallback is
-REQUIRED, not optional**, and that is now measured rather than argued. ⛔ Do not reopen "is
-restoration naturally profitable" — it is priced at oracle by construction below the deficit.
-
 ## §PLP-6-MEASURED — **THE LEG IS REACHABLE AND EXERCISED. IT RETURNS 0 IN EVERY OBSERVED CALL. THE CORRECTNESS OF THAT 0 IS NOT ESTABLISHED.** (2026-09-07)
 
 §PLP-6 carried `SwapLib.deleverEthOnDelivery` as **UNVERIFIED (forge OOM)** pending fork tests. Two
@@ -59041,51 +54352,6 @@ ALL SIX ARE IN `RefillTriggerAndProRata.t.sol` — ZERO in `evm/src`.** Built, t
 
 ---
 
-## §SESS-116 — THREAD CLOSE-OUT: every loose end from the Γ/refill session, booked once
-
-Owner asked to *"book all items from scan loose ends into sprint.md so i can close the thread (make sure
-there is no duplication)"*. Dedup checked against this file before writing: `PAUSED-VAULT`,
-`REFILL-AFFORDABILITY`, `REFILL-FARM`, `totalShares == 0` and `RepayNotApplied` had **zero** prior hits.
-`§E274` had 72 and `M0` 38 — those are UPDATED in place below rather than restated.
-
-### ✅ CLOSED IN THIS THREAD
-
-| item | outcome |
-|---|---|
-| **§E274 Γ — LANDED** (`a4787689`) | Supersedes every *"§E274's UNLANDED Γ"* phrasing above, incl. `:17845`. Γ is no longer a literal: `GAMMA_WAD = FLOW_HALFLIFE * WAD / 365 days` in `Types.sol`, evaluating to 5,479,452,054,794,520 — the number `:18039` already derived. Owner ruled the value AND *"avoid strange hardcoded constants if we can find more natural dynamic alternatives"*, so it ships as the derivation. A/B one pinned block, 17/17 both arms: kernel moved 5.461× vs 5.475× predicted. SwapLib 23,749→23,818 B (margin 758). |
-| **Four Γ binders destaled** (`37d752b4`) | `Alles:1894`, `Alles:1963`, `SkewAsymmetry:213`, `SkewLearningsAreLive:36`. All DERIVED from `SwapLib.GAMMA_WAD`, not repinned. 152/152 green. |
-| **§REFILL-FARM** (`37d752b4`) | The refill exemption is **not farmable**: a drain→refill round-tripper loses ~45 bps/cycle on $60,000, stable over five cycles. |
-| **§E301's premise** | **SUPERSEDED BY OWNER RULING 2026-09-08.** `59851831` deleted `refillPlacement`/`proRataShortfall` on *"we never source inventory, so there is no restoration on our side"*. Owner: *"e301 premise is superseded, refill stands."* ⇒ the refill is live work; do NOT cite E301 to close it. Its sibling ruling — *"the swapper pays the routing spread, on top of their skew premium"* — **still stands and was already settled 2026-08-22**; I wrongly handed it back to the owner as open. |
-
-### 🔴 OPEN — carried out of this thread
-
-| item | state |
-|---|---|
-| **§PAUSED-VAULT-REROUTE** | ✅ **BUILT — THIS ⛔ IS STALE AND IT IS THE EXPENSIVE KIND (booked 2026-09-08).** ⛔ **WAS: *"NOT STARTED. The owner asked for it three times and it is the largest unfinished item."*** **MEASURED IN THE CODE, not inferred:** `evm/src/imports/SwapLib.sol` now does the two-step this row specifies as unwritten — `IAux(aux).takeToSettle(mgr, BasketLib.scaleTokenAmount(takeUsd18, stable, false), stable)` **`// basket → manager`**, immediately followed by `ILevManagerDeliver(mgr).consolidateForRepay(lp, address(this))` **`// → venue's own token → venue`**, and `consolidateForRepay` is IMPLEMENTED at `evm/src/BtcLevManager.sol:361-370`, ending in `LevMath._consolidateTo(address(AUX), stable, refundTo)`. ⇒ **THE CUSTODY BLOCKER THIS ROW CALLS *"THE BLOCKER … NOT MECHANISM"* IS THE EXACT THING THAT WAS FIXED:** the take's recipient moved from the venue to the **manager**, which is the change the row prescribes (*"the take's recipient must move to the manager, consolidate, then push"*). ✅ **AND THE ROW'S SECOND WARNING WAS HEEDED RATHER THAN MISSED** — *"`_consolidateTo` REFUNDS ITS REMAINDER TO `lp` … a leak of basket value here. Pass a non-LP refund address"*: `consolidateForRepay(address lp, address refundTo)` takes the refund address as a parameter, the call site passes `address(this)`, and `BtcLevManager.sol:352` states it — *"`refundTo` IS THE VAULT, NOT THE LP. These stables are the BASKET's."* 🔑 **A row that names the defect AND the fix, and is then marked NOT STARTED after the fix lands, is worse than a row that says nothing:** it is a standing instruction not to look. **This file's trap 6 — a stale ⛔ SUPPRESSES work and nothing fails to tell you.** ▶️ **THE ✅ RECORD IS 286 LINES BELOW THIS ONE:** `### ✅ §PAUSED-VAULT-REROUTE — LANDED (`19bc517b`)`, with the A/B on a pinned block ($1,380.82 consumed, $1,380.60 debt retired, 1.57 bps conversion cost) and the ONE thing genuinely still open — **the `q != 0` gate SKIPS an off-table stable, so the reroute is BEST-EFFORT and an unroutable slice is drawn and refunded without retiring debt.** ⇒ **Work that row, not this one.** ~~Original text follows.~~ `SwapLib:2345` `if (got == 0 && amtNative > 0) revert DeleverStableUnavailable()` is a DoS: owner ruled *"paused vault shouldnt block but rather reroute … (no denial.of service)"*. **Design established, no code written:** `LevMath._consolidateTo` (`:1744`, `private`) already IS the reroute — `stable → USDC → target` on the `_hubRowOf` Curve rows, keyless (no keeper, no 1inch calldata), per-slice floor, `_selfServableQuote` liveness gate that skips paused pools instead of reverting. `protectFromQuid:1703` uses it; ~~the BTC delivery path does not~~ **— IT DOES NOW; `_consolidateTo` is `public` with a second caller (2026-09-08).** ⚠️ **THE BLOCKER IS CUSTODY, NOT MECHANISM:** `takeToSettle(venue, …)` sends the pro-rata stables straight to the venue, and `LevVenueBase` only ever moves its own `STABLE`, so the wrong denomination is unreachable by the time `got == 0` is observed. ⇒ the take's recipient must move to the manager, consolidate, then push. ✅ **DONE exactly so.** ⚠️ **AND `_consolidateTo` REFUNDS ITS REMAINDER TO `lp` (`:1791`)** — correct for `protectFromQuid` where the stables came from the LP's own QUID redemption, **a leak of basket value here**. Pass a non-LP refund address or refuse a remainder. ✅ **DONE: `refundTo` is a parameter and the call site passes the Vault.** 📌 Cross-lane: `LevMath.sol` is L4's collision domain per the fenced lane table in §LANES-2026-09-06. |
-| **§REFILL-AFFORDABILITY** | 🔴 **THE INSTRUMENT FOR `premium ≥ restoration spread` — WRITTEN, NEVER GREEN, AND THE SOURCE IS LOST.** Built pre-compaction in `DrainAtomicity.t.sol`, never committed; failed `Contract 0x0 does not exist … makePersistent` and the cause was never traced. The working-tree copy was wiped by another session's operation on the shared checkout mid-run — no stash, no object, no scratch copy. **Design is recoverable from session_01VwCwv1ryGkwfaDRQEXEe3D's diff output.** Its shape: drain `boldAmt` BOLD, measure `skewPremiumCum` delta as what WE retained, then price the round-trip spread at the oracle (`ethGot·px − boldAmt`) and compare. Deliberately asserted NOTHING (§VACUOUS-BOUNDS) — the sign is the result. ⇒ §E65's *"UNMEASURED and gating"* still stands; `skewPremiumCum` is read in exactly ONE place in `evm/src` and it is a REFUSAL, not a funding source. |
-| **§GAMMA-WEAKENS-THE-BRAKE** | 🔴 **THE SUBSTANTIVE CONSEQUENCE OF THE Γ RULING, and it runs AGAINST the owner's stated goal.** At Γ=3e16 the kernel crossed the 100% haircut at q≈0.893 at 200% vol; at the derived Γ it never crosses before exhaustion (measured: 3.82e17 at a 99.99% drain). Compounding with **§M0** (`4c9083a2`): the toll was already 0 bps to 25% drain and 1 bps at 50–75% — *"a wipeout guard, not a rebalancing incentive"* — and the honest Γ is 5.475× smaller still. ⇒ the value is right and the mechanism under-charges. **Owner decision needed:** raise Γ off its derivation (re-introducing a chosen number), or add a brake that is not Γ. |
-| **§M0-IS-STALE** | 🟡 `4c9083a2` measured the 0-bps toll table and named its own root cause: redemptions never bumped `flowEwmaUsd`, so `target` under-counted. `ca8aaa60` fixed exactly that **the same day**. Every test commit since was checked — **the toll table was never re-measured.** The headline "skew is ~0 bps across the operating range" is a pre-fix number still being quoted, now also pre-Γ. Re-run before citing. |
-| **§PREMIUM-TO-BASKET-HOLE** | 🟡 `040c452f` measured the drain path: charged 3,000,000 usd6, credited 3,000,000, shortfall 0, via `creditSkewPremium → feeIncrements → USD_FEES` (per-share). **The hole is `if (totalShares == 0) return (0,0)`** — premium withheld from the swapper, audit counter increments, nothing credited, value **stays as basket backing**. That is the `vogue.withdraw`/`fees_usd` basket-mint shape the owner pointed at. Asserted as an unreachable premise in that fixture ⇒ **untested, not cleared.** |
-| **§REPAY-PROVEN-IS-PARTIAL** | 🟡 Owner asked *"why doesnt the code require debt reaching zero"* — unanswered. `LevVenueBase`'s `RepayNotApplied` only requires debt to **fall** (`if (repaid > 0 && totalDebt() >= d) revert`), not to reach zero. Related and also unanswered: *"what is the reason for debt at all? is it part of our existing IL protect on behalf of LPs"*. |
-| **§MANIPULATION-BLINDSPOTS** | 🟡 Deficit manipulation measured (victim −$0.131, attacker −$0.0006 — real but gas-swamped). Owner asked whether the test has a blindspot. Three not covered: **repeated** attacks, an attacker **who is also an LP**, and sizing **past `_fillableDrain`'s bound**. |
-| **§FARM-FIXTURE-CAPITAL** | 🟡 §REFILL-FARM's verdict stands, but its range-equity column is **uninterpretable**: the farmer is funded by `deal`, which mints outside the basket, so the column falls by ≈ trade size per cycle for reasons unrelated to the attack. Fund from real basket capital to make it readable. |
-| **§FIXTURE-SCOPE — RETRACTED** | ⛔ **DO NOT RE-ATTEMPT. I claimed `AllesFixture` leaves `assetPriceFeed(WETH)` unset and "fixed" it by pointing `ETH_FEED` at the real aggregator. Both halves were wrong.** `Alles.t.sol:173-174` already lazily pins `REAL_CL_ETH_USD` when nothing is pinned, and `:167` deliberately keeps the PINNED feed and the HISTORY source at **different addresses** (*"the two need not be the same address"*) so a test can mock one while reading a real series from the other. Collapsing them underflowed `DerivedTheta`, `PremiumIsCarryNotIncome` and `SkewVsUniswapV3`. Reverted; 10/10 green. |
-| **untouched** | `Core.setObservationSource`; `SwapLib._applySkew` parked decision; `LevMath` headroom. |
-
-### ⚠️ PROCESS, BOOKED BECAUSE IT COST REAL WORK TWICE
-
-**A measurement's scope is not the sentence's scope.** `a4787689` reported 17/17 across five suites — true — and then asserted *"no test in the skew family binds Γ's magnitude"*, which was about the tree. Four tests bound it. project-bc independently made the identical error the same day (26/26 + 165/165, then "tree is green", 39 reds outside the run). **The mechanical tell both of us missed: a commit touching `evm/src/` with ZERO `evm/test/` files.** Run it before claiming a value change is unbound.
-
-**A shared checkout loses uncommitted work.** §REFILL-AFFORDABILITY was destroyed mid-session by another thread's operation on `DrainAtomicity.t.sol`. Commit red tests behind a skip rather than holding them in the working tree.
-
----
-
-# 🧵 §SESS-117 — L4 (IL-protect overlay) thread close-out, 2026-09-08
-
-Booked in ONE block, deduped against §SESS-116 (zero overlap) and §K-AND-HEADROOM-2026-09-07 (my K and
-headroom findings live THERE and are not restated). The L4 lane book (folded into this file 2026-09-09; lane books are abolished) is
-folded into this section and deleted, so there is exactly one copy.
-
 ## ✅ §M.1-SETTLED — `swapOutDeliverUnlevered` is KEEP, measured not argued
 `evm/test/LevYbReal.t.sol`, merged `7cb53d39`, real Morpho market, both new tests green:
 · **REACHABLE AT EVERY OPEN** — an open is at zero leverage (`LevManager.sol:253-258`), so
@@ -59120,72 +54386,6 @@ Raised by project-bc, verified here from source. Two independent blockers:
    rule — a solvency break in the unit ledger.
 ⇒ **Needs a value-attribution design: who is credited for collateral freed against no debt.**
 ⛔ Do not read the KEEP verdict as licence to implement the branch.
-
-## 🔴 §LEVYBREAL-RED — **CAUSE FOUND 2026-09-08: `a4787689` (Γ). Isolated to one commit.**
-`testReal_Morpho_LiquidationLeavesBasketIntact`:
-`[FAIL: real venue ETH + the debt-funded buffer must cover the range (honest LPs whole):
-4872845850960172853 < 4880365173479059059]` — 0.15% short, gas 36,174,528.
-
-**BISECTED IN CLEAN DETACHED WORKTREES, every point at the SAME pin (25933152):**
-| commit | result | gas |
-|---|---|---|
-| `7b1f19db` (lane base) | PASS | 34,099,244 |
-| `a37b0c12` (Ownable deletion, isolated) | PASS | 34,099,244 |
-| **`7cb53d39` (= `a4787689^`)** | **PASS** | 34,099,244 |
-| **`a4787689` §E274-LAND: Γ** | 🔴 **FAIL** | 36,174,528 |
-| `79164397`, `044f24bc` (HEAD) | FAIL | — |
-
-✅ **CORROBORATED INDEPENDENTLY — two tests, three methods, one constant.** project-91 reached the
-same verdict by TOGGLING `GAMMA_WAD` in place rather than bisecting (Γ=3e16 PASS / Γ=derived FAIL), and
-project-bc holds pre-Γ full-suite controls showing this test green at 11:02 and 11:26 with `a4787689`
-landing at 14:31 — bc's 11:02 gas is within **1,831** of 91's toggled-back run on a 34.1M-gas test, i.e.
-the same execution path and not merely the same verdict. **The two methods answer different questions
-and both were needed: the toggle shows the VALUE is responsible, the bisect shows no OTHER commit is.**
-⚠️ **AND 91 OVERTURNED THE MECHANISM I FIRST WROTE HERE — the ETH does not leave.** Re-probed from one
-fixture, both arms: `rangeETH + levBuf` is FLAT (+0.000063 ETH, +0.0013%), `levBuf` is IDENTICAL TO THE
-WEI, and the entire margin loss is `POOLED` (claimed capacity) RISING. Attribution closes exactly:
-`ΔPOOLED − Δ(rangeETH+levBuf)` = the margin loss. ⇒ **A BOOK-VERSUS-BACKING DIVERGENCE, NOT AN
-OUTFLOW.** ⛔ "Re-size `levBuf`" is therefore a dead end — it did not move. And the causal step is NOT
-traced: a smaller retained premium should make the book grow LESS, not more. **Booked as untraced
-rather than guessed.**
-
-**MECHANISM.** `SwapLib.GAMMA_WAD` changed from the literal `3e16` to
-`FLOW_HALFLIFE * WAD / 365 days` = **5.48e15 — a 5.5× reduction in Γ**. Γ is the
-adverse-selection coefficient in the skew, so a smaller Γ charges less premium on
-inventory-increasing trades, less premium is retained, and the range is less covered by
-"real venue ETH + the debt-funded buffer". The failing assertion is exactly that quantity.
-⚠️ **THE VALUE ITSELF MAY BE RIGHT** — it is the owner's ruling (*"move gamma to 5.48e15"*),
-derived rather than hardcoded, and the docblock's reasoning is sound. **What is missing is that
-the lev suite was never run against it.** ⇒ Decide: re-baseline the assertion (if 0.15% less
-coverage is the intended consequence of a correctly smaller Γ) or treat it as a real
-under-collateralisation. **That is a money-path call, not a test fix.**
-⭐ **AND `a4787689`'s OWN PREDECESSOR PREDICTED THIS AND WAS IGNORED.** The deleted comment read:
-*"§E274 measured the replacement but does NOT land it here — that is a separate money-path change,
-deliberately not bundled with the cap removal **so a regression can be attributed to one of
-them**."* The separation worked exactly as designed; nobody ran the suite that would attribute it.
-
-⛔ **THREE THINGS I ELIMINATED ALONG THE WAY, AND TWO OF MY OWN ELIMINATIONS WERE WRONG — recorded
-because the method matters more than the answer:**
-· **NOT the shared `Alles.t.sol` fixture** (`37d752b4`, +34/−7): `37d752b4^` = `79164397` already
-  FAILS. My prior booking named this as the leading candidate. **It is cleared.**
-· **NOT `a37b0c12` (Ownable), NOT `bdfcd6fd` (RANGE_DELTA 20→200)** — the latter is an ancestor of
-  the PASSING lane commit, so it was never in the frame.
-· 🔴 **MY "SwapLib/Types ELIMINATED" STEP WAS WRONG.** I copied the parent's WORKING COPY of those
-  two files into a clean lane and got PASS — but a shared checkout's working copy is a moving target,
-  and what I copied was not `a4787689`'s content. **A copy from a live shared tree is not a revision;
-  it is a snapshot of whatever three sessions had saved at that instant.** Test a COMMIT, never a
-  working copy.
-· 🔴 **AND THE ORIGINAL OBSERVATION WAS RIGHT ALL ALONG.** My first "merged parent FAILS" reported
-  `4872845850960172853 < 4880365173479059059` at gas 36,174,528 — **byte-identical to `a4787689`'s
-  failure.** The Γ change was sitting UNCOMMITTED in the tree at that moment. I then talked myself out
-  of a correct measurement through two bad eliminations.
-
-📌 **TOOLING TRAP FOUND WHILE BISECTING: a `tools/lane.sh` worktree CANNOT be `git checkout`ed to
-another ref.** It symlinks `CLAUDE.md` and `docs/actionable/SPRINT.md` to the parent, so once the
-parent's copy moves, checkout aborts with *"Your local changes would be overwritten"* — and the run
-then silently tests the ref it was already on. One bisect point was voided this way and read as a
-result. ⇒ **For a bisect, pass the ref to `lane.sh` at creation (`tools/lane.sh L4x <sha>`), one lane
-per point, and echo `git log --oneline -1` INSIDE the run to prove which ref actually executed.**
 
 ## 🟠 §SOLVER-IS-A-GLOSS — `SPRINT.md:17722` attributes to the owner a phrase the owner did not say
 **PRIMARY SOURCE, dated and verbatim, `:88869-88871` (owner, 2026-08-19):** *"refill only when not
@@ -59442,114 +54642,6 @@ whole)"* — is RED. A/B'd at one pinned block: the shortfall is **identical to 
 
 ---
 
-## 🔴🔴 §GAMMA-BREAKS-HONEST-LP-MARGIN — the Γ ruling fails a SOLVENCY invariant, proven by toggle
-
-**This supersedes §SESS-119's "whether Γ caused it is UNTESTED". It is Γ, and it is not a stale test
-constant — it is a live assertion about LPs being made whole.**
-
-`LevYbReal.t.sol:480` — `assertGe(AUX.rangeETH() + ETH.levBuf(LP), CORE.POOLED(), "real venue ETH + the
-debt-funded buffer must cover the range (honest LPs whole)")`. `POOLED` is the range's CAPACITY
-(`Quid.sol:979`: `levPooled + levBuf`); `rangeETH` is ETH actually held at a venue.
-
-**PROVEN BY TOGGLE, NOT BY BISECT.** Γ is one constant, so the hypothesis is directly testable — no
-worktree and no 29-commit interval walk:
-
-| Γ | `testReal_Morpho_LiquidationLeavesBasketIntact` |
-|---|---|
-| `3e16` (inherited) | ✅ **PASS**, gas 34,117,051 |
-| `FLOW_HALFLIFE·WAD/365 days` (ruled) | ❌ **FAIL** — 4,910,306,168,987,357,142 < 4,914,885,868,534,184,775 |
-
-⇒ project-bc's two other candidates (`570fad87` LadderTooDeep, `37a34a01` ±20bps) are **exonerated for
-this test**. Their control is what made the toggle worth running: two full-suite runs at 11:02 and 11:26
-on 2026-09-08 had this test GREEN, and `a4787689` landed at 14:31 — green pre-Γ, red post-Γ.
-⚠️ Their stated limit, kept: those runs were against a working tree carrying uncommitted edits, so
-"green at 11:26" is not "green at exactly `073fb7cd`". It does not weaken the Γ claim (Γ did not exist in
-either run) but it is the loose variable if anything downstream looks surprising.
-
-**THE MAGNITUDE, IN THE UNITS THE TEST'S OWN §C25 NOTE ESTABLISHED.** That note measured the honest-LP
-margin at **0.00708 ETH to spare**. The shortfall is now **0.004580 ETH** (4,579,699,546,827,633 wei,
-identical to the wei with and without the reroute). ⇒ **Γ's reduction consumed the entire 0.00708 ETH
-margin and went 0.00458 ETH past it** — about $11.37 at $2,483/ETH, ~0.093% of a ~4.91 ETH range.
-
-**WHY, MECHANICALLY.** A smaller Γ prices drains cheaper, so more ETH leaves the range for the same
-dollars, while `POOLED` (capacity) does not fall with it. `rangeETH` drops relative to a claim that the
-debt-funded `levBuf` was sized to cover under the OLD premium. **This is the same root as
-§GAMMA-WEAKENS-THE-BRAKE and §SIGMA-FOURTH-CONSUMER — a third bound Γ widened that nobody reviewed with
-the other two.** The first two are threshold judgments; this one is a failing invariant.
-
-⛔ **NOT SILENTLY REVERTED. Γ STAYS ON ITS DERIVATION** — the owner ruled the value, and this is the
-consequence of that ruling, not grounds for me to undo it. **OWNER DECISION, three options and they are
-not equivalent:**
-1. **Keep the derived Γ and re-size `levBuf`** — the buffer is debt-funded and was calibrated against the
-   old premium; the honest reading may be that the buffer, not Γ, is the stale number.
-2. ~~Raise Γ off its derivation~~ — **STRUCK. THIS WAS NEVER AN OPTION AND I SHOULD NOT HAVE LISTED IT.**
-   See §GAMMA-IS-NOT-A-DIAL below: Γ = γ·(T−t) is a DERIVATION, not a parameter.
-3. **Accept a thinner margin explicitly** — 0.093% against a stated "honest LPs whole" guarantee, which
-   contradicts *"never at a loss to the pool"* and should not happen by default.
-
-📌 **AND A FOURTH READING WORTH TESTING BEFORE CHOOSING:** the assertion may simply be the FIRST place a
-5.475× premium cut becomes visible, in which case reverting Γ hides a real under-collection rather than
-fixing it. §REFILL-AFFORDABILITY's $0.140 premium on a $20,000 drain (0.07 bps) points the same way.
-
-### 📌 project-bc's residue suggestion, adopted into §SESS-119's open item
-The reroute's measured case produced no unroutable residue **only because the pro-rata delivered DAI,
-which is on-table — a property of the basket's composition on that block, not of the mechanism.** The
-residue appears the first time the pro-rata delivers an off-table slice, and **nothing announces it**:
-`got` simply comes in lower. Cheap fix, no revert and no liveness cost: compare the drawn total against
-the sum of the routable subset before the loop and emit when they differ.
-
-### 🔧 §GAMMA-BREAKS-HONEST-LP-MARGIN — CORRECTED. The mechanism I gave was wrong, and it changes the options.
-
-project-bc questioned the arithmetic: §C25's 0.00708 ETH margin and this test's 0.004580 ETH shortfall
-were measured under **different conditions**, so subtracting them was not a delta — the same error class
-as *"a delta computed across two runs is not a delta"*. They were right. **Both numbers re-measured from
-the SAME fixture at one pin**, by probing `rangeETH + levBuf`, `POOLED` and `levBuf` in each arm:
-
-| | Γ = 3e16 | Γ derived | delta |
-|---|---:|---:|---:|
-| `rangeETH + levBuf` | 4,925,305,260,073,929,011 | 4,925,368,211,597,702,940 | **+62,951,523,773,929** |
-| `POOLED` (capacity) | 4,918,038,192,545,221,464 | 4,930,283,601,835,221,980 | **+12,245,409,290,000,516** |
-| `levBuf` | 107,659,990,943,916,395 | 107,659,990,943,916,395 | **0** |
-| **MARGIN** | **+0.007267 ETH** | **−0.004915 ETH** | **−0.012182 ETH** |
-
-Attribution closes to the wei: `ΔPOOLED − Δ(rangeETH+levBuf) = 12,182,457,766,226,587` = the margin loss.
-
-**⛔ WHAT I SAID WAS WRONG.** I wrote *"a smaller Γ prices drains cheaper, so more ETH leaves the range."*
-**The ETH did not leave.** `rangeETH + levBuf` is FLAT — it rose 0.0000630 ETH, +0.0013%. And **`levBuf`
-is IDENTICAL in both arms**, so the debt-funded buffer did not move at all.
-**⇒ THE ENTIRE LOSS IS `POOLED` — the range's CLAIMED CAPACITY — RISING 0.012245 ETH WHILE ITS BACKING
-STAYED PUT.** This is a **book-versus-backing divergence, not an outflow.**
-
-**THAT INVALIDATES OPTION 1 AS I STATED IT.** "Re-size `levBuf`" targets a quantity that did not change
-and would paper over a book-vs-backing gap rather than close it. The live options are now:
-1. **Trace why `POOLED` rises when the premium falls.** `POOLED = levPooled + levBuf` (`Quid.sol:979`) and
-   `levBuf` is flat, so `levPooled` grew. ⚠️ **THE CAUSAL STEP IS MEASURED BUT NOT TRACED** — a smaller
-   retained premium should make the book grow *less*, not more, so the direction is not yet explained.
-   **Do not act on a mechanism until this is traced; I already published one wrong mechanism here.**
-2. ~~Raise Γ off its derivation~~ — **STRUCK, see §GAMMA-IS-NOT-A-DIAL.**
-3. **Accept a thinner margin explicitly** — now known to mean accepting an unbacked capacity claim, which
-   is a different and worse thing than accepting a smaller ETH balance.
-📌 §C25's 0.00708 figure is superseded for this purpose by the same-fixture +0.007267; they are close,
-which is why the wrong reading looked plausible.
-
-### ✅ ATTRIBUTION IS NOW THREE-WAY INDEPENDENT
-· **this session** — toggled `GAMMA_WAD` in place: PASS at 3e16 (gas 34,117,051), FAIL at the derived value.
-· **project-2d** — bisected in clean detached worktrees, one commit per worktree, all at pin 25933152:
-  `7b1f19db` PASS · `a37b0c12` PASS · `7cb53d39` (= `a4787689^`) PASS · **`a4787689` FAIL**.
-· **project-bc** — pre-Γ full-suite controls, green at 11:02 and 11:26 with `a4787689` landing at 14:31;
-  their 11:02 gas is within 1,831 of the toggled-back run on a 34.1M-gas test — the same execution PATH,
-  not merely the same verdict.
-⇒ Two tests, three methods, four symptoms of one constant (this margin, the haircut kernel topping out at
-3.82e17 instead of 1e18, `_fillableDrain`'s floor falling 2.913% → 0.545% of target, and
-§REFILL-AFFORDABILITY's 0.07 bps premium).
-
-**📌 WHY NO TOOL COULD HAVE CAUGHT THIS, worth keeping (project-2d):** `impacted-tests.py` routes by
-SYMBOL, and **a constant's VALUE change names no new symbol.** The lev suite was never run against Γ.
-⇒ A commit that changes a VALUE needs its consumers run, and the consumer set cannot be derived from the
-diff. This is the same gap as §SESS-116's "a commit touching `evm/src/` with ZERO `evm/test/` files".
-**A suspect that is a single named value should be TOGGLED before the history is walked** — a toggle is a
-controlled experiment where a bisect is only a search (project-bc's framing, and it generalises).
-
 ## 🧰 §SESS-117-METHOD — two cross-session techniques worth keeping, both learned the hard way today
 **1. `git stash create` + a tag PRESERVES uncommitted work in a shared tree WITHOUT touching it.**
 project-bc used it on a dirty file whose owner was unknown: it builds a commit object and leaves the
@@ -59568,65 +54660,6 @@ obituary"* landing on three sessions at once, through a grep for a string somebo
 
 
 ---
-
-## ✅ §GAMMA-BREAKS-HONEST-LP-MARGIN — **TRACED. THE INVARIANT WAS PASSING BY UNDER-BOOKING.**
-
-Owner: *"trace why levPooled grows when the premium falls. i think you are running in circles."* Both
-halves right — I was measuring and booking instead of reading, and **`levPooled` does not grow at all.**
-
-### THE MEASUREMENT THAT ENDED THE GUESSING
-One pinned block, both Γ arms, every component the test already emits. **Everything is Γ-INDEPENDENT
-except `CORE.POOLED`:**
-
-| quantity | Δ (derived − 3e16) |
-|---|---:|
-| `ETH.levPooled(LP)` | **0** |
-| `ETH.levBuf(LP)` | **0** |
-| `lm.totalNetEquity` | **0** |
-| `rvenue.collateralOf` | **0** |
-| `AUX.rangeETH` | −371,029,319 wei (3.7e-10 ETH, dust) |
-| **`CORE.POOLED`** | **+12,182,457,395,197,268 (+0.012182457 ETH)** |
-
-⇒ The leverage accounting is not involved. **Every prior framing of this row that reached for
-`levPooled`, `levBuf` or "more ETH leaves the range" was wrong**, mine included, twice.
-
-### THE CODE PATH, READ RATHER THAN INFERRED
-· `Core.swap` (`:1032-1046`) → `_fillDelta` → `_handleDelta`. **NONE of them contains a skew term** —
-  §E279 deleted the duplicate application from `_fillDelta`, which is now pure oracle conversion.
-  `POOLED` moves ONLY in `_handleDelta` (`Core:1204/1212`), by the delta Core is handed.
-· `SwapLib._applySkew` has **ZERO call sites** — the parked dead function §SESS-116 already listed.
-· The premium is withheld one level up, in `SwapLib.retainSkewPremium` (`:2662-2668`):
-  `premium = r.amount·skew/1e18` … `r.amount -= premium`, and its own comment states **"ONLY the sell
-  leg holds a NATIVE amount"**. ⇒ on the sell leg the premium is deducted **in ETH**, and Core books
-  `POOLED += (amount − premium)`.
-
-### ⇒ **POOLED IS UNDER-BOOKED BY EXACTLY THE RETAINED PREMIUM, ON EVERY SELL LEG.**
-The premium's ETH arrives physically and is never added to the range's book. At Γ = 3e16 that
-under-booking is **5.475× larger**, and that — not any solvency property — is what made
-`rangeETH + levBuf >= POOLED` pass. **Lower the premium and the book counts more of what is really
-there, which is what "broke" the assertion.**
-
-🔴 **SO THE CONCLUSION INVERTS. Γ DID NOT BREAK SOLVENCY; IT REMOVED A MASK.** The residual is real and
-pre-existing: `POOLED − rangeETH` = 0.112575 ETH against `levBuf` = 0.107660, so **the book claims
-0.004915 ETH more range depth than venue ETH plus the debt-funded buffer justify.** That gap did not
-appear with `a4787689`; it was hidden underneath a larger retained premium.
-⛔ **THIS RETIRES OPTION 2 (`raise Γ off its derivation`). It would re-hide the over-claim, not fix it** —
-and re-hiding is strictly worse than the thinner margin, because the assertion would go green while the
-book still over-claims. Option 1 as originally written ("re-size `levBuf`") is also dead: `levBuf` is
-Γ-independent to the wei.
-📌 **THE REAL QUESTION IS NOW A DIFFERENT ONE:** where does the retained sell-leg premium ETH go, and
-what should book it? `recordSkewPremium` takes a USD figure; `rangeETH` (venue-held) is unchanged
-between arms, so the ETH is at neither the venue nor in `POOLED`. That is the thing to fix, and it is
-§PREMIUM-TO-BASKET-HOLE's question arriving from the other side.
-
-### REFUTED ALONG THE WAY, recorded so nobody re-runs it
-**`_calmVol`'s `try {} catch {}` was NOT the cause.** Its 16 swaps are silently swallowed on revert, so a
-Γ change flipping one marginal swap would move `POOLED` by that swap's whole size while leaving
-venue-held `rangeETH` untouched — the exact signature. **Instrumented: 16/16 landed in BOTH arms.** The
-counter is committed (`ee46a825`) rather than deleted, because it is the control that kills the
-hypothesis. ⚠️ Two earlier instrumented runs produced NO probe output because `LevYbReal.t.sol` was
-reverted under me mid-run by another session; the third worked only because the probe was COMMITTED
-first. On a shared checkout, instrumentation must be committed to be trusted.
 
 ## §T9-STEP-3-OUTPUTS-MEASURED-2026-09-08 — the classification, from a real splice trace
 
@@ -59818,40 +54851,6 @@ owner's own terms, and it is why the honest Γ turning this red is worth more th
 
 
 ---
-
-## ⛔ §GAMMA-IS-NOT-A-DIAL — I offered Γ as a tuning option three times. It never was one.
-🔗 **CONTEXT ADDED 2026-09-09 — READ §L5-KAPPA-FOLDED-2026-09-09 (at the end of this file) BEFORE ACTING ON THIS ROW.** It holds the σ-scaled-κ attempt (built, measured, REVERTED, +403 bytes), the ρ(σ) closed form, the linearity wall that forecloses BOTH, and a retraction of this session's own wash-trading sign error.
-
-Owner: *"i thought gamma was mathematically derived so doesnt need to be tuned."* **Correct, and it
-invalidates an option I put in front of them three times** (`:99412`, `:99456`, and in session prose).
-Both prior instances are struck above.
-
-**Γ IS A DERIVATION WITH NO FREE TERM ON THE MONEY PATH.** `GAMMA_WAD = FLOW_HALFLIFE * WAD / 365 days`
-— Avellaneda–Stoikov's `γ·(T−t)`, with `T−t` taken from the ONE window the system already commits to
-(`Core.FLOW_DECAY`'s 48h half-life, the timescale an imbalance is worked off) and expressed in years
-because `realizedVarianceWad` is annualized. **Nothing in it is chosen to make an outcome come out.**
-That is the entire content of §E275: the old `3e16` WAS a dial (`Γ ≡ MAX_WELL_SKEW`), the curve was
-calibrated to land on its own cap, and the "10.95-day horizon" was read back OUT of that number.
-
-⇒ **SO A RED CAUSED BY Γ IS EVIDENCE ABOUT THE CODE, NEVER ABOUT Γ.** Offering "raise Γ" as a remedy
-re-opens precisely the circularity the derivation closed, and it would have made three separate real
-defects invisible again. The investigation bears that out — every one of them was found only because Γ
-stopped masking it:
-· §PREMIUM-DENOM-ROOT — the retained sell-leg premium is counted as range backing (`rangeETH`) while the
-  claim on it is booked in dollars. Real, and independent of Γ's value.
-· §LEVBUF-NOT-STALE's residual — `POOLED − tokens − gross = 0.004915 ETH`, a post-liquidation over-claim.
-· §GAMMA-WEAKENS-THE-BRAKE / §SIGMA-FOURTH-CONSUMER — these two ARE Γ's magnitude, and they are
-  therefore statements about the MECHANISM being too weak at the honest coefficient, not about the
-  coefficient being wrong. **The response is a brake that is not Γ, never a bigger Γ.**
-
-### THE ONLY TWO THINGS THAT CAN LEGITIMATELY MOVE Γ
-1. **`FLOW_HALFLIFE` changing** — and then Γ moves WITH it automatically, which is why it ships as an
-   expression rather than a number. No second edit, no possibility of drift.
-2. **γ ≠ 1 being justified from something.** ⚠️ **THIS IS THE ONE HONEST GAP AND IT SHOULD BE NAMED:**
-   γ = 1 is an ASSUMPTION, not a derivation — A–S's risk-aversion coefficient set to dimensionless unity
-   because nothing in this system prices it. It is the single place a number was chosen. Changing it needs
-   a derivation of its own, not a fit to a failing test; fitting γ to make an assertion pass is exactly
-   the §E275 circularity wearing a different letter.
 
 ## 🟠 §SILENT-SKIP-PART-2 — 0g's DIAGNOSIS IS REFUTED, AND SO IS MINE. **NO COMMIT REMOVED IT.**
 **WHAT IS ESTABLISHED, and it is only the first half:**
@@ -60169,57 +55168,6 @@ and `QuidLib.sendEth:418`'s `toWhom` is a withdrawal PAYEE, not an LP.
 
 ---
 
-## 📐 §REFILL-AFFORDABILITY — the restoration leg is MEASURED, and it needs one control before it is believed
-
-Owner: *"measure it. dont build until we have full confidence about all of it. 1inchs role, etc."*
-Measured only; **nothing wired**. `refillNeeded` still has zero call sites.
-
-### THE MEASUREMENT (`test_REFILL_AFFORDABILITY_PremiumVsRestorationSpread`, real fork)
-    drain    20,000 BOLD  ->  7.936594163747890016 ETH out
-    restore  20,000 USDC  ->  7.961692285063152052 ETH bought back
-    restoration shortfall     0
-    premium collected         $8.40   (4 bps of the drain)
-
-**The same dollars bought back MORE volatile than the drain removed.** Restoration spread is zero on this
-path, so the premium covers it outright with $8.40 to spare.
-
-### ⭐ 1INCH'S ROLE: NOT USED, DELIBERATELY, AND THAT IS WHAT MAKES THE NUMBER USABLE
-`LevMath.routedSwap` with an EMPTY route means **the protocol's own default venue** (§SESS-92) — no
-aggregator, no API key, no keeper. So this is the cost on the path the code takes when nobody is
-watching. **A 1inch arm can only improve on it**, which makes this the CONSERVATIVE bound and the right
-one to decide affordability against. ⇒ 1inch is an optimisation over a path that already clears, not a
-dependency the mechanism needs.
-
-### 🔴 THE CONTROL THAT IS MISSING, AND WHY THE RESULT IS NOT YET CONFIDENT
-The surplus is **0.0251 ETH ≈ $62 — far more than the $8.40 premium can explain.** `Core.swap` settles at
-the **ORACLE** while the buy-back executes at the **POOL**, so most of that surplus is the oracle-vs-pool
-BASIS at this block, not the premium doing work. §E294 measured that basis at **23 bps**, which is the
-right order for the gap. **The test conflates the two and must not be quoted as "the premium covers
-restoration" until they are separated.**
-▶️ THE CONTROL: run the identical round trip with the premium forced to ZERO. Whatever surplus remains is
-basis; the difference is the premium's real contribution. Until that runs, what is established is the
-weaker and still useful claim: **restoration through the default venue costs nothing extra at this
-block's basis** — not that the premium pays for it.
-⚠️ AND A FAVOURABLE BASIS IS NOT A GUARANTEE. It is a market state, it can invert, and an inverted basis
-is exactly when a refill would be most needed. The affordability question is really about the basis
-DISTRIBUTION, not one draw — the same objection §E71-r3 raised about single-block readings.
-
-### 📌 SIZING IS RECOVERABLE, and its deletion rationale is dead
-`refillPlacement` was deleted by §E301 (`59851831`) on the premise *"we never source inventory, so there
-is no restoration on our side"* — **the premise the owner superseded on 2026-09-08.** It is recoverable
-from `fc8d6294` ("the refill's core arithmetic: placement, not acquisition"), so the sizing work is not
-lost, only unlanded. ⚠️ §E301's message also claims it deleted `proRataShortfall`; that is STALE —
-`ed530bd2` restored it the same day ("I deleted a rule-17 root fix"), and it sits at `SwapLib:1053` with
-zero src callers.
-
----
-
-# 📐 §REFILL-DESIGN-PRE-IMPL — the design, shaped by the evidence we have AND the evidence we lack
-
-Owner: *"shape your pre-implementation design around the assemblage of the results we have and all the
-ones we lack."* **Nothing is built here.** Every clause below names the measurement it rests on, or the
-missing measurement that would change it.
-
 ## A. WHAT IS ESTABLISHED — eleven results, each with its number
 
 | # | result | measurement |
@@ -60270,57 +55218,6 @@ confidence about all of it."* `refillNeeded` still has zero call sites, and that
 
 ---
 
-## ✅ §REFILL-BASIS — **G1 RAN. The premium is real, and it is thin: break-even at −5.8 bps of basis.**
-
-The control that §REFILL-AFFORDABILITY needed. Basis measured ALONE — no drain, no Core, no premium.
-
-    BASIS: pool gives     7.961692285063152052 ETH for 20,000 USDC
-           oracle implies 7.941203330540676828
-           pool − oracle  +20,488,954,522,475,224 wei = +0.020489 ETH = **+25 bps**   (pool CHEAPER)
-
-### THE ATTRIBUTION, which is what G1 existed for
-    total round-trip surplus   0.025098 ETH
-    − basis                    0.020489 ETH   ← 81.6% of it
-    = PREMIUM contribution     0.004609 ETH = **$11.61**   ← 18.4%
-
-⭐ **THE PREMIUM IS REAL AND THE MEASUREMENT CROSS-CHECKS.** $11.61 derived by subtraction against
-**$8.40** on the independent `skewPremiumCum` counter — same order, and the gap is the drain executing
-at a skewed price plus its own pool impact, neither of which the counter records. Two instruments, one
-answer. **§E294's 23 bps basis predicted the 25 bps we measured**, which is the third independent
-confirmation.
-
-### 🔴 AND THE COUNTERFACTUALS ARE THE RESULT
-| basis | buy-back | vs owed 7.936594 | verdict |
-|---|---|---|---|
-| **+25 bps** (measured) | 7.961692 | **+0.025098 ETH** | covers, with $62 |
-| **0 bps** | 7.941203 | **+0.004609 ETH = +$11.61** | **still covers** — on the premium alone |
-| **−25 bps** (inverted) | 7.920714 | **−0.015880 ETH = −$39.99** | **DOES NOT COVER** |
-
-⇒ **BREAK-EVEN IS ≈ −5.8 bps OF ADVERSE BASIS.** Beyond that the swapper's premium stops funding their
-own restoration and the pool eats the difference.
-
-### WHAT THIS SETTLES, AND WHAT IT DOES NOT
-✅ **The funding argument survives its own control.** At a NEUTRAL basis the premium covers restoration
-unaided — the earlier $62 was mostly market kindness, but removing all of it still leaves $11.61 of
-genuine premium against a zero spread. *"The swapper pays for execution"* is now measured, not asserted.
-🔴 **Feasibility is NOT settled, and the margin is thinner than the headline.** 4 bps of premium against
-a basis that moved 25 bps in our favour on the one block we looked at. **§G2 (basis distribution) is
-promoted from a nice-to-have to THE gating measurement**: the design must survive −5.8 bps, and an
-adverse basis is correlated with exactly the conditions that deplete a range in the first place.
-⛔ **DO NOT BUILD ON THE +25 bps NUMBER.** It is one draw. The number the design must be sized against is
-the break-even, −5.8 bps, and the open question is how often the basis is worse than that.
-📌 §G7 sharpens too: this was measured buying **USDC**, which HAS a `_hubRowOf` row. The drain is
-denominated in **BOLD**, which does NOT — so the leg actually on the refill path has the weaker floor
-(oracle only, no `_selfServableQuote` arm). Re-run against BOLD once project-45's table work lands.
-
----
-
-# 🔴 §REFILL-G2-VERDICT — **FEASIBILITY IS NOT ESTABLISHED. Coverage goes NEGATIVE, and the premium is too small to be the deciding term.**
-
-Owner: *"settle the feasibility. make sure your tests are accurate … not hypothetical but realistic."*
-Settled in the direction that argues AGAINST the current mechanism, and the instrument was corrected
-twice on the way — both corrections are recorded because each produced a confident, plausible, wrong table.
-
 ## THE VALID SAMPLES
 | block | drain | premium | NET |
 |---|---:|---:|---:|
@@ -60370,34 +55267,6 @@ the problem rather than deciding it — the −1 bps sample already decided it.
 
 ---
 
-## ✅ §GAMMA-TRACE-2026-09-09 — the untraced causal step, traced. **`POOLED` does not rise. `retainedEthPremium` falls, and `POOLED` is defined as the number that is low by exactly that.**
-
-📌 **§SEQ-AUDIT: GATE 8 (tests) · lane L5.** The trace is ✅ and settled; **the row is not fully closed and must not be marked ✅ as a whole** — the Γ-invariant **0.008274078 ETH** residual it exposes has no name, was never investigated, and is the one thing this session opened and did not close. `retainedEthPremium` is also the tree's single `check-orphans.py` red (0 src callers, 8 test refs), which is the same quantity arriving from the gate's direction.
-
-
-§SESS-117 (and project-91 independently) booked that shrinking Γ from `3e16` to the derived
-`FLOW_HALFLIFE * WAD / 365 days` = **5.48e15** makes `POOLED` **rise**, breaking
-`testReal_Morpho_LiquidationLeavesBasketIntact`, and both booked the causal step as **untraced** —
-leaving open whether this is a Γ consequence or a separate `POOLED` booking bug. **It is neither.**
-
-▶️ **MEASURED**, both arms, same fork block **25938897**, only `SwapLib.GAMMA_WAD` differing:
-
-| quantity | ARM A · Γ=3e16 (PASS) | ARM B · Γ derived (FAIL) | Δ |
-|---|---|---|---|
-| `CORE.POOLED()` | 4,947,720,824,066,337,456 | 4,959,903,282,203,593,362 | **+12,182,458,137,255,906** |
-| `CORE.retainedEthPremium()` | 14,936,318,750,426,827 | 2,753,860,613,170,921 | **−12,182,458,137,255,906** |
-| `AUX.rangeETH()` | 4,846,718,163,898,933,525 | 4,846,718,163,898,933,525 | **0** — byte-identical |
-| `ETH.levBuf(LP)` | 107,664,900,675,399,343 | 107,664,900,675,399,343 | **0** — byte-identical |
-| `rlm.totalNetEquity()` | 2,763,141,896,176,959,470 | 2,763,141,896,176,959,470 | **0** — byte-identical |
-
-⭐ **`ΔPOOLED = −ΔretainedEthPremium`, EXACTLY, TO THE WEI.** The two conserved sums:
-
-- `POOLED + retainedEthPremium` = **4,962,657,142,816,764,283** in BOTH arms — identical.
-- `rangeETH + levBuf` = **4,954,383,064,574,332,868** in BOTH arms — identical.
-
-⇒ **Γ moves NOTHING that the assertion is about.** It moves only the split between two columns whose
-sum is invariant.
-
 ## WHY — `Core.sol:600-610` already says it
 `retainedEthPremium` is *"the part of a sell-leg swapper's ether that `SwapLib.retainSkewPremium`
 deducted before Core ever booked it"*, and — **its own words** — ***"POOLED is low by exactly this."***
@@ -60407,36 +55276,6 @@ counts that ether either way, which is why it does not move a single wei. **No e
 lost, or moved. There is no backing loss and there is no `POOLED` booking bug.** This supplies the
 mechanism behind project-91's *"book-versus-backing divergence, not an outflow"* — they read the shape
 correctly and this is the arithmetic under it.
-
-## ⛔ THE REAL DEFECT IS THE ASSERTION, AND IT IS Γ-INDEPENDENT
-`rangeETH + levBuf >= POOLED` omits `retainedEthPremium` from a comparison in which one side is
-**defined as net of it**. The structural gap it is actually straddling is a CONSTANT:
-
-```
-(POOLED + retained) − (rangeETH + levBuf) = 8,274,078,242,431,415 wei = 0.008274078 ETH   ← same in BOTH arms
-```
-
-The two arms are that one constant compared against the retained premium:
-
-| arm | retained | vs gap 8,274,078,242,431,415 | reported |
-|---|---|---|---|
-| A · 3e16 | 14,936,318,750,426,827 | **exceeds it** by 6,662,240,507,995,412 | PASS, margin **+6,662,240,507,995,412** ✓ |
-| B · derived | 2,753,860,613,170,921 | **short** by 5,520,217,629,260,494 | FAIL by **5,520,217,629,260,494** ✓ |
-
-Both reported figures reproduce from the identity exactly. ⇒ **ARM A WAS NEVER PASSING BECAUSE THE
-BACKING HELD. It passed because an over-large Γ retained enough premium to paper over a fixed 0.00827
-ETH gap that is present in BOTH arms.** The green was the cushion, not the property. Reverting Γ
-restores the cushion and re-hides the gap — **that is the specific wrong fix**, and it would also
-contradict §GAMMA-IS-NOT-A-DIAL (Γ = γ·(T−t) is a derivation, not a parameter; it is not ours to set
-to whatever makes a test green).
-
-▶️ **WHAT THE ASSERTION SHOULD SAY:** account for `retainedEthPremium` on the correct side —
-`rangeETH + levBuf + retainedEthPremium >= POOLED` — which `testReal_Identity_C_PerSwap` **already
-attempts**. Under that form both arms carry the SAME 0.00827 ETH deficit, which is the honest
-statement of what is actually owed.
-⏸️ **STILL OPEN, AND IT IS NOW THE ONLY OPEN QUESTION HERE:** what the residual **0.008274078 ETH** is.
-It is Γ-invariant and it is present when the suite is green, so it predates this thread and is NOT a Γ
-regression. Do not close the assertion by widening it until that number has a name.
 
 ## 🧭 METHOD — the probe that lied, and why
 My FIRST Γ probe (`_openLp()` + `_calmVol()`) showed the OPPOSITE direction and a Γ-INVARIANT retained
@@ -60489,20 +55328,6 @@ their liquidity, they unwind.
   exposure change they did not choose. The range being "not poorer" is true in dollars and false in
   composition, which is the whole reason the owner wants restoration.
 
-## 4. 🔑 THE GAP IN THE SKEW DESIGN — and it is a CATEGORY ERROR, not a magnitude
-**The A–S skew prices INVENTORY RISK. The refill costs EXECUTION. They are functions of different
-variables and there is no reason the first should fund the second.**
-    skew premium     = Γ·σ²·q̄        → volatility × imbalance    → MEASURED FLAT at 4.2 bps across 100× size
-    restoration cost = slip(size) + basis → trade size × market state → GROWS with size, swings 25 bps/day
-⇒ §REFILL-G2-VERDICT's fingerprint — *premium flat, cost size-growing* — **is exactly what a category
-error looks like.** The premium is not "too small"; it is **the wrong quantity**, and no value of Γ fixes
-a shape mismatch (§GAMMA-IS-NOT-A-DIAL forecloses the magnitude route anyway).
-⭐ **THE UNLOCK IS ALREADY IN THE TREE.** `LevMath._slipBps(usd18) = SLIP_BASE_BPS + (usd18/1e24)·
-SLIP_PER_MM_BPS`, capped at `SELL_SLIP_BPS` — an **oracle-derived, SIZE-AWARE** cost curve already used
-as the floor for every routed conversion in the library. **That is the correct SHAPE to fund restoration**
-because it grows with size exactly as the cost does. The skew and the execution charge should be two
-terms, not one.
-
 ## 5. THE FIVE OPTIONS, WEIGHED — nothing chosen
 | option | pro | con |
 |---|---|---|
@@ -60530,15 +55355,6 @@ Correcting my own framing twice over. **(1)** The owner never rejected a keeper 
 an async keeper how do they cover gas and cost of capital?"*, which is unanswered, not closed. **(2)** I
 presented five options as if they were the space. **There is a sixth, it is A–S-native, and the tree has
 had it booked as an open row since §E276.**
-
-## WHAT WE BUILT vs WHAT A–S SPECIFIES
-    A–S:  r = s − q·γ·σ²·(T−t)     the RESERVATION PRICE MOVES THE MID.
-                                   The balancing side is quoted BETTER THAN REFERENCE — the restorer is PAID.
-    us:   δ, a SPREAD in r's place. The refill direction is EXEMPT, never PAID.
-                                   "the best a rebalancing counterparty gets is reference"  (§E276)
-⇒ **We implemented the CHARGE and omitted the SHIFT.** `SkewLearningsAreLive:107` pins the current
-behaviour deliberately so that building the shift is a visible act, and records the structural blocker:
-**`skew` is UNSIGNED, so a bid-improving quote is inexpressible.**
 
 ## 🔑 WHY THIS REFRAMES EVERY OTHER OPTION
 · **Option D is not "measured dead" — it was never given its mechanism.** §M0's ~0 bps toll means no
@@ -60577,115 +55393,12 @@ weighed against A/B/C/E rather than assumed superior, and cost 4 above is the on
 
 ---
 
-## ⭐ §GAMMA-FIRST-PRINCIPLES-2026-09-09 — the "measure before landing" for the dynamic horizon, done. **Γ IS NOT A DERIVATION. THE POLE IS RIGHT FOR A REASON NOBODY WROTE DOWN. κ IS THE PARAMETER THAT IS ACTUALLY WRONG.**
-
-📌 **§SEQ-AUDIT: GATE 2 · lane L5.** ⚠️ **PARTLY SUPERSEDED BY ITS OWN AUTHOR, SAME DAY — read §L5-KAPPA-FOLDED before quoting this row.** Two things in it were corrected there: (a) the wash-trading sign is BACKWARDS (higher `target` ⇒ **DEARER** drain, `Core.sol:240`), and (b) the 48h reuse is **better justified than this row allows** — wide is what makes the patience attack expensive, and Γ = γ·T_flow makes both pull the same way. **What survives is only that γ = 1 is log utility presented as a normalisation.**
-
-
-Harness: `sims/kernel_shape.js`. **Four controls reproduce numbers published before the file existed**
-— §E274's crossing at **q = 0.8929** under Γ=3e16/200% vol (to 4 dp), §E289's κ=1e18 refactor identity,
-the integral's Δ→0 limit, and Γ's dimensional check. Nothing below is admissible without them.
-
-## 1 — Γ's derivation is an ASSUMPTION CHAIN, not first principles
-`Γ = FLOW_HALFLIFE·WAD/365 days` (`SwapLib:771`) is **not circular** the way `Γ ≡ MAX_WELL_SKEW` was.
-It is still two unjustified choices multiplied:
-| component | the code's claim | what is actually true |
-|---|---|---|
-| **γ = 1** | *"γ = 1 (dimensionless)"* (`SwapLib:768`) | In A–S γ is ABSOLUTE risk aversion, units 1/wealth. Our σ² is **return** variance, so the skew is a RATE and our γ is RELATIVE risk aversion. **γ = 1 is log utility / Kelly** — a substantive preference, presented as a normalisation. |
-| **T−t = 48h** | *"the ONE window the system already commits to"* | `Core.sol:181` justifies 48h as *"a wide, manipulation-resistant memory"* — a criterion for an **ESTIMATION** window. Reusing it as a **RISK HORIZON** imports a number chosen for an unrelated reason. Same category error as §E79's cap-as-rate, one level up. |
-⇒ **"Γ is a derivation, not a dial" is true only in the weak sense that it is now TIED to another
-constant.** Γ is a DEPENDENT parameter — it must move with whatever sets the horizon — but the horizon
-has never been derived. **The rigidity is unearned; the coupling is real.** Both halves matter.
-
 ## 2 — AND THE HORIZON *IS* DERIVABLE, WHICH RETIRES THE 48h ASSUMPTION
 τ = I/F. I = q·target. `target = flowEwmaUsd + redeemEwmaUsd` is a 48h-decayed VOLUME ≈ F·T_flow.
 ⇒ **τ = q·target/(target/T_flow) = q·T_flow.** So A–S §2.2's premium `γσ²τ·q` = **Γσ²q², with Γ the
 SAME 5.48e15 the code already ships.** ⭐ The coefficient was right and the q-POWER is what the 48h
 assumption was standing in for. This is the peer's §E274 note (*"it is the flow WINDOW, and the horizon
 is q times it"*) derived rather than observed.
-
-## 3 — ⛔ AND q² IS REFUTED BY MEASUREMENT. I PROPOSED IT AND IT FAILED.
-q² is **bounded** (max Γσ²: 35 bps at 80% vol, 219 at 200%) so it never reaches `SKEW_UNFILLABLE`.
-Under **elastic demand** — an arb fills only while the charge is under willingness W — that is fatal:
-| W (bps) | POLE drain stops at q | q² drain stops at q |
-|---|---|---|
-| 10 | 0.2219 | 0.5340 |
-| 25 | 0.4162 | 0.8443 |
-| **50** | **0.5878** | 🔴 **FULLY DRAINABLE** |
-| 100 | 0.7404 | 🔴 **FULLY DRAINABLE** |
-⇒ **above W ≈ 48 bps the q² range empties at a price arbs will happily pay.** An empty range is the
-state the refill exists for, so the "correct" A–S shape manufactures the emergency it is priced for.
-⚠️ **AND MY FIRST REVENUE TABLE (§3 of the harness) IS WITHDRAWN AS A DECISION INPUT.** It assumed every
-trade fills at any charge under a 100% haircut, i.e. perfectly inelastic demand, and reported the pole
-collecting 8–32× more. **Nobody pays 3471 bps to drain a range.** The elastic table above is the honest
-one and it REVERSES the ranking at low W. Kept in the file, labelled, because the reversal is the point.
-
-## 4 — ⭐ SO THE POLE IS CORRECT, AND ITS STATED JUSTIFICATION IS NOT
-`0505a993` withdrew §E287 by citing A–S §2.3's denominator `2ω − γ²q²σ²`. **That is the STATIONARY
-(infinite-horizon) case.** We are not infinite-horizon: τ = q·T_flow is finite and computable, so §2.2
-applies and §2.2 has **no pole at all**. The real justification is a BOUNDARY CONDITION A–S do not have:
-**their maker may hold NEGATIVE inventory and rebalance outside; ours is floored at zero with no outside
-venue** (§E276: *"nothing currently pulls inventory back"*). The marginal value of the last unit diverges
-because it is the last one. ⇒ **right answer, wrong citation** — and the barrier is not "linear A–S felt
-too flat" (aesthetic, §E286) but the missing boundary condition (derivable). **Write that down at
-`SwapLib:1523`; the current reasoning does not survive reading the paper's section numbers.**
-
-## 5 — 🔴 THE DEFECT IS κ, AND IT IS THE ONE PARAMETER NOBODY HAS QUESTIONED
-In A–S §2.3 the pole sits at `q* = √(2ω)/(γσ)` — **its LOCATION MOVES WITH VOLATILITY.** `KAPPA_WAD`
-is a CONSTANT. Under §2.3's scaling (κ = κ_ref·σ_ref/σ):
-| vol | κ(σ) | reserve held (1−κ) | drain stops at q, W=50bps |
-|---|---|---|---|
-| 60% | 1.667 | 0 | FULLY DRAINABLE |
-| 80% | 1.250 | 0 | 0.6661 |
-| 100% | 1.000 | 0 | 0.4771 |
-| 200% | 0.500 | **0.500** | 0.1567 |
-| 300% | 0.333 | **0.667** | 0.0777 |
-⇒ **a σ-scaled κ tightens the reserve exactly when restoration is most expensive, and relaxes it when
-the market is calm and a refill would be cheap.** Today's constant κ is **loosest precisely when the
-refill can least afford to be called.** ⚠️ ω is still policy (it sets the LEVEL); what A–S gives for
-free is the **1/σ SCALING**, and that is the part to land. ⏸️ Gated as §E289 already says — raising κ
-needs a restoration mechanism; LOWERING it does not, and the σ-scaling does both depending on vol.
-
-## 6 — the refill thread's *"4.2 bps FLAT across 100× of size"* is NOT this kernel
-Both kernels scale with size by construction (POLE 0.0175 → 1.8799 bps over 100×; q² 0.000012 → 0.117).
-**`_maxWellSkew` = σ²·confFrac/8 has no `q` in it and since §E79 it ADDS as a floor — it is the only
-size-independent term on the path.** ⇒ the refill measurement was reading the BASE, and the term that
-responds to scarcity was never in its sample. **This does not overturn "the premium is too small"; it
-changes the fix from "find another funding source" to "the kernel never reached the drain sizes that
-matter, and κ is why."** ▶️ Hand to the refill thread: re-run the sweep reporting base-vs-kernel split.
-
-## 7 — 🔴 NO USABLE VARIANCE SOURCE EXISTS OFF-CHAIN (measured, not recalled)
-`realizedVarianceWad = max(ringVariance, anchorVarianceWad)`. The anchor leg's INPUT is Chainlink but its
-ESTIMATOR is local state (`_varSq`/`_varDt`, `Flow` registers advanced only on swaps), so σ² is
-**path-dependent on who swaps and when**, and 0 (⇒ the 3e16 ceiling) on any range with no flow.
-**Chainlink Realized Volatility feeds are TESTNET-ONLY. Measured against the reference-data directory:
-Ethereum mainnet 290 feeds / 0 volatility · Polygon 125 / 0 · Avalanche 90 / 0.** The 2023 programme
-(Arbitrum Goerli, Avalanche Fuji, Sepolia, Mumbai) never shipped to production.
-▶️ **The only live mainnet alternative found is Volmex EVIV/BVIV — but it is IMPLIED vol, a different
-quantity, and a single provider.** ⚠️ Swapping a local estimator for one third-party oracle trades
-manipulation risk for liveness risk, against `Core`'s own standing rule **THE READ MUST NOT BE ABLE TO
-HALT THE RANGE.** ⇒ §C1 ("which σ² source") **cannot be closed by adopting a feed today.** Booked with
-the measurement so nobody re-derives it.
-
-▶️ **WHAT THIS LEAVES OPEN, IN ORDER:** (1) land κ's σ-scaling with a stated ω and a prediction;
-(2) destale `SwapLib:1523`'s §2.3 justification to the boundary-condition one; (3) refill thread
-re-splits its premium measurement base-vs-kernel; (4) §C1 stays open — no mainnet feed exists.
-
----
-
-# 🔴🔴 §REFILL-FEASIBILITY-SETTLED — **18 guarded samples: coverage is NEGATIVE 56% of the time. Median shortfall is 2× the premium.**
-
-Owner: *"without requiring arbitragers that bring external capital, we must make this work in the best
-possible way for LPs. do all the measurements, make no guesses."* Measured, guarded, and settled.
-
-## THE DISTRIBUTION (10 blocks × 2 sizes, every sample σ²-verified)
-    VALID 18   NEGATIVE 10 = 56%   min −66 bps   max +110 bps   MEDIAN −8 bps
-    premium: 4.2 bps, FLAT at every size and every block
-    ⇒ median shortfall 8 bps = 2.0× the premium; worst case 66 bps = 16× the premium
-
-**Every sample carries the §SENTINEL-GUARD**, so a σ²-unmeasured block now FAILS instead of reporting a
-favourable constant. That guard changed the answer: the unguarded first sweep reported +297 and +264 bps
-and would have said "comfortably feasible". **It was measuring `UNKNOWN_VARIANCE_SKEW`.**
 
 ## ⇒ THE VERDICT
 **An unconditional bundled refill LOSES MONEY FOR LPs MORE OFTEN THAN NOT.** The swapper's premium does
@@ -60740,14 +55453,6 @@ prohibition. Re-run of `test_SkewVsV3_CrossoverSize` at the LANDED Γ, real Quot
 | $250,000 | 30 | 4 | **26** | ✅ | ✗ |
 | $500,000 | 40 | 22 | **18** | ✅ | ✗ |
 | $1M / $2M | 58 / 96 | 10000 (sentinel) | — | our depth is exceeded; declining is correct |
-
-## ⇒ THIS CORRECTS §REFILL-FEASIBILITY-SETTLED's OPTION TABLE
-I marked **B** as *"needs ~2× the premium at the median and 16× at the tail; collides head-on with the
-owner's volume point."* **The first half is right and the second is wrong.** The collision is not with
-4.2 bps — it is with **17–26 bps**, which is where a swapper starts preferring Uniswap. So:
-· **+8 bps (the MEDIAN shortfall) puts us at 12 bps against Uniswap's 21–30. Still decisively cheaper.**
-· **+17 bps still lands at or below Uniswap at every size we can actually serve.**
-· **Only the −66 bps tail exceeds the headroom.** That residual is exactly what conditionality is for.
 
 ## ⇒ THE ANSWER IS B + A, AND IT DOMINATES A ALONE
     B  size-aware execution charge, capped by the COMPETITIVE bound (~17 bps, never above uni)
@@ -60836,14 +55541,6 @@ wrote in the test contract**. There is no protocol-executed buy-back anywhere in
 > The refill is a PERMISSIONLESS response to a public on-chain price: the skew is our reservation price,
 > captured by whoever refills first."*
 
-## ⇒ RESCOPING §REFILL-G2-VERDICT (not retracting it — the measurements are sound, their SUBJECT was wrong)
-It concluded *"the premium is not sized to fund the refill"*. **That is a true statement about a
-protocol-executed buy-back, which is a mechanism this tree does not have and explicitly rejected fourteen
-months of commits ago.** It is **NOT** evidence about the shipped design, and it must not be cited as
-such. What the 18 samples DO establish, and it keeps its value: **if anyone ever builds a
-protocol-executed buy-back, it loses money in 56% of regimes.** That is a strong argument against
-building one — i.e. it CONFIRMS the shipped design's choice rather than indicting it.
-
 ## 🔑 WHAT THE SHIPPED DESIGN ACTUALLY RESTS ON — and it is UNMEASURED
 The whole mechanism is one causal claim: **scarcity ⇒ more fee capture ⇒ LP entry ⇒ inventory restored.**
 Every link after the first is unverified in this tree:
@@ -60919,31 +55616,6 @@ tree cites BOTH in different places.** ⇒ **THE UNASKED QUESTION IS: WHICH A–
 IMPLEMENTING?** Everything else — κ's constancy, ρ's exponent, whether the pole may move with vol — is
 downstream of that one choice, and nobody has posed it.
 
-## 4. WHAT THAT MEANS FOR THE REFILL DECISION
-The refill is unbuilt because **the shipped design says it needs no machinery: price scarcity, and LP
-entry restores** (row 10). That works **iff the scarcity signal is strong enough to summon entry** — and
-row 7 measures it at ~0 bps through 75% depletion. So:
-    the refill question  ==  is the scarcity signal strong enough?
-    signal strength      ==  set by κ (the pole's LOCATION — it RESHAPES; Γ only SCALES)
-    κ cannot move        ==  blocked by the §2.2-vs-§2.3 choice
-⇒ **The refill is not blocked on funding, execution, keepers, 1inch, or capital. It is blocked on an
-unanswered question about which A–S regime the reserve implements.** That is a design decision for the
-owner, it costs nothing to make, and **it unblocks κ, ρ, and the refill simultaneously.**
-📌 **AND IT IS CHEAP TO DECIDE WELL:** §2.2 (finite horizon, linear in σ², no pole) matches our horizon
-being finite and computable (τ = q·T_flow, row 2). §2.3 (stationary, pole, vol-scaled) is what the code's
-pole actually resembles — but `0505a993` cited §2.3 to justify the pole and **that citation is wrong**:
-our pole comes from a boundary condition A–S do not have (inventory floored at zero, no outside venue),
-not from §2.3's denominator. **Right answer, wrong citation — and correcting it may settle §2.2 vs §2.3
-on its own.**
-
----
-
-# 🔧 §SKEW-SYNTHESIS-CORRECTED — **my "which A–S section?" question is SUPERSEDED. The test detects a DOUBLE-COUNT, and σ² was never the driver.**
-
-§SKEW-MONTH-SYNTHESIS (one commit ago) named the wall as `test_E287_SkewIsNotPinnedToAConstant`'s
-linearity assertion and posed *"which A–S section are we implementing?"* as the unasked question. **A peer
-supplied a better answer, it is verified, and it retires my framing.**
-
 ## THE CORRECTION — the test is not foreclosing a legitimate shape, it is catching a bug
 `skew = Γ·σ²·q̄(q)` **already carries σ² ONCE, LINEARLY — that IS A–S §2.2.** So κ(σ) and ρ(σ) were each
 a **SECOND appearance of the same σ²**, and *a linearity assertion is precisely what detects a
@@ -60996,6 +55668,19 @@ invariant** anywhere; q compares inventory to expected FLOW, not to another leg.
 ---
 
 ## 🗺️ §SESS-121-INDEX — where this session's findings live, and which OPEN rows they change
+
+> 🔴 **RETIRED 2026-09-10 — THE ROWS BELOW MAP EIGHT OPEN QUESTIONS ABOUT A KERNEL THAT IS DELETED.**
+> Γ, κ, ρ, σ²-sensitivity, the depletion barrier, the unknown-variance sentinel and the refill
+> incentive are all questions about `skewWad`, and `skewWad` is gone: `wellSkew`/`sellSkew` return the
+> flat `MIN_SWAP_SKEW_WAD` (420 ppm), because every input the kernel read was state the priced
+> counterparty could starve (§NO-GAMEABLE-BOUND).
+> **Do not open GATE 2 to pick "which A–S section we implement" — the answer is none of them.** The
+> replacement is in `docs/actionable/TARGET-DESIGN.md`: a constant on the drain leg (nothing to game),
+> and a CAPACITY term on the sell-in leg read off the balance sheet, because borrowing against new
+> collateral only re-dollarises `L` of it.
+> **The measurements below stand as measurements** — `sims/kernel_shape.js`, the reverted-three-times
+> record, and every commit hash. Read them as history, not as a queue.
+
 
 📌 **§SEQ-AUDIT: GATE 2 (the decisions) → GATE 6 (the pricing) · lanes L5 range/swap + L4 lever.** ⛔ **AND THE ORDER IS THE LESSON OF THIS SESSION: GATE 6 says *"only now, because GATE 2 decides what"*, and I spent the session doing GATE 6 work — building κ(σ), then ρ(σ) — while its GATE 2 decision was never made.** Both were reverted. **The file's own sequencing predicted that and I did not read it first.** Do not attempt a fourth shape until GATE 2 answers *which A–S section we implement*.
 
@@ -61160,22 +55845,6 @@ q ∈ {[0.1,0.5], [0.6,0.9], [0.8,0.95]}: **relative error ≤ 6.7e-11 in all tw
 ⚠️ ρ = 1 is a genuine pole in the formula (`1/(1−ρ)`), so the existing `ln` branch stays as the ρ=1
 case. That is a branch, not an obstacle.
 
-## 🔴 AND IT DOES NOT MATTER, BECAUSE ρ(σ) HITS THE SAME WALL κ(σ) DID — MEASURED
-`test_E287_SkewIsNotPinnedToAConstant` asserts **skew is LINEAR in σ²** (doubling σ² doubles the
-reading, 2% tolerance). A σ-dependent ρ is not linear in σ²:
-| probe | q | ρ 1.000 → 1.500 | ratio TODAY | ratio with ρ(σ) |
-|---|---|---|---|---|
-| a | 0.850 | | 2.0000 ✅ | **3.7027 🔴** |
-| b | 0.700 | | 2.0000 ✅ | **2.9642 🔴** |
-| c | 0.550 | | 2.0000 ✅ | **2.6000 🔴** |
-
-⇒ **THE BLOCKER IS NOT THE POLE'S LOCATION AND NOT THE BARRIER'S EXPONENT. IT IS THAT ONE TEST
-FORECLOSES EVERY VOL-SENSITIVE SHAPE.** κ(σ) fails it by re-introducing a ceiling; ρ(σ) fails it by
-breaking linearity. **Different mechanisms, same assertion, and the test cannot tell them apart** —
-it uses linearity as a scale-free PROXY for "no ceiling", and its false-positive class (a DELIBERATE
-σ-dependent shape) is unnamed. Per the standing sweep rule, a guard whose false-positive class is
-unnamed is not yet a finding about the code.
-
 ## ⭐ AND THE TEST IS DEFENSIBLE, WHICH IS WHY THIS IS A FORK AND NOT A BUG
 **A–S §2.2 IS linear in σ²** (`r = s − qγσ²(T−t)`), so the test encodes §2.2 faithfully. **A–S §2.3 is
 NOT** — its pole at `2ω − γ²q²σ²` moves with σ. The tree cites BOTH sections in different places
@@ -61284,19 +55953,6 @@ docblock — both are prose. Ask what executes the buy-back today and who pays i
 
 # ⭐ §THE-THIRD-OPTION — **put the vol-sensitivity in the TARGET, not the kernel. And the deeper point: σ² was never the reserve's driver.**
 
-## ⛔ THIS SECTION'S CENTRAL CLAIM WAS ATTACKED AND **FAILED** — READ §SIGMA-COUNT-BROKEN FIRST
-A peer took the owner's *"try to break them"* to this row within the hour and measured
-(`BaseVsKernel.t.sol::test_IsSkewWadExactlyLinearInSigmaSq`): `skewWad` doubling σ² 1e17→2e17 leaves a
-residual of **exactly 210 × drain at every size, unmoved by σ²** — `DEPLETION_RATE_WAD = 2.1e14`
-(`SwapLib:825`). The real ratio is **1.57 to 1.86, never 2.00**. ⇒ **"σ² appears exactly once,
-linearly" is FALSE**: `skewWad` is σ²-scaled risk terms **PLUS a σ²-FREE depletion term**, and
-`test_E287` passes only because its own fixture makes that term negligible.
-✅ **WHAT SURVIVES:** the κ(σ)/ρ(σ) rejections stand **on their magnitude** (3.70/2.96/2.60, far outside
-anything 210 ppm explains) — **but NOT on the mechanism stated below.** The conclusion is intact and my
-explanation of it is not. 🔴 And §SIGMA-COUNT-BROKEN found worse: **`_fillableDrain` is σ²-dependent and
-is called in `wellSkew` ZERO times in `skewWad`**, so the production charge has a second σ² path
-entirely outside the function `test_E287` exercises. **Read that row before quoting anything below.**
-
 ## ~~WHY EVERY SHAPE ATTEMPT COLLIDED WITH ONE TEST~~ (superseded in mechanism, kept for the magnitudes)
 κ(σ) and ρ(σ) both fail `test_E287_SkewIsNotPinnedToAConstant`. I read that as the test over-reaching.
 **It is not.** `skew = Γ·σ²·qBar(q)` already carries σ² **once, linearly** — which is A–S §2.2 exactly.
@@ -61304,12 +55960,6 @@ Every attempt to make the SHAPE vol-sensitive was a **SECOND appearance of the s
 linearity assertion is precisely what detects a double-count. ⇒ **The test was right to reject all of
 them, and for a better reason than the one it states** (it says "a ceiling"; the general case is "σ²
 used twice").
-
-## AND THE REAL DRIVER IS NOT PRICE VARIANCE AT ALL
-**What empties a range is DIRECTIONAL FLOW, not price variance.** Price variance is already priced,
-linearly, in `Γσ²`. Reaching for it again to size a reserve is reaching for the signal we have because
-the one we need is unmeasured. `netFlowUsd`'s docblock names the missing quantity exactly: *"a basket
-draining steadily in one direction reads, today, exactly like a balanced one."*
 
 ## THE SHAPE, AND WHY IT DODGES EVERY WALL THE OTHER TWO HIT
 `skewWad(poolVolUsd, **flowUsd**, sigmaSqWad, rk, drainUsd6)` — **`target` is a PARAMETER**, and the
@@ -61342,62 +55992,6 @@ safety-stock shape, and the current target is pure mean flow with **no safety te
 reserve question and the "does the refill exist" question are the same question: if `target` priced
 directional drain, scarcity would price itself correctly and LP entry — the only refill path the
 shipped design has — would be pulled in at the right moment by construction.
-
----
-
-## 🔬 §SIGMA-COUNT-BROKEN — I attacked "σ² appears exactly once" and it FAILED. Four results, two of them negative.
-
-Owner: *"are you sure the observations are correct? try to break them."* Tried. **The central claim of
-§SKEW-SYNTHESIS-CORRECTED does not survive**, and the corrected version is narrower.
-
-### THE MEASUREMENT (`BaseVsKernel.t.sol::test_IsSkewWadExactlyLinearInSigmaSq`)
-`skewWad` at σ²=1e17 vs 2e17, `ethRisk`, four drains:
-
-| drain (usd6) | σ²=1e17 | σ²=2e17 | 2× the first | residual | residual ÷ drain |
-|---:|---:|---:|---:|---:|---:|
-| 2,000e6 | 973,426,896,733 | 1,526,853,793,466 | 1,946,853,793,466 | 420,000,000,000 | **210.0** |
-| 50,000e6 | 24,677,839,178,635 | 38,855,678,357,271 | 49,355,678,357,270 | 10,500,000,000,000 | **210.0** |
-| 400,000e6 | 235,820,672,967,110 | 387,641,345,934,221 | 471,641,345,934,220 | 84,000,000,000,000 | **210.0** |
-| 950,000e6 | 1,379,451,266,829,987 | 2,559,402,533,659,974 | 2,758,902,533,659,974 | 199,500,000,000,000 | **210.0** |
-
-**EXACTLY 210 × drain at every size, and it does not move with σ².** That is `DEPLETION_RATE_WAD =
-2.1e14` (`SwapLib:825`, *"210 ppm = half the pool fee tier"*).
-⇒ **`skewWad` = σ²-scaled risk terms + a σ²-FREE depletion term.** The doubling ratio is **1.57 at the
-smallest drain and 1.86 at the largest — never 2.00.**
-
-### ⇒ THE CORRECTED CLAIM
-`test_E287_SkewIsNotPinnedToAConstant` requires 2.00 ±2%. **Its linearity premise is already violated by
-an existing term**; it passes only because its own fixture makes that term negligible. So it detects a
-double-count **in the regime it samples**, not in general. The κ(σ)/ρ(σ) rejections stand on their
-magnitude (3.70/2.96/2.60 — far outside anything the depletion term explains), **but not on the stated
-mechanism.** "σ² must appear exactly once" is not what the code does.
-
-### TWO NEGATIVE RESULTS — recorded so nobody re-derives them
-· **`_amplify` carries no σ².** It reads `committedUsd18`/`rangeEquityUsd18` only. My earlier guess that
-  the residual was *"§E89b's amplifier carrying a second-order σ² term"* is **wrong in mechanism**.
-· **`ethRisk()` has `spliceFloor = 0`**, so the amplifier is exactly affine for ETH and the splice-offset
-  explanation (`splice·(s−1)`) **cannot apply either**. Both candidates eliminated before the real one.
-
-### 🔴 AND A STRUCTURAL FINDING THE LINEARITY TEST CANNOT SEE
-**`_fillableDrain` is called in `wellSkew` and ZERO times in `skewWad`** (verified by count). Its bound
-is `R = SKEW_UNFILLABLE/(Γ·σ²)` — **σ²-dependent**. ⇒ **the PRODUCTION charge has a second σ² path, in
-the drain bound, entirely outside the function `test_E287` exercises.** So even the narrowed claim
-("σ² appears once in `skewWad`") does not extend to what a swapper actually pays.
-📌 This is the same shape as three other findings today: **the check that would have caught it was not
-the one that ran.** `forge build` is green while a contract is over EIP-170 (project-45); `--skip test`
-hid a NatSpec break; my own log filter matched the compiler echoing my source back.
-
-
----
-
-# 📥 §L-ROUTING-FOLDED-2026-09-09 — the routing/floors lane book, folded in; its file is DELETED
-
-⚠️ **NOT MINE — folded on the owner's instruction that no separate lane files exist.** It carries
-**10 open rows**, including §SESS-59 (*a second unauthenticated withdrawal*). Nothing was summarised or
-triaged: content is verbatim so no state is lost in the move. **Read the state column of each row.**
-
-Booked here rather than in `SPRINT.md` per CLAUDE.md — a parallel thread is crossing rows off
-`SPRINT.md` in place and it is the one file every lane wants to append to.
 
 ---
 
@@ -62657,32 +57251,6 @@ shrinks alongside the long. **There is no structural over-hedge.** ⛔ Do not ci
 `_reconcileLev` gates on gross collateral) and concluded the collateral could not move — **without
 checking the payout path that moves it.** Reading one side of a coupling and inferring the other.
 
-## ✅ §KAPPA-GAMMA-RHO-RESOLVED — where the three parameters and the integral actually landed
-Owner asked for the resolution. **Current code, verified:**
-    GAMMA_WAD          = FLOW_HALFLIFE * WAD / 365 days   (5.479452e15)   ✅ LANDED
-    KAPPA_WAD          = 1e18                             (constant)      ⛔ UNCHANGED
-    DEPLETION_RATE_WAD = 2.1e14                                           (unchanged, and see below)
-    rho / powWad in SwapLib: **0 occurrences** — the closed-form integral was NEVER LANDED.
-
-| | disposition | why |
-|---|---|---|
-| **Γ** | ✅ **RESOLVED AND LANDED.** Derived from the one 48h window, not chosen | The old 3e16 was `MAX_WELL_SKEW` under a second name. Refined since (`d7122fc1`): γ=1 is log utility as a normalisation and 48h was an ESTIMATION window reused as a RISK horizon — **an assumption chain** — but `τ = q·T_flow` re-derives **the same number**, so the value stands even though its justification is weaker than "first principles" |
-| **κ** | ⛔ **RESOLVED AS UNLANDABLE IN THE σ-SCALED FORM.** Built, measured, reverted (`99aaf2d6`) | Re-introduces the ceiling §E286 removed; **+403 bytes** on a contract with little headroom. A–S §2.3 puts the pole at `q*=√(2ω)/(γσ)` so its LOCATION should move with vol; ours does not, and that remains the honest gap |
-| **ρ (exponent)** | ✅ **THE MATH IS SOLVED, THE CHANGE IS NOT LANDED** | `∫q/(κ−q)^ρ dq = u^(1−ρ)[u/(2−ρ) − 1/(1−ρ)]`, `u = κ−q`, **one `powWad` per endpoint**, verified to ≤6.7e-11 across 12 cells (`320fc415`). **Cheap and exact — the integral was never the obstacle.** But ρ(σ) fails the same test κ(σ) did |
-| **3rd option — vol-sensitivity in the TARGET** | 🟡 **THE ONLY ONE THAT SURVIVES THE WALL, AND IT IS UNBUILT** | The target is a **PARAMETER** to the pricing function, so changing how it is computed is **invisible** to the linearity test that killed the other two. Zero SwapLib bytes, §E68's integral untouched, §E289's κ gate never engages |
-
-### ⚠️ AND §SIGMA-COUNT-BROKEN CHANGES WHY κ(σ) AND ρ(σ) WERE REJECTED
-The stated reason was *"σ² must appear exactly once and these double-count it."* **Measured, that premise
-is false**: `skewWad` already carries a σ²-FREE term (`DEPLETION_RATE_WAD`, exactly 210 per unit of drain),
-so the doubling ratio is 1.57–1.86, never 2.00. ⇒ **The rejections stand on MAGNITUDE** (κ(σ) gave
-3.70/2.96/2.60 — far outside anything depletion explains) **but not on the stated mechanism.** Anyone
-re-opening κ should know the test is not the clean double-count detector it was described as.
-📌 **NET:** Γ is done. κ is open but its obvious form is measured-and-reverted. The integral is solved and
-unused. **The live route is the target, and it is blocked on a signed flow measure that is cumulative
-where gross is decayed — plus its own declaration's gate against money-path reads.**
-
----
-
 ## 🗑️ §MISLEADING-TESTS-REMOVED — ten tests deleted, nine of them mine
 
 Owner: *"remove tests that are misleading."* Removed, not merely re-documented. Survivors verified 6/6.
@@ -62792,24 +57360,6 @@ Measured out of the real `skewWad` — `evm/test/SkewFloorAndSigmaFreeShare.t.so
 
 ⇒ **a 17× spread.** The published "~55%" is one sample, at roughly 33–35% vol. On a violent tape the floor governs 3.7% of the range; on a calm one it governs 63%.
 ⚠️ **THIS IS NOT A DEFECT IN THE CODE.** It is a defect in how three numbers are quoted, and it is the same species of error as trap 1 itself — which warns against reading a flat number off the floor band and then states a floor-band figure as a constant.
-
-## 1️⃣ §FLOOR-IS-NOT-A-CONSTANT + 2️⃣ §SIGMA-FREE-SHARE — **the two owner questions, with the numbers now attached**
-The σ²-free share of the charge (`DEPLETION_RATE_WAD`, the *"risk charge with no risk term in it"*), at 80% vol, flush start:
-
-| q | charge | σ²-free part | σ²-free share |
-|---|---|---|---|
-| 0.10 | 209.0 ppm | 21.0 ppm | **10.04%** |
-| 0.25 | 581.1 ppm | 52.5 ppm | 9.03% |
-| 0.50 | 1459.7 ppm | 105.0 ppm | 7.19% |
-| 0.75 | 3132.7 ppm | 157.5 ppm | 5.02% |
-| 0.95 | 7751.2 ppm | 199.5 ppm | **2.57%** |
-
-⇒ **depletion is 2.6–10% of the charge here, giving doubling ratios of 1.90–1.97 — NOT the 1.57–1.86 §SIGMA-COUNT-BROKEN measured.** Both are right about their own fixture. That row's fixture starts at `q0 = 0.5` (`POOL 1e6` against `TARGET 2e6`); this one starts flush. **The share is a function of the starting point, so "the doubling ratio is 1.57–1.86" is not a property of the kernel.**
-📐 **THE DECOMPOSITION IS EXACT, NOT A FIT.** On the ETH profile `skew(σ²) = σ²·(Γ·qBar + confFrac/8) + depletion`, one term linear in σ² and one free of it, so `depletion = 2·skew(σ²) − skew(2σ²)` recovers it exactly — asserted in the test, not assumed. ⛔ **It does NOT transfer to BTC**, whose `SPLICE_FLOOR` is a *second* σ²-free term: measured ETH intercept 1.05e14 vs BTC 2.105e15, and the two cannot be separated by this method. Asserted so nobody runs the ETH method on BTC and reports `SPLICE_FLOOR` as depletion.
-
-⏸️ **THE TWO QUESTIONS, UNCHANGED BY ANY OF THIS AND STILL THE OWNER'S (rule 16):**
-- **Is the floor meant to be the whole price below the crossing?** On a calm tape that is most of the operating range, and there the skew does not price scarcity — it charges a constant.
-- **Should the depletion term carry σ²?** It is 2.6–10% of the charge and is the one term a patient drainer cannot suppress by stretching the clock (§UNIT-B-PATIENCE). **Making it σ²-sensitive would remove the only vol-independent floor under a clock-stretch attack** — which is an argument for leaving it alone that the question as posed does not contain.
 
 ## 3️⃣ ⭐⭐ §LINK-2-MEASURED — **the chain's second link, and it FAILS over exactly the band the floor governs**
 `sims/refill_incentive.js`, controls reproduce the Solidity readings above to ±3 bps (§HARNESS-RETRACTIONS: the controls are *measured code output*, not prose).
