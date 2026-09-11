@@ -198,17 +198,9 @@ async fn main() -> anyhow::Result<()> {
             .context("read QUID_MIGRATE_AUTH (2-of-3 operator authorization bundle)")?;
         let token = std::env::var("QUID_PROVISION_TOKEN").ok();
         let deploy_env = quid_hop::seed::deploy_env_for_network(network);
-        // ANTI-REPLAY (audit HIGH): inside an enclave (untrusted host) consume the bundle's
-        // nonce on-chain via the hot-key EVM client BEFORE exporting, so a captured bundle
-        // can't re-export the seed. Self-host (non-SGX) trusts its own host — no consume.
-        let migrate_evm = if cfg!(target_env = "sgx") {
-            Some(quid_bridge::daemon::build_daemon_evm(&cfg, signer))
-        } else {
-            None
-        };
-        let consumer = migrate_evm
-            .as_deref()
-            .map(|e| e as &dyn quid_bridge::provision_api::MigrationNonceConsumer);
+        // §R-MIGRATION-BINDS-THE-INSTANCE: migration no longer consumes an on-chain nonce — the
+        // authorization names the successor's attested cert key and the handshake enforces it. The
+        // SWEEP path still consumes the registry and still builds its own consumer.
         quid_bridge::provision_api::migrate_seed_to(
             new_addr,
             &auth,
@@ -217,7 +209,6 @@ async fn main() -> anyhow::Result<()> {
             deploy_env,
             network,
             token.as_deref(),
-            consumer,
         )
         .await
         .context("migrate seed to authorized successor")?;

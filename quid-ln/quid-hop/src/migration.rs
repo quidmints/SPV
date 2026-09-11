@@ -206,11 +206,24 @@ pub struct MigrationAuth {
     pub deploy_env: DeployEnv,
     /// The network this authorization is valid for.
     pub network: Network,
-    /// ANTI-REPLAY (audit HIGH): a unique per-authorization nonce the operators include
-    /// when signing. The migrating enclave CONSUMES it on-chain
-    /// (`BTCChannels.markMigrationNonceUsed`) before exporting the seed, so a captured
-    /// bundle can be used AT MOST ONCE — it no longer re-authorizes export forever.
-    pub nonce: [u8; 32],
+    /// §R-MIGRATION-BINDS-THE-INSTANCE — ANTI-REPLAY, and it replaced a nonce.
+    ///
+    /// The ed25519 public key of the SUCCESSOR ENCLAVE'S attested TLS certificate. That key is
+    /// generated inside the enclave and committed in its own quote's `reportdata`, so it is
+    /// unforgeable and unique to one running process. The migrating enclave pins it into the
+    /// attestation policy, so the RA-TLS handshake itself refuses any other instance.
+    ///
+    /// 🔑 **WHY THIS BEATS THE NONCE IT REPLACED, which was an on-chain one-shot consumed via
+    /// `BTCChannels.markMigrationNonceUsed`:** a nonce stops a captured bundle being used a SECOND
+    /// time. This stops it being used against a DIFFERENT enclave at all — and the only instance it
+    /// still authorizes is the one that already received the seed, so a replay conveys nothing.
+    /// ⭐ It also takes an RPC out of the seed-export path. The nonce had to be CONFIRMED on-chain
+    /// before exporting, so a host that merely suppressed the transaction could block migration;
+    /// the binding is verified inside the handshake and needs no chain at all.
+    /// ⚠️ **THE COST IS OPERATIONAL AND REAL: operators sign PER MIGRATION, against a LIVE
+    /// successor** — they need its attested cert key, which does not exist until it is running.
+    /// Pre-authorizing a future migration is no longer possible, and that is the point.
+    pub successor_cert_pk: [u8; 32],
 }
 
 impl MigrationAuth {
@@ -237,7 +250,7 @@ impl MigrationAuth {
         // hashStruct = keccak256(abi.encode(typeHash, measurement,
         //                         keccak256(deployEnv), keccak256(network)))
         let type_hash = keccak256(
-            b"MigrationAuth(bytes32 measurement,string deployEnv,string network,bytes32 nonce)",
+            b"MigrationAuth(bytes32 measurement,string deployEnv,string network,bytes32 successorCertPk)",
         );
         let deploy_env_hash = keccak256(self.deploy_env.to_string().as_bytes());
         let network_hash = keccak256(self.network.to_string().as_bytes());
@@ -246,7 +259,7 @@ impl MigrationAuth {
         st.extend_from_slice(self.measurement.as_bytes());
         st.extend_from_slice(deploy_env_hash.as_slice());
         st.extend_from_slice(network_hash.as_slice());
-        st.extend_from_slice(&self.nonce);
+        st.extend_from_slice(&self.successor_cert_pk);
         let struct_hash = keccak256(&st);
 
         let mut buf = Vec::with_capacity(2 + 64);
@@ -390,10 +403,11 @@ pub fn verify_migration_auth(
     verify_threshold_signatures(
         &bundle.auth.eip712_digest(), &bundle.signatures, owners, threshold, "migration",
     )?;
-    // Return the authorized measurement AND the anti-replay nonce; the caller MUST consume
-    // the nonce on-chain (markMigrationNonceUsed) before exporting the seed, so a replayed
-    // bundle is rejected (the nonce is already used).
-    Ok((bundle.auth.measurement, bundle.auth.nonce))
+    // §R-MIGRATION-BINDS-THE-INSTANCE. Return the authorized measurement AND the successor's
+    // attested cert key. The caller MUST pin that key into the attestation policy for the
+    // provisioning handshake, so the RA-TLS verifier itself refuses any other instance — there is
+    // no on-chain step and nothing to consume.
+    Ok((bundle.auth.measurement, bundle.auth.successor_cert_pk))
 }
 
 
@@ -612,7 +626,7 @@ mod test {
             measurement: Measurement::new([7u8; 32]),
             deploy_env: DeployEnv::Dev,
             network: Network::Regtest,
-            nonce: [0x11u8; 32],
+            successor_cert_pk: [0x11u8; 32],
         }
     }
 
@@ -622,12 +636,15 @@ mod test {
         let s1 = sign_migration_auth(&secret(1), &a).unwrap();
         let s3 = sign_migration_auth(&secret(3), &a).unwrap();
         let bundle = combine_migration_auths(a.clone(), vec![s1, s3]).unwrap();
-        let (measurement, nonce) = verify_migration_auth(
+        let (measurement, pk) = verify_migration_auth(
             &bundle, &OPERATOR_OWNERS, 2, DeployEnv::Dev, Network::Regtest,
         )
         .unwrap();
         assert_eq!(measurement, a.measurement);
-        assert_eq!(nonce, a.nonce, "verify returns the nonce for on-chain consumption");
+        assert_eq!(
+            pk, a.successor_cert_pk,
+            "verify returns the successor cert key the policy must pin",
+        );
     }
 
     #[test]
@@ -670,7 +687,7 @@ mod test {
             measurement: Measurement::new([0x66u8; 32]),
             deploy_env: DeployEnv::Dev,
             network: Network::Regtest,
-            nonce: [0x11u8; 32],
+            successor_cert_pk: [0x11u8; 32],
         };
         let bundle = combine_migration_auths(tampered, vec![s1, s2]).unwrap();
         // Sigs were over the original digest → recover to non-owner addrs → reject.
@@ -686,7 +703,7 @@ mod test {
         let signed = auth();
         let s1 = sign_migration_auth(&secret(1), &signed).unwrap();
         let s2 = sign_migration_auth(&secret(2), &signed).unwrap();
-        let tampered = MigrationAuth { nonce: [0x99u8; 32], ..signed };
+        let tampered = MigrationAuth { successor_cert_pk: [0x99u8; 32], ..signed };
         let bundle = combine_migration_auths(tampered, vec![s1, s2]).unwrap();
         verify_migration_auth(&bundle, &OPERATOR_OWNERS, 2, DeployEnv::Dev, Network::Regtest)
             .unwrap_err();
@@ -757,9 +774,9 @@ mod test {
             measurement: Measurement::new([0xAB; 32]),
             deploy_env: DeployEnv::Dev,
             network: Network::Regtest,
-            nonce: [0x5Au8; 32],
+            successor_cert_pk: [0x5Au8; 32],
         };
-        let s = sweep_auth(); // same nonce/env/network
+        let s = sweep_auth(); // same env/network; MigrationAuth now binds an instance, SweepAuth a nonce
         assert_ne!(m.eip712_digest(), s.eip712_digest(), "domains must not collide");
 
         // And concretely: migration signatures do not verify as a sweep bundle.

@@ -201,6 +201,18 @@ impl AttestationCertVerifier {
             ));
         }
 
+        // 5b. (§R-MIGRATION-BINDS-THE-INSTANCE) if we were told WHICH instance, it must be this
+        //     one. Checked AFTER the binding above, so by here `cert_pk` is already proven to be
+        //     the key the enclave committed in its own quote — comparing it to an expected value
+        //     is therefore comparing enclave identities, not just certificates.
+        if let Some(expected) = self.enclave_policy.expected_cert_pk.as_ref() {
+            if &evidence.cert_pk != expected {
+                return Err(rustls_err(
+                    "attested enclave is a DIFFERENT INSTANCE than the one authorized",
+                ));
+            }
+        }
+
         Ok(cert_verified)
     }
 }
@@ -592,6 +604,18 @@ pub struct EnclavePolicy {
     /// The trusted enclave signer key id. If set to `None`, ignore the
     /// `mrsigner` field.
     pub trusted_mrsigner: Option<Measurement>,
+    /// §R-MIGRATION-BINDS-THE-INSTANCE — the ONE enclave INSTANCE we will talk to, if we have been
+    /// told which. `None` (the default everywhere else) keeps the historic behaviour exactly:
+    /// trust any live instance of a trusted image.
+    ///
+    /// 🔑 **MRENCLAVE NAMES AN IMAGE; THIS NAMES A PROCESS.** The cert key is generated inside the
+    /// enclave and committed in the quote's `reportdata`, so it is unforgeable and unique per
+    /// running instance. Seed export is the one caller that needs that distinction: an operator
+    /// authorization naming only the measurement authorizes export to ANY instance of that image,
+    /// including one an attacker starts, and it stays valid forever. Naming the instance makes a
+    /// captured authorization useless — the only enclave it can export to is the one that already
+    /// received the seed.
+    pub expected_cert_pk: Option<ed25519::PublicKey>,
 }
 
 impl EnclavePolicy {
@@ -611,6 +635,7 @@ impl EnclavePolicy {
             trusted_mrsigner: Some(Measurement::expected_signer(
                 use_sgx, is_dev,
             )),
+            expected_cert_pk: None,
         }
     }
 
@@ -624,6 +649,7 @@ impl EnclavePolicy {
             trusted_mrsigner: Some(Measurement::expected_signer(
                 use_sgx, is_dev,
             )),
+            expected_cert_pk: None,
         }
     }
 
@@ -633,6 +659,7 @@ impl EnclavePolicy {
             allow_debug: true,
             trusted_mrenclaves: None,
             trusted_mrsigner: None,
+            expected_cert_pk: None,
         }
     }
 
@@ -653,6 +680,7 @@ impl EnclavePolicy {
             allow_debug: false,
             trusted_mrenclaves: None,
             trusted_mrsigner: Some(INTEL_QE_IDENTITY_MRSIGNER),
+            expected_cert_pk: None,
         }
     }
 
@@ -673,6 +701,7 @@ impl EnclavePolicy {
             allow_debug,
             trusted_mrenclaves,
             trusted_mrsigner,
+            expected_cert_pk: None,
         }
     }
 
@@ -856,6 +885,7 @@ mod test {
             allow_debug: true,
             trusted_mrenclaves: Some(vec![SERVER_MRENCLAVE]),
             trusted_mrsigner: None,
+            expected_cert_pk: None,
         };
         enclave_policy.verify(&report).unwrap();
     }
@@ -872,6 +902,7 @@ mod test {
                 allow_debug: true,
                 trusted_mrenclaves: Some(vec![SERVER_MRENCLAVE]),
                 trusted_mrsigner: None,
+                expected_cert_pk: None,
             },
         };
 

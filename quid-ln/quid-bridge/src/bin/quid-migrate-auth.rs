@@ -108,9 +108,25 @@ impl Auth {
     }
 }
 
-/// The anti-replay nonce, shared by both authorization types (audit HIGH): unique per
-/// authorization, and consumed on-chain before the seed is exported or the sweep broadcasts,
-/// so a captured bundle authorizes at most one action. All signers must sign the SAME nonce —
+/// §R-MIGRATION-BINDS-THE-INSTANCE — a REQUIRED 32-byte hex flag, never generated here.
+///
+/// ⛔ **THERE IS DELIBERATELY NO RANDOM FALLBACK, UNLIKE `--nonce`.** A nonce is a value the
+/// operators may invent; this is a value the successor enclave already HAS, and inventing one would
+/// produce a perfectly well-formed authorization that no handshake can ever satisfy — discovered
+/// only at migration time, after every owner has signed. Fail at the flag instead.
+fn hex32_from_flag(args: &[String], name: &str) -> anyhow::Result<[u8; 32]> {
+    let h = flag(args, name).ok_or_else(|| anyhow::anyhow!("{name} <hex32> is required"))?;
+    Ok(*Measurement::from_str(&h)
+        .with_context(|| format!("{name} must be 32-byte hex"))?
+        .as_ref())
+}
+
+/// The anti-replay nonce, used by the SWEEP authorization (audit HIGH): unique per
+/// authorization, and consumed on-chain before the sweep broadcasts, so a captured bundle
+/// authorizes at most one drain. 📌 MIGRATION no longer uses this — it binds the successor's
+/// attested cert key instead, which is stronger (an instance, not a counter) and needs no chain.
+/// A sweep drains to a Bitcoin address and has no instance to bind to, so it keeps the nonce.
+/// All signers must sign the SAME nonce —
 /// one operator generates it (printed here) and shares the hex; co-signers pass `--nonce`.
 fn nonce_from_flags(args: &[String]) -> anyhow::Result<[u8; 32]> {
     Ok(match flag(args, "--nonce") {
@@ -181,8 +197,21 @@ fn auth_from_flags(args: &[String]) -> anyhow::Result<Auth> {
         (Some(m), None) => {
             let measurement =
                 Measurement::from_str(&m).context("--measurement must be 32-byte hex")?;
-            let nonce = nonce_from_flags(args)?;
-            Ok(Auth::Migration(MigrationAuth { measurement, deploy_env, network, nonce }))
+            // §R-MIGRATION-BINDS-THE-INSTANCE. ⚠️ **OPERATORS NOW SIGN AGAINST A LIVE SUCCESSOR AND
+            // CANNOT PRE-AUTHORIZE A MIGRATION.** The key is generated inside the successor enclave
+            // and does not exist until it is running, so it must be read off the running instance.
+            // That is the cost of the property: an authorization that names only an IMAGE is valid
+            // for any instance of it, forever, including one an attacker starts.
+            let successor_cert_pk = hex32_from_flag(args, "--successor-cert-pk").context(
+                "--successor-cert-pk <hex32> is required for a migration: the successor enclave's \
+                 attested TLS cert key, which binds this authorization to ONE running instance",
+            )?;
+            Ok(Auth::Migration(MigrationAuth {
+                measurement,
+                deploy_env,
+                network,
+                successor_cert_pk,
+            }))
         }
         (None, Some(d)) => {
             // Validate FIRST — before the nonce is generated or any digest is printed.

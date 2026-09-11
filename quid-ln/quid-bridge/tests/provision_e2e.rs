@@ -47,12 +47,12 @@ async fn provision_over_attested_tls_seals_seed() {
 
     // Wrong token is rejected (no seed sealed) — exercises the operator-token gate.
     let bad = RootSeed::from_rng(&mut SysRng::new());
-    provision_client_request(addr, measurement, bad, false, deploy_env, Some("wrong"))
+    provision_client_request(addr, measurement, bad, false, deploy_env, Some("wrong"), None)
         .await
         .expect_err("wrong provisioning token must be refused");
 
     // use_sgx=false: server presents a dummy quote off-SGX (verified as such).
-    provision_client_request(addr, measurement, seed, false, deploy_env, Some(tok))
+    provision_client_request(addr, measurement, seed, false, deploy_env, Some(tok), None)
         .await
         .expect("provision over attested TLS");
 
@@ -88,7 +88,7 @@ async fn provision_over_attested_tls_seals_seed() {
 
     let dup = RootSeed::from_rng(&mut SysRng::new());
     let err = provision_client_request(
-        addr2, measurement, dup, false, deploy_env, Some(tok),
+        addr2, measurement, dup, false, deploy_env, Some(tok), None,
     )
     .await
     .expect_err("second provision must be refused");

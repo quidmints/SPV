@@ -75,6 +75,10 @@ async fn main() -> anyhow::Result<()> {
         use_sgx,
         deploy_env,
         token.as_deref(),
+        // No instance binding here: this is an OPERATOR provisioning a fresh enclave it chose, not
+        // an enclave exporting a seed to a successor named in a signed authorization. There is no
+        // prior key to pin — the measurement is the whole of the trust decision.
+        None,
     )
     .await
     .context("provisioning failed")?;

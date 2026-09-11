@@ -41,7 +41,7 @@ async fn migrate_with_2of3_operator_auth() {
     let token = "operator-migration-token";
 
     // Two of the three operators sign the EIP-712 authorization (2-of-3).
-    let auth = MigrationAuth { measurement: target, deploy_env, network, nonce: [0x11u8; 32] };
+    let auth = MigrationAuth { measurement: target, deploy_env, network, successor_cert_pk: [0x11u8; 32] };
     let s1 = sign_migration_auth(&dev_operator(1), &auth).unwrap();
     let s2 = sign_migration_auth(&dev_operator(2), &auth).unwrap();
     let bundle = combine_migration_auths(auth.clone(), vec![s1.clone(), s2]).unwrap();
@@ -69,12 +69,12 @@ async fn migrate_with_2of3_operator_auth() {
     // A 1-of-3 bundle is refused before any seed leaves the old enclave.
     let one = combine_migration_auths(auth.clone(), vec![s1]).unwrap();
     let decoy = RootSeed::from_rng(&mut SysRng::new());
-    migrate_seed_to(addr, &one, decoy, false, deploy_env, network, Some(token), None)
+    migrate_seed_to(addr, &one, decoy, false, deploy_env, network, Some(token))
         .await
         .expect_err("1-of-3 must be refused");
 
     // 2-of-3 authorized ⇒ seed transfers to the authorized successor.
-    migrate_seed_to(addr, &bundle, root_seed, false, deploy_env, network, Some(token), None)
+    migrate_seed_to(addr, &bundle, root_seed, false, deploy_env, network, Some(token))
         .await
         .expect("migrate with 2-of-3 operator auth");
 

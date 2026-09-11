@@ -137,6 +137,10 @@ pub async fn provision_client_request(
     use_sgx: bool,
     deploy_env: DeployEnv,
     token: Option<&str>,
+    // §R-MIGRATION-BINDS-THE-INSTANCE. `Some` pins the ONE enclave instance this handshake may
+    // accept, on top of the measurement. Seed export passes the operator-signed key; the
+    // self-provisioning path passes `None` and is unchanged.
+    expected_cert_pk: Option<quid_crypto::ed25519::PublicKey>,
 ) -> anyhow::Result<()> {
     // The attested server cert is bound to this DNS name (derived from the
     // measurement); use it as SNI while resolving it to the real `addr`.
@@ -147,6 +151,7 @@ pub async fn provision_client_request(
         use_sgx,
         deploy_env,
         expected_measurement,
+        expected_cert_pk,
     );
 
     let client = reqwest::Client::builder()
@@ -192,10 +197,15 @@ pub trait MigrationNonceConsumer {
     fn consume(&self, nonce: [u8; 32]) -> anyhow::Result<()>;
 }
 
-/// `consumer`: `Some` in the untrusted-host (fleet/family-SGX) mode — the migrating enclave
-/// consumes the bundle's nonce on-chain BEFORE exporting, so a replay reverts and a host
-/// can't roll the consumption back. `None` for a self-hosted node that trusts its own host
-/// (no on-chain anti-replay needed / no active-hop identity to gate the consume).
+/// §R-MIGRATION-BINDS-THE-INSTANCE — **THERE IS NO LONGER AN ON-CHAIN STEP HERE, AND THAT IS AN
+/// IMPROVEMENT, NOT A RELAXATION.** The bundle names the successor's attested cert key; we pin it
+/// into the attestation policy, so the RA-TLS handshake refuses any enclave but that one. A
+/// captured bundle therefore authorizes export only to the instance that already has the seed.
+/// ⛔ The old nonce had to be CONFIRMED on-chain before exporting, which meant a host that merely
+/// SUPPRESSED the transaction could block migration. The binding needs no chain at all.
+/// 📌 `MigrationNonceConsumer` and `BTCChannels.markMigrationNonceUsed` are NOT deleted — the SWEEP
+/// path (§W1) still consumes that registry, and a sweep drains to a Bitcoin address, so it has no
+/// successor instance to bind to and genuinely needs a one-shot nonce.
 pub async fn migrate_seed_to(
     new_addr: std::net::SocketAddr,
     auth_bundle: &[u8],
@@ -204,9 +214,8 @@ pub async fn migrate_seed_to(
     deploy_env: DeployEnv,
     network: Network,
     token: Option<&str>,
-    consumer: Option<&dyn MigrationNonceConsumer>,
 ) -> anyhow::Result<()> {
-    let (target, nonce) = quid_hop::migration::verify_migration_auth(
+    let (target, successor_cert_pk) = quid_hop::migration::verify_migration_auth(
         auth_bundle,
         &quid_hop::migration::OPERATOR_OWNERS,
         quid_hop::migration::MIGRATION_THRESHOLD,
@@ -215,17 +224,12 @@ pub async fn migrate_seed_to(
     )
     .context("verify operator-Safe migration authorization before exporting seed")?;
 
-    // ANTI-REPLAY (audit HIGH): consume the bundle's nonce on-chain BEFORE exporting. A
-    // replayed bundle's nonce is already used ⇒ this reverts ⇒ we do NOT export. Fail-closed:
-    // a host that suppresses the consume tx gets no confirmation ⇒ no export.
-    if let Some(consumer) = consumer {
-        consumer
-            .consume(nonce)
-            .context("consume migration nonce on-chain before exporting seed (anti-replay)")?;
-        info!(%target, %new_addr, "migration authorized (2-of-3) + nonce consumed on-chain; transferring seed");
-    } else {
-        info!(%target, %new_addr, "migration authorized (2-of-3), self-host (no on-chain nonce); transferring seed");
-    }
+    // ANTI-REPLAY: the authorized successor, as an ed25519 key. An operator bundle that names a
+    // key nobody holds simply cannot complete a handshake, so a malformed one fails closed here
+    // rather than half-way through an export.
+    let successor_cert_pk = quid_crypto::ed25519::PublicKey::try_from(&successor_cert_pk[..])
+        .context("migration auth names a malformed successor cert key")?;
+    info!(%target, %new_addr, "migration authorized (2-of-3), bound to the successor instance; transferring seed");
     provision_client_request(
         new_addr,
         target,
@@ -233,6 +237,7 @@ pub async fn migrate_seed_to(
         use_sgx,
         deploy_env,
         token,
+        Some(successor_cert_pk),
     )
     .await
     .context("transfer seed to authorized successor enclave")

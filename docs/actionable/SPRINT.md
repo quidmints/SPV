@@ -684,9 +684,34 @@ Each was carried as open, some in red, some for weeks.
    says *"the SAME trust domain (same operator, same image)"*, which is not the same seed.
    `derive_vault_seed` is the **hop→vault** sibling, a different pair. **The single-writer fix stands;
    its stated rationale did not.** The fallback's takeover-on-dead-main hand-off is **not built**.
-**21. `R-MIGRATION-BINDS-THE-INSTANCE`** — bind the seed export to the successor's attested ephemeral
-   key (`report_data`), then **delete the nonce, `markMigrationNonceUsed` and its mapping** — freeing
-   immutable-contract bytes. ⚠️ Operators then sign **per migration**, against a live successor.
+**21. ✅ `R-MIGRATION-BINDS-THE-INSTANCE` — BUILT 2026-09-11. ⛔ AND HALF THE ROW WAS WRONG: THE
+   CONTRACT DELETION IS NOT AVAILABLE.**
+   ✅ **Built:** `MigrationAuth.nonce` → `successor_cert_pk`, the ed25519 key of the successor
+   enclave's attested TLS cert. `EnclavePolicy` gained `expected_cert_pk` and the RA-TLS verifier
+   enforces it at `verifier.rs:208`, immediately after the existing check that the quote's
+   `reportdata` binds the presented cert — so by that point the key is already proven to be the one
+   the enclave committed in its own quote, and comparing it compares enclave IDENTITIES.
+   ⭐ **Strictly stronger than the nonce it replaced:** a nonce stops a captured bundle being used a
+   SECOND time; this stops it being used against a DIFFERENT instance at all, and the only enclave it
+   still authorizes is the one that already received the seed. It also removes an RPC from the
+   seed-export path — the nonce had to be CONFIRMED on-chain, so a host that merely SUPPRESSED the
+   transaction could block migration.
+   🔴 **THE DELETION THE ROW PROMISED CANNOT HAPPEN, AND THE ROW DID NOT KNOW WHY: THE NONCE REGISTRY
+   HAS A SECOND CONSUMER.** `execute_sweep<C: MigrationNonceConsumer>` (§W1, `sweep.rs:52`) consumes
+   the SAME `markMigrationNonceUsed` registry, and a sweep drains to a Bitcoin ADDRESS — there is no
+   successor instance to bind to, so it genuinely needs a one-shot nonce. ⇒ **`migrationNonceUsed`,
+   `markMigrationNonceUsed`, `MigrationNonceAlreadyUsed` and `MigrationNonceConsumer` all STAY**, and
+   the promised immutable-contract bytes are NOT recoverable. Only the NAME is now slightly off (it is
+   sweep-only); renaming it is cosmetic and touches the sweep path, so it is left alone.
+   ⚠️ **THE OPERATIONAL COST IS REAL AND IS NOW ENFORCED AT THE FLAG:** operators sign **per
+   migration, against a LIVE successor**, because the key does not exist until the successor is
+   running. `quid-migrate-auth --successor-cert-pk <hex32>` is REQUIRED and has **no random
+   fallback**, deliberately — unlike `--nonce`, an invented value here produces a well-formed
+   authorization no handshake can ever satisfy, discovered only at migration time after every owner
+   has signed.
+   📌 **COVERAGE BOUNDARY, STATED RATHER THAN PAPERED OVER:** the digest-tamper test covers *"the
+   binding is in what the owners signed"*; the handshake ENFORCEMENT is exercised only by the enclave
+   harness, which cannot run here. `cargo test -p quid-hop` 102/0, `-p quid-tls` 16/0.
 **22. `R-10`** — key recovery = a **second registered BIP-340 key**. 🔑 **`§LADDER-VALUE-IS-CONDITIONAL`:
    the exit ladder protects NOTHING without this**, because every rung pays a locked `btcRecipientOf`.
 **23. `§BTC-2.4c` / `4k`** — ⚠️ **THE ROW PRESCRIBES WHAT THE CODE DELIBERATELY REJECTED.**

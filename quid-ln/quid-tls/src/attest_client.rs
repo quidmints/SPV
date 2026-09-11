@@ -9,6 +9,7 @@
 use std::sync::Arc;
 
 use quid_common::{constants, env::DeployEnv};
+use quid_crypto::ed25519;
 use quid_enclave::enclave::Measurement;
 use rustls::{
     DigitallySignedStruct,
@@ -35,12 +36,17 @@ pub fn app_node_provision_client_config(
     use_sgx: bool,
     deploy_env: DeployEnv,
     measurement: Measurement,
+    // §R-MIGRATION-BINDS-THE-INSTANCE. `Some` pins the ONE enclave instance this connection may
+    // reach, on top of the image check. Seed export passes the key the operators signed for;
+    // everything else passes `None` and behaves exactly as before.
+    expected_cert_pk: Option<ed25519::PublicKey>,
 ) -> rustls::ClientConfig {
-    let enclave_policy = EnclavePolicy::trust_measurements_with_signer(
+    let mut enclave_policy = EnclavePolicy::trust_measurements_with_signer(
         use_sgx,
         deploy_env,
         vec![measurement],
     );
+    enclave_policy.expected_cert_pk = expected_cert_pk;
     let attestation_verifier = verifier::AttestationCertVerifier {
         expect_dummy_quote: !use_sgx,
         enclave_policy,
