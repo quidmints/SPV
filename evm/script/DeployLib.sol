@@ -3,7 +3,6 @@ pragma solidity ^0.8.28;
 
 
 import {Quid} from "../src/Quid.sol";
-import {OracleLib} from "../src/imports/OracleLib.sol";
 import {SwapLib} from "../src/imports/SwapLib.sol";
 import {Core} from "../src/Core.sol";
 import {Aux} from "../src/Aux.sol";
@@ -178,13 +177,11 @@ library DeployLib {
         // later, and no configuration under which it talks to another one.
         Basket quid = new Basket(address(ETH), address(aux), LZ_ENDPOINT_V2);
 
-        // Seed each range's ring at the live Chainlink price (§V4-ZERO: no reference pool is read).
-        // ⚠️ SCOPED (`via_ir = false`): the two seed prices are dead the moment both setups have
-        // run, and this frame is already at the stack limit -- MEASURED, it overflowed at
-        // `_newVault` before the block was added.
+        // §TWAP-DELETED — there is no ring to seed. `setup` took a `seedPrice` that nothing read
+        // once `OracleLib.seedRing` went, so the two `seedPrices` reads and the scoped block that
+        // existed to keep them off the stack all went with it.
         {
-        (uint seedEth, uint seedBtc) = OracleLib.seedPrices(cfg.ethFeed, cfg.btcFeed);
-        core.setup(address(ETH), address(aux), address(quid), seedEth);   // ETH range manager IS Quid
+        core.setup(address(ETH), address(aux), address(quid));   // ETH range manager IS Quid
         // §E222 — NO OBSERVATION SOURCE IS PINNED, ON THE OWNER'S INSTRUCTION (2026-08-21).
         // A single Curve 3-coin pool was pinned here and is REMOVED: pricing the range off one pool
         // makes that pool's depth and its own depeg mode an input to σ², the skew and liquidation —
@@ -207,7 +204,7 @@ library DeployLib {
         // hit. `setup` is instance-aware (it seeds only ITS OWN ring), so this is the missing call,
         // not a workaround. Nothing else routed to the BTC instance until `Aux.rangeOf` started
         // dispatching WBTC to it, which is why the gap stayed invisible.
-        Core(a.btcCore).setup(address(0), address(aux), address(quid), seedBtc);   // BTC range pins in setBtcVault (Vault deployed later)
+        Core(a.btcCore).setup(address(0), address(aux), address(quid));   // BTC range pins in setBtcVault (Vault deployed later)
         }
         ETH.setup(address(quid), address(aux), address(core));
         // §FOLD-WIRE — QUID now; the ETH venue follows once `ETH.setup` has set WETH.

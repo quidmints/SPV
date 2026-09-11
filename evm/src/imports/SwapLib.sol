@@ -30,22 +30,26 @@ import {IAggregatorV3} from "./Interfaces.sol";
 library SwapLib {
     using SafeERC20 for IERC20OZ;
 
+    /// @notice The settlement price IS the anchor. There is no second source and no averaging.
+    /// 🔴 A MISSING OR INVALID ANCHOR REVERTS. It does NOT return zero. The first version of this
+    ///    returned `(0, true)` and that is standing rule 3's silent shape: an unregistered feed
+    ///    produced price 0, which produced a quote of 0, which surfaced downstream as
+    ///    `SwapOutDust()` -- an error naming the wrong cause, on a path where 500 USDC had
+    ///    quoted 648,282 sats the run before. **A price of zero is not a price.**
+    /// ⚠️ STALENESS IS RETURNED, NOT THROWN, and that asymmetry is deliberate: a stale feed still
+    ///    carries a real number and `SwapLib`'s rebalance path acts on the flag
+    ///    (`if (stale && _reseatIfStale(...))`). A missing feed carries nothing.
     function anchorPrice18(address feed, bool isWbtc, uint maxAge)
         external view returns (uint price, bool stale) {
-        if (feed == address(0)) return (0, true);
-        try IAggregatorV3(feed).latestRoundData() returns (
-            uint80, int256 ans, uint256, uint256 updatedAt, uint80
-        ) {
-            if (ans <= 0) return (0, true);
-            uint8 d = IAggregatorV3(feed).decimals();
-            if (d > 18) return (0, true);
-            price = uint(ans) * (10 ** (18 - d));
-            if (isWbtc) price *= 1e10;
-            stale = block.timestamp < updatedAt
-                 || block.timestamp - updatedAt > maxAge;
-        } catch {
-            return (0, true);
-        }
+        if (feed == address(0)) revert NoAnchor();
+        (, int256 ans, , uint256 updatedAt, ) = IAggregatorV3(feed).latestRoundData();
+        if (ans <= 0) revert NoAnchor();
+        uint8 d = IAggregatorV3(feed).decimals();
+        if (d > 18) revert NoAnchor();
+        price = uint(ans) * (10 ** (18 - d));
+        if (isWbtc) price *= 1e10;
+        stale = block.timestamp < updatedAt
+             || block.timestamp - updatedAt > maxAge;
     }
 
     error UnknownStableSweep();
@@ -401,6 +405,7 @@ library SwapLib {
     error IntentUnfunded();
     error IntentExpired();
     error IntentUsed();
+    error NoAnchor();
     error IntentBadSig();
     error IntentNotCrossed();
     error IntentUnfillable();

@@ -119,7 +119,7 @@ contract Core {
         VOL_DECIMALS = IERC20Min(asset_).decimals();
     }
 
-    function setup(address _range, address _aux, address _basket, uint seedPrice)
+    function setup(address _range, address _aux, address _basket)
         external { require(msg.sender == DEPLOYER, "403");
 
         require(address(AUX) == address(0), "!");

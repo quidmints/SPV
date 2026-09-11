@@ -210,10 +210,6 @@ library BasketLib {
                         target - trancheTotal);
     }
 
-    function cumsToPrice(uint192 cum0, uint192 cum1, uint32 period)
-        external pure returns (uint price) {
-        price = uint256(cum1 - cum0) / period;
-    }
 
     function matureBatches(uint[] memory batches,
         uint currentTimestamp, uint deployedTime)
