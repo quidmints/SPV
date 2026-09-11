@@ -747,6 +747,60 @@ BREAK 9 establishes `feesPerShare` is structurally zero, so `pendingFor`'s `tokR
 payout in this system is the venue ratchet**, and every one of them mints shares against no asset. The
 ratchet is not *a* source of the token-fee leg. **It is the only one.**
 
+### 🔴🔴🔴 BREAK 12: **`syncLev` IS UNGATED — WHICH MAKES BREAKS 10 AND 11 PERMISSIONLESS, ON A VICTIM YOU PICK**
+```solidity
+function syncLev(address lp) external { _reconcileLev(lp); }      // Quid.sol:429 — no modifier at all
+```
+**No `onlyUs`, no `onlyKeeper`, no `msg.sender == lp`.** Anyone may force a reconcile on any LP whose
+recorded legs have drifted from their live position (`_reconcileLev` returns early only when they
+already agree). ⇒ **two findings that read as accounting defects become reachable attacks.**
+
+**① BREAK 11 BECOMES A GRIEF WITH A NAMED TARGET.** `_doReconcile` accrues `usd_owed` at `:446` and
+`_onExit` deletes it at `:453` when `reconcileLegs` takes `pooled` to zero. With `syncLev` open, **the
+attacker chooses whose fees get erased, and chooses when.** They gain nothing — the claim is destroyed,
+not transferred — so it is griefing rather than theft, **and that makes it cheap, not harmless.**
+
+**② BREAK 10 BECOMES A PUMP YOU CAN RUN ON DEMAND, AND THE CONTRAST IS THE PROOF IT IS AN OVERSIGHT.**
+`_depositImpl`'s **last line** is `bookmark = _venueBalance();` — deliberately, because a deposit raises
+the venue balance and **must not be read as yield.** `_doReconcile` does the opposite:
+```solidity
+(p.spotPrice, …) = _rebalance();          // :445  sets bookmark to the PRE-reconcile value
+_settlePending(LP, lp, address(0));       // :446
+QuidLib.reconcileLegs(…);                 // :447  MOVES the levered book ⇒ moves totalNetEquity
+lpShares = …; totalLevPooled = …;         // :450-452
+_onExit(LP, lp);                          // :453  refreshes venueBm[user]; NEVER the global bookmark
+```
+⇒ **the reconcile changes `totalNetEquity` and leaves `bookmark` stale.** A delever lowers
+`totalNetEquity`, so `current = venueBal − n` **rises**, and the next `_rebalance()` credits that rise as
+**venue yield** — minting shares (BREAK 10) against no asset. **Open leverage, close it, call
+`syncLev`: repeatable, no price move required, no waiting for volatility.**
+⚠️ **And the extractor need not be the LP they sync.** They hold a plain position with an old `venueBm`,
+run the open/close/`syncLev` cycle from a second address, and claim the pump as the plain LP.
+
+🔑 **THE CLASS, AND IT IS NOW THREE-FOR-THREE: THE SECOND CALLER OF A SHARED PATH SKIPS THE DISCIPLINE
+THE FIRST ONE CARRIES.**
+| # | first caller, correct | second caller, missing it |
+|---|---|---|
+| **11** | `Quid:399` pays `usd_owed` before `_onExit` | `_doReconcile:453` does not |
+| **12** | `_depositImpl`'s last line re-seats `bookmark` | `_doReconcile` never does |
+| §MERGE | — | four declaration/use splits, same shape |
+⇒ **THE FIX IS THE SAME ONE IN EVERY ROW AND IT IS RULE 17'S: MOVE THE DISCIPLINE INSIDE THE SHARED
+CALLEE SO NO CALL SITE CAN FORGET.** Settle-and-pay belongs in `_onExit`; re-seating `bookmark` belongs
+wherever the levered book is written. **Both then DELETE the call-site copy** rather than adding a
+second one. ⛔ **Patching `_doReconcile` twice is the clamp, and it is rule 18's worked example verbatim.**
+📌 **`syncLev`'s own gate is a separate question and probably should stay open** — a keeper needs it, and
+§POOL-VENUE wants reconciliation permissionless. **The defect is not that it is callable; it is that
+being callable is currently enough to erase someone's fees and mint yourself shares.** Fix the two
+callees, and the open entrypoint becomes harmless.
+
+### ✅ AND A SECOND HYPOTHESIS CLEARED — the deposit path does checkpoint in the right ORDER
+I expected the classic: checkpoint before crediting, so a joiner's `venueBm` is computed on a stale
+(zero) stake and they then claim the whole historical accumulator. **`_depositImpl` does it the right
+way round:** `_creditShares(LP, deltaETH)` **then** `_refreshBookmarks(pledge, …)` (`Quid:483-485`, and
+again at `:488-490` for the unpaired leg), so `venueBm[user] = plainNet(NEW pooled)·venueFeesPerShare`
+and `venueOwed − venueBm == 0` immediately after joining. **A joiner is owed nothing retroactively on the
+venue leg either.** ⇒ credit-then-checkpoint is correct and deliberate; the attack is unconstructible.
+
 ### ✅ AND ONE BOUND THAT IS FINE, checked so the absence is not read as unexamined
 `LevVenueBase._unitSlice(u, tot, bal) = fullMulDiv(u, bal + 1, tot + 1e6)` floors, and `_unitsFor` floors
 on the way in — so **collateral rounds against the LP at both ends (conservative) and debt rounds in the
