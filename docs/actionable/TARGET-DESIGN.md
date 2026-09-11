@@ -825,6 +825,35 @@ docblock, not the diff"* — a grep centres you on the symbol, and the disciplin
 usually **above** the centre. **A finding derived from a window is unverified until the window is the
 function.**
 
+### ✅ §7540-STYLE — **OWNER RULING, 2026-09-11: *"stylism is still nice."*** ⇒ **TAKE THE VOCABULARY,
+### DO NOT CLAIM THE INTERFACE.** The analysis below stands on the ECONOMICS and is overruled on the
+### AESTHETICS, which is the owner's call. **And the ruling is cheap to honour, because measured: the
+### async physics already forced the two function names that matter.**
+| 7540 name | state in `evm/src` | cost to adopt |
+|---|---|---|
+| `requestDeposit` | ✅ **ALREADY EXISTS** — `Vault.sol:156` (+ `BtcLib:142`, `Interfaces:404`) | **0** |
+| `requestRedeem` | ✅ **ALREADY EXISTS** — `Vault.sol:184` (+ `Interfaces:405`) | **0** |
+| the pending-request state | ✅ **ALREADY EXISTS** — `Core.pendingSwapOutUsd` (`Core.sol:48`), `BTCChannels.requestSwapOutOnchain:787` | **0** |
+| `pendingRedeemRequest` / `claimableRedeemRequest` | ⬜ thin views over the state above | 2 views |
+| `pendingDepositRequest` / `claimableDepositRequest` | ⬜ thin views over channel-funding state | 2 views |
+| `setOperator` / `isOperator` | ⬜ **and independently worth having** — the keeper must claim for a user | 2, needed anyway |
+| 🔴 `supportsInterface` | ⛔ **DO NOT ADD** | see below |
+
+⇒ **THE STYLE IS ~60% FREE AND THE REST IS FOUR THIN VIEWS PLUS AN OPERATOR PAIR WE WANT REGARDLESS.**
+That is a completely different price from the ~8-function conformance I costed against, and at that
+price the owner's preference is simply correct: **a reader who knows 7540 reads our BTC leg without
+learning our names, and it costs almost nothing.**
+
+⛔ **THE ONE LINE NOT TO CROSS, AND IT IS THE SAME MISTAKE AS §PHANTOM-REDEEM ONE LAYER UP: DO NOT
+DECLARE `supportsInterface` FOR 7540.** Looking like 7540 is free and honest. **Returning `true` for its
+interface ID is a CLAIM**, and an integrator who reads that claim is entitled to full semantics we do
+not have (the complete async 4626 base, exact two-phase claim behaviour). ⇒ **`redeemVBtc` emits an event
+asserting a payout it cannot make; `supportsInterface` would assert an interface we do not implement.
+Same class, ABI level, and the blast radius is every integrator instead of every indexer.**
+📌 **THE DISCRIMINATOR, reusable: USE A STANDARD'S NAMES WHERE THE SEMANTICS GENUINELY MATCH; ADVERTISE
+ITS INTERFACE ID ONLY WHEN ALL OF THEM DO.** Naming is documentation. `supportsInterface` is a promise.
+
+### (the economic analysis, unchanged and still the reason not to go further than the above)
 ### 🔑 §NO-7540 — **DOES ERC-7540 BUY US ANYTHING BUT STYLISM? NO.** (owner's question, 2026-09-11)
 **First, the state, because the question presumes a conformance we do not have: `7540` and `7575` have
 ZERO occurrences in `evm/src`.** Every `IERC4626` in the tree is us **consuming someone else's** vault
