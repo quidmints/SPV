@@ -46497,78 +46497,33 @@ to exist. A defect removed by deleting its container rather than by patching it.
 collapsing either changes what the enclave can sign"* — **was real and was handled**: both entries are
 out of the allowlist, and the keeper now sends per-LP `rebalance`, which was already listed.
 
-## §PLP-8 — ORDER-INSENSITIVITY WITHOUT AUCTIONS
+## §PLP-8 ✅ **ACHIEVED BY CONSTRUCTION — THE FLAT FEE IS ORDER-INSENSITIVE AND SIZE-INSENSITIVE**
 
-`q̄` integrates from **live** inventory, so position in a block is worth money. **Snapshot the rate once
-per block per pool** — one slot, one block-number check.
-⭐ **Rate a function of `q0` only, NOT the swap's own size.** The intermediate version (common `q0`, own
-size) reopens §E68's split arbitrage: `n` pieces each start at the cheapest point. A linear floor does
-not deter it. **Size-independence kills both rents**; it is §V4-CUT's *one price and no curve* extended
-from within-a-swap to within-a-block.
-🔴 **The freeze creates a cross-block arbitrage of its own.** Refill `r` at the end of block N−1 paying
-only the floor; block N opens at a lower `q0`; drain `s` at the reduced rate. Profitable when
-`s·rate'(q0)/target > φ`, and `rate'` is largest near the pole — **it bites exactly in the scarce
-regime.** ⇒ **Snapshot a SMOOTHED inventory**, over `W` blocks: gain falls `1/W`, cost stays `r·φ`.
-⚠️ `W` trades manipulation resistance against lag identically; **there is no free window.** Derive `W`
-where manipulation cost exceeds the maximum achievable rate reduction — `φ` and `rate'` are both measured
-and neither depends on `W`.
-**Given up:** `Interfaces.sol:378` measured drain-0 understating the integral 1.11× at 10% and 4.12× at
-90%. Under a freeze that lives inside one block. **The 90% case is what the quantity bound refuses, not
-what the rate prices.**
-**Reverses 2026-08-16** (`wellSkew`'s size parameter): that note retired the size-blind variant because
-quote and charge disagreed — impossible under a size-independent kernel. **Rewrite the note.**
-**Direction classification stays live**; only the rate freezes.
-✅ **A rate that does not move within a block is CACHEABLE** — a solver fetches once and quotes the block.
-**Exactly what the firm-quote constraint makes hardest today.**
-⚠️ **STATUS: LIVE AGAIN.** §PLP-A would have dissolved this section; §PLP-Z Q1.1 voided §PLP-A.
+It wanted the rate to stop depending on position-in-block (`q̄` integrates from LIVE inventory, so being
+first is worth money) and proposed **snapshotting the rate once per block per pool**.
+⇒ **`q̄` is deleted; the rate is a constant.** A constant is the same at every position in a block, at
+every size, and in both directions. **The goal is met and the mechanism is unnecessary** — no snapshot
+slot, no block-number check, and the cross-block arbitrage the freeze would itself have created never
+arises.
+⭐ **ITS CLOSING SENTENCE IS NOW LITERALLY TRUE, which is why this row is kept rather than deleted:**
+*"it is §V4-CUT's **one price and no curve** extended from within-a-swap to within-a-block."* The flat
+fee extends it once more — one price, every swap, every block, every size.
+## §PLP-9 🔴 **STANDS, AND THIS SESSION PRODUCED A NEW INSTANCE CLASS**
 
-## §PLP-9 🔴 STALE DOCUMENTATION IS A WORK ITEM, NOT A NUISANCE
+*"Every correction this scope went through came from a **comment narrating a deleted object** while the
+code was right."* Still the highest-yield defect class in the tree, and the removals multiplied it: a
+deletion leaves prose behind by default.
 
-Every correction this scope went through came from a **comment narrating a deleted object** while the
-code was right. `§E18` already priced it: *"THIS EXACT LINE COST THREE FINDINGS."*
-
-| stale | says | actual |
-|---|---|---|
-| `SwapLib` prose | cites `MAX_WELL_SKEW`, `CAP_SAFETY`, `SIGMA_REF`, `STABLENESS` | ⚠️ **CORRECTED 2026-09-05 — these are TOMBSTONES that correctly state the symbols are gone. NOT stale. Do not delete** (§SESS-3) |
-| `Quid.sol:201` | "the ether.fi **slice** of a withdrawal" | ✅ **FIXED 2026-09-05.** `:801` — all ETH is weETH, the slice IS the withdrawal |
-| `QuidLib.sol:594` | caps "three WETH-4626 venues via `_deliverableCap`" | ✅ **FIXED 2026-09-05.** `_deliverableCap` has 0 code refs; re-derived to the Curve bound 2026-08-13 |
-| `SwapLib:2212` | "per LP … repays **that LP's** debt", "VALUE-NEUTRAL **per LP**" | §POOL-VENUE — one pooled position. ⚠️ **The neutrality claim no longer rests on §PLP-6a (withdrawn); it rests on `§M.1`'s unrun fork tests** |
-| `LevManager._batch:346` | `0 ⇒ legacy hub hop` beside a hardcoded `""` | ✅ **MEASURED LIVE 2026-09-05** — it selects the single-hop form of `_aggSwap`. **The comment is accurate; the RESIDUAL is that `rebalanceMany` cannot reach the two-hop path at all** |
-| `Quid.sol:776` (#109) | "the LP's **OWN** in-range levered slice", "both **opted in**" | ⚠️ **NOT EDITED 2026-09-05 — unconfirmed.** `levPooled[lp]` survives §POOL-VENUE as per-LP attribution, and "opted in" describes the RANGING decision. **Measure before touching** |
-| `SwapLib:746` | `κ = 2e18` | ✅ **FIXED 2026-09-05.** `KAPPA_WAD = 1e18` **one line below** |
-| `Interfaces.sol:378` | size is mandatory | ⏸️ reversed **only if** §PLP-8 lands — **not stale today** |
-| `quant.ts:50` | symmetric ±2% | `:19` — ±0.2% |
-| `IL-VIA-BONDS.md` | three stacked correction banners | the memo notes docs diverge from code |
-| 🔴 `Quid.sol:1735` | the USD increment is *"valued at the range's OWN in-range ratio — NOT a TWAP — so this stays `view` and carries no oracle dependency"* | **`:1747` calls `_wethTwap()`.** `:1741` explains why the ratio was wrong and ends *"I carried its oracle-free justification across without checking the property held"* — **and the justification is still sitting four lines above the oracle call** |
-| 🔴 `QuidLib` ladder note | *"Today it sells weETH on **v3** (rung 1)"* | ✅ **FIXED 2026-09-05.** The code four lines above calls `sellWeethOnCurve`; v3 was removed 2026-08-09 — the SAME DATE the owner quote beside it is dated |
-| `LevManager:361` / `§E357` | *"`_aggSwap` refuses an empty route, the lever-up leg was dead at the source"* | ✅ **FIXED 2026-09-05** — but **not as §PLP-Z said.** `_poolSwap` is DELETED (§C2.1); the leg reaches `_aggSwap`, whose guard is on `dex`, not `route` |
-
-⭐ **THIS TABLE IS THE DELETION LIST** — ⛔ **AND THAT FRAMING IS NOW KNOWN TO BE PARTLY WRONG.**
-**Measured 2026-09-05: at least three rows were tombstones, i.e. correct.** Following the table blindly
-would have deleted the repo's own memory — the `create_sweep_tx` trap. ⇒ **VERIFY EACH ROW BOTH WAYS
-BEFORE EDITING.**
-⭐ **Mechanise it?** — 🔴 **NO. OWNER RULING 2026-09-05: *"its not possible to automate the stale comments
-sweep, you really have to cross check manually."*** A zero-code-reference grep was built and **deleted**;
-§SESS-3 records why it cannot work and what it got wrong. **`graphify` is the navigation aid instead.**
-
-### 🟡 §PLP-9b — THE SAME QUESTION FOR THE TEST HARNESS
-**Owner, 2026-09-05:** *mock tokens were a relic of working with Uniswap's PoolManager, which we
-de-integrated.* `Mock` appears in `evm/src` **only in comments**. The concern: **if the fixtures exist
-because v4's `PoolManager` needed real ERC20s to settle deltas against, `§V4-CUT` removed the thing they
-stand in for.**
-🔴 **AND THIS FILE CITES MOCK-BASED MEASUREMENTS AS EVIDENCE:** `sent == 0` with `max = 37943101858`
-(§PLP-R2's `NothingDelivered` guard) and `§UNIT-A-ATTEMPT-1`'s 107 failures / 3.04% (§PLP-7, §PLP-13).
-⇒ **If the harness models a settlement mechanism that no longer exists, those numbers describe the
-FIXTURE, not the system.**
-🔴🔴 **OWNER: FIRST PRIORITY (item 0a)** — it is **upstream of the evidence itself**, and the M-series
-would be built on the same harness.
-✅ **PARTIAL ANSWER 2026-09-05 (§SESS-3), and it looks better than feared.** The only mocks in `evm/test` are
-four **identity-stack** files (`PoseidonSMTMock`, `HolderStateKeeperMock`, `NoirVerifierMock`,
-`Registration2Mock`) — **none of them token or settlement fixtures** — and `Core.sol:1204` records that
-*"§V4-CUT — the mock ERC20 and the PoolManager settle are GONE; the ACCOUNTING is not."*
-⚠️ **STILL OPEN:** what `§UNIT-A-ATTEMPT-1`'s and §PLP-R2's cited runs actually executed against. **That
-half decides whether those numbers stand.**
-
+⭐ **THE NEW CLASS, found three times on 2026-09-11 — AN INVERTED STALE NOTE: a warning that FLAGS
+staleness and is itself the stale half.** All three said the range was ±0.2%, having been written
+before `RANGE_DELTA` was widened 20 → 200:
+| site | said |
+|---|---|
+| `spa/src/lib/quant.ts` | *"K_LVR/CERTIFIED_THETA are keyed to ±2%. The deployed range is ±0.2%."* |
+| `app/features/identity/chain/quant.ts` | the same, naming **`SwapLib.BAND_DELTA`** — a symbol that exists under no name |
+| `docs/informational/IL-CERTIFICATION.md` | *"Read every number below as off-basis … RANGE_DELTA = 20 is ±0.2%"* |
+⇒ **Each inverted its own conclusion:** the ±2% keying they "corrected" was right. A reader who trusts
+a staleness warning is trusting the least-maintained sentence on the page. All three fixed.
 ## §PLP-10 — RETRACTED (do not re-adopt)
 
 | retracted | why |
@@ -46592,29 +46547,18 @@ transfer.** Moving weETH within `rangeETH` restores serving capacity and crosses
 back means spending basket dollars — a transfer from QU!D holders to ETH LPs, which is exactly what
 `onShortfall` refuses.
 
-## §PLP-12 — OTTER
+## §PLP-12 ✅ **OTTER'S COMPLETENESS HALF IS NOW REACHABLE IN BOTH DIRECTIONS, NOT ONE**
 
-**UIC is vacuous in a quote-and-fill AMM. That is not a defence so much as a different game.**
-✅ **Minority-at-spot — we already have more.** Otter fills the minority side at initial spot; we fill
-**both** sides at oracle. Its rule reconstructs an external reference from inside a batch; with an oracle
-there is nothing to rebuild. ⭐ **What we lack is the completeness half** — every eligible
-imbalance-decreasing bid filled **entirely**, which costs the pool nothing because such a trade improves
-inventory. **Transplantable: never rationed, never `SKEW_UNFILLABLE`.**
-⛔ **Clarke pivot / `M = ρ0·D_X` — not transplantable.** The pivot prices an externality that exists only
-because the marginal price moves; §PLP-8 removes it. `M`'s analogue needs block composition at quote time
-= batching, **and we do not want it** — §PLP-2 charges gross. ✅ We get `M`'s **state** effect one block
-late through the `q0` snapshot.
-✅ **Residual surplus — already redistributed.** Otter must burn because Thm 26 makes exact accounting +
-PO + UIC unsatisfiable. **Ours goes to LPs, who are not the participants.** Thm 22 inapplicable — no
-builder is paid.
-⛔ **Layer cake and the two-curve extension — drop both.** Layer cake needs valuations we never collect.
-✅ **One positive validation worth keeping:** Otter's Appendix A proves you **cannot** be Pareto-optimal
-for ineligible bids without breaking UIC. ⇒ **`SKEW_UNFILLABLE`'s decline-by-name is on the right side of
-a theorem**, not a workaround.
-**Positioning:** range geometry sets no execution price under §V4-CUT, so the spread does live in the
-skew — but it is **a two-sided toll, not a spread**: the pool never pays better than mid in either
-direction.
-
+Its transplantable finding: *"every eligible imbalance-decreasing bid filled **entirely**, which costs
+the pool nothing because such a trade improves inventory. **Transplantable: never rationed, never
+`SKEW_UNFILLABLE`.**"*
+✅ **`SKEW_UNFILLABLE` is deleted and no charge rations anything** — the flat fee cannot refuse.
+⭐ **AND THE MODEL GOES FURTHER THAN THE ROW ASKED.** Deferral (Part I §6) means even an
+imbalance-**increasing** bid need not be rationed: it can be filled with a **dated claim** on the asset
+the pool is short. ⇒ *"never rationed"* becomes available in **both** directions, where Otter's rule
+only ever offered it in one.
+⛔ Its exclusion stands unchanged: the **Clarke pivot / `M = ρ0·D_X`** prices an externality that exists
+only inside a batch auction. Not transplantable.
 ## §PLP-13 🪦 **ITS ALTERNATIVE IS DELETED — BUT ITS COST ARGUMENT IS WHY THE LEVER IS THE THIRD CHOICE**
 
 It proposed **θ instead of the up-leg**: *"lowering the in-range fraction as price rises sheds less and
@@ -46632,26 +46576,18 @@ construction"* — they are opposed by a formula that describes a curve we delet
 venue, an aggregator route and a keeper — to undo something the range did to itself."* **That is
 exactly why the model makes the lever the THIRD choice**, after serving now and after deferral, both of
 which need none of the four. §PLP-13 asked the right question and only its answer expired.
-## §PLP-15 — FUZZ MATRIX
+## §PLP-15 🪦 **THE MATRIX COLLAPSES — FOUR OF FIVE PROPERTIES ARE NOW TRUE BY CONSTRUCTION OR MOOT**
 
-| # | property | guards |
+| # | property | status under the model |
 |---|---|---|
-| F0 | `_bumpFlow`-class registers never fire from a restoration path | §PLP-14, §E326 |
-| F1 | fills in a block invariant to ordering | §PLP-8's premise |
-| F2 | refill in N−1 then drain in N never beats drain alone | the smoothing window `W` |
-| F3 | `Σ cost(sᵢ) ≥ cost(s)` for any partition | §E68 must survive size-independence |
-| F4 | wash of any size at any LP fraction `f` has net P&L ≤ 0 | §PLP-7 |
-| F5 | any round trip charged ≥ 2 × unit servicing cost | §PLP-2 |
-| F6 | `baseWad + riskWad ==` total; `riskWad` only from increasing trades | §PLP-2 |
-| F7 | imbalance-decreasing never returns `SKEW_UNFILLABLE` | §PLP-12 |
-| F8 | `_amplify` touches `riskWad` only | §PLP-2 |
-| F9 | skew monotone in `q` and `inv` | sign errors in floor/amplifier composition |
-| F10 | a refills-only pool does not brick | §E56 under the split |
-| F11 | `POOLED()` never promises what delivery cannot source | §PLP-5, `§STALE-BRANCH` |
-| F12 | swap-forced delever is Σbacking-neutral and non-toxic | §PLP-6 — `§M.1`'s `DeleverEthBackingProbe` |
-| F13 | a rebalance batch's outcome is invariant to LP array order | §PLP-6b's sum-of-floors |
-| F14 | an up-leg rebalance reaches target rather than emitting `RebalanceFailed` | §PLP-6a — ⚠️ **still worth having even though §PLP-6a is withdrawn: it is the regression test for the routing change** |
+| F0 | `_bumpFlow`-class registers never fire from a restoration path | 🪦 **moot** — there are no flow registers |
+| F1 | fills in a block invariant to ordering | ✅ **TRUE BY CONSTRUCTION** — the rate is a constant (§PLP-8) |
+| F2 | refill in N−1 then drain in N never beats drain alone | 🪦 **moot** — no smoothing window, no refill |
+| F3 | `Σ cost(sᵢ) ≥ cost(s)` for any partition | ✅ **AN EQUALITY BY CONSTRUCTION** — a flat fee makes splitting exactly neutral, which is strictly stronger than the inequality asked for |
+| F4 | a wash of any size at any LP fraction `f` has net P&L ≤ 0 | ⏸️ **STILL WORTH FUZZING, AND IT IS THE ONLY ONE.** A wash pays 420 ppm each way, so it loses on the fee — but `f` (the washer's own LP share) means part of that fee returns to them. **The property is whether the round trip can ever be net-positive at high `f`.** |
 
+⇒ **The fuzz surface is ONE property, not five.** The kernel needed four guards because its rate was
+path-, size- and time-dependent; a constant needs none of them.
 ## §PLP-T ✅ **ANSWERED BY THE MODEL 2026-09-11 — THE RESTORING TERM IS THE DATED CLAIM**
 
 This row's headline was *"nothing restores inventory, ever"*, and its own table dismissed organic
@@ -46724,29 +46660,17 @@ structurally short and must always buy back".
 and (2), which were never solvency problems, and leaves the *exposure* obligation untouched — which is
 the one that costs money (Part I §10). ⚠️ Its own table already says (5) is **not preventable**;
 under the model (5) is the cleanest case for a dated claim.
-## §PLP-S2 — THE REDEMPTION PATH IS RUN-PROOF (an earlier reading was wrong on three counts)
+## §PLP-S2 ✅ **STANDS — AND ITS LAST LINE IS §12's FOUNDATION, WRITTEN BEFORE §12**
 
-| claimed | actual |
-|---|---|
-| QU!D redeems at **face** | ❌ redeems at **`perShare`**, which already carries `depegLossOut`; `perShare == 0` ⇒ *"fully depegged → the claim funds nothing."* **The pro-rata haircut IS the mechanism** — everyone moves together, so there is **no first-mover advantage** |
-| committed backing can be **drained** | ❌ `locked = max(illiquidLoss, committedUsd18)`, `freeUsd = solvent − locked`. **Committed capital is ring-fenced from redemption** |
-| a shortfall **freezes** (revert, terminal) | ❌ it **DEFERS**: *"burn follows delivery, so there is never a burn without delivery and never an over-unwind"*, and un-served QU!D is **retained as a live deferred claim** |
+Three corrections that hold unchanged: QU!D redeems at **`perShare`** (which already carries
+`depegLossOut`), not at face; committed backing **cannot** be drained (`locked = max(illiquidLoss,
+committedUsd18)`, `freeUsd = solvent − locked`); and a shortfall **DEFERS** rather than freezing —
+*"burn follows delivery, so there is never a burn without delivery."*
 
-✅ **`MATURE ONLY`** — immature/forward QU!D is not a redeemable claim, so the term structure is real.
-⭐ **A REDEMPTION RACE CANNOT BREACH THE INVARIANT.** `freeUsd` self-limits **at** committed and never past
-it. ⇒ **The path to `OverCommitted` is NOT a race — it is a BASKET STABLE DEPEGGING**, which drops
-`solvent` with nobody redeeming. **Separate triggers; races are handled by construction, depegs are the
-live risk.**
-✅ **`checkBacking` is on the DEPOSIT path in `Quid`, not the unwind** (`Quid:1002`). Drain-path reverts
-protect redemption/arb/LP-withdraw while **add** paths use `tryCheckBacking` so new value can heal the
-basket — **the sign is correct and cannot deadlock recovery.**
-✅ **The IL-protect unwind is NOT gated by it.** `closeLev`/`_deleverFlash` are flash-repay-first against
-the position's own collateral and never touch basket dollars. ⇒ **a dollar shortage cannot strand an LP's
-lever exit** — correct, since that is exactly when they need it.
-**What the mint-yield dependency actually is:** because `committed` is locked against redemption, **band
-capacity does not collapse under stress — it is protected.** Mint yield buys **EXPANSION**, not survival.
-⇒ **The failure mode is STAGNATION, not a run.**
-
+⭐ **AND THE LINE THAT MATTERS MOST TO THE MODEL:** *"**`MATURE ONLY`** — immature/forward QU!D is not a
+redeemable claim, **so the term structure is real**."* That is `TARGET-DESIGN` Part I §6's foundation,
+stated here first. **The deferral mechanism was not invented for the new design; it was already load-
+bearing on the redemption path, and the model extends it to the swap path.**
 ## §PLP-U ✅ **RESOLVED BY THE MODEL 2026-09-11 — OPTION C, AND ONE ROW-VS-CODE CONTRADICTION SETTLED**
 
 **The row's own positioning is the design, and it is now STATED rather than a surprise:**
@@ -46837,36 +46761,20 @@ seed worth ~200× this residual. ⇒ **booked at 6g/6h, not here.**
 ⚠️ **§PLP-V's OTHER residual is the one that survived: the venue-yield bookmark ordering (former item 21)
 — now GATE 1h**, because it had no home in the master order and would have been lost with this one.
 
-## §PLP-X ⭐ NO BATCHES, NO SENTINELS, NO DEAD PARAMETERS
+## §PLP-X ✅ **DONE — IT CALLED FOR DELETION AND THE DELETION HAPPENED, INCLUDING THE CHAIN IT PREDICTED**
 
 **Owner, 2026-09-05:** *"There should not be empty calldata or no ops or dead parameters anywhere."*
-§POOL-VENUE means **ONE position**. `_batch`/`rebalanceMany`/`cascadeDelever` walk an `address[] lps` with
-parallel `minOuts[]`/`dexes[]` — **per-LP inputs to a single shared position**, which is incoherent before
-it is inefficient.
-⇒ **§PLP-6b's fix is DELETION, not collapse**, and it takes a chain with it: `_batch`'s `""` (the
-parameter goes, not the literal) · `dex2 = 0` as a sentinel · `catch { emit RebalanceFailed }` and *"a
-stuck LP becomes a partial fill"* — loop-survival machinery with no loop · 🔴 **Y3 DISSOLVES** (the keeper
-choosing array order was §PLP-Y's highest-rated residual and bounded by nothing — **it stops existing**) ·
-the keeper-compromise surface shrinks to one call, one pool, one oracle floor, no ordering.
-### The dead-parameter audit
-| dead thing | what it is |
-|---|---|
-| `route` on the lever leg | ⚠️ **CORRECTED 2026-09-05: NOT vestigial on the current branch.** `routedSwap:695` uses it when `dex2 != 0`; it is unused only on the legacy hub branch `_batch` forces |
-| `dex2 = 0` | ✅ **a live default, not a sentinel for "decide elsewhere"** — it selects the single-hop form |
-| `_batch`'s `""` + the LP arrays | inputs to a position with no per-LP shape |
-| `RebalanceFailed` catch | loop-survival with no loop |
-| `swapOutDeliverUnlevered` | zero callers, zero tests (`§STALE-BRANCH`) |
-| `SIGMA_REF`, `MAX_WELL_SKEW`, `CAP_SAFETY`, `STABLENESS` | ✅ zero code references — ⚠️ **but their comment mentions are TOMBSTONES; do not delete the prose** |
-| `RangeLib.onShortfall`, BTC `deliverVolatile` | deliberate no-ops — ⚠️ **`onShortfall` is removed by option F rather than deleted** |
-| `wellSkew`'s size parameter | goes vestigial **if** §PLP-8 lands |
-| `isBTC` (`§ISBTC-SPLIT`) | threaded six frames after the bottom one stopped reading it — deleted; **cited as precedent** |
+Its ruling — ***"§PLP-6b's fix is DELETION, not collapse"*** — was carried out. Measured 2026-09-11:
+`_batch`, `rebalanceMany`, `cascadeDelever`, `rebalanceOne` and `_poolSwap` all have **zero references
+in `evm/src`**.
 
-✅ **`SKEW_UNFILLABLE` is NOT on this list** — a live return meaning *decline*.
-✅ **Sweeps already done, cited as precedent:** `§ETHVENUE-GHOSTS`, `§OOR-BOOK-DELETED`, `§V4-RESIDUE`,
-`§V4-CUT-RESIDUE`, `§SLOP`, `§E358`, `§POOL-VENUE`.
-⭐ **Same test as §PLP-9, extended:** fail on a parameter no call site varies, and on a sentinel value that
-selects a branch no caller chooses. ⚠️ **Subject to the same 2026-09-05 ruling: it cannot be automated.**
-
+⭐ **AND IT PREDICTED THE WHOLE CHAIN THAT WOULD GO WITH THEM, WHICH IS WHY IT IS WORTH KEEPING AS A
+RECORD:** *"`_batch`'s `""` (the parameter goes, not the literal) · `dex2 = 0` as a sentinel ·
+`catch { emit RebalanceFailed }` and 'a stuck LP becomes a partial fill' — loop-survival machinery with
+no loop · Y3 dissolves."* Each went with the walk rather than needing its own fix.
+⇒ **The generalisable lesson: per-LP inputs to a single shared position are incoherent before they are
+inefficient** — `address[] lps` with parallel `minOuts[]`/`dexes[]` against ONE pooled position could
+never have been made correct by adding a parameter.
 ## §PLP-Y — WHAT GETS REBALANCED, WHEN, AND THE LP-SAFETY SURFACE
 
 | what | trigger | caller |
