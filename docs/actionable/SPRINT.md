@@ -3889,6 +3889,16 @@ the premise at every new call site.**
 
 ## ⭐ **[🔴 DEMOTED TO A FALLBACK 2026-08-31 — its premise ("conversion is impossible on this path") is FALSE: `OorIntent.size` is SIGNED, so a relayer can pre-build aggregator calldata. See §THE-AMOUNT-IS-SIGNED above. The partial remains correct as the no-route-exists fallback.] §FILL-PAYS-LESS-NOT-DIFFERENT — THE SELL LEG NEEDS NO ROUTES, BECAUSE A PARTIAL FILL IN THE RIGHT STABLE BEATS A FULL FILL IN THE WRONG ONE** (owner, 2026-08-31: *"unless the user expressly accepts pro rata … we still need to curve into the stable they want, and if they dont exist we need to 1inch them"*)
 
+> 🔗 **§DESIGN-2026-09-11 — THE OPTION SPACE BELOW IS MISSING ITS BEST ENTRY.** Every branch here asks
+> *"which ASSET does the sell leg pay in, and can we route to it"* — pro-rata, the named stable, QU!D,
+> a partial fill plus refund. **A dated claim was never on the table, and it is now the default answer**
+> (TARGET-DESIGN §12/§13): `Basket.mint(…, when)` already pays the holder forward yield for accepting a
+> later maturity, and an immature claim is excluded from `matureSupply`/redemption, so it is not a
+> demand on dollars. ⇒ **A leg that cannot be routed NOW does not have to be refused or refunded — it
+> can be paid LATER, in the asset asked for, with the wait compensated.** Re-read the branches below
+> as *"serve now, or offer the dated claim"*; several of the impossibilities they record are
+> impossibilities of serving NOW only.
+
 **The objection is right and it is sharper than it looks — but the conclusion does not follow, and the
 reason it does not is the thing worth keeping.**
 
@@ -3978,6 +3988,16 @@ SENIOR-TRANCHE DILUTION**, however locally convenient. The clamp is load-bearing
 here.
 
 ## 🔴 **§SELL-LEG-NOT-FORCED-AFTER-ALL — THE OWNER'S CONFUSION FOUND THE BETTER ALTERNATIVE I HAD RULED OUT ON A FALSE PREMISE** (owner, 2026-08-31: *"so you have to wait a month to redeem the dollars you got out from your OOR swap? im confused"*)
+
+> 🔗 **§DESIGN-2026-09-11 — THE OPTION SPACE BELOW IS MISSING ITS BEST ENTRY.** Every branch here asks
+> *"which ASSET does the sell leg pay in, and can we route to it"* — pro-rata, the named stable, QU!D,
+> a partial fill plus refund. **A dated claim was never on the table, and it is now the default answer**
+> (TARGET-DESIGN §12/§13): `Basket.mint(…, when)` already pays the holder forward yield for accepting a
+> later maturity, and an immature claim is excluded from `matureSupply`/redemption, so it is not a
+> demand on dollars. ⇒ **A leg that cannot be routed NOW does not have to be refused or refunded — it
+> can be paid LATER, in the asset asked for, with the wait compensated.** Re-read the branches below
+> as *"serve now, or offer the dated claim"*; several of the impossibilities they record are
+> impossibilities of serving NOW only.
 
 **Right to be confused — that consequence is real, and it is avoidable.** §SELL-LEG-IS-FORCED claimed
 all three legs were determined and that no better alternative could exist. **The INSTRUMENT leg was
