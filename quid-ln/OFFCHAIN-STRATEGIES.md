@@ -18,20 +18,32 @@ here can mint QUI or move LP funds without the on-chain checks passing.
   Bitcoin 2-of-2 spend. Worst case for a compromised/lost hop key is **halt-not-theft**
   (no new channels/swaps), and LPs always self-exit (see below). `hopNode` is a single
   EOA (no multisig) — accepted, since it's halt-not-theft.
-- **LP daemon** (`quid-bridge/src/bin/quid-lp-daemon.rs`): the SELF-HOST path. The LP holds one
-  Bitcoin key + one EVM key and signs `lpAuth` over channel ops from its OWN chain view, never
-  blind-signing. LPs come and go freely; the protocol is hardened so a malicious LP can't over-mint
-  or steal another LP's proceeds.
-  > ⚠️ **CORRECTED 2026-08-01: self-hosting is no longer the only path, and the claim that the
-  > managed-host designs "were dropped" is stale.** `BTCChannels.registerDelegation`
-  > (`evm/src/BTCChannels.sol:652`, model described at `:225-244`) lets an LP sign ONE cold EIP-712
-  > delegation, relayed gaslessly, and then run NOTHING: no node, no watchtower. `delegatedAuthority`
-  > is either a concrete hop (family/self-host, pinned exactly) or the Safe-governed `hopRegistry`
-  > (FLEET: any hop it attests, so a key rotation is one Safe tx no LP re-signs). Non-custodial in
-  > both cases, because `btcRecipientOf` is pinned and LOCKED at delegation and every payout script
-  > must match it, so a fully compromised hop can only pay the LP. The un-pullable exit is the
-  > dead-man switch (`:256-271`): a pre-signed CLTV-locked unilateral exit whose raw bytes are public
-  > on-chain, broadcastable by anyone once the heartbeat stops.
+- ⛔ **THE LP DAEMON IS DELETED (§NO-SELF-PROVISIONED-LPS, owner 2026-09-11) — "there are no self
+  provisioned lps".** `quid-bridge/src/bin/quid-lp-daemon.rs` and `deploy/run-lp.sh` are gone
+  (`8faddbb1`), and with them `quid-bridge/src/lp_seed.rs`, whose whole premise was phase 1b making
+  the LP the sole holder of its seed. **There is no self-host path. Do not restore one from this
+  file's history.**
+  🔴 **WHAT FOLLOWS, AND IT IS THE THING TO KNOW BEFORE READING ANY "the LP self-exits" CLAIM
+  ANYWHERE:** the fleet holds **BOTH halves** of every channel's 2-of-2, and its vault seed is
+  `derive_vault_seed(&root_seed)` — an HKDF **sibling** of the hop seed. That is not two keys on one
+  box; it is **one key wearing two hats**, so no key-separation control reaches it. ⇒ **the multisig
+  is nominal by design and the enclave is the whole of the protection.** Every exit, ladder and
+  splice policy is a guarantee by a party that can already spend the funding output outright.
+  ⚠️ **The `QUID_FLEET_COHOSTS_VAULT` knob is gone too** — with no LP daemon it had one reachable
+  value, which is a lie about the deployment and a variable rule 23 forbids. The vault boots
+  unconditionally.
+
+  > ⛔ **THE ⚠️ "CORRECTED 2026-08-01" BLOCK THAT USED TO SIT HERE IS DELETED: IT CITED THREE SYMBOLS
+  > THAT DO NOT EXIST IN THE TREE.** `grep evm/src` returns **zero** for `registerDelegation`,
+  > `hopRegistry` and `delegatedAuthority`. It described an LP signing "ONE cold EIP-712 delegation,
+  > relayed gaslessly, and then running NOTHING", with `delegatedAuthority` resolving to "a concrete
+  > hop (family/self-host) or the Safe-governed `hopRegistry`". **None of that is buildable now:**
+  > there is no delegation registry, and hops are two IMMUTABLE addresses (`MAIN_HOP`/`FALLBACK_HOP`,
+  > `BTCChannels.sol` §E164) precisely so no registry can grant itself channels. The Safe is gone as
+  > well (owner: *"we are not using a Safe anymore, just a simple msig"*).
+  > ✅ What survives is `lpAuth` (7 references in `BTCChannels.sol`) and `btcRecipientOf` being
+  > **pinned and LOCKED** at open, so a fully compromised hop can still only pay the LP — that
+  > property is real and is enforced on-chain, unlike the delegation machinery around it.
 
 ## Swap-in (BTC → USD) — LIVE
 

@@ -210,15 +210,17 @@ pub fn finalize_exit_tx(
 /// process) and drives the full one-round MuSig2 key-path sign of the pre-signed exit
 /// tx entirely in-place, returning the FULLY-signed raw tx bytes.
 ///
-/// ⚠️ §C2.3② — CALLING THIS *IS* THE BOTH-HALVES PROPERTY, AND IT IS OPT-IN.
-/// After §E175/§M1#2 the fleet holds the LP funding half **only** in the co-hosted
-/// deployment: `quid-bridge-daemon` boots a vault node solely under
-/// `QUID_FLEET_COHOSTS_VAULT=true` (DEFAULT FALSE), deriving its seed as
-/// `derive_vault_seed(&root_seed)` from the same enclave seed as the hop, and logs a
-/// `warn!` that the 2-of-2 is nominal there. In the DEFAULT LP-hosted topology the vault
-/// half lives on the LP's own host, the fleet's `vault` is `None`, and
-/// `quid_bridge::deadman_exit::run_deadman_exit_heartbeat` returns before ever reaching
-/// here (exits come from the §E165 pre-signed ladder instead). So this function is
+/// 🔴 §C2.3② — CALLING THIS *IS* THE BOTH-HALVES PROPERTY, AND IT IS NO LONGER OPT-IN.
+/// §NO-SELF-PROVISIONED-LPS (owner, 2026-09-11): there are no self-provisioned LPs, so
+/// `quid-lp-daemon`, `deploy/run-lp.sh` and the `QUID_FLEET_COHOSTS_VAULT` knob are all
+/// DELETED (`8faddbb1`) and `quid-bridge-daemon` boots the vault UNCONDITIONALLY, deriving
+/// its seed as `derive_vault_seed(&root_seed)` — an HKDF sibling of the hop seed.
+/// ⇒ **The fleet always holds both halves. The 2-of-2 is nominal by design and the enclave
+/// is the whole of the protection.** ⛔ This docblock used to say the fleet held the LP half
+/// "only in the co-hosted deployment" and that the DEFAULT was LP-hosted with `vault == None`;
+/// **both halves of that sentence are now false**, and `run_deadman_exit_heartbeat` no longer
+/// early-returns for want of a vault. Do not reason from a `None` vault anywhere. So this
+/// function is
 /// reachable from the fleet ONLY in the co-hosted mode — do not read it as a statement
 /// that the fleet always holds both halves.
 ///

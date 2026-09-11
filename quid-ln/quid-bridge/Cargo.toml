@@ -11,7 +11,7 @@ harness = ["quid-hop/harness"]
 
 # --- SGX enclave entrypoint config ---
 # Read by `quid-sgx-toml` / the `run-sgx-cargo` runner when building the daemon
-# binaries (quid-bridge-daemon, quid-lp-daemon) for the
+# binaries (quid-bridge-daemon) for the
 # `x86_64-fortanix-unknown-sgx` target. These bins ARE the enclave: the channel
 # root seed is born + sealed inside (see quid-hop::seed). Values mirror quid's
 # proven LDK-node enclave and are tunable once profiled on real SGX hardware.

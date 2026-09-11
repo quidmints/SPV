@@ -4,39 +4,31 @@
 //! This is the daemon plumbing around the audited crypto in
 //! [`quid_ln::deadman_exit`]: it NEVER touches key material.
 //!
-//! ⚠️ **SCOPE OF THE BOTH-HALVES WARNING — CORRECTED 2026-09-11, IT USED TO BE TOO BROAD.**
-//! §E175 made the vault an `Option` and made its absence the security split, and that half is
-//! real and enforced: the heartbeat disables itself on `None` and must never re-derive the half
-//! locally.
+//! 🔴🔴 **BOTH HALVES, ALWAYS — AND THIS BLOCK HAS NOW BEEN WRONG IN BOTH DIRECTIONS, SO READ THE
+//! WHOLE THING BEFORE EDITING IT.**
 //!
-//! ⛔ **WHAT THIS HEADER USED TO SAY, AND THE CODE REFUTES IT:** *"there is no flag, config or
-//! binary that starts the fleet without a vault seed ⇒ in every deployment that ships today, one
-//! process still reaches both funding halves."*
-//! **There IS a flag, and it DEFAULTS TO OFF:** `quid-bridge-daemon.rs` —
-//! `let cohost_vault: bool = env_parse("QUID_FLEET_COHOSTS_VAULT", false)?;` then
-//! `let vault = if cohost_vault { … }`. **Co-hosting is opt-in**, and opting in logs
-//! *"this fleet holds BOTH halves of every 2-of-2. The multisig is nominal in this deployment"*.
-//! There is also a second binary, `bin/quid-lp-daemon.rs`, which boots the same `boot_vault` with
-//! `hop_addr` pointed at the fleet. The cited `daemon.rs:235` has rotted.
+//! §NO-SELF-PROVISIONED-LPS (owner, 2026-09-11): *"there are no self provisioned lps, delete all
+//! traces of this."* ⇒ `bin/quid-lp-daemon.rs`, `deploy/run-lp.sh`, `quid-bridge/src/lp_seed.rs`
+//! and the `QUID_FLEET_COHOSTS_VAULT` knob are all **deleted** (`8faddbb1`). `quid-bridge-daemon`
+//! boots the vault **unconditionally**, and its seed is `derive_vault_seed(&root_seed)` — an HKDF
+//! **sibling** of the hop seed.
+//! ⇒ **ONE CUSTODIAN HOLDS BOTH HALVES OF EVERY 2-of-2, PERMANENTLY AND BY DESIGN.** This is not
+//! two keys on one box, which key separation could address; it is **one key wearing two hats**,
+//! which nothing short of a different party on a different host reaches — and that topology is the
+//! thing that was ruled out. **The enclave is the whole of the protection.**
 //!
-//! ✅ **WHAT IS TRUE, AND THE CODE SAYS WHY IT MATTERS — this is the part to keep:** when
-//! co-hosting IS enabled the 2-of-2 is **nominal, not merely co-located**, because the fleet's
-//! vault seed is `derive_vault_seed(&root_seed)` — **an HKDF SIBLING of its hop seed**. `lp-daemon`
-//! states the consequence exactly: *"whoever holds the hop seed derives it — one custodian wearing
-//! two hats. A seed provisioned HERE has no such relationship: the fleet cannot derive it, and its
-//! `MigrationAuth` cannot reach it either, because it was never in the fleet's enclave to
-//! migrate."* ⇒ **The trapdoor is per-LP-HOSTING-MODE, not per-deployment**, and in co-host mode it
-//! is not "two keys on one box" — it is **one key wearing two hats**, which no key-separation
-//! control can fix.
-//!
-//! 🔑 **WHY THE OVERSTATEMENT MATTERED: it understated the security posture of the shipped
-//! system and would have been read as an argument that the split is vapour.** A stale
-//! "nothing works yet" is as costly as a stale "this is done" — it invites rebuilding what exists.
-//! ⛔ **AND THE FIRST CORRECTION OF THIS BLOCK CITED `deploy/PRODUCTION-LAUNCH.md`, WHICH IS ALSO
-//! PROSE AND ALSO CAN ROT (owner: *"docs might be stale. look at code before making decisions"*).**
-//! The doc happened to agree — but it does not mention `QUID_FLEET_COHOSTS_VAULT`, its default, or
-//! the HKDF-sibling relationship that is the actual security content. ⇒ **Cite the `env_parse`
-//! default and `derive_vault_seed`; a topology doc is a summary of code, never evidence about it.**
+//! ⭐ **THE EDIT HISTORY IS THE LESSON, AND IT IS WHY THIS PARAGRAPH IS LONG:**
+//!   1. The header originally said *"in every deployment that ships today, one process still
+//!      reaches both funding halves"*, citing a `daemon.rs` line number that had rotted.
+//!   2. I called that **stale** and narrowed it — correctly against the code of the day, which had
+//!      `env_parse("QUID_FLEET_COHOSTS_VAULT", false)` and a sibling LP binary.
+//!   3. The owner then ruled the LP path out of existence, which made the ORIGINAL sentence true
+//!      again — **as permanent design rather than as a temporary gap.**
+//! ⇒ **A claim can be stale, then correct, without anyone editing it.** The sentence never changed;
+//! the deployment did. **Do not treat "this header was wrong once" as evidence about what it says
+//! now — re-derive from `quid-bridge-daemon.rs` (does it boot a vault unconditionally?) and from
+//! `derive_vault_seed` (is the vault seed a function of the hop seed?).** Those two questions
+//! decide it, and neither is answerable from prose.
 //!
 //! Per open vault-owned channel, each heartbeat tick it
 //! 1. re-derives BOTH funding-half signers (the hop node's + the vault node's) off their OWN

@@ -19,7 +19,10 @@ the master sequence.
 ## Three deployable units
 1. **L1 contracts** (one deployment) — Core/Vault/Basket/Quid/BTCChannels/SPVGateway + feeds.
 2. **Hop enclave** (one instance) — `quid-bridge-daemon`, the Lightning↔EVM custody hub, runs **inside SGX**.
-3. **LP enclaves** (many) — `quid-lp-daemon`, each self-hosted by an LP (own SGX, or own laptop+watchtower). LPs are their **own** trust root; they do not provision into foundation infra. See [[LP hosting modes]] (`project-quid-lp-hosting-modes`).
+3. ⛔ **THERE IS NO THIRD UNIT — `quid-lp-daemon` IS DELETED** (§NO-SELF-PROVISIONED-LPS, owner 2026-09-11: *"there are no self provisioned lps"*; commit `8faddbb1`). `deploy/run-lp.sh` and `quid-bridge/src/lp_seed.rs` went with it.
+   This line used to read: *"**LP enclaves** (many) — `quid-lp-daemon`, each self-hosted by an LP (own SGX, or own laptop+watchtower). LPs are their **own** trust root; they do not provision into foundation infra."* **Every clause of that is now false.** There is no `[[LP hosting modes]]` choice to make.
+   🔴 **THE SECURITY CONSEQUENCE BELONGS IN THIS DOCUMENT, NOT ONLY IN THE CODE.** The hop enclave holds **both halves** of every channel's 2-of-2. Its vault seed is `derive_vault_seed(&root_seed)` — an HKDF **sibling** of the hop seed — so this is **one key wearing two hats**, not two keys on one box, and no key-separation control reaches it. ⇒ **the multisig is nominal by design and the SGX enclave is the whole of the protection for every channel.** Every exit, ladder and splice policy is a guarantee by a party that can already spend the funding output outright — true, but a promise rather than a constraint.
+   ⚠️ `QUID_FLEET_COHOSTS_VAULT` is gone too: with no LP daemon it had exactly one reachable value, which is a lie about the deployment and a variable rule 23 forbids. The vault boots unconditionally.
 
 The **provisioner/operator of the hop is the foundation deployer** (same entity that deploys the contracts) — a technical operator using CLIs. No browser is ever in a custody or attestation path.
 

@@ -29,7 +29,7 @@ reconstructs on-chain — the contract does secp256k1 elliptic-curve arithmetic 
 | `app/` | The Expo / React Native wallet. |
 | `indexer/` | A small self-hosted indexer for protocol events. |
 | `regtest/` | A reproducible Bitcoin regtest node and the shell drivers for the end-to-end channel, swap-in and swap-out flows. |
-| `deploy/` | Provisioning: `deploy-l1.sh`, `run-hop.sh`, `run-lp.sh`, the `*.env.example` templates, and `PRODUCTION-LAUNCH.md`. |
+| `deploy/` | Provisioning: `deploy-l1.sh`, `run-hop.sh`, the `*.env.example` templates, and `PRODUCTION-LAUNCH.md`. |
 | `sims/`, `analysis/` | Economic simulation (JS) and the price-data/IL series behind the numbers in `docs/informational/`. |
 | `tools/` | Repository gates and analysis helpers. |
 | `docs/` | See "Where the documentation lives". |

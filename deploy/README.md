@@ -22,10 +22,17 @@ Provisioning order:
    drives swap-in/out settlement, the SPV header relayer, and the BTC-channel
    driver (`openChannel`/`recordClose`) + reconciler. Its hot key must equal the
    on-chain `hopNode` or every settle/open reverts `NotLP`.
-3. **Onboard LPs** — `deploy/run-lp.sh` (wraps `quid-lp-daemon`). Each LP runs a
-   node connected to the hop, funds a channel, and runs the lpAuth responder
-   that signs each open the hop drives. The LP's EVM key only ever signs the
-   off-chain `lpAuth` digest — it never sends EVM txs (the hop pays gas).
+3. **Onboard LPs** — ⛔ **there is no LP daemon and no `run-lp.sh`.**
+   §NO-SELF-PROVISIONED-LPS (owner, 2026-09-11): *"there are no self provisioned lps."*
+   `quid-lp-daemon` and `deploy/run-lp.sh` were deleted in `8faddbb1`. An LP's half of every
+   2-of-2 is held by the fleet, whose vault seed is `derive_vault_seed(&root_seed)` — an HKDF
+   sibling of the hop seed.
+   🔴 **Say the consequence out loud when onboarding anyone: the 2-of-2 is NOMINAL. One custodian
+   can spend any channel's funding output, and the enclave is the whole of the protection.**
+   The LP's EVM key still only signs the off-chain `lpAuth` digest and never sends EVM txs (the
+   hop pays gas), and `btcRecipientOf` is still pinned and LOCKED at open, so a compromised hop
+   can only ever pay the LP — but neither property constrains a hop that holds both funding
+   halves.
 
 Copy the `*.env.example` templates, fill them in, and pass the path:
 

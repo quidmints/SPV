@@ -437,10 +437,11 @@ pub fn local_pubnonce_deadman(
 /// **our** MuSig2 key-path partial over the exit-tx sighash `message`, given the
 /// other half's public nonce, deriving our secret nonce via
 /// [`KeyPathFirstRound::new_deadman`] (domain-separated + message-bound). Returns
-/// `(our_partial, our_pubnonce)`. The fleet is vault-less by default, so it holds ONE half and
-/// calls this once, with the LP's pubnonce arriving from the LP's own host; the both-halves form
-/// applies only under `QUID_FLEET_COHOSTS_VAULT=true`, the single-custodian deployment that logs a
-/// warning saying its multisig is nominal. Partials combine via [`aggregate_key_path_partials`]
+/// `(our_partial, our_pubnonce)`. ⚠️ **§NO-SELF-PROVISIONED-LPS (2026-09-11): the fleet is NOT
+/// vault-less — it holds BOTH halves, always.** This used to say it was "vault-less by default"
+/// with the both-halves form gated behind `QUID_FLEET_COHOSTS_VAULT=true`; that knob and the LP
+/// daemon are deleted, so the single-custodian shape is the only shape and the multisig is nominal
+/// by design. Partials combine via [`aggregate_key_path_partials`]
 /// either way — only WHO produces the second one differs. Because the nonce is disjoint from both
 /// commitment domains AND bound to the exit sighash, this partial can never share a
 /// secret nonce with live commitment/close signing nor with a refreshed exit over a
@@ -566,13 +567,13 @@ pub fn key_path_sign_2of2(
 /// exit-tx `message` (its BIP341 key-path sighash) from BOTH funding secret keys.
 ///
 /// ⚠️ §C2.3② — WHO HOLDS BOTH HALVES IS A DEPLOYMENT TOPOLOGY, NOT A FIXED FACT.
-/// A single caller can only supply both seckeys when it holds both, and after §E175/§M1#2
-/// the fleet holds both **only** in the co-hosted deployment
-/// (`QUID_FLEET_COHOSTS_VAULT=true` in `quid-bridge-daemon`, DEFAULT FALSE, where the vault
-/// seed is `derive_vault_seed(&root_seed)` — a function of the same enclave seed as the hop).
-/// In the default LP-hosted topology the fleet process has no vault node and no vault seed,
-/// `quid_bridge::deadman_exit::run_deadman_exit_heartbeat` early-returns on `vault == None`,
-/// and this function is unreachable from the fleet — its callers there are the co-hosted
+/// A single caller can only supply both seckeys when it holds both — and under
+/// §NO-SELF-PROVISIONED-LPS (owner, 2026-09-11) **the fleet ALWAYS holds both**. The vault seed is
+/// `derive_vault_seed(&root_seed)`, an HKDF sibling of the hop seed, so this is one key wearing two
+/// hats rather than two keys. ⛔ This docblock used to say the fleet held both "only in the
+/// co-hosted deployment (`QUID_FLEET_COHOSTS_VAULT=true`, DEFAULT FALSE)" and that the default
+/// topology left `vault == None` — **the knob, the LP daemon and that default are all deleted**
+/// (`8faddbb1`), so do not reason from a vault-less fleet. Its callers are the co-hosted
 /// daemon and the e2e harness, both of which hold both halves on purpose.
 ///
 /// Returns the aggregated BIP340 signature that spends the `0x5120||Q` funding output,
