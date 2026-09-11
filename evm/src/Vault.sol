@@ -414,9 +414,21 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         return CORE.POOLED() + AUX.rangeBTC();
     }
 
-    /// @notice Route the shortfall to the hop -- real-BTC delivery on L1, consuming NO basket
-    ///         stables. That is the legitimate delivery rail, which is why BTC acts here and ETH
-    ///         deliberately does not (see Quid's counterpart).
+    /// @notice Route the shortfall to the hop. ⚠️ **THE RAIL IS UNWIRED — `BTCHopRequest` has zero
+    ///         consumers — so this is a notification, not a delivery.** See `Aux.btcShortfall`.
+    /// ✅ WHAT IS STILL TRUE AND IS THE LOAD-BEARING HALF: it consumes **NO basket stables**. Sourcing
+    ///         an LP inventory gap from the basket would socialise it onto QU!D holders, which is why
+    ///         BTC routes here and ETH's counterpart is a deliberate no-op.
+    /// 🔑 **§MIXED-SETTLEMENT (owner, 2026-09-11) — THE PREMISE THAT MADE THIS URGENT IS RETIRED.**
+    ///         §BTC-2.6 argued in-range depth exceeds native sats "by construction" because
+    ///         obligations are denominated in native BTC. **They are not: settlement may be a MIX of
+    ///         whatever the pool holds.** ⇒ a WBTC-vs-sats composition difference is not itself a
+    ///         shortfall, and this path should fire on a genuine inventory deficit only.
+    /// ▶️ **THE REAL REQUIREMENT MOVED TO QUOTE TIME:** a swapper who will not take WBTC must say so,
+    ///         and must then not be QUOTED depth that includes it. ⚠️ `requestSwapOutOnchain(token,
+    ///         usdAmount, minSats, swapId)` has no such flag, and the contract computes the quote —
+    ///         so expressing it is IMMUTABLE-CONTRACT work. `loadBalance` is NOT this: it opts out of
+    ///         the shortfall arb, not of WBTC settlement.
     function onShortfall(address sender, uint shortfall) external onlyUs {
         AUX.btcShortfall(sender, shortfall);
     }

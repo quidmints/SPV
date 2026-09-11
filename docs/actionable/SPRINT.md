@@ -217,6 +217,29 @@ Each was carried as open, some in red, some for weeks.
 **8. `§BTC-4.3`** — per-epoch funding derivation. ⚠️ Its own note: **"decide before the app signer is
    written"** ⇒ it is upstream of item 0, and **`§MASTER-ORDER` scheduled it in no gate at all.**
 
+**8b. 🔑 §MIXED-SETTLEMENT (owner ruling, 2026-09-11) — RETIRES §BTC-2.6's PREMISE AND CREATES A NEW
+   IMMUTABLE ITEM IN ITS PLACE.**
+   Owner: *"obligations can settle in a mix (whatever the pool has) and if the swapper doesnt want
+   wbtc expressly they should indicate that so it's not quoted."*
+   ⛔ **WHAT THIS DELETES:** §BTC-2.6 rests on *"obligations are denominated in NATIVE BTC"* ⇒ *"in-range
+   quantity exceeds native channel sats **by construction**"*. **Both halves go.** If settlement may be
+   mixed, a WBTC-vs-sats composition difference is **not a shortfall at all**, and the rail's
+   when-and-why collapses to a genuine inventory deficit — a much rarer event than the row implies.
+   ⇒ **Do not build a listener or a fulfilment record for a condition that mostly is not one.**
+   ▶️ **WHAT REPLACES IT, AND IT IS TIER 0 CLASS:** a swapper who will not accept WBTC must SAY SO, and
+   must then not be QUOTED depth containing it. **`requestSwapOutOnchain(token, usdAmount, minSats,
+   swapId)` cannot express that, and the CONTRACT computes the quote** — so the flag (or a second
+   entrypoint) has to exist at deploy or a native-only swapper can never be served correctly.
+   ⚠️ **`loadBalance` IS NOT THIS FLAG.** It opts a swapper out of the shortfall ARB (`Core.sol:1123`),
+   not out of WBTC settlement. Reusing it would conflate two unrelated consents.
+   ⭐ **WHY THIS IS THE BETTER SHAPE — it is rule 17, not preference:** the old design lets the range
+   quote depth it cannot settle and then remediates afterwards through an unwired rail. The ruling
+   prices the constraint **at quote time**, so the unsettleable quote is never made. **A bound that
+   cannot be exceeded beats a rail that repairs the excess.**
+   📌 Stale docstrings this falsified, corrected in the same pass: `Aux.sol`'s `BTCHopRequest`
+   (claimed *"the V4 BTC pool"* — there is no V4 — and *"Hop node listens"* — nothing listens) and
+   `Vault.onShortfall` (described an L1 delivery mechanism that is nowhere specified).
+
 ### TIER 1 — TRUE REGARDLESS OF THE MODEL. Pure code or arithmetic; no topology can retire these.
 > `§ARCH-ASSUMPTION` isolates this class explicitly: *"TRUE REGARDLESS OF ANY ASSUMPTION."*
 **9. `NEW-1` / `§AUDIT-SPV-RETARGET`** — SPV retarget brick. **`%2016` alignment ✅ LANDED**; the

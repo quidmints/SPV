@@ -1128,8 +1128,20 @@ contract Aux is // Auxiliary
     ///         exists so the gap is countable rather than invisible.
     event BTCShortfallDropped(address indexed sender, uint256 shortfall);
 
-    /// @notice Emitted when the V4 BTC pool obligates us to send native
-    ///         BTC to a recipient. Hop node listens and executes on-L1.
+    /// @notice A recognised BTC obligation the range could not settle from what it holds.
+    /// ⛔ **TWO CLAIMS IN THE OLD DOCSTRING WERE FALSE AND BOTH MISLED READERS.**
+    ///   1. *"the V4 BTC pool"* — **there is no V4** (§BTC-7). The attribution was stale, not the
+    ///      mechanism.
+    ///   2. *"Hop node listens and executes on-L1"* — **nothing listens.** `BTCHopRequest` has ZERO
+    ///      consumers tree-wide: only this `emit`, this declaration and the counter below. There is no
+    ///      Rust listener, no fulfilment record and no reversal. **An event a listener may ignore is
+    ///      enclave-level trust** (§BTC-2.6), so this is a claim about intent, not about behaviour.
+    /// ⚠️ **AND HOW THE SATS WOULD BE PRODUCED IS NOWHERE SPECIFIED** — splice-out, hop wallet, or
+    ///   purchase. Do not infer a mechanism from the words "on-L1"; there isn't one.
+    /// 🔑 **§MIXED-SETTLEMENT (owner, 2026-09-11) NARROWS WHEN THIS CAN EVEN FIRE:** obligations settle
+    ///   in **whatever the pool holds**, WBTC included. A native-vs-WBTC composition gap is therefore
+    ///   NOT a shortfall by itself. What remains is a swapper who wants native only — and that is a
+    ///   QUOTE-TIME constraint, not a post-hoc remediation. See §BTC-2.6 in `SPRINT.md`.
     event BTCHopRequest(uint256 indexed requestId, bytes32 indexed recipient, uint256 amount);
     uint256 public btcHopRequestId;
 
