@@ -23,15 +23,23 @@
 //! inside the fleet: **it is the fleet checking itself**, and the checks below
 //! enforce nothing against the one adversary that matters.
 //!
-//! ✅ **THE FLEET IS VAULT-LESS BY DEFAULT (§M1#2).** The vault boot sits behind
-//! `QUID_FLEET_COHOSTS_VAULT`, default OFF, so the LP funding half lives on the LP's own host and
-//! this signer is no longer the fleet checking itself: the adversary it was powerless against —
-//! a compromised fleet — can no longer produce the other half at all.
-//! ⚠️ **THE ANALYSIS BELOW IS STILL CORRECT FOR THE CO-HOSTED MODE**, which remains reachable by
-//! that flag, so it is corrected rather than deleted. **But do not quote it as the deployed model,**
-//! and in particular do not reason from it that a consent registry is plumbing for an absence that
-//! cannot happen: post-§M1#2 the LP genuinely is a separate party that can be offline when the
-//! reconciler ticks, which is exactly what `VaultRegistry`'s DORMANT-on-absence handling is for.
+//! 🔴 **THIS SPOT USED TO CARRY A ✅ SAYING THE FLEET IS "VAULT-LESS BY DEFAULT (§M1#2)", AND THAT
+//! IS FALSE. IT RETRACTED THE PARAGRAPH ABOVE, WHICH IS THE CORRECT ONE.** It claimed the vault boot
+//! sat behind `QUID_FLEET_COHOSTS_VAULT` (default OFF) so the LP funding half lived on the LP's own
+//! host. **That knob, the `quid-lp-daemon` binary and `deploy/run-lp.sh` were all deleted**
+//! (§NO-SELF-PROVISIONED-LPS, owner 2026-09-11); `quid-bridge-daemon` now boots the vault
+//! UNCONDITIONALLY with `derive_vault_seed(&root_seed)`, an HKDF sibling of the hop seed.
+//! ⇒ **THE FLEET HOLDS BOTH HALVES OF EVERY 2-of-2, ALWAYS. "The fleet checking itself" is the
+//! deployed model, not a mode.** This is one key wearing two hats, so no key-separation control
+//! reaches it and no check in this file is a trust boundary against a compromised fleet.
+//! ⛔ **DO NOT RE-ADD A SENTENCE SAYING THE LP HOLDS ITS OWN HALF UNTIL THE REMOTE `ChannelSigner`
+//! EXISTS** (`§BITCOIN-ORDER` item 0 — greenfield, zero scaffolding in the tree today). A reader who
+//! finds such a sentence stops looking, which is how this one survived: it read as a resolution.
+//! 📌 **The distinction that DOES survive, and it is the fix, not the status quo:** "no
+//! self-provisioned LPs" rules out an LP-RUN NODE. It does not rule out a remote signer — the fleet
+//! still runs the node and the monitors; only the funding-half signature moves to the LP's phone.
+//! Anything in this file about the LP being a separate party that can be offline describes THAT
+//! design, not this one.
 //!
 //! Two consequences, and neither is fixed by editing this comment:
 //!

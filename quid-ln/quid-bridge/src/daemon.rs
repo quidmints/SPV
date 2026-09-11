@@ -465,9 +465,10 @@ pub async fn run(
         lp_gate.clone(),
         // ⛔ (§BTC-2.1) DO NOT ADD A COMPARAND MAP TO THIS CALL. The truth source COMPUTES each
         // channel's on-chain cid from its `ChannelMonitor` (`channel_truth::MonitorCids`); a map
-        // written here would make this function the only writer, and every deployment that does
-        // not run this reconciler — `bin/quid-lp-daemon.rs`, the LP-hosted vault — would sign
-        // against a comparand that answers `NotRecorded` forever while looking armed.
+        // written here would make this function the only writer, and ANY signing process that does
+        // not run this reconciler would sign against a comparand that answers `NotRecorded` forever
+        // while `has_truth_source()` reports `true` — permanently permissive, and silent. The remote
+        // `ChannelSigner` (`§BITCOIN-ORDER` item 0) is exactly such a process.
         cfg.channel_reconcile_secs,
         channel_active.clone(),
     ));

@@ -1,7 +1,6 @@
-//! Boot-time env/secret parsing shared by the daemon binaries (`quid-bridge-daemon`,
-//! `quid-lp-daemon`). These are pure config helpers — the same env-var reads, the same
-//! 32-byte-secret decode, and the same fail-loud placeholder-key guard — factored out
-//! of the two `bin/` entrypoints so the boot contract lives in one place.
+//! Boot-time env/secret parsing for `quid-bridge-daemon`. Pure config helpers — env-var reads, the
+//! 32-byte-secret decode, and the fail-loud placeholder-key guard — kept out of the `bin/`
+//! entrypoint so the boot contract lives in one place.
 
 use std::net::Ipv4Addr;
 use std::str::FromStr;

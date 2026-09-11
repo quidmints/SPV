@@ -57,9 +57,12 @@ fn word(bytes: &[u8], i: usize) -> Result<&[u8], ()> {
 /// keccak256(lpPubkey, hopPubkey, fundingTxId, vout)` (`ChannelLib.sol:640`) is a deterministic
 /// function of four values a `ChannelMonitor` already holds, so a map stores only what can be
 /// recomputed — and it needs a WRITER. A writer lives in one process; the comparand is needed in
-/// every process that signs, including `bin/quid-lp-daemon.rs`, **the side whose refusal actually
-/// matters**. A signer wired to a map nobody fills answers `NotRecorded` forever: permanently
-/// permissive while `has_truth_source()` reports `true`.
+/// **every process that signs**, and the one whose refusal actually matters is the LP's half — which
+/// today is produced inside the fleet (§NO-SELF-PROVISIONED-LPS) and tomorrow by the remote
+/// `ChannelSigner` on the LP's phone (`§BITCOIN-ORDER` item 0). Recomputing from the monitor is what
+/// lets that future process check anything at all without a feed from here. A signer wired to a map
+/// nobody fills answers `NotRecorded` forever: permanently permissive while `has_truth_source()`
+/// reports `true`.
 ///
 /// 🔑 **WHY THE MONITOR IS REACHABLE HERE WHEN IT IS NOT AT DERIVE TIME.**
 /// [`TruthSourceFactory::for_channel`] is called from `SignerProvider::derive_channel_signer`,

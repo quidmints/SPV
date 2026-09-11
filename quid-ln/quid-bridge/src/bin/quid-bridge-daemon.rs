@@ -268,8 +268,10 @@ async fn main() -> anyhow::Result<()> {
     //    `check_against_chain` "only means anything against a source the fleet does not author", and
     //    `BTCChannels` records arrive through `_onlyHop()`, i.e. the fleet's own submissions. This
     //    binds the fleet to its own published record; the refusal that MATTERS is the LP's. The
-    //    co-hosted vault below now arms it too; `bin/quid-lp-daemon.rs` (the DEFAULT, LP-hosted
-    //    topology) still does not, because it has no EVM read path at all — see its own note.
+    //    vault booted below is armed with it too — and under §NO-SELF-PROVISIONED-LPS that vault is
+    //    ALSO the fleet, so both arms of the check are authored by one party. ⇒ **the LP's refusal
+    //    does not exist anywhere in this tree today**; it arrives with the remote `ChannelSigner`
+    //    (`§BITCOIN-ORDER` item 0), which is the process this comparand is really for.
     let hop_cids = std::sync::Arc::new(quid_bridge::channel_truth::MonitorCids::new());
     let truth_factory: std::sync::Arc<dyn quid_ln::validating_signer::TruthSourceFactory> =
         std::sync::Arc::new(quid_bridge::channel_truth::OnChainTruthFactory::new(
