@@ -382,6 +382,134 @@ enclave and BTC tracks. **Resolving by number alone is ambiguous.**
 📌 **VERBATIM DUPLICATES:** `§E182-REKEY` at two lines; `E132`/`E133`/`E130-r`/`E115-b` each twice in
 the QUEUE fold.
 
+
+---
+
+## 🎯 §THE-QUEUE-IS-9%-OF-THIS-FILE — **85 ACTIONABLE SECTIONS. THE OTHER 1,115 ARE ARCHIVE.**
+
+Owner, 2026-09-11: *"i have a strong inclination to believe that all the actually actionable items will
+be like 10k lines all in all. you must not be reconciling right."* **Measured, and the instinct was
+right — if anything generous:**
+
+| | sections | lines | |
+|---|---|---|---|
+| **ACTIONABLE** — open marker **and** an imperative someone must still perform | **85** | **4,877** | **9%** |
+| **RECORD** — closed, or demanding nothing | 1,115 | 49,990 | 91% |
+
+🔴 **AND THAT IS WHY ROW-BY-ROW RECONCILIATION WAS THE WRONG SHAPE.** Working in file order spends 91%
+of the effort rewriting *history*, and each reconciliation ADDS prose to a record — which is why the
+file barely shrank while every individual row got shorter. **This file is an archive with a work queue
+mixed into it**, and `docs/actionable/` is supposed to hold WORK (its own rule, from the split that
+created `QUEUE-KNOWLEDGE.md`: *"`docs/actionable/` holds WORK; this is not work"*).
+
+⇒ **RECONCILE THE 85. LEAVE THE 1,115.** A record does not need reconciling against a current design —
+it needs to be findable when something cites it. The archive's value is exactly the thing five purge
+passes nearly destroyed: 466 measurements, 78 do-not-delete instructions, and the reasons behind
+deletions nobody would otherwise be able to reconstruct.
+
+⚠️ **THE SPLIT IS BY LANE, so the two threads do not collide:**
+**core — 54 sections, 3,311 lines** · **bitcoin — 31 sections, 1,566 lines**
+
+### CORE LANE — the actual queue
+
+| line | lines | section |
+|---|---|---|
+| `16162` | 234 | 🔴 §SPLIT-WEIGHTS — **THE ONE ITEM THIS THREAD RAISED AND NEVER BOOKED (found by scanning the transcript, |
+| `5690` | 224 | 🔴🔴🔴 **§POOL-VENUE-IS-PINNED-BY-FIRST-CALLER — THERE IS NO VENUE SELECTION AT ALL, AND A SECOND VENUE IS  |
+| `46247` | 168 | GATE 2 — 🔴 THE PRODUCT DECISIONS. **THIS IS THE GATE THE OWNER MEANS.** |
+| `6583` | 138 | ⛔ **[SUPERSEDED — its own §5 booked §E258-POKE-INCENTIVE, which §OOR-BOOK-DELETED dissolves. ⚠️ AND ITS  |
+| `14944` | 133 | 🔴 §LOOSE-ENDS-SCAN — **`tools/scan-loose-ends.py` FINDS FOUR THINGS THIS THREAD DID NOT BOOK** (2026-08- |
+| `12623` | 132 | 18. 🔴🔴 THE 35 ORPHANED CRITICALS — every double-red row NO part of this document treats |
+| `32516` | 102 | 🔴 B1 — THE FRESHNESS BACKSTOP HAS NO ECONOMIC BOUND (prose-only loose end, found 2026-08-02) |
+| `19426` | 101 | 🔴 §E313 — **`proRataShortfall` HAS NOW BEEN DELETED TWICE AND RESTORED TWICE. Second restore 2026-09-11. |
+| `37473` | 89 | 🔴 THE LAST FAILING TEST IS A REAL FINDING, NOT A BROKEN TEST — and it IS #12 |
+| `11210` | 87 | 0-TOPOLOGY. 🔴 **OWNER DECISION 2026-08-18 — SPV STAYS A SEPARATE REPO, BECAUSE IT IS THE ONE THAT HAS A  |
+| `20130` | 87 | 🔴🔴 §E330 — **THE FOLD'S BLOCKER FIGURE IS STALE BY 2.2×, AND THE "FEES DID NOT ACCRUE" CLUSTER IS A DESI |
+| `19527` | 84 | ⏸️ §E313 — **THE `preferred` PARAMETER IS DELETED (DONE). DELETING `_takePreferred` ITSELF IS REFUTED —  |
+| `18251` | 82 | C15. 🔴 THE 1inch EXECUTION MIGRATION — the seam is ONE function, the cost is CLIENT-SIDE (2026-08-21) |
+| `9029` | 76 | 🔴🔴 **§PREMIUM-VS-BORNE — 92% of what a swapper gives up is attributed to NOBODY** (2026-08-25) |
+| `48057` | 73 | 🔴 WHY THIS MATTERS BEYOND ONE ROW: IT REMOVES AN OBJECTION FROM A LIVE FORK |
+| `4788` | 71 | 🔴 **§V4-IS-FULL — I RECOMMENDED RESTORING AAVE v4 FIRST. MEASURED, THE PRIZE BEHIND IT IS 0.12% OF AAVE  |
+| `47218` | 71 | §SESS-12 🔴 `avail = rs − rd` — THE OPERANDS' SCOPES WERE NEVER VERIFIED, AND THE GUARD HIDES IT |
+| `7763` | 68 | 🔴 **§DELIVER-BACKING — `committedUsd18` JUMPS BY THE LEVERED COLLATERAL DURING A SWAP-OUT DELIVERY, ON A |
+| `48791` | 66 | 🔴 §CENSUS-CROSSTAB — **THE BUILDER IS NOT THE CONSTRAINT. 62 OWNER DECISIONS ARE.** |
+| `51458` | 60 | §EMPTY-ROUTE-IS-SILENT-2026-09-07 — 🔴 the alarm was deleted and five docblocks still promised it |
+| `4278` | 57 | 🔴 **§SELL-LEG-NOT-FORCED-AFTER-ALL — THE OWNER'S CONFUSION FOUND THE BETTER ALTERNATIVE I HAD RULED OUT  |
+| `7250` | 57 | ⏸️ **§RING-LAGS-ORACLE — CONFIRMED 2026-08-28 BY AN INDEPENDENT MEASUREMENT; 1 OF 2 FAILURES FIXED** (20 |
+| `50293` | 57 | §SESS-47 — 🔴 **THE KEEPER PLANNED THE ROUTE AND THREW IT AWAY. THREE SEND SITES, ONE STALE COMMENT EACH. |
+| `54590` | 53 | ⏸️ THE FIX, AND WHY IT IS NOT LANDED — **BYTE-BLOCKED, MEASURED** |
+| `6789` | 52 | 🔴🔴 **§FIXTURE-INHERITS-ITS-ENVIRONMENT — THE IDENTITY PROOFS WERE BOUND TO THE CHAIN ID AND THE WALL CLO |
+| `52504` | 51 | 🔴 §LEVER-UP-HAS-NO-AGGREGATE-GATE — booked 2026-09-09. **The book levers up per-LP and is liquidated poo |
+| `52896` | 50 | 🔴🔴 §SESS-59 — **A SECOND UNAUTHENTICATED WITHDRAWAL, FOUND BY SWEEPING FOR THE FIRST ONE'S SHAPE** |
+| `16656` | 48 | (original headline, kept) ⏸️ **NO CHANNEL CAN BE OPENED IN THE DEFAULT DEPLOYMENT, SILENTLY** |
+| `3647` | 45 | 🔴 **§CREDIT-AT-ORACLE-IS-WORSE-THAN-THE-LEAK — RETRACTED. IT WOULD TRADE A 1% CEILING FOR A 5% ONE** (ow |
+| `21147` | 44 | 🔴 §E319 — **TWO THINGS I NAMED IN PROSE AND NEVER BOOKED AS ROWS** |
+| `48460` | 43 | 🔴 BUT IT IS DOWNSTREAM OF A FORK THAT IS STILL OPEN, AND THAT IS THE REAL ANSWER |
+| `4584` | 41 | ⏸️ **§TWO-HOP-IS-BUILT-BUT-NOT-WIRED — THE CAPABILITY LANDED AND VERIFIED; THE 0.82% IS NOT BEING COLLEC |
+| `54491` | 40 | ⏸️ WHAT GENUINELY GETS HARDER — the honest cost, since this is now the direction |
+| `53322` | 38 | 🔴 §SESS-75 — **"IS A THREE-HOP EVER NECESSARY?" NO CASE FOUND. "DO WE REACH THE BEST VENUES?" NO — AND I |
+| `8286` | 37 | 0e. 🟠 **§SILENT-SETUP — 25 OF 40 EMPTY `catch {}` BLOCKS IN THE SUITE RECORD NOTHING, AND THE |
+| `52997` | 34 | 🔴 §SESS-62 — **`Quid`'s PAYABLE FALLBACK TURNS A DELETED ENTRYPOINT INTO A SILENT SUCCESS. OWNER'S CALL. |
+| `52799` | 33 | 🔴 §SESS-55 — **"USDT IS BORROWABLE" OVERSTATES WHAT §SESS-47 PROVED. THE PARTS ARE VERIFIED; THE WHOLE I |
+| `52330` | 32 | 🔴 §KEEPER-LIQ-FALLBACK — the row asked the wrong question; the defect was the FALLBACK'S VALUE |
+| `9320` | 31 | 🔴 **§MOCK-CENSUS — 80 raw mock sites refine to 28, and the discriminator is CONDITION vs LOGIC** (2026-0 |
+| `51804` | 31 | 🔴🔴 §CROSS-SUBSIDY-MEASURED — **4,801 bps. A ZERO-DEBT LP LOSES 48% OF ITS COLLATERAL.** |
+| `52946` | 30 | 🔴 §SESS-60 — **"HOW DO YOU KNOW 1inch WAS BUILT RIGHT?" MEASURED: TWO SELECTORS OF SIX, AND THE FLEXIBLE |
+| `34726` | 29 | 🔴 "REFILLING BUCKET" HYPOTHESIS — **REFUTED BY MY OWN EXPERIMENT.** The warp plan does NOT work. |
+| `13359` | 25 | C2b. 🟠 SHOULD A DRAIN TAX EXIST AT ALL? — the question C2 was standing in front of (OPEN) |
+| `50350` | 25 | 🔴 §SESS-48 — **§SESS-41'S LIVENESS DEFECT IS NOT PRESENT AT THIS BLOCK, AND THE TEST THAT SAYS SO IS A F |
+| `52976` | 21 | 🔴 §SESS-61 — **WHY IS USDC THE HUB? I NEVER DECIDED, AND NEVER MEASURED.** |
+| `52599` | 20 | 🔴 §SESS-49 — THE KEEPER'S PLANNER TAKES A DIRECT POOL WHENEVER ONE EXISTS AND NEVER COMPARES |
+| `52779` | 20 | 🔴 §SESS-53 — `test_E2_IncumbentLossDoesNotScaleWithTheMint` IS BLOCK-SENSITIVE, NOT CODE-CAUSED |
+| `10014` | 19 | ⏸️ **§BTC-LEG-FEE — the ONE test that genuinely needs the v4 trading-fee leg back** (2026-08-25) |
+| `8865` | 18 | ⏸️ **§SWALLOW-RESIDUAL — the 54 refine to 18, and they are the ones that need READING** (2026-08-25) |
+| `15991` | 18 | 🟠 §A.71 DEDUP PASS — **HALF-CLOSED, RE-SCOPED 2026-08-23 — I CLOSED IT WHOLE AND THAT WAS WRONG.** Of th |
+| `51262` | 18 | §LEV-KEEPER-E2E-IS-RED — 🔴 booked, PRE-EXISTING, and it was not booked anywhere before |
+| `8323` | 16 | ⏸️ **[1 of 5 FIXED 2026-08-28, and the fix is the TEMPLATE for the rest]** |
+| `11800` | 16 | 🔴 §E244 — **ITS PRESCRIBED FIX IS NOW UNBUILDABLE, AND WHAT REPLACED THE REVERT IS WORSE** |
+| `17591` | 16 | 🔴 §E282 — **STILL TRUE, NOW LOAD-BEARING, AND THE MODEL NAMES ITS FIX** |
+
+### BITCOIN LANE — owned by the other thread, listed so nothing is lost
+
+| line | lines | section |
+|---|---|---|
+| `14184` | 155 | 🔁 §LAZY-OPEN-CLOSE — 🟡 **OPEN HALF LANDED. THE FOLD IS *NOT* SYMMETRIC, AND THE 7540 FOLD (`#9`) IS STIL |
+| `3166` | 121 | 🔴 §COHOST-FLAG-IS-NOT-THE-WORK — **DELETING `QUID_FLEET_COHOSTS_VAULT` TURNS OFF RAIL B. FINISHING THE S |
+| `28423` | 101 | 🔴 §HOP-RCE — WHAT SURVIVES ARBITRARY CODE EXECUTION *INSIDE* THE DAEMON (2026-08-28) |
+| `46415` | 99 | GATE 3 — 🔴 IMMUTABLE-CONTRACT WORK. Before `BTCChannels` is deployed; cannot be sequenced later. |
+| `9463` | 74 | 🔴🔴 **§POOL-SATS-SEGREGATION — the shape of the fix, and a CORRECTION to how the gap was described** (202 |
+| `676` | 70 | 🔴🔴 §AUDITS-RE-RATED-2026-09-11 — **ONE OF THREE MOVED, AND NOT FOR THE REASON I BOOKED.** |
+| `15372` | 65 | D7. 🔴 **THE OWNER IS RIGHT TO REFUSE BOTH: "why is the registry needed, why can it not be removed, same  |
+| `32217` | 65 | 🔴 BOOKED — THE ZERO-FEE SPLICE QUESTION (a real product question the fixture work exposed) |
+| `27783` | 64 | T9 🔴 REOPENED — a SPLICE silently voids the whole exit ladder (M1#5) |
+| `9567` | 59 | 🔴🔴 **§BTC-POOL-SATS-HAVE-NO-UNILATERAL-EXIT — LP funds ARE immune to a full custody compromise; POOL sat |
+| `6912` | 54 | 🔴 **§SWAPOUT-DRAINS-THE-EXIT — A SWAP-OUT MAY BE FILLED DOWN TO THE POOL'S LAST SAT, AND THE DELIVERY TH |
+| `2739` | 51 | 🔴 §BOOKMARK-OMITS-THE-COMPOUNDED-FEE — **THE DEPOSIT PATH OVER-CREDITS AN LP, OUT OF OTHER LPs' FEES** |
+| `2902` | 49 | 🔴 §T9-IS-WIRING-E177, NOT A NEW CHECK — **AND THE NAIVE WIRING BREAKS EVERY SPLICE** |
+| `51016` | 45 | §WBTC-MODE-CANNOT-CLOSE-2026-09-07 — 🔴 the vBTC-market removal promoted a latent fallback gap to the who |
+| `34953` | 44 | 🔴 #114 DEAD-MAN EXIT × CIRCULATING vBTC — A REAL CONFLICT (user, 2026-08-01). Must be resolved before ei |
+| `51154` | 41 | §ANY-DOLLAR-BORROW — ⏸️ DEFERRED BY THE OWNER, DO NOT START |
+| `3126` | 40 | 🔴 §DELIVERY-MUST-BE-LP-INITIATED — **STEP 1 OF THE REWORK IS IMPOSSIBLE IN THIS LDK. THE FORK IS THE OWN |
+| `2999` | 39 | 🟡 §ACCEPTOR-CONTRIBUTION-FEES — **WHO PAYS THE SPLICE FEE WHEN THE INITIATOR CONTRIBUTES NOTHING? MEASUR |
+| `8828` | 37 | 🔴 **§BACKING-HEADROOM-3PCT — the `backing` revert is TIGHTNESS, not double-counting** (2026-08-25) |
+| `13853` | 35 | D2. 🔴 THE COMPLETE BITCOIN REMAINDER FROM THIS THREAD — in dependency order |
+| `45599` | 34 | §BTC-9c 🔴 QUALITY OF SERVICE — the gap neither this file nor the scope previously covered |
+| `7514` | 32 | 🔴 **§BTC-OOR-ENTERABLE-NEVER-FILLABLE — a user can PLACE a BTC boundary order that CANNOT fill, and the  |
+| `35396` | 32 | 🔴 #114 IMPLEMENTATION ATTEMPT — REVERTED. I invented 3 symbols. Real ones now identified. |
+| `3096` | 30 | 🔴 §ACCEPTOR-SPLICE-TEST-IS-RED — **THE CAPABILITY LANDED, ITS OWN TEST DOES NOT PASS, AND NOTHING OUTSID |
+| `9537` | 30 | 🔴🔴 **§POOL-SATS-STRANDING-IS-UNTESTED — the exposure has ZERO coverage, and the fixtures cannot reach it |
+| `45578` | 21 | §BTC-9b-bis 🔴 THE LADDER IS THE LEAST-TESTED MECHANISM IN THE SYSTEM |
+| `51135` | 19 | §BTC-IL-PROTECT-IS-INERT-2026-09-07 — ⏸️ the BTC leg has NO reachable LP path today, and that is deliber |
+| `12896` | 18 | B1. ⏸️ §E222 — **MOOT BY CONFIGURATION, LIKE §E257. SAME CAUSE, SAME STATUS, SAME WARNING.** |
+| `900` | 15 | 🔴 §MUSIG-UNSPICED-CLOSE-AND-SPLICE — **FIXED IN `quid-ln` 2026-09-11; THE FORK IS A HANDOFF** |
+| `11995` | 15 | 🟠 8. RESIDUAL SLOP — **EXAMPLE WRONG, TASK RE-SCOPED — not closed.** Its stated example fails: it says ` |
+| `32439` | 12 | 🔴 M1 — `migration.rs` MUST READ THE SAFE ON-CHAIN, not carry a constant (user, 2026-08-02) |
+
+⛔ **LINE NUMBERS GO STALE THE MOMENT EITHER THREAD WRITES — grep the section title, never the number.**
+📌 Regenerate with the same rule: a section is ACTIONABLE iff its heading carries an open marker
+(🔴/🟡/🟠/⏸️) without a closing one (✅/🪦/~~) **and** its body contains an imperative — a `▶️`, or
+"must be built/wired/measured/run/derived/decided", or "needs a fork test / ruling / decision".
+
 ## ⛔ FIVE TRAPS SPECIFIC TO NAVIGATING **THIS** FILE — each cost a session
 1. **STATUS MARKERS IN THE FOLDED ARCHIVES ARE NOT STATUS.** `§FROM-QUEUE` (:24,088), `§BUILD-QUEUE-FOLD`
    (:24,396) and `§FROM-QUEUE-SECTIONS` (:33,923) are **append-only archives**: their EVIDENCE is
