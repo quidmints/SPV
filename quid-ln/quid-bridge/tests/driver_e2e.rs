@@ -609,7 +609,17 @@ async fn swap_out_onchain_delivery_on_real_evm() {
         o_chan_id, params.amount_sats, btc_recipient, regtest.tip_height() as u32, 101,
     ).expect("post-delivery ladder");
     let cd = encode_deliver_swap_out_onchain(swap_id, cid, &params, &raw, &proof, &swapper_script, &rotated_ladder);
-    let landed = mk_evm().send_tx(env.cfg.btc_channels, cd.clone(), env.cfg.gas_limit).expect("deliverSwapOutOnchain send");
+    // Estimate like the production driver does (gas_limit_for: estimate + 25%, floored): SPV +
+    // a two-rung ladder + settlement exceeds the 2M floor, and a raw-floor send fails with an
+    // empty revert while the eth_call replay succeeds — the exact shape that hid the openChannel
+    // OOG earlier today.
+    let deliver_gas = {
+        let from = mk_evm().address();
+        let est = quid_bridge::relayer::estimate_gas(&*rpc, Some(from), env.cfg.btc_channels, &cd)
+            .expect("deliverSwapOutOnchain estimateGas");
+        (est * 125 / 100).max(env.cfg.gas_limit)
+    };
+    let landed = mk_evm().send_tx(env.cfg.btc_channels, cd.clone(), deliver_gas).expect("deliverSwapOutOnchain send");
     if !landed {
         let from = mk_evm().address();
         let reason = rpc.call("eth_call", json!([{ "from": format!("{from:?}"), "to": env.cfg.btc_channels.to_string(), "data": format!("0x{}", hex::encode(&cd)) }, "latest"]))
