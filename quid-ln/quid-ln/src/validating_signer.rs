@@ -242,7 +242,15 @@ impl PolicyState {
     /// Record + check signing a *counterparty* commitment at `idx`.
     fn record_counterparty_commitment(&self, idx: u64) -> Result<(), ()> {
         let mut st = self.state.lock().map_err(|_| ())?;
-        check_no_regression(st.highest_counterparty_commitment_signed, idx)?;
+        check_no_regression(st.highest_counterparty_commitment_signed, idx).map_err(|()| {
+            // A refusal here stalls the channel with LDK logging only "Waiting for signature";
+            // say why, or the next reader spends an e2e run finding out (2026-09-11).
+            tracing::warn!(
+                idx,
+                highest = ?st.highest_counterparty_commitment_signed,
+                "signer refused counterparty commitment: number regressed below the highest already signed"
+            );
+        })?;
         st.highest_counterparty_commitment_signed =
             Some(advance(st.highest_counterparty_commitment_signed, idx));
         Ok(())
@@ -271,9 +279,29 @@ impl PolicyState {
         let mut st = self.state.lock().map_err(|_| ())?;
         match st.nonce_bindings.get(our_pubnonce) {
             // Same nonce already signed a DIFFERENT aggregate → reuse → refuse.
-            Some(prev) if *prev != agg => Err(()),
+            Some(prev) if *prev != agg => {
+                // The refusal is correct by construction; what the operator needs is WHICH of the
+                // two inputs differed, because the two cases have different owners: a different
+                // counterparty nonce for one message is the adaptive-replay shape this guard
+                // exists for; a different message at one nonce height is a derivation bug one
+                // layer up. LDK itself logs only "Waiting for signature" (2026-09-11).
+                tracing::warn!(
+                    our_pubnonce = %quid_hex::hex::encode(our_pubnonce),
+                    cp_nonce = %quid_hex::hex::encode(cp_nonce),
+                    message = %quid_hex::hex::encode(message),
+                    prev_binding = %quid_hex::hex::encode(prev),
+                    "signer refused MuSig2 partial: this nonce already signed a different (cp_nonce, message)"
+                );
+                Err(())
+            },
             // First use, or an identical re-sign → allow + (re)record.
             _ => {
+                tracing::debug!(
+                    our_pubnonce = %quid_hex::hex::encode(our_pubnonce),
+                    cp_nonce = %quid_hex::hex::encode(cp_nonce),
+                    message = %quid_hex::hex::encode(message),
+                    "bound MuSig2 nonce to (cp_nonce, message)"
+                );
                 st.nonce_bindings.insert(*our_pubnonce, agg);
                 Ok(())
             }
