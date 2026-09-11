@@ -388,8 +388,20 @@ mod tests {
             "input must be non-final so nLockTime is enforced",
         );
         assert!(tx.input[0].sequence != Sequence::MAX, "must NOT be final (0xffffffff)");
-        assert_eq!(tx.output.len(), 1);
-        assert_eq!(tx.output[0].value, Amount::from_sat(100_000));
+        // (§BTC-2.4c) TWO outputs: the LP payout at [0] and the keyless CPFP anchor LAST.
+        // ⚠️ This assertion read `1` until 2026-09-11 and had been RED since the anchor landed —
+        // a stale test, not a defect. It is strengthened rather than relaxed: the ORDER is the
+        // part that matters, because `BitcoinTx._exitStructure` sums outputs paying the LP script
+        // and every other reader assumes the payout is index 0. An anchor that drifted to [0]
+        // would still satisfy a bare `len() == 2`.
+        assert_eq!(tx.output.len(), 2, "LP payout + the §BTC-2.4c keyless anchor");
+        assert_eq!(tx.output[0].value, Amount::from_sat(100_000), "payout is FIRST");
+        assert_eq!(
+            tx.output[1].script_pubkey,
+            deadman_anchor_spk(),
+            "the anchor is LAST and is P2A — anyone-can-spend with no key and no CSV delay",
+        );
+        assert_eq!(tx.output[1].value, Amount::from_sat(DEAD_MAN_ANCHOR_SATS));
 
         // Output SPK == 0x5120 || recipient (matches BTCChannels._withdrawalPayout).
         let spk = tx.output[0].script_pubkey.as_bytes();

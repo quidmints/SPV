@@ -1656,7 +1656,17 @@ impl TaprootChannelSigner for ValidatingChannelSigner {
         // lockstep) — reuse across the two commitment sighashes leaks the funding
         // key (x = (s1 - s2)/(e1 - e2)).
         let cp_nonce_bytes = counterparty_nonce.serialize();
-        let (partial, our_pubnonce) = crate::taproot_signer::our_key_path_partial_counterparty(
+        // 🔴 **ADVERTISE == SIGN.** This nonce was already published (commitment: via
+        // `generate_local_nonce_pair`; close: at `closing_nonce_height(closing_round)`), so the
+        // partial MUST be computed with the SAME secret nonce. b9213c55 switched both sites to
+        // `our_key_path_partial_counterparty`, which spices the secret nonce with
+        // `(counterparty_nonce, message)` and uses a different seed domain — a nonce the peer has
+        // never seen — and three tests have been RED ever since.
+        // ⭐ MuSig2 commits nonces BEFORE the message exists, so a pre-advertised nonce cannot be
+        // message-bound. The two-messages-under-one-nonce hazard is covered by the HEIGHT (distinct
+        // per commitment number / per closing round, both persisted by LDK) plus `bind_nonce`,
+        // which REFUSES a second different message under one nonce. Never by re-deriving.
+        let (partial, our_pubnonce) = crate::taproot_signer::our_key_path_partial_holder_local(
             key_agg,
             our_index,
             counterparty_index,
@@ -1864,7 +1874,17 @@ impl TaprootChannelSigner for ValidatingChannelSigner {
         // re-supplies a fresh closer nonce via the handler; the deterministic
         // derive is re-derivable + crash-safe.
         let cp_nonce_bytes = cp_nonce.serialize();
-        let (partial, our_pubnonce) = crate::taproot_signer::our_key_path_partial_counterparty(
+        // 🔴 **ADVERTISE == SIGN.** This nonce was already published (commitment: via
+        // `generate_local_nonce_pair`; close: at `closing_nonce_height(closing_round)`), so the
+        // partial MUST be computed with the SAME secret nonce. b9213c55 switched both sites to
+        // `our_key_path_partial_counterparty`, which spices the secret nonce with
+        // `(counterparty_nonce, message)` and uses a different seed domain — a nonce the peer has
+        // never seen — and three tests have been RED ever since.
+        // ⭐ MuSig2 commits nonces BEFORE the message exists, so a pre-advertised nonce cannot be
+        // message-bound. The two-messages-under-one-nonce hazard is covered by the HEIGHT (distinct
+        // per commitment number / per closing round, both persisted by LDK) plus `bind_nonce`,
+        // which REFUSES a second different message under one nonce. Never by re-deriving.
+        let (partial, our_pubnonce) = crate::taproot_signer::our_key_path_partial_holder_local(
             key_agg,
             our_index,
             counterparty_index,
@@ -1928,7 +1948,21 @@ impl TaprootChannelSigner for ValidatingChannelSigner {
                 .map_err(|_| ())?;
         let message: [u8; 32] = *sighash.as_ref();
         let cp_nonce_bytes = counterparty_nonce.serialize();
-        let (partial, our_pubnonce) = crate::taproot_signer::our_key_path_partial_counterparty(
+        // 🔴 **THIS MUST DERIVE THE SAME NONCE `generate_splice_nonce` ADVERTISED. DO NOT SWITCH IT
+        // TO `our_key_path_partial_counterparty`.** That was tried (b9213c55) and it silently broke
+        // every splice on a real node. The counterparty form spices the secret nonce with
+        // `(counterparty_nonce, message)` AND uses a different seed domain, so the nonce it produces
+        // is not the one already sent in `splice_init`/`splice_ack`. The peer verifies our partial
+        // against the ADVERTISED nonce, so the two sides aggregate different `R` values,
+        // `verify_taproot_keyspend_partials` fails, and the fork's `ConstructedTransaction::finalize`
+        // drops it through `.ok()?` with NO log: negotiation completes, both `tx_signatures` arrive,
+        // and nothing is ever broadcast.
+        // ⭐ **THE PROTOCOL FORBIDS THE SPICE HERE, BY CONSTRUCTION.** MuSig2 commits nonces BEFORE
+        // the message exists; at `splice_init` there is no message and no counterparty nonce to spice
+        // with. A pre-advertised nonce can only be the unspiced one. Coop-close differs precisely
+        // because it has no `generate_*_nonce` — it returns its pubnonce WITH the partial — which is
+        // why the counterparty form is correct there and wrong here.
+        let (partial, our_pubnonce) = crate::taproot_signer::our_key_path_partial_holder_local(
             key_agg,
             our_index,
             counterparty_index,
@@ -1939,7 +1973,11 @@ impl TaprootChannelSigner for ValidatingChannelSigner {
             message,
         )
         .map_err(|_| ())?;
-        // MuSig2 nonce-reuse guard (see PolicyState::bind_nonce).
+        // MuSig2 nonce-reuse guard, and on THIS path it is the whole of the protection rather than a
+        // backstop: `bind_nonce` maps our pubnonce to `sha256(cp_nonce ‖ message)` and returns `Err`
+        // when the same nonce is asked to sign a DIFFERENT aggregate — which is exactly the
+        // two-candidates-in-one-negotiation case (`splice_nonce_height` is constant across a
+        // negotiation). A second candidate is REFUSED rather than signed.
         self.policy
             .bind_nonce(&our_pubnonce.serialize(), &cp_nonce_bytes, &message)?;
         Ok((partial, our_pubnonce))
@@ -1953,16 +1991,23 @@ impl TaprootChannelSigner for ValidatingChannelSigner {
 /// distinct splice messages leaks the funding key (the closing-reuse class).
 /// Each splice spends a DISTINCT prior funding output, so keying on `prev_funding_txid`
 /// guarantees distinct nonces; it is re-derivable from chain state (crash-safe).
-/// 🔴 **THAT ARGUMENT IS ABOUT DISTINCT SPLICES AND DOES NOT COVER TWO CANDIDATE TRANSACTIONS
-/// WITHIN ONE SPLICE — which is why this height alone was NOT sufficient (fixed 2026-09-11).**
-/// `prev_funding_txid` is CONSTANT across a single negotiation, so an RBF, a fee change or a
-/// revised contribution produces a second, DIFFERENT message at the SAME height. Under the
-/// unspiced derivation that is one nonce over two messages: `x = (s1 − s2)/(e1 − e2)`.
-/// ⇒ The caller now derives through `our_key_path_partial_counterparty`, which spices the secret
-/// nonce with `(counterparty_nonce, message)`, so a different message re-randomises it **by
-/// construction**. This height keeps doing its job — domain-separating splices from commitments
-/// and from each other — it is simply no longer the ONLY thing standing between a re-signed
-/// splice and the funding key. The
+/// ⚠️ **IT DOES NOT COVER TWO CANDIDATE TRANSACTIONS WITHIN ONE SPLICE, AND IT CANNOT.**
+/// `prev_funding_txid` is CONSTANT across a negotiation, so an RBF, a fee change or a revised
+/// contribution is a second, DIFFERENT message at the SAME height — one nonce over two messages,
+/// which is `x = (s1 − s2)/(e1 − e2)` on the funding key.
+/// ⛔ **THE REMEDY IS NOT TO SPICE THE NONCE. THAT WAS TRIED (b9213c55) AND IT BROKE EVERY SPLICE**
+/// — the nonce is ADVERTISED in `splice_init`/`splice_ack` before any message exists, so a spiced
+/// signing nonce is simply not the one the peer is verifying against. See the long note at
+/// `partially_sign_splice_shared_input`.
+/// ✅ **WHAT ACTUALLY COVERS IT IS `PolicyState::bind_nonce`, WHICH REFUSES.** It records
+/// `our_pubnonce → sha256(cp_nonce ‖ message)` and returns `Err` when the same nonce is asked for a
+/// different aggregate, so the second candidate does not get signed. The signer declines and the
+/// negotiation fails loudly instead of leaking.
+/// 🔴 **THE RESIDUAL, AND IT IS THE REAL ITEM: `nonce_bindings` IS AN IN-MEMORY `HashMap` AND A
+/// RESTART CLEARS IT.** A daemon that restarts mid-negotiation forgets it already signed candidate
+/// A and will sign candidate B at the same height. ⇒ the fix is to PERSIST the bindings (or a
+/// per-attempt counter folded into this height and persisted), not to change the derivation.
+/// The
 /// window `[2^48, 2^56+2^48)` is disjoint from the commitment range (`<2^48`) and the
 /// closing range (top of `u64`). Mirrors `lightning::sign::splice_nonce_height`.
 fn splice_nonce_height(prev_funding_txid: &bitcoin::Txid) -> u64 {
