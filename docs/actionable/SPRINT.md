@@ -31,6 +31,43 @@ the three documents that tell you WHAT ORDER to work in are buried at the very e
 | **50 rows are OWNER-BLOCKED** (was 83 before the dedup — the same rows, counted once) | `grep -n "blocked on a person\|owner decision"` | Do not start these. They move risk and the decision is not an engineer's |
 
 
+## §SUITE-2026-09-11 — 🔴 THE FULL SUITE HAS REPORTED. IT HAD NEVER ONCE COMPLETED BEFORE TODAY.
+
+**`922 passed / 84 failed / 1 skipped — 1,007 tests across 148 suites, 316.44s`**
+`FORK_BLOCK=25957031` · `HEAD=3554a501` · archive endpoint, `--compute-units-per-second 100
+--fork-retries 10 --fork-retry-backoff 1000`.
+
+▶️ **THE THREE CONTAMINATION TELLS, RUN BEFORE QUOTING THE TOTAL, per CLAUDE.md:**
+| tell | result | reading |
+|---|---|---|
+| `grep -cE '\[FAIL.*\] setUp'` | **0** | ✅ the total is a TOTAL, not a floor |
+| `grep -cE 'HTTP error\|database error\|Rate limit\|instantiate forked'` | **5** | ⚠️ **1 FAILURE IS ENVIRONMENTAL** — see below |
+| runtime | **316.44s** | ✅ plausible for a full suite; not the 7.58s "never reached the fork" shape |
+
+### ⭐ 84 FAILURES ARE NOT 84 DEFECTS. **80 OF THEM ARE ONE CAUSE, AND IT IS MINE.**
+| n | failure | cause | mine? |
+|---|---|---|---|
+| **79** | `FeedPinned()` across **9 suites** | 🔴 **the `DeployLib` anchor registration.** `cfg.ethFeed`/`cfg.btcFeed` are now registered in `Aux` **before any `setup()`** (required — `QuidLib.setupBody` reads `Core.poolStats()` to centre the initial range), and these fixtures pin the feed themselves | ✅ **YES** |
+| **1** | `testMatrix_S3_CompoundPath_StrandingRegime` — *"PREMISE: S3 is the UNANCHORED arm — pinning a feed here collapses it into S3b/S3c"* | 🔴 **same cause, different symptom.** The fixture's premise is that NO feed is pinned; my change pins one. **The test is correctly reporting that my change invalidated its premise** — this is what a premise assertion is FOR | ✅ **YES** |
+| **1** | `testAnchorPriceIsTheFeed_AndFlagsStaleness` — *"boom"* | 🔴 **A STALE TEST OF MINE, and rule 8d says name which side is wrong.** Its last block asserts a reverting feed yields `(0, true)`. **That was the PRE-FIX behaviour and `(0, true)` is the exact silent shape e9 traced to a `SwapOutDust()` revert four frames away.** `anchorPrice18` now reverts `NoAnchor()`. ⇒ **the CHANGE is right and the TEST is stale**; its own comment already wants *"no price rather than zero dressed as one"*, and reverting delivers that more strongly than returning a zero that reads as a price | ✅ **YES — fix the test, not the code** |
+| **1** | `test_OneInchBtcIsWrapped_andTheGapIsTheWbtcBasis` — `429 … call rate limit exhausted` | ⚠️ **ENVIRONMENTAL, AND I CAUSED IT.** Three `forge test` processes were live in this shared checkout at once (two peers' + mine) on one RPC key. **I started mine without checking for peers** — the rule to do so is in CLAUDE.md and I skipped it. ⛔ **DISCARD this failure; it is not evidence about the code** | ⚠️ my contention |
+| **1** | `testReal_WbtcLev_FoldUp_Then_FlashDelever` — *"IL target says lever up after +25%"* | **A PEER'S ACTIVE WORK** — pid 696822 was running exactly this test by `--match-test` while my suite ran. **Not mine; do not touch it** | ⛔ not mine |
+| **1** | `test_E2_IncumbentIsNotHarmedByANewMint` — `9999999998459426519999 !~= 9931793798910365737702`, tolerance **1e-7 %**, actual **0.687 %** | 🔴🔴 **THE ONLY GENUINE ECONOMIC FAILURE IN THE RUN, AND IT CORROBORATES §BREAK-8-11.** An incumbent LP receives **0.687% less** because someone else minted. That is dilution measured by a test that was built to forbid it | 🔴 **REAL — INVESTIGATE** |
+
+🔑 **SO THE HONEST HEADLINE IS NOT "84 FAILURES". IT IS: one change of mine needs its 9 fixtures
+routed through `StackConfig`, one test of mine is stale, one failure is my own RPC contention, one is a
+peer's, and ONE IS A REAL LOSS.** ⇒ **`test_E2_IncumbentIsNotHarmedByANewMint` is the row that matters**,
+and it says the same thing BREAKS 8-11 say from four other directions: **incumbent LPs are diluted.**
+
+⚠️ **AND ONE PROCESS ADMISSION, because the memory says so explicitly and I did not follow it:**
+`tools/forge-test.sh` is the pinned wrapper and I ran `forge test --rpc-url` raw. **I did pin
+`FORK_BLOCK`, so the key was not burned on an unpinned fork** — but the wrapper does not set the archive
+endpoint or the throttle a full suite needs (CLAUDE.md's own full-suite incantation requires
+`--rpc-url`), so **the wrapper and the full-suite recipe contradict each other.** ▶️ **Booked: fold the
+archive endpoint + throttle flags INTO `forge-test.sh` behind a `FULL=1` switch**, so there is one
+command and the contradiction stops being a judgment call each time.
+
+
 ## 🗺️ SUBJECT MAP — **WHICH GREP, AND WHERE THE CURRENT STATE IS.** Built 2026-09-09 from what each section CITES, not from its title.
 
 ⚠️ **COUNTS ARE A READING WITH A TIMESTAMP** — same discipline as CLAUDE.md's margin table. Re-derive; do not quote.
