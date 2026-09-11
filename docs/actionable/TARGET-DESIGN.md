@@ -537,6 +537,56 @@ issue." **It is one defect reaching three surfaces**, and the remedies proposed 
 first. A fresh price (§0a-quinquies) fixes **all three at once**, which is a second and independent
 argument for it — it is the only remedy in this document with that property.
 
+### 🔴 BREAK 8: **THE FEE ACCUMULATOR TRUNCATES TO ZERO, AND IT TRUNCATES EXACTLY THE RETAIL BAND**
+`Core.recordFee` → `RANGE.creditFee(premium6)` → `SwapLib.feeIncrements`:
+```solidity
+usdInc = SoladyMath.fullMulDiv(usd_fees, WAD, totalShares);   // totalShares = lpShares + totalBuffer
+```
+`fullMulDiv` **floors**. `lpShares` is ETH in wei, `premium6` is 6-dec USD ⇒ `usdInc == 0` for every
+fee below `(lpShares + totalBuffer) / 1e18`, and **the fee's whole contribution to the accumulator
+vanishes** — not rounded down by a wei, gone.
+
+| pool | fee that truncates to 0 | ⇒ at the flat 420 ppm, a trade under |
+|---|---|---|
+| 1,000 ETH | $0.001 | $2 |
+| 10,000 ETH | $0.010 | $24 |
+| 100,000 ETH | $0.100 | **$238** |
+| 1,000,000 ETH | $1.000 | **$2,381** |
+
+⭐ **THE PART THAT MAKES IT A DESIGN FINDING RATHER THAN A ROUNDING BUG: THE THRESHOLD SCALES WITH
+THE POOL.** The bigger the venue gets, the wider the band of trades whose fee never reaches an LP
+accumulator. **Success moves the cutoff up.**
+
+⚠️ **AND IT INTERACTS WITH §FLAT-FEE IN THE DIRECTION NOBODY CHOSE.** §NO-GAMEABLE-BOUND made the
+charge size-blind on purpose. **The ATTRIBUTION is size-sensitive anyway**, through the accumulator,
+and nothing in the design says so. A small trader pays exactly the same 420 ppm and is the most likely
+to have it truncate.
+
+✅ **BUT PRICE IT HONESTLY — THIS IS A REDIRECTION, NOT A THEFT, AND THE DIFFERENCE IS THE WHOLE
+CALIBRATION.** The dollars are **not destroyed**: `Core.recordFee` still does `POOLED_USD += premiumUsd`,
+and (§BREAK-6) `absorbPaidUsd` derives `basketUsd` from `POOLED_USD`, so the money reaches LP claims
+through **backing** instead of through `pendingFor`. The two routes differ in exactly one way:
+> the accumulator pays **the LPs who were present when the trade happened** (that is what
+> `refreshBookmarks` checkpointing buys). Backing pays **everyone holding at exit, including whoever
+> joined afterwards.**
+⇒ **the leak is the slice that flows to later joiners**, which is small for a stable membership and
+grows with churn. ⛔ **Do not write this up as stolen fees.** It is the deposit-front-running windfall
+that the checkpoint mechanism exists to prevent — arriving through **truncation**, past the defence,
+because the defence guards the bookmark and not the increment.
+
+📌 **AND IT HAS A SILENT SIBLING ONE LINE UP, SAME FUNCTION:** `if (totalShares == 0) return (0, 0)`.
+A fee arriving at an empty pool is credited to `POOLED_USD` and `feesRetained` and recorded by **no**
+accumulator at all, with no revert and no event. Rule 3's shape: the failure announces nothing.
+
+### ✅ AND ONE BOUND THAT IS FINE, checked so the absence is not read as unexamined
+`LevVenueBase._unitSlice(u, tot, bal) = fullMulDiv(u, bal + 1, tot + 1e6)` floors, and `_unitsFor` floors
+on the way in — so **collateral rounds against the LP at both ends (conservative) and debt rounds in the
+LP's favour at both ends (anti-conservative)**. The convention is applied by DIRECTION OF THE FUNCTION
+rather than by WHO IT FAVOURS, which is the wrong rule. ⇒ **but the magnitude is ≤1 unit per operation
+per LP**, the virtual-offset pair is self-consistent, and `debtOf` composes the floor with
+`_sharesToAssetsUp`'s **ceil**, which cancels most of it. **Booked as a convention worth fixing when the
+debt leg is next touched; not a value leak, and not worth a change on its own.**
+
 ### ✅ AND ONE ATTACK THAT FAILED, recorded because a clean result is evidence too
 I expected the classic accumulator theft: deposit just before a fee event, withdraw after, capture
 fees you did not earn. **Defended.** `feesPerShare`/`USD_FEES` are per-share accumulators and
