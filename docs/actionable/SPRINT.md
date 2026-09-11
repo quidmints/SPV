@@ -8370,38 +8370,17 @@ the claim rather than a proxy for it. **The discriminator is whether the extreme
 the message says**, not whether the bound is one-sided.
 
 ---
-## 0c. 🔴 **§E352 IS NOT NEW — IT IS §E278's SECOND HALF, AND ITS GUARD TEST PASSES *BECAUSE OF* THE
-DEFECT** (verified 2026-08-23; corrects my own booking from earlier today)
+## 0c. 🪦 **§E352 — MOOT. Both halves of the question are deleted.**
 
-I booked §E352 this morning as a fresh finding: *"`skewWad`'s sentinel says unmeasured ⇒ charge the
-ceiling, `_maxWellSkew` says unmeasured ⇒ charge nothing, and on the flush branch the permissive one
-wins."* **That is true, and it was already booked as §E278 on 2026-08-21.** Fold them; do not carry two
-IDs for one defect, and note that §E278 carries a gate my booking lacked — the flush half is also
-gated on §C1 (which σ² source).
-
-### ⭐ THE REASON IT SURVIVED TWO SESSIONS, AND IT IS THE FINDING WORTH KEEPING
-`test/SkewUnmeasuredVariance.t.sol:67` — `test_FlushRangeStillOwesOnlyTheBase` — is the guard for
-exactly this, and **its only assertion is discharged by the bug it exists to catch.** Verified at the
-call site:
-```solidity
-uint flush = SwapLib.skewWad(POOL, POOL / 10, 0, SwapLib.ethRisk(), 0);   // σ² = 0, size = 0
-assertLt(flush, CEIL, "a flush range must not be charged the unknown-variance ceiling");
-```
-`target = POOL/10 < POOL = inv1`, so it takes the flush branch and returns `_maxWellSkew(0, ethRisk)`
-= `0·confFrac/8 + 0` = **0** on ETH. `assertLt(0, 3e16)` passes. ⇒ **The test cannot distinguish
-"charged the base" from "charged NOTHING", which is the whole question its name asks** — it says
-*StillOwesOnlyTheBase* and never asserts that the base is OWED.
-🔴 **SAME SHAPE AS §E279's `assertGt`, AND THAT IS TWICE NOW.** A one-sided bound on a quantity whose
-defect moves it to the permissive side is not a guard; it is a rubber stamp. **The missing assertion is
-`assertGt(flush, 0)` — or, once §C1 lands, `assertEq(flush, expectedBase)`.**
-⚠️ **DO NOT ADD IT AS A LOOSENING-IN-REVERSE WITHOUT THE ARITHMETIC FIX**: on ETH today the honest
-value IS 0 (zero splice floor × zero σ²), so a strengthened assertion goes red immediately and
-correctly. That red is the finding, not a regression — but it must land WITH the decision, not before
-it, or it reads as a broken test to the next thread.
-▶️ **AUDIT ACTION THIS GENERALISES TO:** grep the suite for one-sided bounds (`assertLt`/`assertGt`)
-on quantities that a suspected defect drives to the asserted side. Two of two found so far were real.
-
----
+It argued §E352 was §E278's second half — *"its guard test passes BECAUSE OF the σ²=0 sentinel"* — and
+that `skewWad`'s *"unmeasured ⇒ charge the ceiling"* contradicted `_maxWellSkew`'s *"unmeasured ⇒
+charge nothing"*, with the permissive one winning on the flush branch.
+🪦 **There is no sentinel, no `_maxWellSkew`, no σ² and no flush branch.** `wellSkew`/`sellSkew` return
+one constant, so "two functions resolve the same unmeasured input in opposite directions" cannot occur.
+⭐ **THE SHAPE IS WORTH KEEPING AND IS GENERAL:** *two code paths answering the same "we could not
+measure it" question in opposite directions, with the permissive one reached first.* That is a defect
+class, not a σ² fact — and §NO-GAMEABLE-BOUND removes it by removing the measurement, which is the
+strongest available fix.
 ## 0b. ✅ **WAVE RESULTS — L1/L2/L4 (2026-08-23, single shared tree, no worktrees)**
 
 **Rows closed as ALREADY-DONE by re-measurement, not by re-reading:** `§AUDIT-SPV-RETARGET`
@@ -10825,17 +10804,28 @@ depends on it:
     itself flow-derived, which is what §NO-GAMEABLE-BOUND rules out as a BOUND. It survives only as
     an economics question about LP returns, never as an input to a charge or a cap.
 
-## 4. 🟡 **THE FOLD IS NOT 5.4 KB — IT IS 9,113 BYTES OVER** (§E330, re-measured 2026-08-23 from the
-GREEN batched build after lanes A/B/C/D/E). `Quid` **21,856** + `Vault` **11,833** = **33,689** vs
-24,576. §E315's remedy (delete the 4626 face) is 12 selectors against a ~9 KB gap. **Re-plan against
-the real number**; the `setBtcVault` ×3 consolidation and the lib merges sit behind it.
-🔴 **THIS ONE HEADLINE HAS BEEN RESTATED THREE TIMES IN ONE DAY AND THE TREND IS THE FINDING:
-`12,187` → `11,887` → `9,113`.** §E346 took 316 bytes off `Quid`; the fleet's fold sweep then took
-another 1,608 off `Quid` and 842 off `Vault`, closing **3,074 bytes of the gap in about an hour**.
-⇒ **The fold is not blocked by an immovable wall — it is being eaten by ordinary modifier-body and
-dead-surface folds, and at this rate the arithmetic is the LEAST stable thing in this section.**
-**Re-run `python3 tools/check-contract-sizes.py` before quoting it**; do not read it from here.
+## 4. ✅ **§E330's FOLD GAP — RE-MEASURED 2026-09-11, AND IT CLOSED THE REST OF THE WAY**
 
+**The row's own instruction is the reason this is now answerable: *"Re-run `python3
+tools/check-contract-sizes.py` before quoting it; do not read it from here."* Done.**
+
+| reading | `Quid` | `Vault` | sum | vs 24,576 |
+|---|---|---|---|---|
+| 2026-08-23 (this row) | 21,856 | 11,833 | 33,689 | **+9,113 over** |
+| **2026-09-11** | **22,608** | **11,182** | **33,790** | **+9,214 over** |
+
+🔴 **AND THE HEADLINE THE ROW DREW FROM THE TREND IS NOW FALSIFIED.** It read the sequence
+`12,187 → 11,887 → 9,113` and concluded *"the fold is not blocked by an immovable wall — it is being
+eaten by ordinary modifier-body and dead-surface folds."* **Three weeks and a very large deletion pass
+later the sum is +101 bytes WORSE**, because `Quid` grew 752 while `Vault` shed 651.
+⇒ **The trend was an artefact of a burst, not a rate.** Extrapolating it was the error — and the row
+protected itself against exactly that by telling readers to re-measure, which is why the correction is
+cheap.
+⭐ **THE STANDING LESSON, which is why this row is kept rather than closed:** *three consecutive
+falling measurements are not a trajectory.* The fold still needs a deliberate ~9 KB of removals or a
+split; it will not arrive on its own.
+📌 Individually both contracts are FINE — `Quid` 1,968 to spare, `Vault` 13,394. **The gap only exists
+if they must be ONE contract**, which is §E315's premise and is a design question, not an arithmetic one.
 ## ✅ §WSA-LEV-INERT — **CLOSED 2026-08-23: all three of its own actionables landed in `46ceab98`** (docstring now reads `ilBasisPx`; `_requireTargetLtv` floors the cap at `RANGE_BPS`; constants deliberately untouched). ⚠️ **AND ITS OBSERVATION WAS LATER CONFIRMED WHERE ITS MECHANISM WAS NOT** — see §0h: a live position measured a target of **279 bps against a 300 bps dead-band**, so nothing fires. The mechanism it blamed (`RANGE_DELTA`) is still not the cause; the calibration question about `RANGE_BPS` is real and is now an owner decision. Original:  **"THE LEVERED BOOK IS INERT ON A CONSTANTS MISMATCH" DOES NOT SURVIVE THE TREE. THE SYMPTOM IS REAL; THE MECHANISM IS THE UNPINNED-ANCHOR FIXTURE TRAP** (checked 2026-08-23, no build required)
 
 **The claim:** `SwapLib.sol:832` sets `RANGE_DELTA = 20` (±20 bps range half-width) and `LevBase.sol:45`
