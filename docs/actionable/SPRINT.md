@@ -59,28 +59,67 @@ routed through `StackConfig`, one test of mine is stale, one failure is my own R
 peer's, and ONE IS A REAL LOSS.** ⇒ **`test_E2_IncumbentIsNotHarmedByANewMint` is the row that matters**,
 and it says the same thing BREAKS 8-11 say from four other directions: **incumbent LPs are diluted.**
 
-### 🔴🔴 §E2-INCUMBENT-0.68 — **THE ONE FAILURE THAT IS NOT MINE, AND ITS OWN CONTROL RULES OUT BOTH KNOWN CAUSES**
-`test_E2_IncumbentIsNotHarmedByANewMint`: `9999999998459426519999` → `9931793798910365737702`.
-**Loss = 68,206,199,549,060,782,297 wei = 0.682%** (forge reports 0.6867% on its own denominator).
+### 🔴🔴🔴 §E2-INCUMBENT — **I HAD THE SIGN BACKWARDS. THE INCUMBENT GETS *MORE*, AND A NEW MINTER PAYS FOR IT.**
+⛔ **RETRACTED, IN FULL: everything this row said an hour ago.** I booked *"an incumbent LP receives
+0.687% LESS because someone else minted — dilution."* **Measured with the test's own emitted logs:**
+```
+incumbent alone   : 9937832727910365730184        <- 0.622% BELOW par
+incumbent after   : 9999999998084269569998        <- 1.9e-8 % below par, i.e. PAR
+delta             : +62167270173903839814         <- the incumbent gains +0.626%
+```
+**`gotAfter` is pinned at par (`amt = 10_000e18 = 1e22`).** ⇒ 🔑 **ALONE, THE INCUMBENT EATS THE
+SHORTFALL HAIRCUT. AFTER A 50k MINT, THE HAIRCUT IS GONE AND THEY REDEEM AT PAR.**
 
-⭐ **§SESS-29 LEFT EXACTLY THE RIGHT INSTRUMENT, AND IT ANSWERS. READ BOTH RESULTS TOGETHER:**
-| | result | what it rules out |
+⭐ **HOW I GOT IT BACKWARDS, because the mechanism is worth more than the finding.** `assertApproxEqRel`
+is **two-sided**; its message says *"must NOT receive materially LESS"*. **I read the failure message
+and inherited its direction, without ever running the test to see the `delta` it emits three lines
+below.** CLAUDE.md names this exact class — *"the test's NAME is the tell: it claims what the assertion
+does not check"* — and I met it from the reader's side rather than the author's.
+⇒ **A FAILURE MESSAGE IS PROSE. THE EMITTED VALUES ARE THE MEASUREMENT.** Do not take a direction from
+a summary line on a symmetric assertion. ▶️ **Fix the test too: make the message two-sided, or make the
+assertion one-sided in the direction the message claims.** As written it actively misleads its reader,
+which is not hypothetical — it misled me into committing the opposite conclusion.
+
+🔴 **AND THE "DISTINGUISHING CONTROL" DOES NOT DISTINGUISH ANYTHING HERE — MY SECOND WRONG CLAIM.**
+I wrote that `test_E2_IncumbentLossDoesNotScaleWithTheMint` passing *"rules out mint-proportional
+dilution."* **Its own logs:**
+```
+incumbent loss, 50k mint  : 0
+incumbent loss, 5m  mint  : 0
+```
+**It measures a one-sided, clamped LOSS — which is zero by construction whenever the incumbent GAINS.**
+⇒ it did not pass because dilution is absent; **it passed because the quantity it measures cannot be
+non-zero in this regime.** §VACUOUS-BOUNDS again, and it is the control I leaned on to justify calling
+the other bound safe.
+
+🔴 **AND MY THIRD CLAIM — *"a CONSTANT, independent of mint size … the shape of a CHARGE"* — IS ALSO
+WRONG. IT IS PRICE-DEPENDENT, AND TWO BLOCKS PROVE IT:**
+| fork block | haircut alone | after the mint |
 |---|---|---|
-| `test_E2_IncumbentIsNotHarmedByANewMint` | 🔴 **FAIL at 0.682%** | §SESS-29 measured the true value at **3.4e-11** and diagnosed *"ROUNDING, NOT DILUTION"*. **0.682% is 2.0 × 10⁸ times that.** ⇒ **it is no longer rounding**, and their conclusion is now false |
-| `test_E2_IncumbentLossDoesNotScaleWithTheMint` | ✅ **PASS** | their distinguishing control: *"a real dilution cannot hide under this bound without failing that one"*, because **dilution scales with the diluting mint and rounding does not.** It passed ⇒ **it is not mint-proportional dilution either** |
+| `25956651` | **0.6217 %** | 1.9e-8 % (par) |
+| `25957031` | **0.6821 %** | 1.5e-8 % (par) |
+**The haircut moves with the block; the post-mint value does not move off par.** ⇒ the quantity is a
+price-dependent shortfall, and the mint **saturates** it (a 50k mint erases it as completely as a 5m
+one) rather than offsetting it proportionally.
 
-⇒ 🔑 **A THIRD MECHANISM: A LOSS THAT IS LARGE (0.68%), CONSTANT, AND INDEPENDENT OF THE MINT SIZE.**
-Neither of the two hypotheses anyone has considered on this row fits. **A constant that switches on
-when a mint happens is the shape of a CHARGE or a re-marking, not of a share dilution** — the basket is
-short (`_openShortfall`), so the mark-up is live, and a new mint at the mark changes what the incumbent
-redeems against.
-⚠️ **CAUSE UNKNOWN AND I AM NOT GUESSING IT.** ▶️ **The next step is a bisect across the six commits on
-that path** — `53d7bfa7`, `46c27ca2`, `9cd9c623`, `56fe9d6f`, `ffec9643`, `665bc3c4` — run
-`--match-test test_E2_IncumbentIsNotHarmedByANewMint` at each. 📌 **My strongest prior, labelled as a
-HYPOTHESIS and nothing more: `56fe9d6f` (the TWAP deletion).** `_pricingBacking` reads `_wethTwap()` →
-`AUX.assetPrice(WETH)` (§BREAK-7 surface 2), which that commit changed from a 1800s average to the spot
-anchor. ⛔ **It does not obviously explain why the number moves only AFTER a mint, so do not book it as
-the cause.**
+### 🔑 THE ACTUAL FINDING, AND IT IS A SELF-CONTRADICTION OF THE KIND THE OWNER ASKED FOR
+**A NEW MINTER PAYS THE INCUMBENT'S SHORTFALL HAIRCUT.** The basket is short (`_openShortfall`), so an
+incumbent redeeming alone correctly bears ~0.62%. 50,000 fresh USDC arrives and the incumbent's
+redemption goes to **par** — the haircut did not shrink pro rata, it **vanished**, and the only new
+value in the system is the minter's.
+⛔ **AND THE TEST THAT IS SUPPOSED TO FORBID THAT PASSES:** `test_E2_MintAtMark_NewDepositorIsNotHaircut`
+✅ **PASS**, alongside `test_E2_MintAtMark_NeverDilutesIncumbents` ✅ **PASS** (`mark delta:
+79637262042091405`). **Three assertions cannot all hold at once:** the new depositor is not haircut, the
+incumbent is not diluted, and the incumbent's 0.62% haircut disappears when the depositor arrives. **The
+shortfall has to be borne by someone, and every test says it is not them.**
+⇒ **THIS IS THE INVERSE OF §BREAK-8-11's DIRECTION.** Those four are incumbents extracting from
+joiners through fee accounting. **This one is an incumbent extracting from a joiner through the
+redemption mark, and it is ~0.62% on the first block rather than a truncation remainder.**
+
+▶️ **NEXT, and it is a measurement not a bisect** — the bisect I booked is the wrong instrument now that
+the sign is known: instrument `_pricingBacking` / the mark across the three states (short-alone,
+post-mint, whole) and find which term goes to par. ⚠️ **My earlier TWAP hypothesis (`56fe9d6f`) is NOT
+retracted but is now secondary** — the block-dependence is consistent with it, the saturation is not.
 
 ### ⭐ AND THE METHOD LESSON, WHICH REVERSES MY OWN CRITICISM TWO COMMITS AGO
 I attacked `SkewPremiumReachesLPs`'s `assertLe(shortfall, denomNow / 1e18 + 1)` as §VACUOUS-BOUNDS,
