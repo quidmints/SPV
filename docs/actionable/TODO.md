@@ -106,6 +106,60 @@ delete Noir. Write the Merkle gadget generic: Hegota's candidate state tree is
 Pedersen/IPA commitments are not PQ), under which "this note exists" can become a proof against
 Ethereum state at a recent block and the pool's own LeanIMT/SMT go away. Not locked; design for it.
 
+### 🔴 §PP-RELAYER — **THE WITHDRAWAL RELAYER DOES NOT EXIST, AND WITHOUT IT THE POOL'S PRIVACY DOES NOT CLOSE** (owner, 2026-09-11: *"idk if todo.md includes something like a tornado relay but this unsolved"* — it did not; the section that scoped it, 2.20, was cut)
+
+**What exists.** On-chain: `Entrypoint.relay(withdrawal, proof, scope)` — `RelayData{recipient, feeRecipient,
+relayFeeBPS}` is ABI-encoded into `withdrawal.data`, and `PrivacyPool._contextFor` binds
+`keccak256(abi.encode(withdrawal, SCOPE)) % SNARK_SCALAR_FIELD` as the proof's context public input, so a
+relayer cannot redirect the payout or change the fee; `relay` has no caller gate (anyone may submit);
+the fee is deducted from the withdrawn ASSET, so a fresh recipient needs no ETH; `relayFeeBPS ≤
+assetConfig[asset].maxRelayFeeBPS`. Self-withdrawal (`processooor = self`) survives as the censorship
+escape hatch. Client: `app/features/identity/pp/relay.ts` builds the relayed withdrawal and
+`recipient.ts` derives fresh recipients; `submitRelayedWithdrawal` is written for THE RELAYER to call with
+a funded signer.
+**What does not.** Nothing runs as the relayer. No endpoint accepts `(withdrawal, proof, scope)`, nothing
+holds an ETH float, `IdentityScreen.tsx` points at `https://relayer.example`. So the only reachable path
+is "be the processooor yourself", which requires the recipient to hold ETH for gas — funding a fresh
+address is the linking transaction the pool exists to prevent.
+
+**THE DESIGN (decided here, built below):**
+1. **The fleet enclave is the relayer.** It already holds the funded EVM key (`MAIN_HOP`), the RPC, the
+   nonce-serialised `send_tx`, and an HTTP server (`swap_in_api`). A separate operator is a second party
+   to trust for liveness with no privacy gain: the relayer learns only what lands on-chain anyway (the
+   recipient) plus the SUBMITTER'S IP/timing — which is the one thing an enclave relayer removes from the
+   operator's view. `feeRecipient` MUST equal the relayer's own address or it pays gas for someone else's
+   fee.
+2. **`POST /pp/relay`, public, no bearer token** — a relayer with a key on the door is not a relayer. The
+   door is protected by REFUSING, never by paying: (a) `processooor == ENTRYPOINT` and
+   `feeRecipient == self`; (b) the context re-derived from `(withdrawal, scope)` equals
+   `pubSignals[7]`, else 400 before any RPC; (c) `eth_call` the exact `relay` calldata — a revert is
+   refused with its selector, so a bad proof costs the relayer one RPC call and never a tx; (d) the fee
+   covers the gas: `relayFeeBPS × withdrawnValue` in the asset ≥ `estimate × gasPrice × ETH/USD` (the
+   `Aux.assetPrice(WETH)` anchor) × a margin, else 402 with the number, so the app can raise the fee and
+   re-prove; (e) `estimate + 25%` as `gas_limit_for` does, never the floor.
+3. **Nothing about the note is learned.** The proof and the nullifier are public inputs; the relayer sees
+   them exactly as every node does. What it can do is REFUSE (liveness), and the escape hatch answers that.
+4. **The batch path** (`withdrawBatch`): the batcher IS a relayer for K withdrawals and takes K fees. Same
+   endpoint, same checks per element. Under §PROVING-ARCHITECTURE-8288 the batch is deleted and each
+   withdrawal is its own frame transaction — 8141 has gas-payment frames, so "who pays the gas" becomes a
+   sponsoring frame from the same fleet key and the relayer collapses to "the account that sponsors and
+   submits"; `Entrypoint.relay`'s fee split stays as the economics. Build the endpoint so the submit step
+   is one function: `send_tx(relay calldata)` today, `send_frame_tx(sponsor frame + call)` then.
+5. **Client transport.** The app POSTs to the relayer; the app already carries the network layer that the
+   identity flow uses. ⚠️ IP linkage between the submitting device and the recipient is NOT solved by any
+   relayer and is not claimed here: a user who needs it routes the POST over Tor. Booked, not built.
+
+▶️ **AND IT DECIDES THE OPEN `DOMAIN_ADDRESS` QUESTION** (*"which address a withdrawal is judged on —
+`processooor`, the relayer, or the payout recipient"*): with a relayer, `processooor` is always the
+Entrypoint and the relayer is whoever submits — neither is the person. **Judge the payout RECIPIENT** —
+it is the only address in the withdrawal that is the withdrawer's, and it is already inside the proof's
+context. Recommendation; owner to confirm before the circuit term is written.
+
+- [ ] `quid-hop/evm_codec`: `encode_relay(withdrawal, proof, scope)` for `relay((address,bytes),(bytes,uint256[8]),uint256)` (needs an inline fixed-array token) + `withdrawal_context()` — one encoder, mirrored against `relay.ts`'s `withdrawalContext` by a fixture.
+- [ ] `quid-bridge/pp_relay.rs`: `POST /pp/relay` per (2); config `QUID_PP_ENTRYPOINT` + `QUID_PP_RELAY_LISTEN`; served by the daemon.
+- [ ] `app/features/identity/pp/relay.ts`: `requestRelay(url, withdrawal, proof, scope)` replacing the `relayer.example` placeholder; surface a 402 as "raise the fee".
+- [ ] The float: the relayer's ETH balance is an operational input; alarm below N relays' worth. Fees accrue in the asset at the hop address.
+
 ### BACKEND — the queue
 - [ ] `crates/statements/{withdraw,ragequit,holder,notary,title,envelope}`: the single statements, journal = ABI tuple, keccak Merkle gadget generic over tree shape.
 - [ ] `crates/statements/batch`: the disposable K-loop wrapper.
