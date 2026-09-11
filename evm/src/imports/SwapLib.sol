@@ -329,7 +329,24 @@ library SwapLib {
         rp.fillPrice = _priceOr(priceHint, aux, wbtc);
         rp.recipient    = seller;
 
-        consumedSats = _swapInSettle(ctx, rp, minDeliveredUsd);
+        // §MIN-CHARGE-MISSES-THE-SWAP-IN-RAIL. The swap-OUT sibling charges through `retainFee` and
+        // this rail charged NOTHING, while both fill at the same oracle — so the swap-IN was a free
+        // option against our own TWAP: move inside the window, sell sats in at the stale favourable
+        // price, and the basket eats it. The charge is not a fee here, it is the premium on an option
+        // the oracle grants; zero is not a discount, it is an unpriced option, and whoever takes it
+        // is by construction the party who knows the oracle is stale.
+        // 🔴 `nativeAmount = true` — UNLIKE the swap-out sibling, which passes `false`. `r.amount` is
+        // SATS, so `recordFee` needs `r.px` to convert the premium into the USD leg; passing `false`
+        // would book sats as dollars.
+        SwapReq memory sr; sr.amount = sats; sr.px = rp.fillPrice;
+        retainFee(core, sr, true);
+        rp.amount = sr.amount;
+
+        // ⚠️ THE PREMIUM IS STILL CONSUMED FROM THE SELLER — it is retained, not refunded — so it
+        // MUST be counted here. `consumedSats` is what `reverseSwapOut` compares against `so.sats`
+        // under `requireFull`, and returning only the routed part would make every full reversal
+        // revert `SwapInPartialRejected` the moment this charge existed.
+        consumedSats = _swapInSettle(ctx, rp, minDeliveredUsd) + (sats - sr.amount);
     }
 
     function _swapInSettle(Types.AuxContext memory ctx, Types.RouteParams memory rp, uint minDeliveredUsd)
