@@ -743,7 +743,20 @@ Each was carried as open, some in red, some for weeks.
 **27. `§BTC-10b` — the settlement layer has NEVER been audited** (`_resize`, `requestDeposit`,
    `creditSwapIn/Out`): *"where value is created and destroyed."* Called **a new audit area, not a
    leftover** — and **no gate ever opened it.**
-**28. `§BTC-7` / `9b`** — the `btcRecipient` pubkey-hash cluster. **Its event and error names are ABI a
+**28. ✅ `§BTC-7` / `9b` — CLOSED 2026-09-11.** `error NotPubkeyHash` → **`BadBtcRecipient`**, and the
+   event parameter `pubkeyHash` → **`recipient`**. The name was wrong the day it was written — the
+   value is a 32-byte payout DESTINATION validated by `isValidXOnlyKey`, not a hash of anything — and
+   §PQ-SEAM made it wrong twice, because a v2 destination is a merkle root and not a key either.
+   📌 **Safe because the client surface was PROSE ONLY:** the two Rust references
+   (`driver_e2e.rs:511`, `evm_codec.rs:955`) are both comments, and an error name is not in
+   `check-client-abis.py`'s signature set. All four raise sites renamed with it.
+   ⚠️ **ONE ERROR STILL COVERS FOUR CONDITIONS** — absent registration, zero, malformed-for-its-form,
+   and unproven possession — and the docblock now says so rather than leaving a reader to discover it.
+   Splitting it would buy precision and cost four selectors on the contract with the least headroom in
+   the tree (604 bytes). ⇒ deliberate compromise, recorded, not an oversight.
+   ✅ The row's other half is already done: the stale `P2WPKH` prose at `BitcoinTx.sol:258` went with
+   the comment strip — measured, zero occurrences.
+   *(original row:)* the `btcRecipient` pubkey-hash cluster. **Its event and error names are ABI a
    client acts on**, so it misleads a consumer, not just a reader: `BTCChannels.sol:462
    event BtcRecipientRegistered(address indexed owner, bytes32 pubkeyHash)` and `:463
    error NotPubkeyHash()` — while the value emitted at `:2563` is an **x-only key**, validated by

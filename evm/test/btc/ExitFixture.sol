@@ -51,7 +51,7 @@ abstract contract ExitFixture is Test {
     /// (§E183 item 1) THE LP'S EVM ADDRESS IS NO LONGER A FREE PARAMETER — it is the EVM address
     /// of the channel's own secp256k1 key, derived by the contract. Fixtures used to invent one
     /// with `makeAddrAndKey("btc-lp-<seed>")`, which now disagrees with what `openChannel` derives
-    /// and fails the PoP as `NotPubkeyHash()`. Derive it from the SAME seed's channel key instead.
+    /// and fails the PoP as `BadBtcRecipient()`. Derive it from the SAME seed's channel key instead.
     /// (§E183 item 1) An EVM ECDSA signature BY THE CHANNEL KEY of `label`. Since `lpEth` is now
     /// the address OF that key, anything the contract checks against `lpEth` must be signed with it
     /// — there is no separate EVM key left to sign with.
@@ -202,7 +202,7 @@ abstract contract ExitFixture is Test {
     /// DERIVED from the channel key, not supplied), while every fixture passed `vm.addr(lpPk)` or
     /// an `ECDSA.recover` of the old `lpAuth`. Those are Foundry-local keys with **no relation to
     /// the channel key the Python generator derives**, so the PoP was signed over a digest the
-    /// contract never computes and `openChannel` reverted `NotPubkeyHash()` every time.
+    /// contract never computes and `openChannel` reverted `BadBtcRecipient()` every time.
     /// ⇒ Deriving HERE makes the mismatch **unconstructible** instead of something each call site
     /// has to remember (standing rule 17): there is no longer an address parameter to get wrong.
     ///

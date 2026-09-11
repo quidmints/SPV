@@ -508,7 +508,7 @@ async fn swap_out_onchain_delivery_on_real_evm() {
     // ── 2. SWAPPER commits USD → requestSwapOutOnchain on the REAL Vault. The fill is a
     //    real BTC-curve quote, so `sats` is READ BACK from the recorded obligation. ──
     // The swapper's payout is DERIVED by the contract as `0x5120‖btcRecipientOf[msg.sender]`
-    // (`requestSwapOutOnchain` reverts `NotPubkeyHash` for a caller with no registration), so
+    // (`requestSwapOutOnchain` reverts `BadBtcRecipient` for a caller with no registration), so
     // the swapper — the hot key here — registers an x-only key with its PoP first, and the
     // delivery pays exactly that P2TR script.
     let swapper_key = bitcoin::secp256k1::Keypair::from_secret_key(

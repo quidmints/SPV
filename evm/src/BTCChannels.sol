@@ -57,8 +57,20 @@ contract BTCChannels {
     }
     mapping(bytes32 => PendingOnchainSwapOut) public pendingOnchainSwapOut;
 
-    event BtcRecipientRegistered(address indexed owner, bytes32 pubkeyHash);
-    error NotPubkeyHash();
+    /// §BTC-7. `recipient` is a 32-byte BTC payout DESTINATION, not a hash of anything. On a v1
+    /// channel it is an x-only secp key (`isValidXOnlyKey`); under §PQ-SEAM a v2 destination is a
+    /// merkle root, which is not a key either. The old parameter name `pubkeyHash` was wrong on the
+    /// day it was written and is now wrong twice.
+    event BtcRecipientRegistered(address indexed owner, bytes32 recipient);
+
+    /// §BTC-7. Raised for every way a BTC payout destination can fail to be usable: ABSENT
+    /// (`requestSwapOutOnchain` with no registration), ZERO, MALFORMED for its form, or UNPROVEN
+    /// (the possession proof did not verify under either scheme).
+    /// ⚠️ **ONE ERROR FOR FOUR CONDITIONS IS A DELIBERATE COMPROMISE, NOT AN OVERSIGHT.** Splitting
+    /// it would buy a caller precision and cost four selectors on the contract with the least
+    /// headroom in the tree. ⛔ It was previously `BadBtcRecipient`, which named a hash that never
+    /// existed and told a reader the wrong thing about all four.
+    error BadBtcRecipient();
 
     error NotSwapper();
     error NotChannelHop();
@@ -779,7 +791,7 @@ contract BTCChannels {
 
         if (swapInUsed[swapId]) revert SwapOutReplay();
 
-        if (btcRecipientOf[msg.sender] == bytes32(0)) revert NotPubkeyHash();
+        if (btcRecipientOf[msg.sender] == bytes32(0)) revert BadBtcRecipient();
         bytes memory swapperScript = _lpPayoutScript(msg.sender);
         swapOutUsed[swapId] = true;
         uint usd6;
@@ -903,19 +915,19 @@ contract BTCChannels {
         }
         address v = pqVerifier;
         if (v == address(0) || !IPqVerifier(v).verifyPossession(xOnlyKey, digest, sig))
-            revert NotPubkeyHash();
+            revert BadBtcRecipient();
         return true;
     }
 
     function _registerBtcRecipient(address who, bytes32 xOnlyKey, bool isV2) internal {
-        if (xOnlyKey == bytes32(0)) revert NotPubkeyHash();
+        if (xOnlyKey == bytes32(0)) revert BadBtcRecipient();
 
         // §PQ-SEAM. The on-curve check is the v1 destination-validity rule; on v2 the verifier's
         // `payoutScript` IS the rule and reverts on a malformed destination. Possession has already
         // been proved under whichever scheme set `isV2`, so this only has to reject a shape the
         // payout path could not later build a script from.
         if (isV2) IPqVerifier(pqVerifier).payoutScript(xOnlyKey);
-        else if (!BitcoinTx.isValidXOnlyKey(xOnlyKey)) revert NotPubkeyHash();
+        else if (!BitcoinTx.isValidXOnlyKey(xOnlyKey)) revert BadBtcRecipient();
         btcRecipientIsV2[who] = isV2;
         btcRecipientOf[who] = xOnlyKey;
         emit BtcRecipientRegistered(who, xOnlyKey);

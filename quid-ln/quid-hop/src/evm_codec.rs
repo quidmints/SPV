@@ -952,7 +952,7 @@ pub fn encode_register_channel_claim(channel_id: [u8; 32]) -> Vec<u8> {
 /// `setBtcRecipient(bytes32 xOnlyKey, bytes pop)` — a swapper (or LP) registers the x-only key
 /// its BTC is paid to; `pop` is the BIP-340 proof-of-possession over
 /// `btcRecipientPoPDigest(msg.sender, bytes32(0))`. `requestSwapOutOnchain` refuses a caller
-/// without one (`NotPubkeyHash`), because the swapper's payout script is DERIVED as
+/// without one (`BadBtcRecipient`), because the swapper's payout script is DERIVED as
 /// `0x5120‖btcRecipientOf[msg.sender]`, never supplied.
 pub fn encode_set_btc_recipient(x_only_key: [u8; 32], pop: Vec<u8>) -> Vec<u8> {
     encode_call(
