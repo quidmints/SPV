@@ -42,7 +42,7 @@ These replace the committed **dev placeholders**. Generate on an air-gapped/HSM 
 ## Phase 1 — L1 contracts (Solidity)
 
 - [ ] Build WITHOUT via_ir/optimizer crutches (`forge build --sizes`; libs must fit EIP-170 — see [[headStart bisect method]]).
-- [ ] Confirm **feed pins**: 10/11 basket stables have a Chainlink USD feed (BOLD has none — proxy-only RLUSD/USDG/AUSD resolve via data.eth ENS); all pinned at deploy ([[quid-stable-feed-coverage]]). Feeds/forwarder should be constructor-immutable ([[quid-cre-feed-trust-surface]]).
+- [ ] Confirm **feed pins**: 11/12 basket stables have a Chainlink USD feed (BOLD has none — proxy-only RLUSD/AUSD resolve via data.eth ENS); all pinned at deploy ([[quid-stable-feed-coverage]]). Feeds/forwarder should be constructor-immutable ([[quid-cre-feed-trust-surface]]).
 - [ ] Deploy: `cp deploy/deploy.env.example deploy/deploy.env` (edit), then `BROADCAST=1 deploy/deploy-l1.sh deploy/deploy.env` (wraps `evm/src/DeployL1_s.sol`). SPVGateway anchored at a Bitcoin checkpoint; BTCChannels pins `HOP_MAIN` / `HOP_FALLBACK` at construction (the hop enclave's derived address — provision the hop first).
 - [ ] **Record printed addresses** → they feed the hop/LP env (`QUID_BTC_CHANNELS`, `QUID_BTC_VAULT`, `QUID_SPV_GATEWAY`, `QUID_CHAIN_ID`, `QUID_RPC_URL`).
 

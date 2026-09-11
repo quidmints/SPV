@@ -55,7 +55,7 @@ library SwapLib {
     error UnknownStableSweep();
     error BadOp();
 
-    function sweepBody(address token, address weth, address wbtc, address gho, address usdg)
+    function sweepBody(address token, address weth, address wbtc)
         external returns (uint vbtcDelta, uint swept) {
 
         if (token == address(0)) {
@@ -66,8 +66,7 @@ library SwapLib {
         } else if (token == wbtc) {
             swept = IERC20(wbtc).balanceOf(address(this));
             return (swept, swept);
-        } else if (token == weth || IAux(address(this)).toIndex(token) != 0
-            || token == gho || token == usdg) {
+        } else if (token == weth || IAux(address(this)).toIndex(token) != 0) {
             swept = IERC20(token).balanceOf(address(this));
             if (swept == 0) return (0, 0);
         } else revert UnknownStableSweep();

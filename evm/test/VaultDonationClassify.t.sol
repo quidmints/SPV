@@ -25,9 +25,7 @@ interface IERC20D { function transfer(address, uint256) external returns (bool);
 /// level, drawn here per venue).
 contract VaultDonationClassify is ForkPin {
     // Basket's real 4626 legs, matching script/DeployL1_s.sol: the primary vault per stable from VAULTS[]
-    // PLUS every additional curator appended by the setVault calls (USDC has 6, USDT has 4). The AAVE-v4
-    // spoke legs (GHO/USDG, and the USDC/USDT spoke entries) are NOT 4626s and have no share price to
-    // donate into, so they are out of scope here by construction.
+    // PLUS every additional curator appended by the setVault calls (USDC has 5, USDT has 3).
     address constant galaxyUsdc     = 0x91600E31fBeDc72433d4a57F16639cfe661Be7d8; // MetaMorpho (USDC primary)
     address constant skyUsdc        = 0x56bfa6f53669B836D1E0Dfa5e99706b12c373ecf;
     address constant wintermuteUsdc = 0x5dc53a23AdC9f2Bed98de6F59F7F309a7c71FF2B;

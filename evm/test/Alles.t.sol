@@ -462,13 +462,8 @@ contract AllesFixture is ForkPin, ExitFixture {
     }
 
     IERC20 public WETH = IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
-    address public aavePool  = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2;
-    address public aaveAddr  = 0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e;
-    address public aaveHub   = 0xCca852Bc40e560adC3b1Cc58CA5b55638ce826c9;
-    address public aaveSpoke = 0x94e7A5dCbE816e498b89aB752661904E2F56c485;
     address public stabilityPool = 0x5721cbbd64fc7Ae3Ef44A0A3F9a790A9264Cf9BF;
 
-    IERC20 public GHO = IERC20(0x40D16FC0246aD3160Ccc09B8D0D3A2cD28aE6C2f);
     IERC20 public USDT = IERC20(0xdAC17F958D2ee523a2206206994597C13D831ec7);
     IERC20 public USDC = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
     IERC20 public DAI = IERC20(0x6B175474E89094C44Da98b954EedeAC495271d0F);
@@ -568,7 +563,6 @@ contract AllesFixture is ForkPin, ExitFixture {
     uint rack = 1000 * USDC_PRECISION;
 
     IERC20 public WBTC  = IERC20(0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599);
-    IERC20 public USDG  = IERC20(0xe343167631d89B6Ffc58B88d6b7fB0228795491D);
     IERC20 public RLUSD = IERC20(0x8292Bb45bf1Ee4d140127049757C2E0fF06317eD);
     IERC20 public AUSD  = IERC20(0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a);
     // §ROSTER-ALIGN — Galaxy USDC is the PRIMARY in `DeployL1_s.sol:49`. The fixture pinned a
@@ -596,30 +590,29 @@ contract AllesFixture is ForkPin, ExitFixture {
         //    mirror the deploy's.
         STABLECOINS = [
             address(USDC), address(USDT),
-            address(PYUSD), address(GHO),
-            address(RLUSD), address(USDG),
+            address(PYUSD), address(RLUSD),
             address(DAI), address(USDS),
             address(USDE), address(AUSD),
-            address(CUSD),                    // 10 cUSD   — native stcUSD 4626
-            address(CRVUSD),                  // 11 crvUSD — native scrvUSD 4626
-            address(FRXUSD),                  // 12 frxUSD — native sfrxUSD 4626
-            address(BOLD)                     // 13 BOLD MUST be last (SP-routed)
+            address(CUSD),                    // 8  cUSD   — native stcUSD 4626
+            address(CRVUSD),                  // 9  crvUSD — native scrvUSD 4626
+            address(FRXUSD),                  // 10 frxUSD — native sfrxUSD 4626
+            address(BOLD)                     // 11 BOLD MUST be last (SP-routed)
         ];
         VAULTS = [
             morphoUsdcVault, morphoUsdtVault,
-            pyusdMorpho, address(0),          // GHO -> AAVE v4 (address(0) ON PURPOSE)
-            morphoRlusdVault, address(0),     // USDG -> AAVE v4 (address(0) ON PURPOSE)
+            pyusdMorpho, morphoRlusdVault,
             address(SDAI), morphoUsdsVault,
             address(SUSDE), morphoAusdVault,
-            address(STCUSD),                  // 10 cUSD   -> stcUSD
-            address(SCRVUSD),                 // 11 crvUSD -> scrvUSD
-            address(SFRXUSD),                 // 12 frxUSD -> sfrxUSD
-            stabilityPool                     // 13 BOLD   -> Liquity SP (last)
+            address(STCUSD),                  // 8  cUSD   -> stcUSD
+            address(SCRVUSD),                 // 9  crvUSD -> scrvUSD
+            address(SFRXUSD),                 // 10 frxUSD -> sfrxUSD
+            stabilityPool                     // 11 BOLD   -> Liquity SP (last)
         ];
         require(STABLECOINS.length == VAULTS.length, "stables/vaults: positional pairing broken");
         // §14-STABLES — the `uint[16]` layout is EXACTLY full at 14 (slot 0 = yield-weighted sum,
-        // 1..14 per-token, 15 = TVL total). Same assertion the deploy makes, for the same reason.
-        require(STABLECOINS.length == 14, "stables: 14 is the uint[16] layout maximum");
+        // 1..14 per-token, 15 = TVL total). The roster is 12 since GHO/USDG left with AAVE; the same
+        // pin the deploy makes, for the same reason (a silent insertion re-points every venue after it).
+        require(STABLECOINS.length == 12, "stables: roster drifted from DeployL1_s");
 
         // Fund test users from mainnet whales.
         vm.startPrank(0x37305B1cD40574E4C5Ce33f8e8306Be057fD7341);
@@ -668,8 +661,7 @@ contract AllesFixture is ForkPin, ExitFixture {
             msig: address(0),
             ethFeed: 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419,   // Chainlink ETH/USD
             btcFeed: 0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c,   // Chainlink BTC/USD
-            weth: address(WETH), wbtc: address(WBTC), gho: address(GHO), usdg: address(USDG),
-            aaveSpoke: aaveSpoke, aaveHub: aaveHub,
+            weth: address(WETH), wbtc: address(WBTC),
             stables: STABLECOINS, vaults: VAULTS,
             spvCheckpointHeader: "", spvCheckpointHeight: 0, spvCheckpointWork: 0,
             spvCheckpointFollowers: new bytes[](0),   // (E135) tests build their own short chains
@@ -711,8 +703,8 @@ contract AllesFixture is ForkPin, ExitFixture {
 
 
     // DELETED 2026-08-13 — testGalaxyFallback_RevertReroutes_ZeroSharesReverts. It mocked
-    // `Galaxy.deposit` reverting and asserted `_supplyETH` caught it and rerouted to AAVE/hold. ETH
-    // deposits no longer reach Galaxy (or AAVE, or any WETH-4626 curator) at all, so there is no
+    // `Galaxy.deposit` reverting and asserted `_supplyETH` caught it and rerouted to a haven/hold. ETH
+    // deposits no longer reach Galaxy (or any WETH-4626 curator) at all, so there is no
     // fallback to exercise — the subject is gone, not the assertion wrong.
 
 
@@ -835,57 +827,6 @@ contract AllesFixture is ForkPin, ExitFixture {
 
     /// EXTREME: a deep 60% depeg must not brick redemption nor let over-extraction — liveness + burned/delivered
     /// both > 0, no revert (the write-down magnitude is covered by C_DepegFee's redeemableAmount monotonicity).
-    /// @notice Every AAVE-v4-spoke stable round-trips: mint against it, then redeem and prove the
-    ///         dollars come back out THROUGH THE SPOKE.
-    /// @dev  NEW 2026-08-15, EXTENDED TO USDG the same day. GHO and USDG are the ONLY two basket
-    ///       stables whose VAULTS slot is `address(0)` -- both route through the AAVE-v4 SPOKE, not a
-    ///       4626 -- and nothing exercised that withdrawal path. The two loops that walk every venue
-    ///       both `continue` past `aaveSpoke`, CORRECTLY (they mock `maxWithdraw`, which a non-4626
-    ///       does not have), so the leg was stepped over everywhere and covered nowhere. Aave v4
-    ///       BORROWING was removed 2026-08-13; this SUPPLY path deliberately survived.
-    ///       ⚠️ COVERING ONLY GHO WOULD HAVE BEEN A HALF-FIX: the two share one code path but are
-    ///       DIFFERENT RESERVES with independent ids resolved in `Aux`'s constructor, so a wiring
-    ///       defect can hit one and not the other. Both, or the pair is untested.
-    function _assertSpokeStableRoundTrips(IERC20 stable, string memory name) internal {
-        for (uint i = 0; i < AUX.getStables().length; i++)
-            vm.mockCall(address(AUX), abi.encodeWithSignature("getDepegSeverityBps(address)", AUX.getStables()[i]), abi.encode(uint(0)));
-
-        // Precondition, asserted rather than assumed: this really is spoke-routed here. If a later
-        // rewiring gives it a 4626, the test would be measuring something else and should say so.
-        address[] memory vs = AUX.getVaults(address(stable));
-        assertTrue(vs.length == 0 || vs[0] == address(0) || vs[0] == AUX.AAVE_SPOKE(),
-            string.concat("precondition: ", name, " is AAVE-v4-spoke routed, not 4626-routed"));
-
-        uint d = IERC20(address(stable)).decimals();
-        uint amountIn = 50_000 * (10 ** d);
-        deal(address(stable), User01, amountIn);
-        vm.startPrank(User01);
-        stable.approve(address(AUX), amountIn);
-        QUID.mint(User01, amountIn, address(stable), 0);
-        vm.stopPrank();
-        assertGt(QUID.balanceOf(User01), 0, string.concat("minting against ", name, " produced QD"));
-
-        vm.warp(block.timestamp + 35 days);
-        uint bal = QUID.balanceOf(User01);
-        // ISOLATE THE SPOKE. `_redeemValue` sums deltas across EVERY stable, so its `red > 0` is
-        // satisfied by USDC or DAI coming back while the AAVE-v4 leg delivers nothing -- it would
-        // pass for the exact defect this test exists to catch. Measure THIS stable's OWN delta,
-        // the only number that distinguishes "the spoke paid" from "something paid".
-        uint before = stable.balanceOf(User01);
-        (uint red, uint burn) = _redeemValue(User01, bal);
-        uint delta = stable.balanceOf(User01) - before;
-        assertGt(burn, 0, "redeem burned mature QD");
-        assertGt(red, 0, "redeem delivered something");
-        assertGt(delta, 0, string.concat(
-            name, " supplied through the AAVE-v4 spoke must come BACK OUT through it -- a pro-rata "
-            "redeem that pays only the 4626 legs means the spoke's balance is bookable, not deliverable"));
-        assertLe(red, burn + burn / 100, "spoke redeem never over-delivers");
-    }
-
-
-
-
-
     function getAutoManaged(address who) internal view returns (Types.Deposit memory) {
         (uint pooled, uint fees_tok, uint fees_usd, uint usd_owed) = ETH.autoManaged(who);
         return Types.Deposit({
@@ -959,10 +900,8 @@ contract AllesFixture is ForkPin, ExitFixture {
     /// REDEEMER side of the race is liquidity-bound too (the Galaxy etch only
     /// binds the LP side). Other stables stay liquid - the contested slice.
     function _freezeUsdcLegs() internal {
-        address aaveSpoke = AUX.AAVE_SPOKE();
         address[] memory vs = AUX.getVaults(address(USDC));
         for (uint j = 0; j < vs.length; j++) {
-            if (vs[j] == aaveSpoke) continue;
             if (IERC4626(vs[j]).balanceOf(address(AUX)) == 0) continue;
             vm.mockCall(vs[j],
                 abi.encodeWithSignature("maxWithdraw(address)", address(AUX)),
@@ -1131,7 +1070,7 @@ contract AllesFixture is ForkPin, ExitFixture {
 
 
     /// @dev INDEPENDENT recomputation of ONE stable's LIVE vault-sum: Σ over the
-    ///      stable's venues of (Aave-v4 `aaveBalance` | 4626 `convertToAssets(balanceOf(AUX))`),
+    ///      stable's venues of 4626 `convertToAssets(balanceOf(AUX))`,
     ///      decimal-scaled to 18 — i.e. the exact unit `BasketLib._valueStable`
     ///      (src/imports/BasketLib.sol:243) computes and caches into `storedHoldings`.
     ///
@@ -1148,19 +1087,12 @@ contract AllesFixture is ForkPin, ExitFixture {
     ///      reverting vault contributes 0 on both sides).
     function _liveVaultSum(address stable) internal view returns (uint balance) {
         address[] memory vs = AUX.getVaults(stable);
-        if (vs.length == 0) {
-            // GHO/USDG are Aave-native (vault slot 0); any other unwired stable is 0.
-            if (stable == AUX.GHO() || stable == AUX.USDG()) balance = AUX.aaveBalance(stable);
-        } else {
-            address spoke = AUX.AAVE_SPOKE();
-            for (uint j; j < vs.length; j++) {
-                if (vs[j] == spoke) { balance += AUX.aaveBalance(stable); continue; }
-                try IERC4626(vs[j]).balanceOf(address(AUX)) returns (uint sh) {
-                    if (sh == 0) continue;
-                    try IERC4626(vs[j]).convertToAssets(sh) returns (uint a) { balance += a; }
-                    catch { continue; }
-                } catch { continue; }
-            }
+        for (uint j; j < vs.length; j++) {
+            try IERC4626(vs[j]).balanceOf(address(AUX)) returns (uint sh) {
+                if (sh == 0) continue;
+                try IERC4626(vs[j]).convertToAssets(sh) returns (uint a) { balance += a; }
+                catch { continue; }
+            } catch { continue; }
         }
         if (balance == 0) return 0;
         uint dec = IERC20(stable).decimals();
@@ -1562,8 +1494,7 @@ contract Alles is AllesFixture {
     ///         stays high, maxWithdraw==0) must NOT be valued at PAR in the redemption
     ///         path. _illiquidLoss removes its undeliverable slice, so the deliverable
     ///         redeemable view shrinks instead of quoting/burning against backing
-    ///         take() can't deliver. (The Aave leg is intentionally NOT capped - a
-    ///         documented residual - so we target only the Aux-held 4626 legs.)
+    ///         take() can't deliver.
     function testStrand1_FrozenVaultCapsDeliverableRedeemable() public {
         vm.startPrank(User01);
         USDC.approve(address(AUX), 500 * 1e6);
@@ -1574,7 +1505,6 @@ contract Alles is AllesFixture {
         vm.warp(block.timestamp + 35 days);
 
         address[] memory stables = AUX.getStables();
-        address aaveSpoke = AUX.AAVE_SPOKE();
         // Heal the no-CRE fork default depeg on every stable so the change is
         // isolated to DELIVERABILITY (not a spurious haircut).
         for (uint i = 0; i < stables.length; i++) {
@@ -1587,13 +1517,11 @@ contract Alles is AllesFixture {
         assertGt(redeemableBefore, 0, "baseline redeemable > 0");
 
         // Freeze EVERY Aux-held 4626 leg (maxWithdraw -> 0): solvent (convertToAssets
-        // untouched) but undeliverable - the exact Strand-1 condition. Skip the Aave
-        // sentinel (not a 4626; not capped by _illiquidLoss by design).
+        // untouched) but undeliverable - the exact Strand-1 condition.
         uint frozen;
         for (uint i = 0; i + 1 < stables.length; i++) {     // skip BOLD (last)
             address[] memory vs = AUX.getVaults(stables[i]);
             for (uint j = 0; j < vs.length; j++) {
-                if (vs[j] == aaveSpoke) continue;
                 uint sh = IERC4626(vs[j]).balanceOf(address(AUX));
                 if (sh == 0) continue;
                 if (IERC4626(vs[j]).convertToAssets(sh) == 0) continue;
@@ -2297,7 +2225,7 @@ contract Alles is AllesFixture {
 
     /// @notice ETH-VENUE incident response (the gap that was missing): a
     ///         Galaxy/Morpho WETH curator incident -> evacuate the withdrawable
-    ///         WETH to the AAVE haven (or hold at Aux if AAVE-WETH unwired),
+    ///         WETH to a haven (or hold at Aux if none is wired),
     ///         block the venue, preserve backing, and reroute NEW deposits away
     ///         from the failing venue - overriding the depositor's choice.
     /// @notice ETH deposits land in weETH — the ONLY destination.
@@ -2391,7 +2319,7 @@ contract Alles is AllesFixture {
         uint totalDeposits = deposits[15];
         assertGt(totalDeposits, 0, "Should have total deposits");
         assertGt(deposits[1], 0, "USDC vault should have balance");
-        assertGt(deposits[7], 0, "DAI vault should have balance"); // DAI now stables[6] -> amounts[7]
+        assertGt(deposits[5], 0, "DAI vault should have balance"); // DAI is stables[4] -> amounts[5] (GHO/USDG gone)
 
         vm.warp(block.timestamp + 30 days);
 
@@ -3145,14 +3073,6 @@ contract Alles is AllesFixture {
         assertLe(wRed, wBurn + wBurn / 100, "whole-balance redeem never over-delivers (<= par/QD, no depeg)");
     }
 
-    function test_Redeem_GhoViaAaveSpoke_ActuallyDelivers() public {
-        _assertSpokeStableRoundTrips(GHO, "GHO");
-    }
-
-    function test_Redeem_UsdgViaAaveSpoke_ActuallyDelivers() public {
-        _assertSpokeStableRoundTrips(USDG, "USDG");
-    }
-
 
     function test_EthLp_RedeemConservationAndFairness() public {
         vm.deal(User01, 1000 ether);
@@ -3336,7 +3256,7 @@ contract Alles is AllesFixture {
     ///     (outstanding QUI stays COLLECTIVELY backed); whoever is LAST OUT absorbs
     ///     the residual, be it LP or QUI holder.
     ///   • a redeem is a RECOVERABLE DEFERRAL — burns QUI only for value actually
-    ///     delivered (Strand-1, incl. the Aave leg), never a permanent bag, never
+    ///     delivered (Strand-1), never a permanent bag, never
     ///     bricks.
     /// FORK LIMIT (recorded, not asserted): the no-Chainlink-anchor fork's RAW
     /// TWAP underflows at crash depth (before buffer exhaustion) — deeper depth

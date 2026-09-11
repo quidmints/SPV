@@ -119,16 +119,9 @@ library FeeLib {
         }
     }
 
-    function multiVaultWithdrawBody(address[] memory vs, uint amount, address to,
-        address aaveSpoke, address stable)
+    function multiVaultWithdrawBody(address[] memory vs, uint amount, address to)
         external returns (uint sent) {
         if (vs.length == 1) {
-            if (vs[0] == aaveSpoke) {
-                uint cap = IAux(address(this)).aaveBalance(stable);
-                if (cap == 0) return 0;
-                uint want = Math.min(amount, cap);
-                return IAux(address(this)).withdrawAaveLeg(stable, want, to);
-            }
             uint shares = _shareCap(vs[0], amount);
             if (shares == 0) return 0;
             return IERC4626(vs[0]).redeem(shares, to, address(this));
@@ -137,15 +130,9 @@ library FeeLib {
         uint total;
         uint[] memory bals = new uint[](n);
         for (uint j; j < n; j++) {
-            if (vs[j] == aaveSpoke) {
-
-                bals[j] = IAux(address(this)).aaveBalance(stable);
-            } else {
-
-                try IERC4626(vs[j]).balanceOf(address(this)) returns (uint sh) {
-                    try IERC4626(vs[j]).convertToAssets(sh) returns (uint a) { bals[j] = a; } catch {}
-                } catch {}
-            }
+            try IERC4626(vs[j]).balanceOf(address(this)) returns (uint sh) {
+                try IERC4626(vs[j]).convertToAssets(sh) returns (uint a) { bals[j] = a; } catch {}
+            } catch {}
             total += bals[j];
         }
         if (total == 0) return 0;
@@ -156,30 +143,21 @@ library FeeLib {
                         amount, bals[j], total);
             if (want > remaining) want = remaining;
             if (want == 0) continue;
-            uint got = _withdrawLeg(vs[j],
-             aaveSpoke, stable, want, to);
+            uint got = _withdrawLeg(vs[j], want, to);
             sent += got;
             remaining = got >= remaining ?
                            0 : remaining - got;
         }
         for (uint j; j < n && remaining > 0; j++) {
             if (bals[j] == 0) continue;
-            uint got = _withdrawLeg(vs[j], aaveSpoke, stable, remaining, to);
+            uint got = _withdrawLeg(vs[j], remaining, to);
             sent += got;
             remaining = got >= remaining
                          ? 0 : remaining - got;
         } return sent;
     }
 
-    function _withdrawLeg(address v, address aaveSpoke, address stable,
-        uint want, address to) private returns (uint) {
-        if (v == aaveSpoke) {
-            uint cap = IAux(address(this)).aaveBalance(stable);
-            if (cap == 0) return 0;
-            uint w = Math.min(want, cap);
-            if (w == 0) return 0;
-            return IAux(address(this)).withdrawAaveLeg(stable, w, to);
-        }
+    function _withdrawLeg(address v, uint want, address to) private returns (uint) {
         uint shares = _shareCap(v, want);
         if (shares == 0) return 0;
         return IERC4626(v).redeem(shares, to, address(this));

@@ -6,7 +6,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @title Is ETH-exit value actually LOST, or do the failing assertions assume a pure-ETH burn?
 ///
-/// @notice The ~19.4-20% exit cluster has been read three ways so far (the AAVE fifth; a
+/// @notice The ~19.4-20% exit cluster has been read three ways so far (a fifth leg; a
 ///         `deliverableETH` under-count; a venue that cannot deliver). All three were guesses. This
 ///         settles it by CONSERVATION instead: `Quid._withdraw` already re-credits whatever the
 ///         ladder could not source (`LP.pooled += shortfall`, "recoverable deferral … socialized

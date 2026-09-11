@@ -17,7 +17,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 /// ⛔ THIS FILE USED TO BE A LOG-ONLY DIAGNOSTIC AND CARRIED ~50 LINES OF SCAFFOLDING FOR VENUES
 ///    THAT NO LONGER EXIST. Deleted 2026-09-08: `struct Acc`, `_scanVault(...)` and
 ///    `interface I4626Depth`. `_scanVault` iterated the WETH-4626 CURATOR VENUES, tallying par vs
-///    withdrawable per vault to isolate an "EXACT ~1/5 shortfall" attributed to AAVE-v4. Those three
+///    withdrawable per vault to isolate an "EXACT ~1/5 shortfall" attributed to a fifth leg. Those three
 ///    curator venues were removed 2026-08-14, so `_scanVault` had **zero call sites** — `grep -n
 ///    _scanVault` returned only its own definition — and the surviving test's name still promised
 ///    the per-venue "DeliverableBreakdown" the deleted helper used to produce. `interface IDecimals`

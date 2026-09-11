@@ -28,9 +28,6 @@ import {BtcLevManager} from "../src/BtcLevManager.sol";
 import {MorphoEscrowVenue, MarketParams} from "../src/imports/LevVenueBase.sol";
 import {ISwap} from "../src/imports/Interfaces.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {AaveV3Venue} from "../src/imports/LevVenueBase.sol";
-
-interface IAaveV3AddrProvider { function getPoolDataProvider() external view returns (address); }
 
 
 contract Deploy is Script {
@@ -63,18 +60,6 @@ contract Deploy is Script {
     address public morphoPyusdVault = 0xb576765fB15505433aF24FEe2c0325895C559FB2;
     address public morphoRlusdVault = 0x6dC58a0FdfC8D694e571DC59B9A52EEEa780E6bf;
     address public morphoUsdsVault  = 0xE15fcC81118895b67b6647BBd393182dF44E11E0; // Sky Money USDS Flagship
-    // GHO is AAVE's native stablecoin → routes directly through AAVE v4
-    // rather than a third-party Morpho curator. Spoke + Hub addresses
-    // below are AAVE v4 mainnet. The reserve id is resolved at Aux
-    // construction by `hub.getAssetId(GHO) → spoke.getReserveId(hub, id)`.
-    address public aaveSpoke = 0x94e7A5dCbE816e498b89aB752661904E2F56c485;
-    address public aaveHub   = 0xCca852Bc40e560adC3b1Cc58CA5b55638ce826c9;
-
-    // AAVE v3 mainnet (the DEEPEST WBTC/USDC book — data-verified 2026-07: ~$14-19B TVL) for the WBTC-fallback
-    // BTC-leverage venue. Pool + PoolAddressesProvider (→ getPoolDataProvider() for the per-asset position reads
-    // AaveV3Venue uses). Both fork-verified in test/AaveV3Venue.t.sol.
-    address public aaveV3Pool         = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2;
-    address public aaveV3AddrProvider = 0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e;
 
     // ─── Lev-overlay external infra (env-overridable; these are the LIVE mainnet defaults,
     //     verified on-chain + via the Morpho API 2026-07-21) ─────────────────────────────
@@ -120,7 +105,6 @@ contract Deploy is Script {
 
     IERC20 public WETH = IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     IERC20 public WBTC = IERC20(0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599);
-    IERC20 public GHO = IERC20(0x40D16FC0246aD3160Ccc09B8D0D3A2cD28aE6C2f);
     IERC20 public DAI = IERC20(0x6B175474E89094C44Da98b954EedeAC495271d0F);
     IERC20 public USDT = IERC20(0xdAC17F958D2ee523a2206206994597C13D831ec7);
     IERC20 public USDC = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
@@ -145,11 +129,6 @@ contract Deploy is Script {
     IERC4626 public SDAI = IERC4626(0x83F20F44975D03b1b09e64809B757c47f942BEeA);
     IERC4626 public SUSDE = IERC4626(0x9D39A5DE30e57443BfF2A8307A4256c8797A3497);
 
-    /// @notice USDG — Global Dollar by Paxos. Routes through AAVE v4
-    /// alongside GHO (both first-class assets on the AAVE v4 spoke, which also
-    /// lists WETH for ETH venue 2).
-    IERC20 public USDG = IERC20(0xe343167631d89B6Ffc58B88d6b7fB0228795491D);
-
     /// @notice aUSD — Agora dollar. Standard Morpho 4626 vault wiring.
     IERC20 public AUSD = IERC20(0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a);
     address public morphoAusdVault = 0x32401B9fb79065Bc15949DE0BD43927492f02F0C;
@@ -164,7 +143,8 @@ contract Deploy is Script {
     IERC20 public CUSD = IERC20(0xcCcc62962d17b8914c62D74FfB843d73B2a3cccC);
     IERC4626 public STCUSD = IERC4626(0x88887bE419578051FF9F4eb6C858A951921D8888);
 
-    /// @notice crvUSD and frxUSD — added 2026-08-16, taking the basket to its LAYOUT MAXIMUM of 14.
+    /// @notice crvUSD and frxUSD — added 2026-08-16. (The basket was at its LAYOUT MAXIMUM of 14
+    /// until GHO and USDG were removed with the AAVE integration; it now holds 12.)
     /// Both wire on the SAME native-4626 rails as USDe→sUSDe and cUSD→stcUSD: the vault's `asset()`
     /// IS the stable, so `convertToAssets` needs no adapter.
     /// ⚠️ ADDRESSES AND VAULT LINKAGE VERIFIED ON-CHAIN 2026-08-16, not copied from the legacy repo:
@@ -220,30 +200,25 @@ contract Deploy is Script {
         console.log("Deployer:", deployer);
 
         // NOTE: BOLD MUST be the LAST entry — Aux pins `stables[length-1]` as the
-        // Liquity-SP-routed stable (get_deposits/calcSPValue, take/redeem at
-        // Aux.sol:967/1119/1426). AUSD at 9, cUSD at 10, crvUSD at 11, frxUSD at 12,
-        // BOLD LAST at 13. (This said "BOLD LAST at 11" — left over from the 12-stable
-        // roster and contradicted by the array three lines below it.)
+        // Liquity-SP-routed stable (get_deposits/calcSPValue, take/redeem).
+        // AUSD at 7, cUSD at 8, crvUSD at 9, frxUSD at 10, BOLD LAST at 11.
         STABLECOINS = [
             address(USDC), address(USDT),
-            address(PYUSD), address(GHO),
-            address(RLUSD), address(USDG),
+            address(PYUSD), address(RLUSD),
             address(DAI), address(USDS),
             address(USDE), address(AUSD),
-            address(CUSD),               // 10  cUSD   — Cap USD (native stcUSD 4626 vault)
-            address(CRVUSD),             // 11  crvUSD — native scrvUSD 4626 vault
-            address(FRXUSD),             // 12  frxUSD — native sfrxUSD 4626 vault
-            address(BOLD)                // 13  BOLD — MUST stay last (SP-routed)
+            address(CUSD),               // 8   cUSD   — Cap USD (native stcUSD 4626 vault)
+            address(CRVUSD),             // 9   crvUSD — native scrvUSD 4626 vault
+            address(FRXUSD),             // 10  frxUSD — native sfrxUSD 4626 vault
+            address(BOLD)                // 11  BOLD — MUST stay last (SP-routed)
         ];
-        // §14-STABLES — THIS IS THE LAYOUT MAXIMUM, NOT A ROUND NUMBER. `BasketLib:98-107` fixes the
+        // §14-STABLES — 14 IS THE LAYOUT MAXIMUM, NOT A ROUND NUMBER. `BasketLib:98-107` fixes the
         // `uint[16]` contract: slot 0 is the yield-weighted sum across all sources (the basket-share
         // "meta"), slots 1..N are the per-token deposits where `N = stables.length - 1` because BOLD
-        // is filled in Aux, and slot 14 is the raw TVL total. At 14 stables that is 1..13 — EXACTLY
-        // full. A 15th would write slot 14 and silently overwrite the total that
+        // is filled in Aux, and slot 15 is the raw TVL total. At 14 stables that is 1..14 — EXACTLY
+        // full. A 15th would write slot 15 and silently overwrite the total that
         // `BasketLib.computeMetrics` divides by for `metrics.yield`. Do not add one without widening
-        // the arrays first. (This cited `FeeLib.calcFeeL1` as the divisor until that function was
-        // deleted 2026-09-09 for having zero production callers; the CEILING is unchanged — only its
-        // consumer is, and `computeMetrics` is the live one.)
+        // the arrays first. The roster is 12 since GHO and USDG left with the AAVE integration.
 
         vm.startBroadcast(deployerPrivateKey);
 
@@ -251,17 +226,15 @@ contract Deploy is Script {
             morphoUsdcVault,            // 0  USDC  -> Morpho USDC 4626 vault
             morphoUsdtVault,            // 1  USDT  -> Morpho USDT 4626 vault
             morphoPyusdVault,           // 2  PYUSD -> Morpho PYUSD 4626 vault
-            address(0),                 // 3  GHO   -> AAVE v4 (not a 4626)
-            morphoRlusdVault,           // 4  RLUSD -> Morpho RLUSD 4626 vault
-            address(0),                 // 5  USDG  -> AAVE v4 (not a 4626)
-            address(SDAI),              // 6  DAI   -> sDAI (native 4626)
-            morphoUsdsVault,            // 7  USDS  -> Morpho USDS 4626 vault
-            address(SUSDE),             // 8  USDE  -> sUSDE (native 4626)
-            morphoAusdVault,            // 9  aUSD  -> Morpho aUSD 4626 vault
-            address(STCUSD),            // 10 cUSD   -> stcUSD  (native 4626, asset()==cUSD)
-            address(SCRVUSD),           // 11 crvUSD -> scrvUSD (native 4626, asset()==crvUSD)
-            address(SFRXUSD),           // 12 frxUSD -> sfrxUSD (native 4626, asset()==frxUSD)
-            stabilityPool               // 13 BOLD   -> Liquity SP (LAST = SP-routed, per Aux convention)
+            morphoRlusdVault,           // 3  RLUSD -> Morpho RLUSD 4626 vault
+            address(SDAI),              // 4  DAI   -> sDAI (native 4626)
+            morphoUsdsVault,            // 5  USDS  -> Morpho USDS 4626 vault
+            address(SUSDE),             // 6  USDE  -> sUSDE (native 4626)
+            morphoAusdVault,            // 7  aUSD  -> Morpho aUSD 4626 vault
+            address(STCUSD),            // 8  cUSD   -> stcUSD  (native 4626, asset()==cUSD)
+            address(SCRVUSD),           // 9  crvUSD -> scrvUSD (native 4626, asset()==crvUSD)
+            address(SFRXUSD),           // 10 frxUSD -> sfrxUSD (native 4626, asset()==frxUSD)
+            stabilityPool               // 11 BOLD   -> Liquity SP (LAST = SP-routed, per Aux convention)
         ];
         // 🔴 THE TWO ARRAYS ARE POSITIONALLY PAIRED AND NOTHING ELSE ENFORCES IT. `vaults[i]` is the venue
         //    for `stables[i]`, so a stable inserted or removed on one side re-points every venue after it —
@@ -271,12 +244,9 @@ contract Deploy is Script {
         require(STABLECOINS.length == VAULTS.length, "stables/vaults: positional pairing broken");
         // §14-STABLES — the `uint[16]` layout is EXACTLY full at 14 stables: slot 0 = yield-weighted sum,
         // **1..14 per-token**, **15 = TVL total**. A 15th stable would write slot 15 and silently
-        // overwrite the total `BasketLib.computeMetrics` divides by, so this is the one place the
-        // ceiling can be made loud.
-        // 📌 §BASKET-SLOTS (2026-09-09): this read "1..13 per-token, 14 = TVL total", which was the
-        //    `uint[15]` layout — and under it BOLD's slot collided with the total at exactly 14, the
-        //    number this very line asserts. The array was widened; the comment had not caught up.
-        require(STABLECOINS.length == 14, "stables: 14 is the uint[16] layout maximum");
+        // overwrite the total `BasketLib.computeMetrics` divides by. The roster is pinned at its
+        // current 12 so a silent insertion or drop re-pointing `vaults[i]` fails here, not on-chain.
+        require(STABLECOINS.length == 12, "stables: roster is 12 (uint[16] layout maximum is 14)");
         // §NO-LEGACY-FRAX — MAKE THE "VERIFIED ON-CHAIN" CLAIM EXECUTABLE. It lived only as a comment
         // above `FRXUSD`, and a comment cannot fail: two test files wired legacy FRAX because a
         // neighbouring sentence said Frax renamed the token "at the same address". It did not.
@@ -289,13 +259,6 @@ contract Deploy is Script {
                 "frxUSD: symbol mismatch");
         require(keccak256(bytes(IERC20(address(CRVUSD)).symbol())) == keccak256(bytes("crvUSD")),
                 "crvUSD: symbol mismatch");
-        // GHO and USDG route through AAVE v4 (their native venue), not
-        // Morpho 4626 vaults — their slots above are address(0)
-        // intentionally and Aux.setVault rejects a re-wiring attempt
-        // for either. The AAVE spoke + hub are passed to Aux's
-        // constructor below; Aux resolves and caches both reserve ids
-        // there.
-        //
         // 🔴 Stables that don't yet have a Morpho vault (PYUSD, RLUSD if those slots are
         // address(0)) start unwired AND CAN NEVER BE WIRED. `setVault` is `onlyOwner`, and
         // `finalize()` RENOUNCES — so the venue set is frozen at this transaction, permanently.
@@ -331,8 +294,7 @@ contract Deploy is Script {
             // Aux and Basket below. One msig for everything; it keeps only `setPqVerifier` after
             // finalize. Pass address(0) instead to stay fully adminless and forgo P2MR support.
             msig: msg.sender,
-            weth: address(WETH), wbtc: address(WBTC), gho: address(GHO), usdg: address(USDG),
-            aaveSpoke: aaveSpoke, aaveHub: aaveHub,
+            weth: address(WETH), wbtc: address(WBTC),
             stables: STABLECOINS, vaults: VAULTS,
             spvCheckpointHeader: checkpointHeader,
             spvCheckpointHeight: checkpointHeight,
@@ -462,17 +424,17 @@ contract Deploy is Script {
     ///     ETH (weETH collateral): LevManager (folded SOR + ether.fi mint/redeem legs) → Morpho escrow
     ///       venues → `pinVenues` (frozen) → `setFlashProvider` (Morpho, zero-fee de-lever) →
     ///       `setQuidSyncHook` (Quid) → `Vault.setLevManager` (backing: rangeETH counts the book).
-    ///     BTC (WBTC collateral): BtcLevManager → Aave V3 WBTC escrow venue → `init` (RANGE +
-    ///       Morpho flash provider + the one-venue allowlist, frozen in ONE call) → `Vault.setLevManager`
-    ///       (backing: rangeBTC counts the book). Fold-up / de-lever ride the keeper-supplied SOR route.
+    ///     BTC (WBTC collateral): BtcLevManager → `init` (RANGE + Morpho flash provider + the venue
+    ///       allowlist, frozen in ONE call) → `Vault.setLevManager` (backing: rangeBTC counts the book).
+    ///       ⚠️ The allowlist is EMPTY since the Aave V3 WBTC venue was removed: no BTC lev position can
+    ///       open until a WBTC-collateral venue is added to `vsB` below.
     ///   Skipped when `DEPLOY_LEV` is unset, so a core / fork-e2e deploy needs no lev-infra env. External-infra
     ///   addresses come from env; the in-script tokens (weETH via the ETH venue, WBTC/USDC/AUX/V4) are reused.
     ///   GOV (`YB_GOV`, default = deployer) must be the broadcaster so the pin-once calls land, then has no
     ///   ongoing power (allowlist + hooks frozen). ENV (only when DEPLOY_LEV=1) — EVERY external address has a
     ///   LIVE mainnet default (the constants above), so a bare `DEPLOY_LEV=1` deploys the whole overlay;
     ///   overrides: MORPHO, MORPHO_ORACLE/IRM/LLTV (weETH long), MORPHO_WETH_ORACLE/IRM/LLTV (plain-WETH long),
-    ///   optional YB_GOV. The BTC leg takes no env at all: one Aave v3 WBTC venue, debt asset
-    ///   `AAVE_V3_WBTC_DEBT` (default USDC), liq threshold `AAVE_V3_WBTC_LT_BPS`.
+    ///   optional YB_GOV. The BTC leg takes no env at all.
     ///   (Down-side short venues REMOVED 2026-07-24 — up-side-only;
     ///   the short subsystem was an LVR leak, see docs §J.4. A directional-short product, if shipped, is a normal
     ///   position on an inverse venue added to the allowlist, per §K — not the removed hedge.)
@@ -562,40 +524,13 @@ contract Deploy is Script {
         //    ⇒ the market creation, its vBTC oracle and its escrow venue are DELETED, not disabled.
         //    ⛔ Do not re-add a market whose `collateralToken` is the vBTC token.
         //
-        // NO VENUE SELECTION EITHER: the env switch that chose a BTC lev venue had one arm and was
-        // friction pretending to be configuration. Aave V3 WBTC below is now the ONLY BTC lev venue.
-        // WBTC venue (#106/#81/#74): a REAL Aave v3 {collateral: WBTC, debt: <stable>} escrow — the
-        // deepest WBTC book, so the SPA routes sizeable positions here. The keeper's atomic `rebalanceWbtc` folds
-        // up / flash-repay-first de-levers it fully on-chain (no acquirer). `BtcLevManager.init` vets every venue
-        // as WBTC-collateral, and `openBtcLev` takes the WBTC from the caller — the LP brings external WBTC.
-        //
-        // 🔴 THE DEBT ASSET IS A DEPLOY-SITE CHOICE, NOT A CONTRACT LIMIT. It was hardcoded to USDC while the ETH
-        // leg was deliberately moved OFF USDC for depth ("dont even borrow usdc, too thin" — owner). Borrowable
-        // depth is IDLE liquidity (supply − borrow), not headline supply, and utilisation runs ~90% here.
-        // `AaveV3Venue` already takes `stable` as a constructor argument, so the pin was never structural.
-        //
-        // ⚠️ DIVERSITY ACROSS THE TWO LEGS IS A **LIVENESS** PROPERTY, NOT A COST OPTIMISATION. De-levers are
-        // CORRELATED — whatever forces the BTC leg to unwind forces the ETH leg too — so the legs contend
-        // precisely in the tail, the only time it matters. If both legs depend on the SAME stable's depth:
-        //   • routed through Curve, both sell into one pool and each worsens the other's fill until
-        //     MAX_SLIPPAGE_BPS (100) REVERTS the second — and a de-lever that reverts leaves LTV high, so the
-        //     anti-MEV guard becomes a liquidation trigger under stress;
-        //   • routed through basket inventory (task #47), the second arrival finds insufficient USDC and cannot
-        //     repay AT ALL — a hard stop, not slippage.
-        // ⇒ DO NOT "fix" this by selecting cheapest-or-least-utilised per leg: that is a SHARED SIGNAL, so both
-        // legs converge on the SAME stable, hardest exactly when spreads move. The pin must be replaced by a rule
-        // that HOLDS THE LEGS APART, not by an independent optimiser. Tasks #47/#48.
-        //
-        // Env-overridable so the choice is a deploy decision rather than a recompile. Default stays USDC because
-        // an Aave v3 RLUSD/PYUSD borrow market has NOT been verified to exist with real idle depth — changing the
-        // default without that measurement would trade a known-thin market for an unknown-or-absent one.
-        address wbtcDebt = vm.envOr("AAVE_V3_WBTC_DEBT", address(USDC));
-        require(wbtcDebt != address(0), "wbtc venue: debt asset unset");
-        address wbtcV = address(new AaveV3Venue(
-            aaveV3Pool, IAaveV3AddrProvider(aaveV3AddrProvider).getPoolDataProvider(),
-            address(WBTC), wbtcDebt, address(bm), vm.envOr("AAVE_V3_WBTC_LT_BPS", uint256(7800))));
-        require(wbtcV != address(0), "BTC lev venue not deployed");
-        address[] memory vsB = new address[](1); vsB[0] = wbtcV;   // WBTC only — see the ruling above
+        // ⚠️ NO BTC LEV VENUE IS WIRED. The Aave V3 {collateral: WBTC, debt: <stable>} escrow that stood here
+        //    was removed with the rest of the AAVE integration. `BtcLevManager.init` accepts an empty
+        //    allowlist, so the manager deploys and pins (the Vault's backing hook and the flash provider
+        //    still need it), but `openBtcLev` has no venue to route to until one is added here.
+        //    Whatever replaces it must be WBTC-collateral (`init` vets that) and must NOT be a market whose
+        //    collateral is the vBTC token (owner ruling above).
+        address[] memory vsB = new address[](0);
         bm.init(address(ETH), morpho, vsB);                // atomic pin-once: hook + Morpho flash provider + venue allowlist, FROZEN
         ETH.setLevManager(address(bm));                 // BACKING: rangeBTC counts the BTC lev book
         // Both lev-manager slots are one-shot pins (`LevManagerPinned`) and are the Vault's ONLY
@@ -683,7 +618,7 @@ contract Deploy is Script {
     ///    `create_sweep_tx` shape. Deleting them also means deleting the assertions in
     ///    `test/LevVenueMarketPins.t.sol` that pin them, which is a test edit and needs its own call.
     function _ethLevVenues(address morpho, address lm, address weeth) internal returns (address[] memory vs) {
-        // MORPHO ONLY. The v2/v4 BORROWING venues are removed; the BTC side keeps Aave V3 for WBTC.
+        // MORPHO ONLY. The v2/v4 BORROWING venues are removed, and so is the Aave V3 USDT venue.
         // RLUSD and PYUSD weETH markets — added because the market we shipped CANNOT LEND. Measured:
         //   weETH/USDC 86% (shipped)  supply $0.74M median, IDLE $0.17M, 100 of 100 weeks under $1M
         //   weETH/RLUSD 86%           supply $95.00M,       IDLE $9.66M
@@ -702,24 +637,7 @@ contract Deploy is Script {
             oracle: PYUSD_WEETH_ORACLE, irm: vm.envOr("MORPHO_IRM", ADAPTIVE_IRM), lltv: MORPHO_LLTV_86
         }), lm, PYUSD_WEETH_MARKET_ID);
 
-        // ⭐ §SESS-93 — **AAVE V3 USDT: THE DOLLAR LEG THAT ACTUALLY HAS DEPTH.**
-        // 📊 MEASURED 2026-09-07, not carried over from a note: the Aave V3 USDT aToken
-        //    (0x23878914EFE38d27C4D67Ab83ed1b93A74D4086a) holds **$188.77M** of idle USDT, and weETH
-        //    IS a listed reserve (aToken 0xBdfa7b7893081B35Fb54027489e2Bc7A38275129). Against the two
-        //    Morpho markets above — $9.66M and $4.32M idle — that is roughly **13x the entire ETH
-        //    dollar leg**, on the one stable whose hub row is 3pool at ~1.7 bps.
-        // ⛔ THIS IS A DELIBERATE DEPARTURE FROM "MORPHO ONLY" ABOVE, AND THE NOTE STAYS TRUE AS
-        //    WRITTEN: what that paragraph removed was the v2 and Aave **v4** borrowing venues, and the BTC
-        //    side has kept Aave **V3** throughout. Adding it here makes the two ranges symmetric
-        //    rather than making an exception for one.
-        // ⚠️ USDT IS 6-DEC AND RETURNS NO BOOLEAN. `_fromUsd`/`_toUsd18` read `decimals()` and every
-        //    approval on this path goes through `forceApprove` (§SESS-84 — a typed `approve` reverts
-        //    on USDT's empty returndata, which is why USDT could never be `tokenIn` before).
-        address usdtV = address(new AaveV3Venue(
-            aaveV3Pool, IAaveV3AddrProvider(aaveV3AddrProvider).getPoolDataProvider(),
-            weeth, address(USDT), lm, vm.envOr("AAVE_V3_WEETH_LT_BPS", uint256(7300))));
-
-        vs = new address[](3);
+        vs = new address[](2);
         // LONG Morpho venue {collateral: weETH, debt: WETH} -- the ETH-DENOMINATED-DEBT leg. Every other venue
         // above borrows USDC, which is what makes an ETH IL-protect borrow pay a stable->WETH SOR round trip;
         // 🔴 THE WETH-DEBT VENUE {loanToken: WETH, collateralToken: weETH} WAS DELETED HERE. It could not
@@ -731,8 +649,8 @@ contract Deploy is Script {
         // ⇒ THE LIABILITY MUST BE IN THE ASSET YOU ARE NOT LONG. A weETH/WETH market is a STAKING CARRY,
         //   not IL protect, and its depth is irrelevant — infinitely deep it would still hedge nothing.
         //   It was added to avoid the stable→WETH hop; it avoided the hop by not hedging.
-        //   (BTC has no equivalent gap: its hedge also needs a dollar liability, which Aave V3 WBTC +
-        //   the _hop1B/_hop2B stable→WBTC paths already provide.)
+        //   (BTC has no equivalent gap: its hedge also needs a dollar liability, which a WBTC-collateral
+        //   venue + the _hop1B/_hop2B stable→WBTC paths provide.)
         // It was also NEVER EXERCISED — no test file imports from `script/`, so the green suite its commit
         // cited could not distinguish working from broken — and it was the ONLY venue reaching the
         // allowlist through `vetVenue`'s `stable() == base` early return, which skips the
@@ -742,7 +660,7 @@ contract Deploy is Script {
         // hedge at any size — an allowlisted venue that reverts on borrow is worse than no venue,
         // because the keeper spends a rebalance discovering it. WETH-collateral went with it (dominated:
         // same delta, same IL offset, minus the ether.fi ratchet).
-        vs[0] = mvR; vs[1] = mvP; vs[2] = usdtV;
+        vs[0] = mvR; vs[1] = mvP;
     }
 
 
@@ -752,7 +670,7 @@ contract Deploy is Script {
     ///      so that is a hard limit, not a tuning knob).
     function _wireBasketFeedsAndVenues() private {
         // ─── ONE CALL: every feed and every venue, all-or-nothing ─────────────
-        // §SETTER-FOLD — this was 25 separate owner-only calls (13 setStableFeed, 10 setVault,
+        // §SETTER-FOLD — this was 25 separate owner-only calls (13 setStableFeed, 10 setVault — at the time;
         // 2 setAssetFeed). Each was its own chance to reorder, omit, or stop halfway, and a
         // half-wired deploy leaves a LIVE contract with a partially-pinned oracle set that nothing
         // on-chain distinguishes from a finished one. `configure` keeps EVERY per-entry pin-once
@@ -766,52 +684,44 @@ contract Deploy is Script {
         address[] memory aFeed = new address[](2);
         aFeed[0] = CL_ETH_USD;   // ETH/USD
         aFeed[1] = 0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c;   // BTC/USD
-        address[] memory sTok = new address[](13);
+        address[] memory sTok = new address[](11);
         sTok[0] = address(USDC);
         sTok[1] = address(USDT);
         sTok[2] = address(DAI);
         sTok[3] = address(PYUSD);
-        sTok[4] = address(GHO);
-        sTok[5] = address(USDS);
-        sTok[6] = address(USDE);
-        sTok[7] = address(RLUSD);
-        sTok[8] = address(USDG);
-        sTok[9] = address(AUSD);
-        sTok[10] = address(CUSD);
-        sTok[11] = address(CRVUSD);
-        sTok[12] = address(FRXUSD);
-        address[] memory sFeed = new address[](13);
+        sTok[4] = address(USDS);
+        sTok[5] = address(USDE);
+        sTok[6] = address(RLUSD);
+        sTok[7] = address(AUSD);
+        sTok[8] = address(CUSD);
+        sTok[9] = address(CRVUSD);
+        sTok[10] = address(FRXUSD);
+        address[] memory sFeed = new address[](11);
         sFeed[0] = 0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6;   // USDC/USD (canonical proxy)
         sFeed[1] = 0x3E7d1eAB13ad0104d2750B8863b489D65364e32D;   // USDT/USD (canonical proxy)
         sFeed[2] = 0xAed0c38402a5d19df6E4c03F4E2DceD6e29c1ee9;   // DAI/USD  (canonical proxy)
         sFeed[3] = 0x39E31761911b9aaBAEF5fb81B18Fd1C24a60E884;   // PYUSD/USD
-        sFeed[4] = 0xff221Bf2E61B62182210b3d42dE7f77da5b5b41F;   // GHO/USD
-        sFeed[5] = 0x592700e4FcDd674dC54d2681DED3B63f54F63f9A;   // USDS/USD
-        sFeed[6] = 0xcC16f670129f965b396f2e81312F6e339FFDB18e;   // USDe/USD
-        sFeed[7] = 0x26C46B7aD0012cA71F2298ada567dC9Af14E7f2A;   // RLUSD/USD (proxy-only, via ENS)
-        sFeed[8] = 0x14f0737d6b705259e521EA6E9E3506AC78dBd311;   // USDG/USD  (proxy-only, via ENS)
-        sFeed[9] = 0xB00341502DfEA6Ced8A5786b4059d29dA5E4D1FD;   // AUSD/USD  (proxy-only, 18-dec, via ENS)
-        sFeed[10] = 0x9A5a3c3Ed0361505cC1D4e824B3854De5724434A;   // cUSD/USD (Redstone AggregatorV3, 8-dec, ~$1.00)
-        sFeed[11] = 0xEEf0C605546958c1f899b6fB336C20671f9cD49F;   // crvUSD/USD — Chainlink, description() == "CRVUSD / USD", 8-dec (verified on-chain 2026-08-16)
-        sFeed[12] = 0xB9E1E3A9feFf48998E45Fa90847ed4D467E8BcfD;   // frxUSD/USD — Chainlink, description() == "FRAX / USD", 8-dec. NAME MISMATCH IS EXPECTED, see the frxUSD note above.
-        address[] memory vStable = new address[](8);
+        sFeed[4] = 0x592700e4FcDd674dC54d2681DED3B63f54F63f9A;   // USDS/USD
+        sFeed[5] = 0xcC16f670129f965b396f2e81312F6e339FFDB18e;   // USDe/USD
+        sFeed[6] = 0x26C46B7aD0012cA71F2298ada567dC9Af14E7f2A;   // RLUSD/USD (proxy-only, via ENS)
+        sFeed[7] = 0xB00341502DfEA6Ced8A5786b4059d29dA5E4D1FD;   // AUSD/USD  (proxy-only, 18-dec, via ENS)
+        sFeed[8] = 0x9A5a3c3Ed0361505cC1D4e824B3854De5724434A;   // cUSD/USD (Redstone AggregatorV3, 8-dec, ~$1.00)
+        sFeed[9] = 0xEEf0C605546958c1f899b6fB336C20671f9cD49F;   // crvUSD/USD — Chainlink, description() == "CRVUSD / USD", 8-dec (verified on-chain 2026-08-16)
+        sFeed[10] = 0xB9E1E3A9feFf48998E45Fa90847ed4D467E8BcfD;   // frxUSD/USD — Chainlink, description() == "FRAX / USD", 8-dec. NAME MISMATCH IS EXPECTED, see the frxUSD note above.
+        address[] memory vStable = new address[](6);
         vStable[0] = address(USDC);
         vStable[1] = address(USDC);
         vStable[2] = address(USDC);
         vStable[3] = address(USDT);
         vStable[4] = address(USDC);
         vStable[5] = address(USDT);
-        vStable[6] = address(USDC);
-        vStable[7] = address(USDT);
-        address[] memory vAddr = new address[](8);
+        address[] memory vAddr = new address[](6);
         vAddr[0] = skyUsdc;
         vAddr[1] = wintermuteUsdc;
         vAddr[2] = rockawayUsdc;
         vAddr[3] = skyUsdt;
-        vAddr[4] = gauntletUsdc;   // + Gauntlet-curated Morpho (USDC: 6 curators)
-        vAddr[5] = gauntletUsdt;   // + Gauntlet-curated Morpho (USDT: 4 curators)
-        vAddr[6] = aaveSpoke;
-        vAddr[7] = aaveSpoke;
+        vAddr[4] = gauntletUsdc;   // + Gauntlet-curated Morpho (USDC: 5 curators)
+        vAddr[5] = gauntletUsdt;   // + Gauntlet-curated Morpho (USDT: 3 curators)
         AUX.configure(Aux.Wiring({
             assetTokens: aTok,   assetFeeds: aFeed,
             stableTokens: sTok,  stableFeeds: sFeed,

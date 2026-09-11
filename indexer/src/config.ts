@@ -17,8 +17,8 @@ export interface StableToken {
 
 // 14 stables — the SHIPPED roster, in `evm/script/DeployL1_s.sol:217-230` order, BOLD last.
 // Stables are valued at par ≈ $1 (matches flow.ts: USD = token units).
-// 🔴 §ROSTER-ALIGN — THIS SHIPPED 11 AND THE DEPLOY ASSERTS 14. cUSD, crvUSD and frxUSD (deploy
-//    indices 10/11/12) were absent, so every figure sourced from the indexer UNDER-ATTRIBUTED
+// 🔴 §ROSTER-ALIGN — THIS SHIPPED 11 AND THE DEPLOY ASSERTED 14 (12 now: GHO and USDG left with the
+//    AAVE integration). cUSD, crvUSD and frxUSD (deploy indices 10/11/12 then) were absent, so every figure sourced from the indexer UNDER-ATTRIBUTED
 //    flow by three tokens — silently, because a missing stable is indistinguishable from a
 //    stable with no flow. Sourced from the deploy script, not from `spa/src/lib/chains.ts`,
 //    which was itself short two.
@@ -26,9 +26,7 @@ const STABLES_DEFAULT: StableToken[] = [
   { symbol: 'USDC',  address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', decimals: 6 },
   { symbol: 'USDT',  address: '0xdAC17F958D2ee523a2206206994597C13D831ec7', decimals: 6 },
   { symbol: 'PYUSD', address: '0x6c3ea9036406852006290770BEdFcAbA0e23A0e8', decimals: 6 },
-  { symbol: 'GHO',   address: '0x40D16FC0246aD3160Ccc09B8D0D3A2cD28aE6C2f', decimals: 18 },
   { symbol: 'RLUSD', address: '0x8292Bb45bf1Ee4d140127049757C2E0fF06317eD', decimals: 18 },
-  { symbol: 'USDG',  address: '0xe343167631d89B6Ffc58B88d6b7fB0228795491D', decimals: 6 },
   { symbol: 'DAI',   address: '0x6B175474E89094C44Da98b954EedeAC495271d0F', decimals: 18 },
   { symbol: 'USDS',  address: '0xdC035D45d973E3EC169d2276DDab16f1e407384F', decimals: 18 },
   { symbol: 'USDE',  address: '0x4c9EDD5852cd905f086C759E8383e09bff1E68B3', decimals: 18 },

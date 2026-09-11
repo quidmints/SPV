@@ -18,8 +18,8 @@ import {FixedPointMathLib as SoladyMath} from "solady/src/utils/FixedPointMathLi
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
 
-import {IAaveV4Spoke, IAaveV4Hub, ICollection, IEthVenue, ICore, IBTCChannels} from "./imports/Interfaces.sol";
-import {Types, BadAsset, BtcChannelsPinned, GHOIsAaveWired, GHONotOnAAVE, InvalidParam, Unauthorized} from "./imports/Types.sol";
+import {ICollection, IEthVenue, ICore, IBTCChannels} from "./imports/Interfaces.sol";
+import {Types, BadAsset, BtcChannelsPinned, InvalidParam, Unauthorized} from "./imports/Types.sol";
 
 contract Aux is
     Ownable, ReentrancyGuard, ISwap {
@@ -49,15 +49,6 @@ contract Aux is
     mapping(address => address[]) public vaultsOf;
 
     uint public trancheTotal;
-
-    address public immutable GHO;
-    address public immutable USDG;
-    address public immutable AAVE_SPOKE;
-    address public immutable AAVE_HUB;
-    uint256 public immutable GHO_RESERVE_ID;
-    uint256 public immutable USDG_RESERVE_ID;
-
-    mapping(address => uint256) public aaveReserveId;
 
     mapping(address => address) public stableFeed;
 
@@ -127,10 +118,6 @@ contract Aux is
         address btcCore;
         address weth;
         address wbtc;
-        address gho;
-        address usdg;
-        address aaveSpoke;
-        address aaveHub;
         address[] stables;
         address[] vaults;
     }
@@ -144,25 +131,6 @@ contract Aux is
         RANGE = Quid(payable(a.range));
         CORE = Core(a.core);
         BTC_CORE = Core(a.btcCore);
-
-        GHO = a.gho;
-        USDG = a.usdg;
-        AAVE_SPOKE = a.aaveSpoke;
-        AAVE_HUB = a.aaveHub;
-        if (a.aaveSpoke != address(0) && a.aaveHub != address(0)) {
-            if (a.gho != address(0)) {
-                uint256 ghoAssetId = IAaveV4Hub(a.aaveHub).getAssetId(a.gho);
-                GHO_RESERVE_ID = IAaveV4Spoke(a.aaveSpoke).getReserveId(a.aaveHub, ghoAssetId);
-                if (GHO_RESERVE_ID == 0) revert GHONotOnAAVE();
-                IERC20(a.gho).approve(a.aaveSpoke, type(uint).max);
-            }
-            if (a.usdg != address(0)) {
-                uint256 usdgAssetId = IAaveV4Hub(a.aaveHub).getAssetId(a.usdg);
-                USDG_RESERVE_ID = IAaveV4Spoke(a.aaveSpoke).getReserveId(a.aaveHub, usdgAssetId);
-                if (USDG_RESERVE_ID == 0) revert GHONotOnAAVE();
-                IERC20(a.usdg).approve(a.aaveSpoke, type(uint).max);
-            }
-        }
 
         if (a.stables.length != a.vaults.length) revert LengthMismatch();
         sp.spLastUpdate = block.timestamp; stables = a.stables;
@@ -222,17 +190,14 @@ contract Aux is
     }
 
     function _setVault(address stable, address vault) private {
-        if (stable == GHO || stable == USDG) revert GHOIsAaveWired();
-
-        ChannelLib.setVaultBody(stable, vault, ChannelLib.SetVaultCfg(
-            AAVE_SPOKE, AAVE_HUB, stables.length),
-            toIndex, vaultsOf, aaveReserveId, tokens, vaults);
+        ChannelLib.setVaultBody(stable, vault, stables.length,
+            toIndex, vaultsOf, tokens, vaults);
     }
 
     function sweep(address token) external nonReentrant {
 
         (uint vbtcDelta, uint swept) = SwapLib.sweepBody(
-            token, address(WETH), address(WBTC), GHO, USDG);
+            token, address(WETH), address(WBTC));
         if (vbtcDelta > 0) rangeBTC += vbtcDelta;
         if (swept > 0) emit Swept(token, swept);
         _refreshHoldings(token);
@@ -574,21 +539,6 @@ contract Aux is
         trancheTotal = BasketLib.tipBody(tranche, trancheTotal, cut, token, sign);
     }
 
-    function _withdrawAaveUnsafe(uint256 reserveId, uint amount, address to) external returns (uint drawn) {
-        _onlySelf();
-
-        return ChannelLib.aaveWithdrawTo(
-            AAVE_SPOKE, reserveId, reserveId == GHO_RESERVE_ID ? GHO : USDG, amount, to);
-    }
-
-    function withdrawAaveLeg(address stable, uint amount, address to)
-        external returns (uint drawn) {
-        _onlySelf();
-
-        return ChannelLib.aaveWithdrawTo(
-            AAVE_SPOKE, _reserveIdOf(stable), stable, amount, to);
-    }
-
     function supplySelf(address token, uint amount) external returns (uint deposited) {
         _onlySelf();
         return _supply(token, amount);
@@ -618,33 +568,6 @@ contract Aux is
         _refreshAllHoldings();
     }
 
-    function _reserveIdOf(address token) internal view returns (uint256) {
-        return token == GHO  ? GHO_RESERVE_ID
-             : token == USDG ? USDG_RESERVE_ID
-             : aaveReserveId[token];
-    }
-
-    function _aaveReserve(address token) internal view returns (uint256) {
-        if (AAVE_SPOKE == address(0)) return 0;
-        return _reserveIdOf(token);
-    }
-
-    function _aaveUser(address token, bool wantShares) private view returns (uint) {
-        uint256 reserveId = _aaveReserve(token);
-        if (reserveId == 0) return 0;
-        return wantShares
-            ? IAaveV4Spoke(AAVE_SPOKE).getUserSuppliedShares(reserveId, address(this))
-            : IAaveV4Spoke(AAVE_SPOKE).getUserSuppliedAssets(reserveId, address(this));
-    }
-
-    function aaveBalance(address token) public view returns (uint) {
-        return _aaveUser(token, false);
-    }
-
-    function aaveShares(address token) public view returns (uint) {
-        return _aaveUser(token, true);
-    }
-
     function _deposit(address asset, address sender, uint amount)
         internal returns (uint sent) {
 
@@ -672,13 +595,8 @@ contract Aux is
 
     function _supplyCfg() private view returns (ChannelLib.SupplyCfg memory) {
         return ChannelLib.SupplyCfg(
-            address(WETH), GHO, USDG, AAVE_SPOKE,
-            GHO_RESERVE_ID, USDG_RESERVE_ID, ethVenue,
+            address(WETH), ethVenue,
             stables[stables.length - 1]);
-    }
-
-    function reserveIdOf(address token) external view returns (uint256) {
-        return _reserveIdOf(token);
     }
 
 }

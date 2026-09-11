@@ -65,11 +65,6 @@ library DeployLib {
         // ── tokens (canonical mainnet in every caller) ──
         address weth;
         address wbtc;
-        address gho;
-        address usdg;
-        // ── AAVE ETH ──
-        address aaveSpoke;
-        address aaveHub;
         // ── basket set ──
         // 🔴 POSITIONALLY PAIRED AND ORDER IS LOAD-BEARING: `vaults[i]` is the venue for
         //    `stables[i]`, and BOLD MUST BE LAST (Aux routes the final slot through the Liquity SP).
@@ -166,8 +161,6 @@ library DeployLib {
         Aux aux = new Aux(Aux.AuxInit({
             range: address(ETH), core: address(core), btcCore: a.btcCore,
             weth: cfg.weth, wbtc: cfg.wbtc,
-            gho: cfg.gho, usdg: cfg.usdg,
-            aaveSpoke: cfg.aaveSpoke, aaveHub: cfg.aaveHub,
             stables: cfg.stables, vaults: cfg.vaults
         }));
         // Seed commitment: the deployer msig (this deploy's caller, ANGEL's owner) approves the now-deployed Aux for the

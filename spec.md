@@ -123,13 +123,15 @@ Measured 21,241 deployed bytes against the EIP-170 limit of 24,576.
 Deployed by the same script, opt-in behind `DEPLOY_LEV=1` (`DeployL1_s.sol:506`) and skipped entirely
 when unset.
 
-- `LevManager` over weETH collateral, three allowlisted venues pinned once and frozen: Morpho
-  weETH/RLUSD 86% (`DeployL1_s.sol:664`), Morpho weETH/PYUSD 86% (`:668`), and an Aave V3 venue with
-  weETH collateral and USDT debt (`:686`). Both weETH/USDC markets and the weETH/WETH venue are
-  **absent, not demoted** — the file records the measurement: weETH/USDC held $0.17M idle across 100
-  of 100 weeks, against $9.66M (RLUSD) and $4.32M (PYUSD).
-- `BtcLevManager` over vBTC collateral with **one** venue: an Aave V3 escrow, WBTC collateral, a
-  deploy-chosen stable debt asset defaulting to USDC (`DeployL1_s.sol:559-567`).
+- `LevManager` over weETH collateral, two allowlisted venues pinned once and frozen: Morpho
+  weETH/RLUSD 86% and Morpho weETH/PYUSD 86% (`DeployL1_s._ethLevVenues`). Both weETH/USDC markets
+  and the weETH/WETH venue are **absent, not demoted** — the file records the measurement: weETH/USDC
+  held $0.17M idle across 100 of 100 weeks, against $9.66M (RLUSD) and $4.32M (PYUSD). The Aave V3
+  weETH/USDT venue that used to be the third slot was removed with the whole AAVE integration.
+- `BtcLevManager` over WBTC collateral is deployed and pinned but has **no venue**: its only venue
+  was an Aave V3 escrow, removed with the AAVE integration. `init` accepts the empty allowlist, so
+  the manager exists (the Vault's backing hook and flash provider are wired) but `openBtcLev` has
+  nowhere to route until a WBTC-collateral venue is added.
 - There is **no Morpho market whose collateral token is vBTC**, by standing owner ruling: collateral
   and acquisition target would be the same asset, so a drawdown margin-calls the very thing the
   borrow bought (`DeployL1_s.sol:525-533`).
@@ -211,13 +213,13 @@ the outstanding senior seed tranche, excluded from redeemable TVL.
 
 **The basket** is fourteen stablecoins, each paired positionally with a yield venue
 (`DeployL1_s.sol:217-227`, `:236-253`). Fourteen is the layout maximum, not a round number: the
-accounting array is a `uint[15]` where slot 0 is the yield-weighted sum, slots 1..13 are per-token
-deposits and slot 14 is the raw TVL total that `BasketLib.computeMetrics` divides by. A fifteenth stable
-would silently overwrite that total, which is why the deploy asserts
-`require(STABLECOINS.length == 14, ...)` at `DeployL1_s.sol:262`. The two arrays are positionally
-paired and **nothing else enforces it** (`:253`). BOLD must stay last — `Aux` pins
-`stables[length-1]` as the Liquity-Stability-Pool-routed stable. GHO and USDG carry `address(0)`
-venues on purpose; they route through Aave.
+accounting array is a `uint[16]` where slot 0 is the yield-weighted sum, slots 1..14 are per-token
+deposits and slot 15 is the raw TVL total that `BasketLib.computeMetrics` divides by. A fifteenth stable
+would silently overwrite that total. The roster is **12** (it was 14 until GHO and USDG left with the
+AAVE integration), and the deploy pins it with `require(STABLECOINS.length == 12, ...)` so a silent
+insertion or drop fails at deploy. The two arrays are positionally paired and **nothing else enforces
+it**. BOLD must stay last — `Aux` pins `stables[length-1]` as the Liquity-Stability-Pool-routed stable.
+Every other stable has a 4626 venue; there is no non-4626 leg any more.
 
 **vETH** (`Quid`) is the ETH LP's position: `asset()` is WETH, but the backing held is weETH, and
 `rangeETH()` values weETH in ETH plus idle WETH plus the levered leg (`Quid.sol:213`).

@@ -142,7 +142,7 @@ export const AUX_ABI = [
 export const RANGE_ABI = [
   // Auto-managed (ERC4626 shape on the ETH side).
   // ⛔ THERE IS NO VENUE ARGUMENT AND NO VENUE ENUM. This comment used to read "the ETH
-  // yield-VENUE rides each deposit call: 0=Split(Galaxy+AAVE,default) 1=ether.fi 2=AAVE-v4
+  // yield-VENUE rides each deposit call: 0=Split(default) 1=ether.fi 2=a v4 lender
   // 3=Galaxy 4=ether.fi Rover 5=Euler". **None of those codes exist** — `evm/src` has no
   // `VENUE_*` constant, no `Rover`, and no `setEthVenue`/`setWithdrawInstant`. §ETHVENUE-FOLD
   // collapsed the axis: every ETH deposit's WETH goes to ONE destination, ether.fi weETH

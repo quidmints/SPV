@@ -3,13 +3,14 @@ pragma solidity 0.8.30;
 
 import {ForkPin} from "./utils/ForkPin.sol";
 import {LevMath} from "../src/imports/LevMath.sol";
-import {ICurvePool, USDC, RLUSD_TOKEN, PYUSD_TOKEN, USDT_TOKEN, DAI_TOKEN, USDG_TOKEN, CRVUSD_TOKEN,
-        CURVE_3POOL, CURVE_USDG_USDC, CURVE_CRVUSD_USDC, CURVE_USDC_RLUSD, CURVE_PYUSD_USDC} from "../src/imports/Interfaces.sol";
+import {ICurvePool, USDC, RLUSD_TOKEN, PYUSD_TOKEN, USDT_TOKEN, DAI_TOKEN, CRVUSD_TOKEN,
+        CURVE_3POOL, CURVE_CRVUSD_USDC, CURVE_USDC_RLUSD, CURVE_PYUSD_USDC} from "../src/imports/Interfaces.sol";
 import {console2} from "forge-std/console2.sol";
 
 interface IERC20P2 { function decimals() external view returns (uint8); }
 
-/// @notice §SESS-24 — **EVERY `_routeOf` ROW PINNED AGAINST THE CHAIN.** Grown from 2 stables to 6.
+/// @notice §SESS-24 — **EVERY `_routeOf` ROW PINNED AGAINST THE CHAIN.** Grown from 2 stables to 6,
+/// back to 5 when USDG left the basket with the AAVE integration.
 ///
 /// §SESS-23 made this table a FLOOR reference, so each row is now worth basis points rather than
 /// tidiness. But the table also feeds EXECUTION (`_hubSwap`, and `_routableStable` decides which slices
@@ -37,7 +38,6 @@ contract CurveTablePins is ForkPin {
         _pinRow("PYUSD",  PYUSD_TOKEN,  CURVE_PYUSD_USDC,   0, 1);
         _pinRow("USDT",   USDT_TOKEN,   CURVE_3POOL,        2, 1);
         _pinRow("DAI",    DAI_TOKEN,    CURVE_3POOL,        0, 1);
-        _pinRow("USDG",   USDG_TOKEN,   CURVE_USDG_USDC,    0, 1);
         _pinRow("crvUSD", CRVUSD_TOKEN, CURVE_CRVUSD_USDC,  1, 0);
     }
 
@@ -61,20 +61,17 @@ contract CurveTablePins is ForkPin {
     function test_EveryRowIsDeepToOneMillion() public view {
         _pinDepth("USDT",   USDT_TOKEN);
         _pinDepth("DAI",    DAI_TOKEN);
-        _pinDepth("USDG",   USDG_TOKEN);
         _pinDepth("crvUSD", CRVUSD_TOKEN);
         _pinDepth("RLUSD",  RLUSD_TOKEN);
         _pinDepth("PYUSD",  PYUSD_TOKEN);
     }
 
     /// 🔴 THE CONTROL — the excluded stables must still quote ZERO, or the exclusions are silent lies.
-    ///    GHO/USDS/AUSD have only garbage pools; cUSD/frxUSD have none; USDE is thin at size (0/4/6592
+    ///    USDS/AUSD have only garbage pools; cUSD/frxUSD have none; USDE is thin at size (0/4/6592
     ///    bps at 10k/100k/1M) and is deliberately NOT a row.
     function test_Control_ExcludedStablesQuoteZero_AndUsdsIsAtPar() public view {
-        address GHO  = 0x40D16FC0246aD3160Ccc09B8D0D3A2cD28aE6C2f;
         address USDS = 0xdC035D45d973E3EC169d2276DDab16f1e407384F;
         address USDE = 0x4c9EDD5852cd905f086C759E8383e09bff1E68B3;
-        assertEq(LevMath._selfServableQuote(GHO,  10_000e18, USDC), 0, "GHO must be unrouted");
         assertEq(LevMath._selfServableQuote(USDE, 10_000e18, USDC), 0, "USDE must be unrouted - it is thin at $1M");
         // ⭐ §SESS-92 — **USDS MOVED OUT OF THIS SET, DELIBERATELY, AND IS PINNED RATHER THAN FREED.**
         //    It quoted 0 because it is on no Curve row and still is — the registry's answer for

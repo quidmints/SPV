@@ -12,7 +12,7 @@
 //   over-collateralization protects QD holders (seniority), not the LP's price
 //   exposure. [CORRECTED 2026-08-01: the leverage overlay that CANCELS the up-side
 //   IL is BUILT and live — LevManager/BtcLevManager plus the Rust lev_keeper, opt-in
-//   per LP on external ISOLATED Euler/Morpho/Aave/Liquity, target LTV 1-sqrt(entry/now),
+//   per LP on external ISOLATED Euler/Morpho/Liquity, target LTV 1-sqrt(entry/now),
 //   zero at or below entry. The prior "not built yet" note was stale. R1 below still
 //   describes the UNPROTECTED path, which is what an LP who declines the overlay gets.]
 //   [CORRECTED 2026-09-11: that stale note is resolved the other way. It read "K_LVR/

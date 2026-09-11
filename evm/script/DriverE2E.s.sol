@@ -58,8 +58,6 @@ contract Deploy is Script {
     address constant DAI   = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
     address constant USDE  = 0x4c9EDD5852cd905f086C759E8383e09bff1E68B3;
     address constant USDS  = 0xdC035D45d973E3EC169d2276DDab16f1e407384F;
-    address constant GHO   = 0x40D16FC0246aD3160Ccc09B8D0D3A2cD28aE6C2f;
-    address constant USDG  = 0xe343167631d89B6Ffc58B88d6b7fB0228795491D;
     address constant PYUSD = 0x6c3ea9036406852006290770BEdFcAbA0e23A0e8;
     address constant RLUSD = 0x8292Bb45bf1Ee4d140127049757C2E0fF06317eD;
     address constant AUSD  = 0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a;
@@ -82,31 +80,27 @@ contract Deploy is Script {
     address constant morphoUsdsVault  = 0xE15fcC81118895b67b6647BBd393182dF44E11E0;
     address constant morphoAusdVault  = 0x32401B9fb79065Bc15949DE0BD43927492f02F0C;
     address constant stabilityPool    = 0x5721cbbd64fc7Ae3Ef44A0A3F9a790A9264Cf9BF;
-    address constant aaveSpoke = 0x94e7A5dCbE816e498b89aB752661904E2F56c485;
-    address constant aaveHub   = 0xCca852Bc40e560adC3b1Cc58CA5b55638ce826c9;
 
     function run() external {
         uint pk = vm.envUint("PRIVATE_KEY");
         address hop = vm.addr(pk);
 
         // BOLD MUST stay last (Aux pins stables[length-1] as the SP-routed stable).
-        // §ROSTER-ALIGN — THIS DRIVER RAN 11 WHILE THE DEPLOY ASSERTS 14, so the "same shared
-        // deploy" claim in the header above was false in the one dimension that decides every
-        // pro-rata denominator. Now verbatim from `DeployL1_s.sol:217-255`, same order, BOLD last.
+        // §ROSTER-ALIGN — THIS DRIVER RAN 11 WHILE THE DEPLOY ASSERTS THE FULL ROSTER, so the "same
+        // shared deploy" claim in the header above was false in the one dimension that decides every
+        // pro-rata denominator. Now verbatim from `DeployL1_s.sol` STABLECOINS, same order, BOLD last.
         // 🔴 `stables[i]` and `vaults[i]` are POSITIONALLY PAIRED and nothing else enforces it.
-        address[] memory stables = new address[](14);
-        stables[0]=USDC; stables[1]=USDT; stables[2]=PYUSD; stables[3]=GHO;
-        stables[4]=RLUSD; stables[5]=USDG; stables[6]=DAI; stables[7]=USDS;
-        stables[8]=USDE; stables[9]=AUSD; stables[10]=CUSD; stables[11]=CRVUSD;
-        stables[12]=FRXUSD; stables[13]=BOLD;
-        address[] memory vaults = new address[](14);
+        address[] memory stables = new address[](12);
+        stables[0]=USDC; stables[1]=USDT; stables[2]=PYUSD; stables[3]=RLUSD;
+        stables[4]=DAI;  stables[5]=USDS; stables[6]=USDE;  stables[7]=AUSD;
+        stables[8]=CUSD; stables[9]=CRVUSD; stables[10]=FRXUSD; stables[11]=BOLD;
+        address[] memory vaults = new address[](12);
         vaults[0]=morphoUsdcVault; vaults[1]=morphoUsdtVault; vaults[2]=pyusdMorpho;
-        vaults[3]=address(0);      vaults[4]=morphoRlusdVault; vaults[5]=address(0);
-        vaults[6]=SDAI;            vaults[7]=morphoUsdsVault;   vaults[8]=SUSDE;
-        vaults[9]=morphoAusdVault; vaults[10]=STCUSD;           vaults[11]=SCRVUSD;
-        vaults[12]=SFRXUSD;        vaults[13]=stabilityPool;
+        vaults[3]=morphoRlusdVault; vaults[4]=SDAI;          vaults[5]=morphoUsdsVault;
+        vaults[6]=SUSDE;           vaults[7]=morphoAusdVault; vaults[8]=STCUSD;
+        vaults[9]=SCRVUSD;         vaults[10]=SFRXUSD;        vaults[11]=stabilityPool;
         require(stables.length == vaults.length, "stables/vaults: positional pairing broken");
-        require(stables.length == 14, "stables: 14 is the uint[16] layout maximum");
+        require(stables.length == 12, "stables: roster drifted from DeployL1_s");
 
         vm.startBroadcast(pk);
 
@@ -117,8 +111,7 @@ contract Deploy is Script {
             mainHop: msg.sender, fallbackHop: address(uint160(msg.sender) + 1),
             btcDepositKey: bytes32(uint256(0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798)),
             msig: address(0),
-            weth: WETH, wbtc: WBTC, gho: GHO, usdg: USDG,
-            aaveSpoke: aaveSpoke, aaveHub: aaveHub,
+            weth: WETH, wbtc: WBTC,
             stables: stables, vaults: vaults,
             spvCheckpointHeader: REGTEST_GENESIS_HEADER,
             spvCheckpointHeight: 0,

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
-import {Types, BadSPV, GHOIsAaveWired, GHONotOnAAVE, InvalidParam} from "./Types.sol";
+import {Types, BadSPV, InvalidParam} from "./Types.sol";
 import {WAD} from "./Types.sol";
 
 import {IAux, IStabilityPool} from "./Interfaces.sol";
@@ -18,19 +18,9 @@ import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {BasketLib} from "./BasketLib.sol";
 import {FeeLib} from "./FeeLib.sol";
-import {IAaveV4Spoke} from "./Interfaces.sol";
-import {IAaveV4Hub} from "./Interfaces.sol";
 import {IEthVenue} from "./Interfaces.sol";
 
 library ChannelLib {
-
-    function _aaveLegDepth(address token) internal view returns (uint) {
-        IAux aux = IAux(address(this));
-        address spoke = aux.AAVE_SPOKE();
-        (bool blocked,) = aux.vaultHealth(BasketLib.aaveHealthKey(spoke, aux.reserveIdOf(token)));
-
-        return blocked ? type(uint).max : aux.aaveBalance(token);
-    }
 
     struct SPState {
         uint spValue;
@@ -108,11 +98,6 @@ library ChannelLib {
 
     struct SupplyCfg {
         address weth;
-        address gho;
-        address usdg;
-        address aaveSpoke;
-        uint256 ghoReserveId;
-        uint256 usdgReserveId;
         address ethVenue;
         address bold;
     }
@@ -128,14 +113,6 @@ library ChannelLib {
         if (token == cfg.weth) {
             return IEthVenue(cfg.ethVenue).supplyFromAux(amount);
         }
-        if (token == cfg.gho || token == cfg.usdg) {
-            if (cfg.aaveSpoke == address(0)) revert GHOIsAaveWired();
-            uint256 reserveId = token == cfg.gho ? cfg.ghoReserveId : cfg.usdgReserveId;
-            (, deposited) = IAaveV4Spoke(cfg.aaveSpoke).supply(
-                reserveId, amount, address(this));
-            aux.refreshHoldingsSelf(token);
-            return deposited;
-        }
         if (token == cfg.bold) {
             (sp.spValue, sp.spPrincipalTime, sp.spLastUpdate) =
                 _depositToSPInline(vaults[token], amount, sp);
@@ -149,27 +126,17 @@ library ChannelLib {
         for (uint j; j < vs.length; j++) {
             address vj = vs[j];
             uint bj;
-            if (vj == cfg.aaveSpoke) {
-
-                bj = _aaveLegDepth(token);
-            } else {
-                (bool blocked,) = aux.vaultHealth(vj);
-                if (blocked) continue;
-                try IERC4626(vj).balanceOf(address(this)) returns (uint sh) {
-                    try IERC4626(vj).convertToAssets(sh) returns (uint a) { bj = a; }
-                    catch { continue; }
-                } catch { continue; }
-            }
+            (bool blocked,) = aux.vaultHealth(vj);
+            if (blocked) continue;
+            try IERC4626(vj).balanceOf(address(this)) returns (uint sh) {
+                try IERC4626(vj).convertToAssets(sh) returns (uint a) { bj = a; }
+                catch { continue; }
+            } catch { continue; }
             if (bj < lo) { lo = bj; vault = vj; }
         }
         if (vault == address(0)) revert VaultUnwired();
-        if (vault == cfg.aaveSpoke) {
-            (, deposited) = IAaveV4Spoke(cfg.aaveSpoke).supply(
-                aux.reserveIdOf(token), amount, address(this));
-        } else {
-            deposited = IERC4626(vault).convertToAssets(
-                    IERC4626(vault).deposit(amount, address(this)));
-        }
+        deposited = IERC4626(vault).convertToAssets(
+                IERC4626(vault).deposit(amount, address(this)));
         aux.refreshHoldingsSelf(token);
     }
 
@@ -183,22 +150,6 @@ library ChannelLib {
         IAux aux = IAux(address(this));
         if (token == cfg.weth) {
             return IEthVenue(cfg.ethVenue).withdrawForAux(amount, to);
-        }
-        if (token == cfg.gho || token == cfg.usdg) {
-            if (cfg.aaveSpoke == address(0)) return 0;
-            uint256 reserveId = token == cfg.gho ? cfg.ghoReserveId : cfg.usdgReserveId;
-            uint max = IAaveV4Spoke(cfg.aaveSpoke).getUserSuppliedAssets(
-                reserveId, address(this));
-            amount = amount > 0 ? Math.min(amount, max) : max;
-            if (amount == 0) return 0;
-            uint drawn;
-            try aux._withdrawAaveUnsafe(reserveId, amount, to) returns (uint d) {
-                drawn = d;
-            } catch {
-                drawn = 0;
-            }
-            aux.refreshHoldingsSelf(token);
-            return drawn;
         }
         if (token == cfg.bold) {
             SPWithdrawResult memory r = withdrawFromSP(
@@ -218,15 +169,8 @@ library ChannelLib {
 
         address[] memory vs = vaultsOf[token];
         if (vs.length == 0) revert VaultUnwired();
-        sent = FeeLib.multiVaultWithdrawBody(vs, amount, to, cfg.aaveSpoke, token);
+        sent = FeeLib.multiVaultWithdrawBody(vs, amount, to);
         aux.refreshHoldingsSelf(token);
-    }
-
-    function aaveWithdrawTo(address spoke, uint256 reserveId, address token, uint amount, address to)
-        external returns (uint drawn) {
-        if (spoke == address(0) || amount == 0 || reserveId == 0) return 0;
-        (, drawn) = IAaveV4Spoke(spoke).withdraw(reserveId, amount, address(this));
-        if (to != address(this) && drawn > 0) IERC20OZ(token).safeTransfer(to, drawn);
     }
 
     function _depositToSPInline(address sp_, uint amount, SPState storage state)
@@ -297,36 +241,17 @@ library ChannelLib {
         if (msg.sender == quid) aux.refreshAllHoldingsSelf();
     }
 
-    struct SetVaultCfg {
-        address aaveSpoke;
-        address aaveHub;
-        uint    nStables;
-    }
-
     function setVaultBody(
-        address stable, address vault, SetVaultCfg memory cfg,
+        address stable, address vault, uint nStables,
         mapping(address => uint) storage toIndex,
         mapping(address => address[]) storage vaultsOf,
-        mapping(address => uint256) storage aaveReserveId,
         mapping(address => address) storage tokens,
         mapping(address => address) storage vaults
     ) external {
         uint index = toIndex[stable];
-        if (!(index > 0 && index <= cfg.nStables)) revert UnknownStable();
+        if (!(index > 0 && index <= nStables)) revert UnknownStable();
         if (vault == address(0)) revert VaultUnwired();
         address[] storage set = vaultsOf[stable];
-        if (vault == cfg.aaveSpoke) {
-            for (uint j; j < set.length; j++)
-                if (set[j] == cfg.aaveSpoke) revert VaultAlreadySet();
-            uint256 assetId = IAaveV4Hub(cfg.aaveHub).getAssetId(stable);
-            uint256 rid = IAaveV4Spoke(cfg.aaveSpoke).getReserveId(cfg.aaveHub, assetId);
-            if (rid == 0) revert GHONotOnAAVE();
-            aaveReserveId[stable] = rid;
-            _approveMax(stable, cfg.aaveSpoke);
-            if (vaults[stable] == address(0)) vaults[stable] = cfg.aaveSpoke;
-            set.push(cfg.aaveSpoke);
-            return;
-        }
         if (IERC4626(vault).asset() != stable) revert VaultAssetMismatch();
         for (uint j; j < set.length; j++)
             if (set[j] == vault) revert VaultAlreadySet();

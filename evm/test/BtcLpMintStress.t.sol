@@ -844,34 +844,6 @@ contract BtcLpMintStress is AllesFixture {
             s.swapId, s.channelId, p, spliceTx, new bytes32[](0), s.swapperScript, dex);
     }
 
-    /// Dual-venue: wire the AAVE-v4 spoke as a router venue for USDC, then a USDC
-    /// deposit routes to the (empty) spoke leg via least-full; the valuation/yield
-    /// cache folds the leg in (TVL > 0), and a redemption draws back through the
-    /// per-venue dispatch (solvency preserved). Exercises the dual-venue
-    /// supply/value/withdraw path in isolation (no global setUp perturbation).
-    function test_AaveVenue_USDC_SupplyValueWithdraw() public {
-        address spoke = AUX.AAVE_SPOKE();
-        uint v0 = AUX.getVaults(address(USDC)).length;
-        _auxSetVault(address(USDC), spoke);
-        assertEq(AUX.getVaults(address(USDC)).length, v0 + 1, "spoke added as a USDC venue");
-        assertGt(AUX.aaveReserveId(address(USDC)), 0, "USDC reserve-id resolved on Aave v4");
-
-        uint aBefore = AUX.aaveBalance(address(USDC));
-        vm.startPrank(User01);
-        USDC.approve(address(AUX), type(uint).max);
-        QUID.mint(User01, 50_000 * USDC_PRECISION, address(USDC), 0);
-        vm.stopPrank();
-        assertGt(AUX.aaveBalance(address(USDC)), aBefore, "USDC routed to the AAVE spoke leg (least-full)");
-
-        // Valuation/yield folds the AAVE leg in (cache via _valueStable's v==spoke branch).
-        (uint[16] memory deps,,,) = AUX.get_deposits();
-        assertGt(deps[15], 0, "TVL includes the dual-venue USDC");
-
-        // Redeem → pro-rata draw can pull USDC from the spoke leg via the dispatch.
-        vm.prank(User01); AUX.redeem(10_000e18);
-        _assertSolvent("dual-venue USDC: solvent after supply + redeem");
-    }
-
     // ─────────────────────────────────────────────────────────────────────────
 
     /// (1) COLLAPSE: proceeds settle EXACTLY at deliver-time. The deliveries mint

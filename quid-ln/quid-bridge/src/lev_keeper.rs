@@ -147,7 +147,7 @@ pub struct PositionView {
     /// protecting the LP's collateral (their ETH/BTC exposure) instead of selling it. Redeem is mature-only
     /// on-chain, so UNMATURED QUID is never touched (no par-burn-for-debt abuse — audit 2026-07-03).
     pub mature_quid_usd: u64,
-    /// TRUE when the position's collateral is WBTC (the `AaveV3Venue` WBTC-fallback route),
+    /// TRUE when the position's collateral is WBTC (a WBTC-collateral escrow venue),
     /// FALSE for native channel-vBTC. WBTC-mode positions rebalance via ONE atomic on-chain `rebalanceWbtc`
     /// (flash-repay-first de-lever OR fold-up, decided on-chain) — no acquirer, no async vBTC legs — so the
     /// keeper routes them past the withdraw→sell→repay sequence. Always FALSE on the ETH keeper.
@@ -811,7 +811,7 @@ pub fn dex_word_wbtc() -> [u8; 32] {
 ///    callers.
 ///
 /// ⚠️ **UNITS ARE THE TRAP THIS FUNCTION EXISTS TO NOT FALL INTO.** `ILevVenue.borrowRateRay` is
-///    **RAY (1e27) PER YEAR** — Aave's unit — and the Morpho venue multiplies its WAD-per-second up to
+///    **RAY (1e27) PER YEAR** — and the Morpho venue multiplies its WAD-per-second up to
 ///    match, with its own docblock warning that getting it wrong *"does not revert — it silently
 ///    reports a venue as ~3e7x cheaper."* A route cost is **one-off bps**. **A rate and a toll are not
 ///    comparable until a HORIZON is chosen**, which is why `horizon_days` is an explicit argument and
@@ -1217,8 +1217,8 @@ fn venue_word(v: Venue) -> Option<[u8; 32]> {
 /// which is the difference between 11/14 and 7/14. ⛔ Suppressing the warning would have hidden that
 /// this mirror is no longer checked by anything the keeper runs in production.
 #[cfg(test)]
-const CURVE_SHORTLIST: [(LpAddr, LpAddr, LpAddr, u8, u8); 6] = [
-    // (tokenA, tokenB, pool, indexA, indexB) — **THE SAME SIX ROWS `LevMath._hubRowOf` HOLDS.**
+const CURVE_SHORTLIST: [(LpAddr, LpAddr, LpAddr, u8, u8); 5] = [
+    // (tokenA, tokenB, pool, indexA, indexB) — **THE SAME FIVE ROWS `LevMath._hubRowOf` HOLDS** (six until USDG left).
     // 🔴 §SESS-81 — this had TWO of them, and the coverage matrix caught it: crvUSD reported
     //    ** NONE ** to both volatiles while the CONTRACT has had a crvUSD Curve row all along.
     //    ⇒ **the keeper was blind to venues the contract can already execute** — the planner's search
@@ -1239,10 +1239,6 @@ const CURVE_SHORTLIST: [(LpAddr, LpAddr, LpAddr, u8, u8); 6] = [
     ([0x6c,0x3e,0xa9,0x03,0x64,0x06,0x85,0x20,0x06,0x29,0x07,0x70,0xBE,0xdF,0xcA,0xbA,0x0e,0x23,0xA0,0xe8],
      USDC_ADDR, [0x38,0x3E,0x6b,0x44,0x37,0xb5,0x9f,0xff,0x47,0xB6,
                  0x19,0xCB,0xA8,0x55,0xCA,0x29,0x34,0x2A,0x85,0x59], 0, 1),
-    // USDG
-    ([0xe3,0x43,0x16,0x76,0x31,0xd8,0x9B,0x6F,0xfc,0x58,0xB8,0x8d,0x6b,0x7f,0xB0,0x22,0x87,0x95,0x49,0x1D],
-     USDC_ADDR, [0xc0,0x61,0xca,0xa0,0x73,0xf3,0xd9,0x5F,0x80,0xf8,
-                 0xe5,0x42,0x8d,0x32,0xD2,0xd7,0x6F,0x5e,0x16,0x22], 0, 1),
     // crvUSD: coins(0)=USDC coins(1)=crvUSD
     ([0xf9,0x39,0xE0,0xA0,0x3F,0xB0,0x7F,0x59,0xA7,0x33,0x14,0xE7,0x37,0x94,0xBe,0x0E,0x57,0xac,0x1b,0x4E],
      USDC_ADDR, [0x4D,0xEc,0xE6,0x78,0xce,0xce,0xb2,0x74,0x46,0xb3,
@@ -1810,17 +1806,18 @@ mod tests {
         Some(crate::transport::HttpJsonRpc::new(url))
     }
 
-    /// 🔴 **THE CLAIM THE DELETED TABLE COULD NOT MAKE: FOURTEEN STABLES, NOT TWO.**
+    /// 🔴 **THE CLAIM THE DELETED TABLE COULD NOT MAKE: TWELVE STABLES, NOT TWO.**
     ///
     /// `direct_pool` was a four-entry table and could plan exactly **USDT and DAI** of the basket's
-    /// **fourteen** (`DeployL1_s:240-250`). Asking the factory covers whatever exists, including
+    /// **twelve** (`DeployL1_s` STABLECOINS). Asking the factory covers whatever exists, including
     /// tokens nobody has written down. ⚠️ **This asserts COVERAGE, not a price** — how many bps a
-    /// ⭐ §SESS-81 — **THE COVERAGE MATRIX: ALL FOURTEEN BASKET STABLES x {WETH, WBTC}.**
+    /// ⭐ §SESS-81 — **THE COVERAGE MATRIX: ALL TWELVE BASKET STABLES x {WETH, WBTC}.**
     ///
-    /// 🔴 **EVERY EARLIER TEST IN THIS FILE CHECKED A SAMPLE** — USDT, DAI, GHO, USDe — and a sample
+    /// 🔴 **EVERY EARLIER TEST IN THIS FILE CHECKED A SAMPLE** — USDT, DAI, USDe — and a sample
     ///    cannot answer the question the lane actually has, which is *"can the protocol convert ANY
-    ///    stable it holds into the two volatiles it hedges with?"* The basket is fourteen stables
-    ///    (`DeployL1_s:240-250`) and the lever needs WETH and WBTC. **This is that grid.**
+    ///    stable it holds into the two volatiles it hedges with?"* The basket is twelve stables
+    ///    (`DeployL1_s` STABLECOINS; it was fourteen until GHO and USDG left with the AAVE
+    ///    integration) and the lever needs WETH and WBTC. **This is that grid.**
     /// ⚠️ It ASSERTS a floor and REPORTS the rest, because coverage is market state: a pair with no
     ///    venue today may have one next month and vice versa. Asserting the exact set would be the
     ///    §POINT-IN-TIME mistake this session has already made three times.
@@ -1841,26 +1838,23 @@ mod tests {
             let b = alloy_primitives::hex::decode(h.trim_start_matches("0x")).expect("bad address hex");
             let mut o = [0u8; 20]; o.copy_from_slice(&b); o
         }
-        // ⭐ §SESS-96 — **FOURTEEN, MIRRORED FROM `STABLECOINS` — AND I GOT THIS WRONG TWICE.**
-        //    §SESS-95 dropped BOLD after mistaking `DeployL1_s.sol:727`'s `sTok = new address[](13)`
-        //    for the basket. It is not: `sTok` is the CHAINLINK-FEED subset, and BOLD is absent from
-        //    it because `Aux.sol:175` records that BOLD alone has no feed — *"it doesn't
-        //    market-depeg"*. The basket is `STABLECOINS` (`DeployL1_s:217`), 14 entries, BOLD last.
-        // ⛔ **AND 15 IS THE ARRAY WIDTH, NOT THE STABLE COUNT.** §14-STABLES fixes the `uint[15]`
-        //    contract: slot 0 is the yield-weighted sum, slots 1..13 the per-token deposits, slot 14
-        //    the raw TVL total. *"At 14 stables that is 1..13 — EXACTLY full. A 15th would write slot
-        //    14 and silently overwrite the total."* So 14 is a LAYOUT MAXIMUM, not a round number.
+        // ⭐ §SESS-96 — **MIRRORED FROM `STABLECOINS` — AND I GOT THIS WRONG TWICE.**
+        //    §SESS-95 dropped BOLD after mistaking `DeployL1_s.sol`'s `sTok` array for the basket. It
+        //    is not: `sTok` is the CHAINLINK-FEED subset, and BOLD is absent from it because BOLD
+        //    alone has no feed — *"it doesn't market-depeg"*. The basket is `STABLECOINS`
+        //    (`DeployL1_s`), 12 entries since GHO/USDG left with AAVE, BOLD last.
+        // ⛔ **AND 16 IS THE ARRAY WIDTH, NOT THE STABLE COUNT.** §14-STABLES fixes the `uint[16]`
+        //    contract: slot 0 is the yield-weighted sum, slots 1..14 the per-token deposits, slot 15
+        //    the raw TVL total. So 14 is a LAYOUT MAXIMUM, not the roster size.
         // ⚠️ DAI and USDS are separate rows; Sky's converter links them for ROUTING, not membership.
-        let stables: [(&str, LpAddr, u32); 14] = [
+        let stables: [(&str, LpAddr, u32); 12] = [
             ("USDC",   a("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"), 6),
             ("USDT",   a("0xdAC17F958D2ee523a2206206994597C13D831ec7"), 6),
             ("DAI",    a("0x6B175474E89094C44Da98b954EedeAC495271d0F"), 18),
             ("PYUSD",  a("0x6c3ea9036406852006290770BEdFcAbA0e23A0e8"), 6),
-            ("GHO",    a("0x40D16FC0246aD3160Ccc09B8D0D3A2cD28aE6C2f"), 18),
             ("USDS",   a("0xdC035D45d973E3EC169d2276DDab16f1e407384F"), 18),
             ("USDE",   a("0x4c9EDD5852cd905f086C759E8383e09bff1E68B3"), 18),
             ("RLUSD",  a("0x8292Bb45bf1Ee4d140127049757C2E0fF06317eD"), 18),
-            ("USDG",   a("0xe343167631d89B6Ffc58B88d6b7fB0228795491D"), 6),
             ("AUSD",   a("0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a"), 6),
             ("CUSD",   a("0xcCcc62962d17b8914c62D74FfB843d73B2a3cccC"), 18),
             ("CRVUSD", a("0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E"), 18),
@@ -1871,15 +1865,15 @@ mod tests {
         // 🔴 §SESS-86 — **THIS MATRIX USED TO COUNT VENUES THE PROTOCOL CANNOT TRADE.** A cell read
         //    `!venues_for(..).is_empty()`, and `venues_for` returns v4 candidates — which
         //    `venue_word` cannot encode, which `Plan.fetched` never carries, and whose on-chain
-        //    executor (`V4Lib`) was unreachable and is now deleted. So GHO and USDS counted as
-        //    covered on the strength of a pool nothing in the system can reach.
+        //    executor (`V4Lib`) was unreachable and is now deleted. So GHO (then a basket stable) and
+        //    USDS counted as covered on the strength of a pool nothing in the system can reach.
         // ⇒ **a cell is EXECUTABLE or it is not**, and "v4 only" gets its own label so the gap is
         //   VISIBLE rather than absorbed into a pass. That distinction is the whole finding: the
         //   difference between "there is no venue" and "there is one and we cannot use it" is what
         //   tells you whether to go find liquidity or to go write an encoder.
         // 🔴 §SESS-93 — **THIS MATRIX WAS UNDER-REPORTING AND I QUOTED THE WRONG NUMBER ALL DAY.**
         //    It asked only "can the KEEPER encode a venue", so it read 7/14 — but the CONTRACT reaches
-        //    USDC for six more stables without any keeper help at all, through `LevMath._hubRowOf`'s
+        //    USDC for several more stables without any keeper help at all, through `LevMath._hubRowOf`'s
         //    compile-time Curve rows (mirrored by `CURVE_SHORTLIST` here), plus USDS through Sky's 1:1
         //    converter. Those legs execute keylessly; the keeper simply is not the one encoding them.
         // ⇒ a leg counts if EITHER producer can serve it. Reporting only our own half made the
@@ -1933,10 +1927,10 @@ mod tests {
             if cells.iter().all(|c| c == "direct" || c == "via USDC") { both += 1; }
             println!("{name:<8} {:>26} {:>26}", cells[0], cells[1]);
         }
-        println!("\n{both}/14 stables reach BOTH volatiles at $100k, keeper-encoded OR on the contract's own table");
+        println!("\n{both}/12 stables reach BOTH volatiles at $100k, keeper-encoded OR on the contract's own table");
         println!("{v4_only} legs have liquidity ONLY where we cannot route it (booked, not counted)");
         // A floor, not the exact set: the hub itself plus the deep majors must always route.
-        assert!(both >= 4, "only {both}/14 stables reach both volatiles - that is below anything the \
+        assert!(both >= 4, "only {both}/12 stables reach both volatiles - that is below anything the \
                             lever could operate on, so it is a broken search or a dead endpoint");
     }
 
@@ -1980,15 +1974,13 @@ mod tests {
         };
         // Stables the old table had NO entry for. USDC is the hub and is excluded by construction.
         // ⚠️ **DECIMALS PER TOKEN, NOT A SHARED CONSTANT.** A first version passed $100k as 6-dec for
-        //    every case, so DAI/GHO/USDe were quoted for 1e-13 of a token and returned nothing — which
+        //    every case, so DAI/USDe were quoted for 1e-13 of a token and returned nothing — which
         //    the test reported as "no route", i.e. **a units bug wearing a routing failure's clothes.**
         //    This repo's oldest documented bug class is exactly this (`BasketLib:282`: never infer a
         //    stable's decimals, read them).
-        let cases: [(&str, LpAddr, u32); 4] = [
+        let cases: [(&str, LpAddr, u32); 3] = [
             ("USDT",   USDT_ADDR, 6),
             ("DAI",    DAI_ADDR, 18),
-            ("GHO",    [0x40,0xD1,0x6F,0xC0,0x24,0x6a,0xD3,0x16,0x0C,0xcc,
-                        0x09,0xB8,0xD0,0xD3,0xA2,0xcD,0x28,0xaE,0x6C,0x2f], 18),
             ("USDe",   [0x4c,0x9E,0xDD,0x58,0x52,0xcd,0x90,0x5f,0x08,0x6C,
                         0x75,0x9E,0x8B,0xC9,0x8B,0x32,0x5b,0x86,0x6D,0xf3], 18),
         ];
@@ -2005,10 +1997,8 @@ mod tests {
             }
         }
         // ⚠️ **NOT "how many planned" — THAT BAR FIGHTS THE DEPTH GATE.** §SESS-67 rejects a venue
-        //    that is too thin for the size, and MEASURED, GHO deserves rejecting: its UniV3 pools hold
-        //    **211 and 8,179 GHO**, and GHO/WETH holds **0 across all four tiers.** Before the gate
-        //    this planner named the 8,179-GHO pool for a $100k trade. **A planner that plans MORE
-        //    routes is not better; one that plans only fillable ones is.**
+        //    that is too thin for the size (the known positive is in the depth-gate test below).
+        //    **A planner that plans MORE routes is not better; one that plans only fillable ones is.**
         assert!(planned >= 1, "nothing planned at all - that is not a depth gate, that is a broken \
                                search or a dead endpoint");
     }

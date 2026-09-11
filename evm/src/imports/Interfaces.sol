@@ -74,21 +74,6 @@ library MarketParamsLib {
 
 interface IVaultV2 { function liquidityAdapter() external view returns (address); }
 
-interface IAaveV4Spoke {
-    function supply(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
-    function withdraw(uint256 reserveId, uint256 amount, address onBehalfOf) external returns (uint256, uint256);
-    function getReserveId(address hub, uint256 assetId) external view returns (uint256);
-    function getUserSuppliedAssets(uint256 reserveId, address user) external view returns (uint256);
-    function getUserSuppliedShares(uint256 reserveId, address user) external view returns (uint256);
-    function getReserveSuppliedAssets(uint256 reserveId) external view returns (uint256);
-    function getReserveTotalDebt(uint256 reserveId) external view returns (uint256);
-
-    function getReserveConfig(uint256 reserveId)
-        external view returns (uint24 collateralRisk, bool paused, bool frozen, bool borrowable, bool receiveSharesEnabled);
-    function getDynamicReserveConfig(uint256 reserveId, uint32 configId)
-        external view returns (uint16 collateralFactor, uint32 maxLiquidationBonus, uint16 liquidationFee);
-}
-
 interface IWeETH {
     function getEETHByWeETH(uint _weETHAmount) external view returns (uint);
     function getWeETHByeETH(uint _eETHAmount) external view returns (uint);
@@ -153,10 +138,6 @@ int128  constant CRV_USDT_USDC_IDX     = 1;
 address constant DAI_TOKEN             = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
 int128  constant CRV_DAI_IDX           = 0;
 int128  constant CRV_DAI_USDC_IDX      = 1;
-address constant USDG_TOKEN            = 0xe343167631d89B6Ffc58B88d6b7fB0228795491D;
-address constant CURVE_USDG_USDC       = 0xc061caa073f3d95F80f8e5428d32D2d76F5e1622;
-int128  constant CRV_USDG_IDX          = 0;
-int128  constant CRV_USDG_USDC_IDX     = 1;
 address constant CRVUSD_TOKEN          = 0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E;
 
 address constant CURVE_BOLD_USDC       = 0xEFc6516323FbD28e80B85A497B65A86243a54B3E;
@@ -172,12 +153,6 @@ interface IEtherFiLiquidityPool { function requestWithdraw(address r, uint a) ex
 interface IDepositAdapter {
     function depositWETHForWeETH(uint _amount, address _referral) external;
     function weETH() external view returns (address);
-}
-
-interface IAaveV4Hub {
-    function getAssetId(address underlying) external view returns (uint256);
-
-    function getAssetLiquidity(uint256 assetId) external view returns (uint256);
 }
 
 interface ILevEquity {
@@ -228,11 +203,6 @@ interface IAux is ISwap {
     function takeWith(address who, uint amount, address token, uint seed, uint[16] memory amounts) external returns (uint);
     function riskFactor(address token) external view returns (uint);
     function getDepegSeverityBps(address token) external view returns (uint);
-    function GHO() external view returns (address);
-    function USDG() external view returns (address);
-    function aaveBalance(address token) external view returns (uint);
-    function aaveShares(address token) external view returns (uint);
-    function withdrawAaveLeg(address stable, uint amount, address to) external returns (uint);
     function get_metrics(bool force) external returns (uint total, uint avgYield);
     function get_metricsWith(uint raw, uint rateWeighted) external returns (uint total, uint avgYield);
     function rangeETH() external view returns (uint);
@@ -240,12 +210,7 @@ interface IAux is ISwap {
     function get_deposits() external returns (uint[16] memory amounts, uint[16] memory yieldW, uint avgYield, uint depegLoss);
     function getStables() external view returns (address[] memory);
     function getVaults(address stable) external view returns (address[] memory);
-    function AAVE_SPOKE() external view returns (address);
-    function AAVE_HUB() external view returns (address);
     function ethVenue() external view returns (address);
-    function GHO_RESERVE_ID() external view returns (uint256);
-    function USDG_RESERVE_ID() external view returns (uint256);
-    function aaveReserveId(address stable) external view returns (uint256);
     function deposit(address from, address token, uint amount) external returns (uint);
     function avgYield() external view returns (uint);
     function vaultBlocked(address vault) external view returns (bool);
@@ -270,8 +235,6 @@ interface IAux is ISwap {
     function trancheTotal() external view returns (uint);
     function refreshHoldingsSelf(address stable) external;
     function refreshAllHoldingsSelf() external;
-    function reserveIdOf(address token) external view returns (uint256);
-    function _withdrawAaveUnsafe(uint256 reserveId, uint amount, address to) external returns (uint);
     function tryCheckBacking() external returns (uint committedSum, uint totalLiquid);
     function redeem(uint amount) external;
 }
@@ -477,39 +440,10 @@ interface IOffchainOracle {
     function getRateToEth(address srcToken, bool useWrappers) external view returns (uint256);
 }
 
-interface IAaveV3Pool {
-
-    function getUserAccountData(address user) external view returns (
-        uint256 totalCollateralBase, uint256 totalDebtBase, uint256 availableBorrowsBase,
-        uint256 currentLiquidationThreshold, uint256 ltv, uint256 healthFactor);
-    function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
-    function borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode, address onBehalfOf) external;
-    function repay(address asset, uint256 amount, uint256 interestRateMode, address onBehalfOf) external returns (uint256);
-    function withdraw(address asset, uint256 amount, address to) external returns (uint256);
-    function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external;
-}
-
-struct CalcRatesParams {
-    uint256 unbacked;
-    uint256 liquidityAdded;
-    uint256 liquidityTaken;
-    uint256 totalDebt;
-    uint256 reserveFactor;
-    address reserve;
-    bool    usingVirtualBalance;
-    uint256 virtualUnderlyingBalance;
-}
-
 struct VenuePosition {
     uint256 collateral;
     uint256 debt;
     uint256 liqThresholdBps;
-}
-
-interface IAaveV3RateStrategy {
-
-    function calculateInterestRates(CalcRatesParams memory params)
-        external view returns (uint256, uint256);
 }
 
 struct MorphoMarket {
@@ -523,23 +457,3 @@ interface IIrm {
         external view returns (uint256);
 }
 
-interface IAaveV3DataProvider {
-    function getInterestRateStrategyAddress(address asset) external view returns (address);
-
-    function getReserveCaps(address asset) external view returns (uint256 borrowCap, uint256 supplyCap);
-
-    function getVirtualUnderlyingBalance(address asset) external view returns (uint256);
-    function getReserveData(address asset) external view returns (
-        uint256 unbacked, uint256 accruedToTreasuryScaled, uint256 totalAToken,
-        uint256 totalStableDebt, uint256 totalVariableDebt, uint256 liquidityRate,
-        uint256 variableBorrowRate, uint256 stableBorrowRate, uint256 averageStableBorrowRate,
-        uint256 liquidityIndex, uint256 variableBorrowIndex, uint40 lastUpdateTimestamp);
-    function getReserveConfigurationData(address asset) external view returns (
-        uint256 decimals, uint256 ltv, uint256 liquidationThreshold, uint256 liquidationBonus,
-        uint256 reserveFactor, bool usageAsCollateralEnabled, bool borrowingEnabled,
-        bool stableBorrowRateEnabled, bool isActive, bool isFrozen);
-    function getUserReserveData(address asset, address user) external view returns (
-        uint256 currentATokenBalance, uint256 currentStableDebt, uint256 currentVariableDebt,
-        uint256 principalStableDebt, uint256 scaledVariableDebt, uint256 stableBorrowRate,
-        uint256 liquidityRate, uint40 stableRateLastUpdated, bool usageAsCollateralEnabled);
-}

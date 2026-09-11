@@ -171,12 +171,11 @@ mod tests {
             crate::transport::HttpJsonRpc::new(url)
         };
         let wbtc = a("0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599");
-        let cases: [(&str, LpAddr, u32); 6] = [
+        let cases: [(&str, LpAddr, u32); 5] = [
             ("USDC",   USDC_ADDR, 6),
             ("USDT",   USDT_ADDR, 6),
             ("DAI",    DAI_ADDR, 18),
-            // 🔴 the two the self-planner CANNOT route at all: liquidity only on v4.
-            ("GHO",    a("0x40D16FC0246aD3160Ccc09B8D0D3A2cD28aE6C2f"), 18),
+            // 🔴 the one the self-planner CANNOT route at all: liquidity only on v4.
             ("FRXUSD", a("0xCAcd6fd266aF91b8AeD52aCCc382b4e165586E29"), 18),
             ("CRVUSD", a("0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E"), 18),
         ];

@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {AllesFixture} from "./Alles.t.sol";
 import {LevMath} from "../src/imports/LevMath.sol";
-import {RLUSD_TOKEN, PYUSD_TOKEN, USDT_TOKEN, DAI_TOKEN, USDG_TOKEN,
+import {RLUSD_TOKEN, PYUSD_TOKEN, USDT_TOKEN, DAI_TOKEN,
         CRVUSD_TOKEN} from "../src/imports/Interfaces.sol";
 
 /// ⚠️ **`vm.expectRevert` CANNOT BIND TO AN INLINED `internal` LIBRARY CALL** — `LevMath._hubHop(...)`
@@ -29,7 +29,7 @@ contract HubHopRosterTest is AllesFixture {
     //    TESTED. `_routableStable` is gone: "can this slice move" is exactly
     //    `_selfServableQuote(...) != 0`, which `_consolidateTo` already computes for the floor, and
     //    which is STRICTLY STRONGER — it also catches a listed pool that is paused.
-    // 🔑 And the assertion itself was already duplicated: `CurveTablePins.t.sol` pins all six rows to
+    // 🔑 And the assertion itself was already duplicated: `CurveTablePins.t.sol` pins every row to
     //    $1M within 1% of par in BOTH directions and asserts the exclusions stay zero. Re-implementing
     //    it here against a different function would be standing rule 23's exact failure — a second
     //    test whose only purpose is to re-assert what a live-block pin already asserts better.
@@ -62,7 +62,7 @@ contract HubHopRosterTest is AllesFixture {
     }
 
     // ⛔ NO "does the RLUSD row name the right pool" TEST HERE, AND NO `_hubRowOfForTest` ACCESSOR TO
-    //    ENABLE ONE. `_hubRowOf` is `private`, and `CurveTablePins.t.sol` ALREADY pins all six rows and
+    //    ENABLE ONE. `_hubRowOf` is `private`, and `CurveTablePins.t.sol` ALREADY pins every row and
     //    asserts the exclusions stay zero. Adding an accessor so this file could re-assert it would be
     //    standing rule 23's exact failure - a declaration that exists to serve a duplicate test.
 }

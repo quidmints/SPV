@@ -98,8 +98,8 @@ export function setContracts(next: Partial<Contracts>): void {
 // (the BTC range's pricing leg), even though delivery is native BTC via the hop.
 export const WBTC_DECIMALS = 8
 
-// 14 stables in DeployL1_s.sol order, **BOLD LAST** — §ROSTER-ALIGN: this listed 12,
-// missing crvUSD and frxUSD (deploy indices 11 and 12), while the deploy asserts 14. —
+// 12 stables in DeployL1_s.sol order, **BOLD LAST** (was 14 until GHO and USDG left with the
+// AAVE integration) — §ROSTER-ALIGN: this once listed 12 by MISSING crvUSD and frxUSD. —
 // the Aux runtime treats stables[length-1] as the Liquity stability pool
 // route (BOLD/SP special-case). USDT0 was REMOVED from the deploy (no L1
 // ERC20 exists — Ethereum uses canonical USDT behind the LayerZero adapter).
@@ -107,9 +107,7 @@ export const STABLES: StableToken[] = [
   { symbol: 'USDC',  address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', decimals: 6 },
   { symbol: 'USDT',  address: '0xdAC17F958D2ee523a2206206994597C13D831ec7', decimals: 6 },
   { symbol: 'PYUSD', address: '0x6c3ea9036406852006290770BEdFcAbA0e23A0e8', decimals: 6 },
-  { symbol: 'GHO',   address: '0x40D16FC0246aD3160Ccc09B8D0D3A2cD28aE6C2f', decimals: 18 },
   { symbol: 'RLUSD', address: '0x8292Bb45bf1Ee4d140127049757C2E0fF06317eD', decimals: 18 }, // verify on-chain
-  { symbol: 'USDG',  address: '0xe343167631d89B6Ffc58B88d6b7fB0228795491D', decimals: 6 },  // verify on-chain
   { symbol: 'DAI',   address: '0x6B175474E89094C44Da98b954EedeAC495271d0F', decimals: 18 },
   { symbol: 'USDS',  address: '0xdC035D45d973E3EC169d2276DDab16f1e407384F', decimals: 18 },
   { symbol: 'USDE',  address: '0x4c9EDD5852cd905f086C759E8383e09bff1E68B3', decimals: 18 },
@@ -144,7 +142,7 @@ export const HOP_API: { url: string; token: string } = {
 export const INDEXER_URL: string = process.env.NEXT_PUBLIC_INDEXER_URL ?? ''
 
 // ⛔ ETH YIELD VENUES ARE GONE — `EthVenue` / `ETH_VENUES` DELETED HERE, NOT MOVED.
-// This file exported a six-entry venue table (ids 0,2,3,4,5,6 — Split / AAVE v4 / Galaxy /
+// This file exported a six-entry venue table (ids 0,2,3,4,5,6 — Split / a v4 lender / Galaxy /
 // ether.fi Rover / Euler / Gauntlet) described as "chosen PER auto-LP deposit (rides the deposit
 // call)". **Every one of those codes was fiction.** Measured against `evm/src`: no `VENUE_*`
 // constant, no `Rover` symbol, no `setEthVenue`, no `setWithdrawInstant`, and
@@ -185,8 +183,6 @@ export const LEV_VENUES: LevVenue[] = [
     'Euler v2 isolated vault; pledge weETH.'),
   levVenue(2, 'Morpho — WETH',  process.env.NEXT_PUBLIC_LEV_VENUE_MORPHO_WETH,  'WETH',
     'Morpho Blue isolated market; pledge plain WETH.'),
-  levVenue(3, 'Aave v4 — WETH', process.env.NEXT_PUBLIC_LEV_VENUE_AAVE_WETH,    'WETH',
-    'Aave v4 spoke supply; pledge WETH.'),
   levVenue(4, 'Liquity — WETH', process.env.NEXT_PUBLIC_LEV_VENUE_LIQUITY_WETH, 'WETH',
     'Liquity v2 trove (debt is BOLD, face-value minted); pledge WETH.'),
 ].filter((v): v is LevVenue => v !== null)

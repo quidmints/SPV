@@ -17,8 +17,6 @@ error BadSPV();
 error BtcChannelsPinned();
 error BtcVaultPinned();
 error ChannelKeysMismatch();
-error GHOIsAaveWired();
-error GHONotOnAAVE();
 error InsufficientAllowance();
 error InvalidParam();
 error LevManagerPinned();

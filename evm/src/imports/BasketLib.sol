@@ -11,7 +11,6 @@ import {IERC4626} from "forge-std/interfaces/IERC4626.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {Types} from "./Types.sol";
 import {FeeLib} from "./FeeLib.sol";
-import {IAaveV4Hub} from "./Interfaces.sol";
 import {IAux} from "./Interfaces.sol";
 import {QuidLib} from "./QuidLib.sol";
 
@@ -96,9 +95,7 @@ library BasketLib {
 
     function _refreshOne(address stable,
         mapping(address => Holding) storage sh) internal {
-        address aux = address(this);
-        bool isAave = (stable == IAux(aux).GHO() || stable == IAux(aux).USDG());
-        (uint b, uint yw) = _valueStable(stable, isAave, IAux(aux).AAVE_SPOKE());
+        (uint b, uint yw) = _valueStable(stable);
         Holding storage h = sh[stable];
         (uint lastLevel, uint rate, uint40 lastAt) = (h.lastLevel, h.rate, h.lastAt);
         if (b > 0) {
@@ -133,13 +130,6 @@ library BasketLib {
         for (uint i; i < len; i++) _refreshOne(stables[i], sh);
     }
 
-    function _aaveYieldWeighted(address aux, address stable, uint assets)
-        internal view returns (uint) {
-        if (assets == 0) return 0;
-        uint shares = IAux(aux).aaveShares(stable);
-        return shares > 0 ? SoladyMath.fullMulDiv(assets, assets, shares) : assets;
-    }
-
     function _yieldWeight(address v, uint b, uint shares, uint assetDec)
         internal view returns (uint) {
         try IERC20(v).decimals() returns (uint8 sd) {
@@ -148,40 +138,26 @@ library BasketLib {
         } catch { return b; }
     }
 
-    function _valueStable(address stable, bool isAave, address aaveSpoke)
+    function _valueStable(address stable)
         internal returns (uint balance, uint yieldWeighted) {
         address aux = address(this);
 
         uint dec = IERC20(stable).decimals();
         address[] memory vs = IAux(aux).getVaults(stable);
-        if (vs.length == 0) {
+        for (uint j = 0; j < vs.length; j++) {
+            address v = vs[j];
 
-            if (!isAave) return (0, 0);
-            balance = IAux(aux).aaveBalance(stable);
-            yieldWeighted = _aaveYieldWeighted(aux, stable, balance);
-        } else {
-            for (uint j = 0; j < vs.length; j++) {
-                address v = vs[j];
-                if (v == aaveSpoke) {
+            uint b; uint shares;
+            try IERC4626(v).balanceOf(aux) returns (uint sh) {
+                if (sh == 0) continue;
+                shares = sh;
+                try IERC4626(v).convertToAssets(sh) returns (uint a) { b = a; }
+                catch { continue; }
+            } catch { continue; }
+            if (b == 0) continue;
+            balance += b;
 
-                    uint ab = IAux(aux).aaveBalance(stable);
-                    balance += ab;
-                    yieldWeighted += _aaveYieldWeighted(aux, stable, ab);
-                    continue;
-                }
-
-                uint b; uint shares;
-                try IERC4626(v).balanceOf(aux) returns (uint sh) {
-                    if (sh == 0) continue;
-                    shares = sh;
-                    try IERC4626(v).convertToAssets(sh) returns (uint a) { b = a; }
-                    catch { continue; }
-                } catch { continue; }
-                if (b == 0) continue;
-                balance += b;
-
-                yieldWeighted += _yieldWeight(v, b, shares, dec);
-            }
+            yieldWeighted += _yieldWeight(v, b, shares, dec);
         }
         if (balance == 0) return (0, 0);
 
@@ -426,23 +402,11 @@ library BasketLib {
         if (worst != address(0)) IAux(address(this)).flagIlliquidSelf(worst, worstBps < LIQ_TOL_BPS);
     }
 
-    function _aaveAvail(address aux, address stable) internal view returns (uint) {
-        address hub = IAux(aux).AAVE_HUB();
-        if (hub == address(0)) return 0;
-        try IAaveV4Hub(hub).getAssetId(stable) returns (uint aid) {
-            try IAaveV4Hub(hub).getAssetLiquidity(aid) returns (uint liq) {
-                uint mine = IAux(aux).aaveBalance(stable);
-                return liq < mine ? liq : mine;
-            } catch { return 0; }
-        } catch { return 0; }
-    }
-
     function _illiquidLoss() internal view returns (uint loss, address worst, uint worstBps) {
         worstBps = type(uint).max;
 
         address aux = address(this);
         address[] memory stables = IAux(aux).getStables();
-        address aaveSpoke = IAux(aux).AAVE_SPOKE();
         uint len = stables.length - 1;
         for (uint i = 0; i < len; i++) {
             address stable = stables[i];
@@ -450,24 +414,6 @@ library BasketLib {
             uint shortfall;
             for (uint j = 0; j < vs.length; j++) {
                 address v = vs[j];
-                if (v == aaveSpoke) {
-
-                    uint rid = stable == IAux(aux).GHO()
-                        ? IAux(aux).GHO_RESERVE_ID()
-                        : stable == IAux(aux).USDG()
-                        ? IAux(aux).USDG_RESERVE_ID()
-                        : IAux(aux).aaveReserveId(stable);
-                    if (rid == 0) continue;
-                    uint supA = IAux(aux).aaveBalance(stable);
-                    uint avail = _aaveAvail(aux, stable);
-                    if (supA > avail) shortfall += supA - avail;
-
-                    if (supA > 0) {
-                        uint abps = SoladyMath.fullMulDiv(avail > supA ? supA : avail, 10000, supA);
-                        if (abps < worstBps) { worstBps = abps; worst = aaveHealthKey(aaveSpoke, rid); }
-                    }
-                    continue;
-                }
                 try IERC4626(v).balanceOf(aux) returns (uint sh) {
                     if (sh == 0) continue;
                     uint solv;
@@ -680,10 +626,6 @@ library BasketLib {
             evacuateBody(vault, cfg, vaultHealth, vaultsOf, tokens);
     }
 
-    function aaveHealthKey(address spoke, uint reserveId) internal pure returns (address) {
-        return address(uint160(uint256(keccak256(abi.encode(spoke, reserveId)))));
-    }
-
     function flagIlliquidBody(address vault, bool illiquid,
         mapping(address => VaultHealth) storage vaultHealth) external {
         if (illiquid) {
@@ -718,16 +660,15 @@ library BasketLib {
         mapping(address => address[]) storage vaultsOf
     ) internal {
         address[] memory vs = vaultsOf[stable];
-        address spoke = IAux(address(this)).AAVE_SPOKE();
         uint n;
 
         for (uint j; j < vs.length; j++)
-            if (vs[j] != spoke && !vaultHealth[vs[j]].blocked) n++;
+            if (!vaultHealth[vs[j]].blocked) n++;
         if (n == 0) return;
         uint each = amount / n;
         uint rem = amount;
         for (uint j; j < vs.length; j++) {
-            if (vs[j] == spoke || vaultHealth[vs[j]].blocked) continue;
+            if (vaultHealth[vs[j]].blocked) continue;
             uint a = (--n == 0) ? rem : each;
             rem -= a;
             if (a > 0) IERC4626(vs[j]).deposit(a, address(this));

@@ -66,7 +66,7 @@ pub trait BtcLevKeeperEvm {
     async fn protect_from_quid(&self, lp: LpAddr, repay_usd: u64) -> anyhow::Result<()>;
     /// `BtcLevManager.rebalanceWbtc(lp, minStableOut)` — the ATOMIC WBTC-mode rebalance: one permissionless,
     /// self-flooring on-chain call that fold-ups OR flash-repay-first de-levers to the IL target in a single
-    /// tx (no acquirer, no async vBTC legs — the WBTC-fallback route holds real WBTC on Aave/Morpho).
+    /// tx (no acquirer, no async vBTC legs — the WBTC-fallback route holds real WBTC in an escrow venue).
     /// The contract enforces the anti-MEV oracle floor internally, so the keeper passes `minStableOut = 0`
     /// (it picks WHEN, not the price). Permissionless ⇒ any fleet signer triggers it; a revert is fail-safe.
     async fn rebalance_wbtc(&self, lp: LpAddr) -> anyhow::Result<()>;
@@ -123,7 +123,7 @@ pub async fn btc_tick<E: BtcLevKeeperEvm>(
         };
         v.move_persisted = dwell.persisted(lp, out_of_range(&v, cfg), now_secs, dwell_secs);
         let action = decide(&v, cfg);
-        // WBTC-fallback collateral (real WBTC on Aave/Morpho) rebalances via ONE atomic on-chain call
+        // WBTC-fallback collateral (real WBTC in an escrow venue) rebalances via ONE atomic on-chain call
         // that handles BOTH directions itself — no acquirer, no async withdraw→sell / borrow→mint→supply legs.
         // QUID-protect stays mode-agnostic (redeem→repay preserves collateral regardless of venue); Hold no-ops.
         if v.wbtc_mode {

@@ -1555,9 +1555,9 @@ export default function QuidApp() {
             <p>QU!D is experimental. No team, no admin keys, no upgrades.</p>
             <p>
               You are minting a stablecoin-basket token backed by deposits across
-              {' '}{STABLES.length} stables (USDC, USDT, DAI, USDS, USDe, crvUSD, FRAX,
-              GHO, PYUSD, RLUSD, USDG, AUSD, BOLD). Some routes through yield
-              venues (Morpho / Aave v4 / sDAI / sUSDe / Liquity SP).
+              {' '}{STABLES.length} stables (USDC, USDT, DAI, USDS, USDe, crvUSD, frxUSD,
+              PYUSD, RLUSD, AUSD, cUSD, BOLD). Some routes through yield
+              venues (Morpho / sDAI / sUSDe / Liquity SP).
             </p>
             <p>
               QUI has a maturity month per mint. Pre-maturity QUI is non-redeemable
