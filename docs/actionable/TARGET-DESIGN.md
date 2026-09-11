@@ -270,6 +270,70 @@ product.** Raising the charge to 4,200 ppm would be a different product; adding 
 on-chain is not an option; shortening a TWAP window we already deleted is not available. **Setting an
 acceptance window is.**
 
+## 🔑 0a-sexies. **WHY NO SLIPPAGE, AND WHAT MAKES IT SELF-CORRECTING** (owner, 2026-09-11)
+
+> *"what is our reason for not needing slippage… how do we prevent this from being a source of unfair
+> or extra expense. how is the mechanism self-correcting?"*
+
+### 1. WHY WE DO NOT NEED SLIPPAGE — and the answer is only HALF of what slippage was doing
+A CFMM's slippage is not a fee; **nobody receives it.** It is the geometry of walking `x·y = k`. And it
+does **two** jobs:
+| job | do we still need it? |
+|---|---|
+| **PRICE** the inventory risk of absorbing your order | ❌ **No.** We do not quote a curve — we sell from a book at an honest external price, and the risk is priced by the flat 420 ppm. This half is legitimately deleted, and it is what *"no slippage, one price for any size"* buys |
+| 🔴 **RATION** — an arb's profit shrinks as it takes size, so no single trade can take everything | ✅ **YES, and nothing replaced it.** Verified: `Core._fillDelta` clamps to `held` and nothing else |
+⇒ **the reason for not needing slippage covers the PRICING half only. We deleted both and accounted
+for one.**
+
+### 2. 🔴 HOW IS IT SELF-CORRECTING? **TODAY IT IS NOT, AND THAT IS THE HONEST ANSWER**
+A CFMM is self-correcting by construction: drain it and the price it quotes **rises**, which
+simultaneously compensates the pool, deters the next taker, and pays someone to replenish. **The price
+signal IS the inventory signal.**
+**Ours has no feedback at all.** We quote the oracle whether we hold 100% or 1% of the asset. Inventory
+falls, nothing changes, and the next trader pays the same 420 ppm as the first. ⇒ **there is no
+mechanism by which depletion makes replenishment attractive** — §PLP-T's *"not a mechanism, a hope."*
+**That feedback is exactly what the skew was for, and we deleted it.**
+
+### 3. ⭐ BUT IT CAN COME BACK, AND §NO-GAMEABLE-BOUND DOES NOT FORBID IT — THE DISCRIMINATOR IS SHARP
+The rule is *"no charge may derive from OBSERVED FLOW, because the counterparty being priced sets
+observed flow."* **The two attacks that produced it were both attacks on a TIME-AVERAGE:**
+| attack | why it worked on the old kernel | does it work on INVENTORY LEVEL? |
+|---|---|---|
+| **patience** — stop trading, let the 48h EWMA decay | the target was a decaying average, so **waiting moved it for free** | ⛔ **No.** Waiting does not change what we hold. Only someone actually replenishing does — and if they do, **the mechanism worked** |
+| **clock-stretching** — space the slices 4h apart, σ² falls ~24× | variance is measured per-interval, so **splitting shrank the input for free** | ⛔ **No.** Each slice lowers the level, so the next slice is charged more. **The total is the integral** — splitting buys nothing |
+⇒ **THE REAL DISCRIMINATOR IS NOT "STATE vs FLOW". IT IS WHETHER THE COUNTERPARTY CAN MOVE THE INPUT
+*WITHOUT PAYING*.** The flow EWMA and σ² were **free** to move — by waiting, or by spacing. **Inventory
+level can only be moved by trading, and every unit of that trade pays the charge it is setting.**
+**Gameable-only-by-paying is not gaming; it is the mechanism operating.**
+
+### 4. ✅ AND THE OLD DOC'S "DEFECT" WAS THE RIGHT SHAPE, MISREAD
+`SKEW-AND-REFILL.md` (deleted today) complained: *"the charge is close to nothing until the pool is
+severely depleted — it behaves as a guard against being emptied rather than as a continuous incentive
+to rebalance."* **That is not a defect. That is precisely the shape this design wants:**
+- **flat and negligible across the normal band** ⇒ *"no slippage"* stays true for ordinary size, which
+  is the product;
+- **biting only as inventory approaches depletion** ⇒ rationing exactly where the free option lives.
+⇒ **The SHAPE was right and the INPUT was wrong.** It keyed off *expected flow* — a gameable average —
+when it should have keyed off *the level we actually hold*. **That is the whole correction**, and it is
+why the fix is not "restore the kernel" but "re-key it."
+
+### ▶️ SO THE ANSWER TO "UNFAIR OR EXTRA EXPENSE" IS A DESIGN CONSTRAINT, NOT A REASSURANCE
+1. **Zero in the normal band.** An ordinary trade must pay 420 ppm and nothing else, or we have
+   silently rebuilt an AMM and given up the one property that makes this venue worth using.
+2. **Rising only near depletion**, so the cost falls on the trade that is *causing* the scarcity rather
+   than on the one that follows it.
+3. **A function of the level, never of a rate, an average, or a variance** — or patience and
+   clock-stretching come back.
+4. **Monotone in size within one transaction**, so splitting is never cheaper than not splitting.
+⚠️ **AND THE FAIRNESS TEST IS THE INTEGRAL, NOT THE RATE:** a trader taking the pool from 90% to 10%
+should pay materially more than eighty traders each taking 1% — ⛔ **no, the OPPOSITE: they should pay
+the SAME**, because the integral is the same. If splitting is cheaper, clock-stretching is back; if
+splitting is dearer, we are taxing ordinary flow to punish one trader. **Equality under splitting is
+the property to test, and it is falsifiable.**
+⏸️ **NOT DESIGNED, and deliberately not sketched further here** — the curve's form is a real piece of
+work and the last one of these was wrong for two years. What is settled is the INPUT (level, not flow),
+the SHAPE (flat then biting), and the TEST (equality under splitting).
+
 ## 0b. THE ASSUMPTIONS, EACH GRADED BY HOW WE KNOW IT
 | # | assumption | grade |
 |---|---|---|
