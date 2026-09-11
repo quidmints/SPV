@@ -185,8 +185,12 @@ Each was carried as open, some in red, some for weeks.
    - **`§BTC-2.6`** — the WBTC shortfall rail's **fulfilment record**, whose own text says it *"needs
      on-chain state, not an event"*. ⚠️ It was a numbered PHASE-2 **security** item and GATE 2.1
      silently demoted it to *"downstream of an undecided product ruling"* while `#11` still reads 🔴.
-**2. 🔴 `§E99`: `claimedBy` storage must exist at deploy** even though the multi-daemon lease is closed
-   outright. A ✅-headed row whose tail says **FORECLOSED at deploy**. Storage cannot be added later.
+**2.** ~~`§E99`: `claimedBy` storage must exist at deploy.~~ ⛔ **STRUCK — I INVERTED THE ROW'S OWN TAIL.**
+   Its tail reads *"`claimSwapOut`/`claimedBy` **must NOT be built and nothing is foreclosed at
+   deploy**"* (owner: *"no multidaemon at all ever"*). I wrote the opposite. Verified: `grep claimedBy
+   evm/src/` → **zero**, and `PendingOnchainSwapOut` has **no spare packing** (32/32/32 exactly), so
+   adding it would cost a slot rather than fill one. **What is genuinely open is the CONTRADICTION
+   flagged in the same cell (`§E99-IS-A-PRE-DEPLOY-GATE`), not a build instruction.**
 **3. 🔴 `§LPETH-THIRD-FIELD`** — ✅ **LANDED `b573c101`.** Kept here because it is Tier-0 class and the
    reasoning must not be undone: `lpPubkey`/`hopPubkey` carry the **byte-sorted** pair (required —
    `channelId` and the funding SPK are rebuilt from them), so the LP's identity needed its own field.
@@ -198,9 +202,18 @@ Each was carried as open, some in red, some for weeks.
    *"parameters are settable, addresses are settable"*; GATE 3.4/3.5 rule **no setters, no owner**.
    `§BTC-4.6g`'s *"one-way k-of-n flag"* **is** an authority. The owner's Bitcoin-derived latch is the
    only resolution present in the whole scope.
-**5. `§BTC-4.6g-bis`** — five derive-a-script-from-a-key sites pinned as **opaque bytes**.
+**5. `§BTC-4.6g-bis`** — ⚠️ **SIX sites, not five. The table undercounts, and the code says so.**
+   Verified present and hardcoded: `BitcoinTx.sol:323` (funding `5120||q`), `BTCChannels.sol:772`
+   (`_lpPayoutScript`), `BTCChannels.sol:2057` (`lpToRemoteKey`), `BitcoinTx.sol:829`
+   (`verifySwapInDeposit`), `BTCChannels.sol:2509` (`_requireRecipientPoP`).
+   🔴 **`BitcoinTx.sol:781-792` carries a comment naming itself *"A SIXTH … SITE, ABSENT FROM THE
+   FIVE-SITE TABLE"* — and it is the one site the "pin opaque bytes" remedy CANNOT reach, because it
+   is a sighash preimage.** Any plan built on the five-site table is short by the hardest one.
 **6. `§BTC-4.6n`** — `verifyDeadManExit` verifies an **enumerated** signature scheme.
-**7. `7f` `PendingOnchainSwapOut.sats`** — narrow the guard to the stored width (owner-ruled).
+**7.** ~~`7f` `PendingOnchainSwapOut.sats` — narrow the guard to the stored width.~~ ✅ **STRUCK — ALREADY DONE.**
+   `BTCChannels.sol:2307` is now `if (sats > type(uint64).max || usd6 > type(uint96).max) revert InvalidParam();`,
+   tagged *"EACH GUARD IS THE WIDTH THE FIELD IS STORED AT"*. The `uint96`-guard-over-`uint64`-field
+   mismatch is gone. Residue is cosmetic only (the event still widens at `:2489`).
 **8. `§BTC-4.3`** — per-epoch funding derivation. ⚠️ Its own note: **"decide before the app signer is
    written"** ⇒ it is upstream of item 0, and **`§MASTER-ORDER` scheduled it in no gate at all.**
 
@@ -208,11 +221,20 @@ Each was carried as open, some in red, some for weeks.
 > `§ARCH-ASSUMPTION` isolates this class explicitly: *"TRUE REGARDLESS OF ANY ASSUMPTION."*
 **9. `NEW-1` / `§AUDIT-SPV-RETARGET`** — SPV retarget brick. **`%2016` alignment ✅ LANDED**; the
    **`§AUDIT-REORG-DOS`** fork-switch walk-back (O(depth) SLOAD+SSTORE) is **still open**.
-**10. `§AUDIT-JUSTICE-WEIGHT`** — `WEIGHT_REVOKED_OUTPUT = 155` is the legacy **P2WSH** weight; a
-   taproot justice tx **asserts and panics**. Breach path.
-**11. `NEW-3` / `§NEW-3-STILL-OPEN`** — `swapOutDeleverAmt` withhold-vs-repay.
-**12. `§MUSIG-UNSPICED-CLOSE-AND-SPLICE`** — ✅ **FIXED in `quid-ln`.** ▶️ **The LDK fork at `7c50bb59`
-   still carries it** and cannot be edited from this tree. **Handoff, not done.**
+**10.** ~~`§AUDIT-JUSTICE-WEIGHT` — taproot justice tx asserts and panics.~~ ✅ **STRUCK — FIXED AT THE
+   PINNED REV.** `package.rs:143` defines `WEIGHT_REVOKED_OUTPUT_TAPROOT`; `:147
+   weight_revoked_output()` branches on `supports_simple_taproot()` and is called at `:202` from the
+   `RevokedOutput` build path, with four tests. **The panic-on-breach defect is gone.**
+**11.** ~~`NEW-3` — `swapOutDeleverAmt` withhold-vs-repay.~~ ✅ **STRUCK — ALREADY DONE.**
+   `LevBase.sol:470-471` has the clamp the row calls absent: `uint256 debtNative = p.venue.debtOf(lp);
+   if (amtNative > debtNative) amtNative = debtNative;`. **The SPRINT row is stale.**
+**12. `§MUSIG-UNSPICED-CLOSE-AND-SPLICE`** — ✅ FIXED in `quid-ln` (`our_key_path_partial_holder_local`).
+   🔴 **CONFIRMED STILL PRESENT IN THE FORK AT `7c50bb5`**, read directly: `sign/mod.rs:2782`
+   `partially_sign_closing_transaction` calls the unspiced `our_key_path_partial` at `:2807`, and
+   `:2837 partially_sign_splice_shared_input` at `:2851`.
+   ⭐ **AND THE FORK IS READABLE FROM THIS MACHINE** — `~/.cargo/git/checkouts/rust-lightning-*/7c50bb5`
+   is the pinned rev on disk. **Do not call fork claims unverifiable; read the checkout.** (Editing
+   still requires the external repo.)
 **13. `§AUDIT-REENTRANCY-GAP`** — `Vault.creditSwapIn`/`creditSwapOut` lack `nonReentrant`; `Core` has
    no `ReentrancyGuard` at all. Latent until a hookable stable lands.
 **14. `§MIN-CHARGE-MISSES-THE-SWAP-IN-RAIL`** — the BTC swap-IN is the **refill direction** and misses
@@ -228,30 +250,62 @@ Each was carried as open, some in red, some for weeks.
    pair and value, so a delivery output has **no authorisation source**. That extension (trait in
    `quid-ln`, impl in `quid-bridge` over `eth_read_agreed`) is the remaining work.
    ⛔ **Do NOT build the `CidRegistry` binder** — `channelId` is computable.
-**16. `§BTC-2.4d` / `4c`** — derive the LP's payment basepoint **in the app**. Unblocked.
-**17. `§BTC-2.4` / `4d`** — force-close shortfall check. **Emit only; re-value nothing, revert nothing.**
+**16.** ~~`§BTC-2.4d` / `4c` — derive the LP's payment basepoint in the app.~~ ✅ **STRUCK — ALREADY DONE.**
+   `app/features/identity/chain/hop.ts:235 deriveLpPaymentPoint(mnemonic)` over
+   `LP_PAYMENT_BASEPOINT_PATH = "m/86'/0'/1'/0/0"`. ⚠️ No caller outside the module yet, and
+   `postLpConsent` says the ladder side is *"NOT WIRED TO A SIGNER YET"* — but that is item 0's work,
+   not this one's. **The derivation this item asks for exists.**
+**17.** ~~`§BTC-2.4` / `4d` — force-close shortfall check.~~ ✅ **STRUCK — ALREADY DONE.**
+   `BTCChannels.sol:2050 _emitForceCloseLpOutput` + `event ForceCloseLpOutput` (`:2012`), called from
+   `recordForceClosePermissionless` (`:1993`); locates the LP output via `ch.lpToRemoteKey` and emits
+   `(lpPaidSats, checkpointSats, paidOutSats)`. **Emit-only, no revert, no re-value — exactly as specified.**
 **18. `4e`** — `reverseSwapOut` floor **and** the skimmed-fee bound. **One finding, two places, one change.**
 **19. `§LN-SWAPIN-REMAINDER` / `R-17`** — ✅ ruled: **never take what you cannot pay for, AND keep the
-   refund, because the availability check is a TOCTOU.** `read_consumed_sats` inverted ✅;
-   `settleSwapInProven` all-or-nothing and the claim-gating **unbuilt**.
+   refund, because the availability check is a TOCTOU.**
+   ✅ `read_consumed_sats` returns `Option` (`client.rs:564`). ⭐ **AND THE CLAIM-GATING IS BUILT END TO
+   END — I recorded it as unbuilt and was wrong:** `client.rs:712` bails *"not claiming, retry"*;
+   `swap_in_onchain.rs:112 outcome_action` maps `Undeliverable → DropToRefund` and delivered →
+   `Claim { refund_sats: actual − consumed }`, reaching `build_claim_tx_with_refund` at `:341`.
+   🔴 **What remains open is one thing: `settleSwapInProven` accepts partials by design**
+   (`BTCChannels.sol:2102`). ⚠️ Stale prose at `quid-bridge/src/evm.rs:49` still describes the old
+   "converted everything, refund nothing" fallback.
 **20. `§AUDIT-SWAPOUT-CONCURRENT`** — ✅ single-writer rail B landed. ⚠️ **Its reachability was argued
    from `1b`, which is deleted; it survives because MAIN/FALLBACK reach it without `1b`.**
-   📌 **And they are seed-siblings off one `root_seed` — the fleet is ONE identity with HA siblings,
-   not two parties.** The fallback's takeover-on-dead-main hand-off is **not built**.
+   ⛔ **I CLAIMED MAIN AND FALLBACK ARE SEED-SIBLINGS OFF ONE `root_seed`. THAT IS FALSE.** They are two
+   **distinct EVM addresses** — `BTCChannels.sol:787` rejects `_mainHop == _fallbackHop`, and `:804`
+   says *"the SAME trust domain (same operator, same image)"*, which is not the same seed.
+   `derive_vault_seed` is the **hop→vault** sibling, a different pair. **The single-writer fix stands;
+   its stated rationale did not.** The fallback's takeover-on-dead-main hand-off is **not built**.
 **21. `R-MIGRATION-BINDS-THE-INSTANCE`** — bind the seed export to the successor's attested ephemeral
    key (`report_data`), then **delete the nonce, `markMigrationNonceUsed` and its mapping** — freeing
    immutable-contract bytes. ⚠️ Operators then sign **per migration**, against a live successor.
 **22. `R-10`** — key recovery = a **second registered BIP-340 key**. 🔑 **`§LADDER-VALUE-IS-CONDITIONAL`:
    the exit ladder protects NOTHING without this**, because every rung pays a locked `btcRecipientOf`.
-**23. `§BTC-2.4c` / `4k`** — keyless fee bump via **ephemeral anchor, NOT `bump.rs`**. Same reason: a
-   fixed `DEAD_MAN_FEE_SATS` breaks the keyless-recovery path.
-**24. `§SWAPOUT-DRAINS-THE-EXIT`** — a fill may drain to the last sat; the delivery must arm an exit
-   over the residue. ⚠️ Presupposes **one channel per pool**; the multi-channel case is untraced.
-**25. `B8` / `§7540`** — ✅ **both halves now owner-decided**: the claim is immediate
-   (`§7540-CLAIM-IS-IMMEDIATE`) and **the token IS the shares** (`R-9`). Remaining work is the fold,
-   and **`Vault.exposeBtcToLev` minting the LP's shares to `LEV_MANAGER` is the defect to fix.**
-   ⚠️ **Lane L5, not a Bitcoin lane.** ⛔ Re-derive its scope from code — it cites three symbols that
-   never existed in this tree.
+**23. `§BTC-2.4c` / `4k`** — ⚠️ **THE ROW PRESCRIBES WHAT THE CODE DELIBERATELY REJECTED.**
+   The bump is **built**, as a **funded P2A**: `quid-ln/src/deadman_exit.rs:99 deadman_anchor_spk()`,
+   appended as the last output of `build_deadman_exit_tx` (`:151-155`). Its own comment at `:91`
+   explicitly rejects *"a 0-value ephemeral anchor"* — the thing this row asks for. **`bump.rs` does
+   not exist anywhere.**
+   ⇒ **What is actually open is only the cost half:** `DEAD_MAN_FEE_SATS = 2_000` is still fixed
+   (`quid-bridge/src/deadman_exit.rs:95`), and that file's header already says recoverability is closed
+   and a live feerate is *"the remaining refinement"*.
+**24.** ~~`§SWAPOUT-DRAINS-THE-EXIT` — the delivery must arm an exit over the residue.~~ ✅ **STRUCK —
+   ENFORCED IN CODE.** `deliverSwapOutOnchain` takes `Types.ExitArming[] calldata exits` and calls
+   `_armLadder`, which requires `exits.length >= 2` (`LadderTooShallow`), `<= MAX_LADDER_RUNGS`, and
+   distinct deadlines; `_armDeadManExit` (`:1544`) enforces
+   `if (paid < exit.checkpointSats) revert ExitUnderpaysCheckpoint();`. **A delivery cannot settle
+   without arming over the residue.** ⚠️ Only the row's own caveat survives: the multi-channel case is
+   untraced.
+**25. `B8` / `§7540`** — ✅ both halves owner-decided (`§7540-CLAIM-IS-IMMEDIATE`; **the token IS the
+   shares**, `R-9`).
+   ⭐ **AND THE MINT DEFECT IS DELETED, NOT PENDING — I NAMED WORK THAT NO LONGER EXISTS.**
+   `Vault.sol:302 exposeBtcToLev` **mints nothing**: it gates on `LEV_MANAGER` and calls
+   `BtcLib.vbtcExposeBody`, whose whole body is a bounds check plus `levPooled[lp] += sats`.
+   **`mintTo`/`burnFrom` no longer exist on the token** (`VBtc.sol:23`: *"the MINT/BURN pair is GONE"*),
+   and `unexposeBtcFromLev` has no burn. ⚠️ Stale prose survives in `BtcLevManager.sol:240/392/419/454`,
+   which still describe `VBTC.burnFrom`.
+   ⇒ Remaining work is the 7540 fold itself. **Lane L5.** ⛔ Re-derive scope from code — it cites three
+   symbols that never existed.
 
 ### TIER 3 — TESTS AND PROSE. After the code they describe is settled.
 **26. 🔴 `4j` / `§BTC-9b-bis` — broadcast a matured dead-man exit on regtest, end to end.**
@@ -261,12 +315,54 @@ Each was carried as open, some in red, some for weeks.
 **27. `§BTC-10b` — the settlement layer has NEVER been audited** (`_resize`, `requestDeposit`,
    `creditSwapIn/Out`): *"where value is created and destroyed."* Called **a new audit area, not a
    leftover** — and **no gate ever opened it.**
-**28. `§BTC-7` / `9b`** — the `btcRecipient` pubkey-hash cluster **first**: its event and error names
-   are **ABI a client acts on**, so it misleads a consumer, not just a reader. ⚠️ 15 sites became
-   **10 files, 7 of them inside the vendored LDK — which is now deleted.** Re-measure.
+**28. `§BTC-7` / `9b`** — the `btcRecipient` pubkey-hash cluster. **Its event and error names are ABI a
+   client acts on**, so it misleads a consumer, not just a reader: `BTCChannels.sol:462
+   event BtcRecipientRegistered(address indexed owner, bytes32 pubkeyHash)` and `:463
+   error NotPubkeyHash()` — while the value emitted at `:2563` is an **x-only key**, validated by
+   `isValidXOnlyKey`. `NotPubkeyHash()` is thrown at **5 sites incl. the user-facing `:2296`.**
+   ⚠️ **RE-MEASURED: the "10 files, 7 inside the vendored LDK" figure was a DIFFERENT count entirely**
+   (it was the `TAPROOT-CHANNELS-BUILD-SPEC.md` citation count). Live tree: **5 files, 0 in LDK.**
+   📌 Prose is partly cleaned already (`:252`, `:770`); one stale P2WPKH remains at `BitcoinTx.sol:258`.
 **29. `§BTC-4.5` — ML-KEM on RA-TLS.** The strongest quantum item, and **PHASE 4 was scheduled by no
    gate at all.** ⭐ `§NO-POST-QUANTUM-ANYWHERE` ranked taproot first and **retracted itself**: the
    exposure is the **transport** (HNDL on the migration path), not the channels.
+
+## 3b · VERIFIED AGAINST CODE — 2026-09-11. **Every surviving item was opened, not trusted.**
+
+**This is the last step of the process and it changed ~40% of the list.** Two passes, every item
+checked by opening the symbol.
+
+| verdict | items | meaning |
+|---|---|---|
+| **CONFIRMED-OPEN** | 0 · 1 · 6 · 8 · 9(half) · 13 · 14 · 15 · 18 · 21 · 22 · 26 · 27 · 29 | real, present, worth doing |
+| ✅ **ALREADY-DONE — struck** | **2 · 7 · 10 · 11 · 16 · 17 · 24 · 25** | **the code already does it. Working these would have "fixed" correct code.** |
+| ⚠️ **MISSTATED — corrected in place** | 5 (six sites, not five) · 12 (fork IS readable) · 19 (claim-gating built) · 20 (seed-sibling claim false) · 23 (P2A, not ephemeral anchor) · 28 (5 files, not 10) | real subject, wrong description |
+
+🔑 **THE TWO HIGHEST-CONFIDENCE OPENS, AND THEY ARE THE DEADLINE-BEARING ONES (item 1):**
+- **`§BTC-2.4b.1`** — its body says *"a freshness rotation must be atomic with arming a valid replacement
+  rung, or revert … **Enforce it in `BTCChannels`, not in the daemon**."* Code: `commitFreshness`
+  (`BTCChannels.sol:1646`) is `_onlyHop` + monotonic + jump-ceiling and **writes `freshnessSeq` with no
+  coupling to `_armDeadManExit`/`exitArmedOnOutpoint` and no LP signature.** The invariant is absent.
+- **`§BTC-2.6`** — its body says *"an **on-chain fulfilment record plus reversal**. An event a listener
+  may ignore is enclave-level trust."* Code: `grep BTCHopRequest` → **two hits, both in `Aux.sol`** (the
+  `emit` and the `event` decl). **Zero consumers, zero fulfilment state.**
+⇒ **Both are contract state, on a contract with one deploy. These are the items that cannot be added later.**
+
+⛔ **THREE ERRORS OF MINE THAT THIS PASS CAUGHT, RECORDED BECAUSE THE SHAPE REPEATS:**
+1. **I inverted `§E99`.** Its tail says `claimedBy` **must NOT be built and nothing is foreclosed**; I
+   wrote that storage must exist at deploy. ⇒ *reading a row's head and its tail as one instruction.*
+2. **I asserted MAIN/FALLBACK are seed-siblings** off one `root_seed`, relaying a reconciliation
+   agent's inference as a code fact. `BTCChannels.sol:787` rejects `_mainHop == _fallbackHop`. ⇒ *a
+   rows-against-rows pass produces hypotheses, not measurements — which is exactly why this step exists.*
+3. **I called the LDK fork unverifiable.** The pinned rev is on disk at
+   `~/.cargo/git/checkouts/rust-lightning-*/7c50bb5`. ⇒ **Read the cargo checkout before calling any
+   fork claim unreachable.** Items 10 and 12 were both settled that way — one closed, one confirmed.
+
+📌 **AND THE `ALREADY-DONE` COLUMN IS THE POINT OF THE WHOLE EXERCISE.** Eight items read as live work —
+several in red — over code that already does the thing. `§NEW-3-STILL-OPEN` names a clamp that sits at
+`LevBase.sol:470`. `4k` prescribes an ephemeral anchor the code deliberately rejected in a comment.
+`B8` names a mint defect whose symbols no longer exist. **Acting on any of them means editing working
+code to match a stale description.**
 
 ## 4 · THE RECONCILIATION REGISTER — do not re-derive these
 
