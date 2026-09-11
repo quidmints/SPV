@@ -56,11 +56,7 @@ contract BtcLevManager is LevBase {
         LevMath.requireOpenable(allowedVenue[address(venue)], address(AUX), address(venue));
         if (initialVbtc < MIN_OPEN) revert BadTarget();
 
-        _openPos(venue, AUX.assetPrice(ORACLE_KEY), initialWbtc);
-
-        uint entryEquity = initialVbtc;
-
-        _openPos(venue, entryPx, entryEquity);
+        _openPos(venue, AUX.assetPrice(ORACLE_KEY), initialVbtc);
 
         if (ILevVenue(address(venue)).COLLATERAL() == address(COLL)) {
             IVaultExposeB(VAULT).exposeBtcToLev(msg.sender, initialVbtc);
