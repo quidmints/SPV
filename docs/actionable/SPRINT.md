@@ -458,7 +458,7 @@ its **status markers are not**, exactly as `§BUILD-QUEUE-FOLD` said of its own 
 |---|---|
 | **Navigation** | this header, the subject map, `§KERNEL-RETIRED`, this section |
 | **Three ordering documents** | `§BITCOIN-ORDER-2026-09-11` (bitcoin lane) · `§MASTER-ORDER-2026-09-05` (GATE 0-9 + the five ordering traps) · `§LANES-2026-09-06` (the collision partition, whose fenced table `tools/blast-radius.py` parses) |
-| **The queue** | **85 sections — 54 core, 31 bitcoin.** Every one carries an open marker AND an imperative someone must still perform |
+| **The queue** | **85 sections — 54 core, 31 bitcoin.** Every one carries an open marker AND an imperative someone must still perform. ⛔ **THE 31 BITCOIN ROWS ARE UNCLASSIFIED — THEY ARE IN THIS COUNT BECAUSE A MECHANICAL FILTER MATCHED THEM, NOT BECAUSE ANYONE JUDGED THEM** (owner, 2026-09-11: *"they appear ungated in the table because I haven't looked, not because they're clear"*). The filter is a marker test plus an imperative test; it cannot tell a live task from a row whose subject was deleted. **Do not read "in the queue" as "assessed", and do not start one on the strength of this count.** `§BITCOIN-ORDER-2026-09-11` is the reconciled set — it is where a Bitcoin row has actually been judged, and where ~40 were found NOT to be tasks at all |
 
 ⛔ **LINE NUMBERS GO STALE THE MOMENT EITHER THREAD WRITES — grep the section title, never the number.**
 📌 Regenerate the split with the same rule: a section is ACTIONABLE iff its heading carries an open marker
@@ -497,14 +497,14 @@ landing code is not.
 | **D1** | the observation source, and the Chainlink-vs-Chainlink deviation guard | `§RING-LAGS-ORACLE` · `B1 FRESHNESS BACKSTOP` |
 | **D2** | who funds drift when flow does not reverse — carry, the waiter, or nobody | `§DELIVER-BACKING` · `§PREMIUM-VS-BORNE` |
 | **D3** | does `usd_owed` become a QU!D vintage (it costs supply-cap headroom) | `§E282` · `§SPLIT-WEIGHTS` |
-| **D4** | 🔴 **THE ALLOCATOR'S OBJECTIVE** — minimise total interest, or bound per-venue impact | `§POOL-VENUE-IS-PINNED` · `§SESS-55` · `§SESS-61` · `§SESS-49` · `§SESS-60` · `§SESS-75` · `§SESS-47` · `C15 1inch MIGRATION` · `WHAT GENUINELY GETS HARDER` · `THE FIX IS BYTE-BLOCKED` |
+| **D4** | ✅ **ANSWERED 2026-09-11 BY DELETION — see `§COLLATERAL-ANSWER` below. One borrow venue ⇒ nothing to allocate.** 4 of its 10 rows retire; 6 survive as SWAP ROUTING under **D4b — which aggregator/hub, which is a different question** | retired: `§POOL-VENUE-IS-PINNED` · `§SESS-55` · `WHAT GENUINELY GETS HARDER` · `THE FIX IS BYTE-BLOCKED` — **D4b:** `§SESS-61` · `§SESS-49` · `§SESS-60` · `§SESS-75` · `§SESS-47` · `C15` |
 | **D5** | the competitive ceiling the 420 ppm must stay under — **unmeasured** | `C2b DRAIN TAX` |
 | **D6** | the turnover the hedge is priced against (§10's break-even table is a function of it) | `§E330` |
 | **D7** | 🔴 **POOLED LIQUIDATION: isolate per-LP, or price and disclose the sharing** | `§CROSS-SUBSIDY-MEASURED` · `§LEVER-UP-HAS-NO-AGGREGATE-GATE` |
 | **D8** | is there a charge on the single-stable redemption leg, and is it directional | `C2b DRAIN TAX` |
 | **D9** | `Quid`'s payable fallback — revert on an unknown selector, or keep silent success | `§SESS-62` |
 
-📌 **D4 ALONE GATES TEN OF THE FIFTY-FOUR CORE ROWS.** Every one is a keeper/routing/venue task, and the
+📌 **(AS WRITTEN, AND NOW HALF-RETIRED:) D4 ALONE GATES TEN OF THE FIFTY-FOUR CORE ROWS.** Every one is a keeper/routing/venue task, and the
 owner has already parked that cluster (*"dont get distracted by that right now"*). ⇒ **that is 10 rows
 correctly NOT startable, and knowing it is worth more than working any of them.**
 
@@ -549,6 +549,49 @@ is built, so it is gated on D2/D4/D7 like everything else.
    deletes two accessors §7 reads. ⛔ **Splitting them across two commits is the rework.**
 5. **The phantom-test purge and the invariant suite LAST**, against the finalized implementation — which
    is also when the stripped comments get rewritten.
+
+## 🔑 §COLLATERAL-ANSWER — **THE LEVER POSTS weETH AND WBTC. LIGHTNING IS NEVER COLLATERAL, AND NEVER WAS** (owner, 2026-09-11)
+
+> *"do our borrowing needs require using lightning btc as collateral? for all purposes of inventory
+> management we should be able to not depend on that and still get the il protection and all other
+> properties we need. do we ever use the basket stables as collateral? assume in the final design that
+> we only borrow from aavev4."*
+
+**Full derivation with every citation: `docs/actionable/TARGET-DESIGN.md` §12.** The three answers, and
+the two consequences for this file:
+
+| | answer | evidence |
+|---|---|---|
+| **LN BTC as collateral?** | ✅ **NO, and there is nothing to change.** Every venue the deploy builds posts **weETH** (ETH: Morpho/RLUSD, Morpho/PYUSD, AaveV3/USDT) or **WBTC** (BTC: AaveV3/USDC) | `DeployL1_s.sol:591` — `vsB` has ONE entry, *"WBTC only"*; `BtcLevManager.sol:102` **enforces** `COLLATERAL() != WBTC ⇒ revert BadTarget()`. The WBTC is **bought** (`leverUpBuyWbtc` → `_hop1B`/`_hop2B`), not drawn from custody. A vBTC collateral market greps to **zero** (§NO-VBTC-MORPHO-MARKET, `3440c742`) |
+| **Basket stables as collateral?** | ✅ **NO — they are the DEBT**, and the escrow makes it unconstructible | every borrow runs in a per-venue `AaveV3Escrow` (`LevVenueBase.sol:264-306`) that approves only `coll`+`stable` and marks only `COLLATERAL`. The basket's supplies are at a **different address**, so they are not in the borrowing account |
+| **Only Aave v4?** | ⏸️ **buildable — and it caps the entire lever book at ~\$369k until Aave raises a cap** | measured 2026-08-30 by POSTING, not by reading depth: weETH cap **4,000**, already at **3,832.5** ⇒ **167 weETH ≈ \$461k** headroom vs v3's ~\$295M. A 100 weETH supply **reverts** `0xde3fc6ae(0xfa0)` |
+
+⭐ **THE FIRST ANSWER IS THE ONE WORTH INTERNALISING: THE INDEPENDENCE THE OWNER ASKED FOR IS ALREADY
+STRUCTURAL.** IL protection, inventory management and the drift hedge run on two ERC-20s and would keep
+running with the Lightning side completely dark. ⚠️ **The surviving coupling is DELIVERY, not COLLATERAL**
+— a BTC swap-out draws channel capacity — and that is what §6's tenor prices. **It never reaches the lever.**
+
+🔴 **ONE NEW INVARIANT FALLS OUT, AND IT IS NOT CURRENTLY WRITTEN ANYWHERE IN CODE.** The basket **does**
+supply — `IERC4626.deposit` (`BasketLib.sol:280`/`:737`) and `IAaveV4Spoke.supply` (`ChannelLib.sol:134`,
+GHO/USDG) — into **`Aux`'s account**. On Aave, an asset supplied into an account **is collateral for that
+account**. Nothing borrows from `Aux` today.
+⛔ **THE INVARIANT: THE ACCOUNT THAT PARKS BASKET STABLES MUST NEVER BORROW.** The moment it does, basket
+depositors' dollars are backing an LP's hedge — §1's *"neither subsidises the other"* broken in the
+sharpest way available. ▶️ **Booked as work: assert it, rather than rely on nobody adding a borrow.**
+
+⚠️ **AND THE ONE TRAP FOR WHOEVER BUILDS THE v4 VENUE:** `Amp.sol`'s `UserAccountData` declares **3 fields**
+while the live spoke returns **7 words**; decoding 7 as 3 lands word[2] — `type(uint).max` on an empty
+account — in `avgCollateralFactor`. **Copy the ladder, not the struct.** The rest of the integration exists
+already (`IAaveV4Spoke`/`IAaveV4Hub`, `getAssetId`→`getReserveId` at `Aux.sol:365-372`,
+`getUserSuppliedShares` at `:1561`), and weETH is confirmed collateral on v4 at **CF 0.8e18** — what is
+missing is one `AaveV4Venue` + `AaveV4Escrow` mirroring the v3 pair.
+
+🔴 **SEPARATE, AND IT BLOCKS READING THE MODEL AT ALL: `docs/actionable/TARGET-DESIGN.md` HAS TWO DIFFERENT
+BODIES UNDER ONE NAME.** `main` carries a 242-line **removal plan** (§0-§7); `lane/CUT` carries the 478-line
+**model** (PART I-IV, §1-§12) that this session's design settlement produced — drift, §6b, §7b, §7c,
+§NO-GAMEABLE-BOUND, and §12 above. **`lane/CUT` is 33 commits ahead of `main` and nothing has merged.**
+⛔ **Every citation of "TARGET-DESIGN §N" in this file means the CUT one.** ▶️ **Merge `lane/CUT` to `main`
+before anyone plans off the model, or the next reader opens the wrong document and nothing announces it.**
 
 ## 🔴🔴 §AUDITS-RE-RATED-2026-09-11 — **ONE OF THREE MOVED, AND NOT FOR THE REASON I BOOKED.**
 
