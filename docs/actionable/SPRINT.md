@@ -467,6 +467,89 @@ its **status markers are not**, exactly as `§BUILD-QUEUE-FOLD` said of its own 
 ⚠️ **A section that comes BACK from the archive comes back whole**, with its evidence. Do not summarise it
 into a row here; that is how the 49,320 lines were produced in the first place.
 
+## 🔗 §COMPOSITION-ORDER — **THE 85 ARE A FILTER, NOT AN ORDER. THIS IS THE PART THAT STOPS REWORK** (2026-09-11)
+
+Owner: *"i hope your reconciliation filtered out only the real valuable tasks with guarantee that we
+wont be going back and forth by finishing a few tasks then deleting our own work after finishing
+another few tasks."*
+
+🔴 **THE HONEST ANSWER IS THAT THE FILTER ALONE DOES NOT GIVE THAT GUARANTEE, AND TWO COUNTER-EXAMPLES
+WERE FOUND INSIDE THE FIRST FOUR ROWS RECONCILED.** The filter asked *"does this still demand work?"*
+It did not ask *"do these 85 contradict each other?"* — a different property, and it was not established.
+| found | the rework it would have caused |
+|---|---|
+| `TARGET-DESIGN` §7c says delete `sharesForShortfall` + `realInventory`. **`Quid.sol:1562` returns `totalShares()` and `:1567` returns `_auxRangeETH()` — they ARE `lpShares` and `rangeETH`, the two operands of §7's `drift_i`.** | do §7c first, delete the inputs to §7, restore them |
+| `proRataShortfall`: deleted **three times**, restored twice — §E301, then `c0b3b98f`, each by an argument about a NEIGHBOURING symbol | already paid, three rounds |
+
+⭐ **THE GUARANTEE DOES NOT COME FROM PAIRWISE CHECKING. IT COMES FROM ONE RULE, AND `CLAUDE.md` ALREADY
+STATES IT:** *"a decision gate upstream of a lane means that lane builds on a premise that is still being
+decided, and lands work that the gate then invalidates. Disjointness prevents merge conflicts; ORDERING
+prevents building the wrong thing."*
+⇒ **REWORK IS NOT RANDOM. IT IS CONCENTRATED IN ROWS DOWNSTREAM OF AN UNMADE DECISION.** So the queue is
+safe to work in exactly one order: **rule on the decisions, then build.**
+
+### 🚦 THE NINE DECISIONS, AND EVERY CORE ROW THEY GATE
+⛔ **A ROW LISTED HERE MUST NOT BE BUILT UNTIL ITS DECISION IS MADE.** Measuring it is always safe;
+landing code is not.
+
+| # | the decision, stated so it can be answered | rows it gates |
+|---|---|---|
+| **D1** | the observation source, and the Chainlink-vs-Chainlink deviation guard | `§RING-LAGS-ORACLE` · `B1 FRESHNESS BACKSTOP` |
+| **D2** | who funds drift when flow does not reverse — carry, the waiter, or nobody | `§DELIVER-BACKING` · `§PREMIUM-VS-BORNE` |
+| **D3** | does `usd_owed` become a QU!D vintage (it costs supply-cap headroom) | `§E282` · `§SPLIT-WEIGHTS` |
+| **D4** | 🔴 **THE ALLOCATOR'S OBJECTIVE** — minimise total interest, or bound per-venue impact | `§POOL-VENUE-IS-PINNED` · `§SESS-55` · `§SESS-61` · `§SESS-49` · `§SESS-60` · `§SESS-75` · `§SESS-47` · `C15 1inch MIGRATION` · `WHAT GENUINELY GETS HARDER` · `THE FIX IS BYTE-BLOCKED` |
+| **D5** | the competitive ceiling the 420 ppm must stay under — **unmeasured** | `C2b DRAIN TAX` |
+| **D6** | the turnover the hedge is priced against (§10's break-even table is a function of it) | `§E330` |
+| **D7** | 🔴 **POOLED LIQUIDATION: isolate per-LP, or price and disclose the sharing** | `§CROSS-SUBSIDY-MEASURED` · `§LEVER-UP-HAS-NO-AGGREGATE-GATE` |
+| **D8** | is there a charge on the single-stable redemption leg, and is it directional | `C2b DRAIN TAX` |
+| **D9** | `Quid`'s payable fallback — revert on an unknown selector, or keep silent success | `§SESS-62` |
+
+📌 **D4 ALONE GATES TEN OF THE FIFTY-FOUR CORE ROWS.** Every one is a keeper/routing/venue task, and the
+owner has already parked that cluster (*"dont get distracted by that right now"*). ⇒ **that is 10 rows
+correctly NOT startable, and knowing it is worth more than working any of them.**
+
+### ✅ THE ROWS THAT ARE SAFE TO WORK NOW — no decision upstream, and nothing else deletes them
+`§SESS-59` (a second unauthenticated withdrawal — `public`→`internal`; **security, and it is the one to do
+first**) · `§EMPTY-ROUTE-IS-SILENT` · `§SESS-48` · `§SESS-53` · `§LEV-KEEPER-E2E-IS-RED` · `"REFILLING
+BUCKET"` (bisect one block) · `§E319` (`QuoteUnfillable` has zero references — establish renamed-or-never-built)
+· `§KEEPER-LIQ-FALLBACK` (already fixed to 8600 — close it, or say why not).
+
+### 🪦 AND THE ROWS THE MODEL OR THE REMOVAL POLICY HAS ALREADY ANSWERED — **working these IS the rework**
+| row | why it is not work |
+|---|---|
+| `§CREDIT-AT-ORACLE-IS-WORSE-THAN-THE-LEAK` | its own headline says **RETRACTED** |
+| `§SELL-LEG-NOT-FORCED-AFTER-ALL` | resolved; the tests stay valid |
+| `[SUPERSEDED — its own §5 booked §E258-POKE-INCENTIVE…]` | its own headline says **SUPERSEDED** |
+| `§FIXTURE-INHERITS-ITS-ENVIRONMENT` | its own ▶️ says *"the one residual is NOT this row's"* |
+| `§A.71 DEDUP PASS` | re-verified: `IAaveSpoke`/`IEthVenueV` are declared **zero** times — tombstones, not merges |
+| `§V4-IS-FULL` | a closed NEGATIVE result: the prize behind it is 0.12% of Aave v3's |
+| `WHY THIS MATTERS BEYOND ONE ROW` · `BUT IT IS DOWNSTREAM OF A FORK` | **orphan fragments** — their parent `# §A7-PREMISE-IS-FALSE` went with the record removal, and a `##` without its `#` is not a task |
+| `C22` (inside `§E313`) | both `ilTargetLive` branches are deleted by §7 — **the booked "Python afternoon" is retired, not parked** |
+
+### 🔴 AND THE REMOVAL POLICY JUST *CREATED* ONE ROUND OF EXACTLY THE REWORK THIS SECTION EXISTS TO PREVENT
+Owner, same day: *"there are too many phantom tests that just call a function or prove some happy path.
+we dont care about those. only actual stress tests that allow an invariant to hold under some randomness."*
+⇒ **SEVEN ROWS PRESCRIBE *FIXING* TESTS THAT THE POLICY NOW *DELETES*:** `§SILENT-SETUP` (*"the fix is one
+line each"*, × 25 `catch {}` blocks) · `[1 of 5 FIXED]` · `§SWALLOW-RESIDUAL` (*"the 18, grouped by suite"*)
+· `§MOCK-CENSUS` (*"read the remaining 27"*) · `§LOOSE-ENDS-SCAN` (*"the cheap fix … `catch (bytes memory
+err)`"*) · `§E244` (*"wire the mock router"*) · `§BTC-LEG-FEE`.
+⛔ **DO NOT WORK THEM AS WRITTEN.** Their subject is instrumentation on tests that assert nothing.
+📌 **MEASURED 2026-09-11:** **1,126 test functions · 7 take a parameter · 0 `invariant_` functions · 9 use
+`bound()`/`vm.assume` · 95 assert NOTHING · 481 assert exactly once · 610 have bodies ≤12 lines.**
+**Tests that stress an invariant under randomness: ~0.7%.** ⇒ the seven rows collapse into ONE — *delete the
+phantoms, then write invariant tests against the finalized model* — and that cannot start before the model
+is built, so it is gated on D2/D4/D7 like everything else.
+
+### ▶️ THE ORDER THAT CARRIES THE GUARANTEE
+1. **`§SESS-59`** — security, ungated, unconditional.
+2. **The 8 SAFE rows.** Nothing downstream of a decision; nothing else deletes them.
+3. **D7, then D4, then D2** — in that order: D7 is a live 4,801 bps exposure, D4 unblocks ten rows, D2
+   decides what the hedge is even for.
+4. **Only then the model build** — §7c's deletion and §7's drift hedge **in ONE change**, because §7c
+   deletes two accessors §7 reads. ⛔ **Splitting them across two commits is the rework.**
+5. **The phantom-test purge and the invariant suite LAST**, against the finalized implementation — which
+   is also when the stripped comments get rewritten.
+
 ## 🔴🔴 §AUDITS-RE-RATED-2026-09-11 — **ONE OF THREE MOVED, AND NOT FOR THE REASON I BOOKED.**
 
 I recorded that `§NO-SELF-PROVISIONED-LPS` invalidated three ratings because *"the fleet can spend the
