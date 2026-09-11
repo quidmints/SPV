@@ -44,20 +44,54 @@ the three documents that tell you WHAT ORDER to work in are buried at the very e
 | `grep -cE 'HTTP error\|database error\|Rate limit\|instantiate forked'` | **5** | ⚠️ **1 FAILURE IS ENVIRONMENTAL** — see below |
 | runtime | **316.44s** | ✅ plausible for a full suite; not the 7.58s "never reached the fork" shape |
 
-### ⭐ 84 FAILURES ARE NOT 84 DEFECTS. **80 OF THEM ARE ONE CAUSE, AND IT IS MINE.**
+### ⭐ 84 FAILURES ARE NOT 84 DEFECTS. **83 ARE MINE ACROSS THREE CAUSES; THE 84TH IS THE ONLY REAL ONE.**
 | n | failure | cause | mine? |
 |---|---|---|---|
 | **79** | `FeedPinned()` across **9 suites** | 🔴 **the `DeployLib` anchor registration.** `cfg.ethFeed`/`cfg.btcFeed` are now registered in `Aux` **before any `setup()`** (required — `QuidLib.setupBody` reads `Core.poolStats()` to centre the initial range), and these fixtures pin the feed themselves | ✅ **YES** |
 | **1** | `testMatrix_S3_CompoundPath_StrandingRegime` — *"PREMISE: S3 is the UNANCHORED arm — pinning a feed here collapses it into S3b/S3c"* | 🔴 **same cause, different symptom.** The fixture's premise is that NO feed is pinned; my change pins one. **The test is correctly reporting that my change invalidated its premise** — this is what a premise assertion is FOR | ✅ **YES** |
 | **1** | `testAnchorPriceIsTheFeed_AndFlagsStaleness` — *"boom"* | 🔴 **A STALE TEST OF MINE, and rule 8d says name which side is wrong.** Its last block asserts a reverting feed yields `(0, true)`. **That was the PRE-FIX behaviour and `(0, true)` is the exact silent shape e9 traced to a `SwapOutDust()` revert four frames away.** `anchorPrice18` now reverts `NoAnchor()`. ⇒ **the CHANGE is right and the TEST is stale**; its own comment already wants *"no price rather than zero dressed as one"*, and reverting delivers that more strongly than returning a zero that reads as a price | ✅ **YES — fix the test, not the code** |
 | **1** | `test_OneInchBtcIsWrapped_andTheGapIsTheWbtcBasis` — `429 … call rate limit exhausted` | ⚠️ **ENVIRONMENTAL, AND I CAUSED IT.** Three `forge test` processes were live in this shared checkout at once (two peers' + mine) on one RPC key. **I started mine without checking for peers** — the rule to do so is in CLAUDE.md and I skipped it. ⛔ **DISCARD this failure; it is not evidence about the code** | ⚠️ my contention |
-| **1** | `testReal_WbtcLev_FoldUp_Then_FlashDelever` — *"IL target says lever up after +25%"* | **A PEER'S ACTIVE WORK** — pid 696822 was running exactly this test by `--match-test` while my suite ran. **Not mine; do not touch it** | ⛔ not mine |
+| **1** | `testReal_WbtcLev_FoldUp_Then_FlashDelever` — *"IL target says lever up after +25%"* | 🔴 **CORRECTED — THIS IS MINE, from `53d7bfa7` (the lever/skew purge).** I first booked it as a peer's, on the evidence that pid 696822 was running exactly this test by `--match-test`. **That is evidence about who was LOOKING, not about the CAUSE**, and rule 13 says a dismissal needs the same evidence as a finding. **project-e9 ran the actual control — the test fails IDENTICALLY with their `BTCChannels` change reversed** — and their other three `BTCChannels` suites are green (22/22, 7/7, 5/5) | ✅ **MINE** |
 | **1** | `test_E2_IncumbentIsNotHarmedByANewMint` — `9999999998459426519999 !~= 9931793798910365737702`, tolerance **1e-7 %**, actual **0.687 %** | 🔴🔴 **THE ONLY GENUINE ECONOMIC FAILURE IN THE RUN, AND IT CORROBORATES §BREAK-8-11.** An incumbent LP receives **0.687% less** because someone else minted. That is dilution measured by a test that was built to forbid it | 🔴 **REAL — INVESTIGATE** |
 
 🔑 **SO THE HONEST HEADLINE IS NOT "84 FAILURES". IT IS: one change of mine needs its 9 fixtures
 routed through `StackConfig`, one test of mine is stale, one failure is my own RPC contention, one is a
 peer's, and ONE IS A REAL LOSS.** ⇒ **`test_E2_IncumbentIsNotHarmedByANewMint` is the row that matters**,
 and it says the same thing BREAKS 8-11 say from four other directions: **incumbent LPs are diluted.**
+
+### 🔴🔴 §E2-INCUMBENT-0.68 — **THE ONE FAILURE THAT IS NOT MINE, AND ITS OWN CONTROL RULES OUT BOTH KNOWN CAUSES**
+`test_E2_IncumbentIsNotHarmedByANewMint`: `9999999998459426519999` → `9931793798910365737702`.
+**Loss = 68,206,199,549,060,782,297 wei = 0.682%** (forge reports 0.6867% on its own denominator).
+
+⭐ **§SESS-29 LEFT EXACTLY THE RIGHT INSTRUMENT, AND IT ANSWERS. READ BOTH RESULTS TOGETHER:**
+| | result | what it rules out |
+|---|---|---|
+| `test_E2_IncumbentIsNotHarmedByANewMint` | 🔴 **FAIL at 0.682%** | §SESS-29 measured the true value at **3.4e-11** and diagnosed *"ROUNDING, NOT DILUTION"*. **0.682% is 2.0 × 10⁸ times that.** ⇒ **it is no longer rounding**, and their conclusion is now false |
+| `test_E2_IncumbentLossDoesNotScaleWithTheMint` | ✅ **PASS** | their distinguishing control: *"a real dilution cannot hide under this bound without failing that one"*, because **dilution scales with the diluting mint and rounding does not.** It passed ⇒ **it is not mint-proportional dilution either** |
+
+⇒ 🔑 **A THIRD MECHANISM: A LOSS THAT IS LARGE (0.68%), CONSTANT, AND INDEPENDENT OF THE MINT SIZE.**
+Neither of the two hypotheses anyone has considered on this row fits. **A constant that switches on
+when a mint happens is the shape of a CHARGE or a re-marking, not of a share dilution** — the basket is
+short (`_openShortfall`), so the mark-up is live, and a new mint at the mark changes what the incumbent
+redeems against.
+⚠️ **CAUSE UNKNOWN AND I AM NOT GUESSING IT.** ▶️ **The next step is a bisect across the six commits on
+that path** — `53d7bfa7`, `46c27ca2`, `9cd9c623`, `56fe9d6f`, `ffec9643`, `665bc3c4` — run
+`--match-test test_E2_IncumbentIsNotHarmedByANewMint` at each. 📌 **My strongest prior, labelled as a
+HYPOTHESIS and nothing more: `56fe9d6f` (the TWAP deletion).** `_pricingBacking` reads `_wethTwap()` →
+`AUX.assetPrice(WETH)` (§BREAK-7 surface 2), which that commit changed from a 1800s average to the spot
+anchor. ⛔ **It does not obviously explain why the number moves only AFTER a mint, so do not book it as
+the cause.**
+
+### ⭐ AND THE METHOD LESSON, WHICH REVERSES MY OWN CRITICISM TWO COMMITS AGO
+I attacked `SkewPremiumReachesLPs`'s `assertLe(shortfall, denomNow / 1e18 + 1)` as §VACUOUS-BOUNDS,
+because its tolerance was labelled *"dust"* and never priced. **This row is the same species done
+right, and the contrast is the whole lesson:** §SESS-29 set `assertApproxEqRel(…, 1e9)` — 1e-9
+relative — **because they had MEASURED the true value at 3.4e-11**, leaving ~30× of headroom and no
+more. **That measurement-priced bound is the only reason a 0.68% regression surfaced at all**, two
+hundred million times later. A lax tolerance would have swallowed it in silence.
+⇒ **A TOLERANCE PRICED FROM A MEASUREMENT IS AN INSTRUMENT. A TOLERANCE LABELLED BY AN ADJECTIVE IS A
+BLINDFOLD.** Same construct, opposite value, and the discriminator is whether anyone ever computed the
+number it is supposed to exclude.
 
 ⚠️ **AND ONE PROCESS ADMISSION, because the memory says so explicitly and I did not follow it:**
 `tools/forge-test.sh` is the pinned wrapper and I ran `forge test --rpc-url` raw. **I did pin
