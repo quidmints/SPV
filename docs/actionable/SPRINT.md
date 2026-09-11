@@ -202,6 +202,56 @@ Each was carried as open, some in red, some for weeks.
    *"parameters are settable, addresses are settable"*; GATE 3.4/3.5 rule **no setters, no owner**.
    `§BTC-4.6g`'s *"one-way k-of-n flag"* **is** an authority. The owner's Bitcoin-derived latch is the
    only resolution present in the whole scope.
+**4b. 🔴🔴 `§PQ-SEAM` — THE DEPLOY-TIME SURFACE THAT MAKES AN END-TO-END POST-QUANTUM PATH REACHABLE
+   WITHOUT REDEPLOYING.** Owner directive 2026-09-11: *"we need to prepare for p2mr and remove
+   dependence on secp … once opcat and p2mr are ready we can have an end to end post quantum solid
+   design without redeploying our contracts (maybe msig can do some kind of toggle but thats all)."*
+   ⚠️ **This supersedes my earlier "P2MR buys nothing" framing, which was wrong in a specific way:** a
+   merkle-root output is the CONTAINER that lets a PQ key type be committed, and **OP_CAT makes
+   hash-based (Winternitz/Lamport) signature verification expressible in Bitcoin Script with no new
+   opcode.** P2MR + OP_CAT together are a real end-to-end path; the merkle root alone is not, and I
+   conflated "insufficient alone" with "useless".
+   ✅ **MEASURED — THE STORAGE IS ALREADY PQ-SHAPED. NO FIELD NEEDS WIDENING.** `OpenParams.lpPubkey`,
+   `.hopPubkey`, `.lpIdentityPubkey` are `bytes` (variable length: an ML-DSA key is ~1.3–2.6 KB, a
+   Winternitz public key is 32 B — both fit). `fundingTaproot`, `btcRecipientOf` and `lpToRemoteKey`
+   are `bytes32`, and a P2MR merkle root is exactly 32 bytes. `channelId =
+   keccak256(lpPubkey, hopPubkey, fundingTxId, vout)` hashes `bytes` and is key-type agnostic already.
+   🔴 **WHAT IS SECP-BOUND IS THE MATH, IN SEVEN FUNCTIONS:** `isValidXOnlyKey` (on-curve gate on
+   registration), `decompress`, `isTwoOfTwoOutputKey` + `computeOutputKey` (MuSig2 aggregation),
+   `taprootOutputKeyWithLeaf` (the taproot tweak — curve addition), `schnorrVerify` (BIP-340) — plus the
+   `0x5120` prefix at 5 inline sites. ✅ `tapLeafHash` is pure hashing and already scheme-agnostic.
+   ⭐ **AND THE PQ REPLACEMENTS ARE ALL HASHING, WHICH SOLIDITY IS GOOD AT.** A P2MR funding script is a
+   merkle root — `keccak`/`sha256`, not curve math. A Winternitz signature verification is a bounded
+   chain of hashes. **A PQ verifier is CHEAPER on-chain than the secp one it replaces**, which is the
+   opposite of the usual assumption and is why this is feasible at all.
+   ▶️ **THE ONLY MECHANISM THAT SATISFIES "NO REDEPLOY", AND IT IS A SEAM, NOT AN ENUMERATION.** The
+   formats are not final, so they cannot be encoded now. What CAN be encoded is a pointer:
+   1. `address public pqVerifier` + a **one-shot** setter gated on the enclave-image msig — the
+      authority `OWNER-DECISIONS.md:234` already accepted and which this does not newly create.
+   2. A **per-channel FORM tag fixed at open and immutable thereafter** (one bit; packs into existing
+      storage). v1 and v2 channels coexist forever.
+   3. Four branch points delegating when `form == V2`, all taking/returning `bytes` so the interface
+      does not presume a format: funding-script construction, exit-signature verification,
+      destination validity (replaces `isValidXOnlyKey`), possession proof (replaces the BIP-340 PoP).
+   4. **Unreachable until the toggle is set**, so witness v2 being anyone-can-spend today is not a hole.
+   ⛔ **STATE THE COST HONESTLY, BECAUSE IT IS LARGER THAN THE P2MR FLAG IT REPLACES.** A verifier
+   pointer is strictly more powerful than "enable a second SPK form": whoever holds the msig could
+   point it at a verifier that accepts forged exits. `CLAUDE.md` says **"THIS SYSTEM HAS NO GOVERNANCE
+   KNOBS"** and this is one.
+   ✅ **THE BLAST RADIUS IS BOUNDABLE AND THAT IS WHAT MAKES IT ACCEPTABLE:** because the form tag is
+   set AT OPEN and immutable, a malicious verifier can only affect channels opened AFTER it is set —
+   **every existing v1 channel is untouchable by it**, and an LP can decline to open v2. ⇒ the
+   authority is "may offer a new channel type", not "may re-verify the old ones". **That bound must be
+   built in, not documented** — it is the difference between an acceptable knob and a backdoor.
+   📌 **Sequencing:** this is Tier 0 and cannot be added later, but it is downstream of item 0 (the
+   LP's own funding half) on the critical path, and the quantum exposure that is LIVE today is
+   transport (item 29, ML-KEM on RA-TLS), not the channels — §NO-POST-QUANTUM-ANYWHERE's own retraction.
+   ⚠️ **AND IT RESOLVES THE §R-P2MR CONTRADICTION:** `OWNER-DECISIONS.md:234` says the switch is the
+   enclave-image msig; `SPRINT.md:198` says *"derived from Bitcoin, never from an authority"*. **The
+   msig version is the owner's ruling and is the one this design uses.** The Bitcoin-derived latch
+   cannot work for a seam whose format is unknown — there is nothing on-chain to observe until the
+   verifier exists.
+
 **5 + 6. `§BTC-4.6g-bis` / `§BTC-4.6n`** — ⚠️ **RE-MEASURED 2026-09-11. EVERY LINE NUMBER IN THE OLD ROW
    WAS STALE, ONE NAMED SITE WAS WRONG, AND THE CENSUS MISSED A SPELLING. AND THE REMEDY IT ASSUMES
    BUYS NOTHING — read that last part first.**
