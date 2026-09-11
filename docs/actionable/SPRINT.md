@@ -2296,22 +2296,37 @@ hold the LP funding half) vs `taproot_signer.rs:439` (fleet holds BOTH under Opt
 states ONE consistent answer … ~~**Until it is resolved, do NOT rate**~~ ✅ **RESOLVED; all three rated — see §AUDITS-RATED**
 `§AUDIT-POOLPARKER-PHANTOM`, `§AUDIT-SWAPOUT-DOUBLEPAY`, `§AUDIT-SWAPOUT-CONCURRENT`."*
 
-**The code now states one answer.** `taproot_signer.rs:441-443`: *"The fleet is vault-less by default,
-so it holds ONE half … the both-halves form applies only under `QUID_FLEET_COHOSTS_VAULT=true`, the
-single-custodian deployment that logs a warning saying its multisig is nominal."* And the runtime
-agrees:
+🔴🔴 **REVERSED 2026-09-11 BY §NO-SELF-PROVISIONED-LPS — AND IT INVALIDATES THREE AUDIT RATINGS.
+READ THIS BEFORE CITING `§AUDITS-RATED`.**
 
-```
-quid-bridge-daemon.rs:352   let cohost_vault: bool = env_parse("QUID_FLEET_COHOSTS_VAULT", false)?;
-              :354-357      warn!("QUID_FLEET_COHOSTS_VAULT=true: this fleet holds BOTH halves of
-                                   every 2-of-2. The multisig is nominal in this deployment (M1#2).")
-```
+**WHAT THIS BLOCK USED TO SAY, and it was true when written:** `taproot_signer.rs` said *"the fleet is
+vault-less by default, so it holds ONE half … the both-halves form applies only under
+`QUID_FLEET_COHOSTS_VAULT=true`"*, and the runtime agreed —
+`let cohost_vault: bool = env_parse("QUID_FLEET_COHOSTS_VAULT", false)?;` with a `warn!` on the
+degraded case. ⇒ *"DEFAULT FALSE, enforced at the entry point."*
 
-⇒ **DEFAULT FALSE, enforced at the entry point, with the degraded case warning about itself.**
-⇒ **THE THREE AUDITS CAN NOW BE RATED, and their reachability is decided by that default:** any
-finding whose premise is *"the fleet can spend the funding output alone"* is **unreachable in the
-default topology** and reachable only under `QUID_FLEET_COHOSTS_VAULT=true`. **Rate them on that
-basis — the blocker the file put in front of them is gone.**
+⛔ **THE FLAG IS DELETED AND THE DEFAULT IS GONE.** Owner, 2026-09-11: *"there are no self provisioned
+lps, delete all traces of this."* `quid-lp-daemon`, `deploy/run-lp.sh` and `lp_seed.rs` are deleted
+(`8faddbb1`); the vault boots **unconditionally**; and its seed is `derive_vault_seed(&root_seed)`, an
+HKDF **sibling** of the hop seed — **one key wearing two hats, not two keys on one box.**
+⇒ **THE FLEET CAN SPEND THE FUNDING OUTPUT ALONE, ALWAYS, BY DESIGN.**
+
+🔴 **CONSEQUENCE — THE THREE RATINGS RESTED ON THE DEFAULT AND THE DEFAULT IS GONE.**
+`§AUDIT-POOLPARKER-PHANTOM`, `§AUDIT-SWAPOUT-DOUBLEPAY` and `§AUDIT-SWAPOUT-CONCURRENT` were rated on
+the rule *"any finding whose premise is 'the fleet can spend the funding output alone' is UNREACHABLE
+in the default topology."* **That rule is now false for every channel.** ⇒ **RE-RATE ALL THREE against
+a fleet that always holds both halves.** ⚠️ Do not re-derive their evidence — it is unaffected; only
+the REACHABILITY verdict moves, and it moves in one direction: from unreachable to reachable.
+
+⭐ **THE GENERAL LESSON, worth more than the three rows: a rating is a function of a premise, and this
+premise lived in an `env_parse` DEFAULT — a one-word fact in a different language, three files away
+from the audits it decided.** Nothing linked them. **When a deployment default is load-bearing for a
+security verdict, the verdict must name the default**, or a config change silently re-opens findings
+that read as closed.
+📌 What is NOT reopened: the enclave still stands between a compromised HOST and those keys. The
+design goal *"a hacked keeper/daemon opens no serious attack surface"* is met by SGX, not by the
+2-of-2 — which is precisely why the 2-of-2 being nominal is acceptable here and why the enclave cannot
+be dropped for the hop.
 
 ### PHASE STATUS, MEASURED
 
