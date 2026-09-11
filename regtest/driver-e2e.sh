@@ -40,7 +40,8 @@ ANVIL_RPC="http://127.0.0.1:$ANVIL_PORT"
 # the run also passes `--no-rate-limit`, because anvil otherwise throttles ITSELF to 330
 # compute-units/s against any fork provider — the key buys nothing until that is off.
 if [ -z "${QUID_FORK_RPC:-}" ] && [ -f "$EVM_DIR/.env" ]; then
-  QUID_FORK_RPC="$(sed -n 's/^ETH_RPC_URL=//p' "$EVM_DIR/.env" | head -1)"
+  # The .env line carries an inline `# comment`; take the URL token only.
+  QUID_FORK_RPC="$(sed -n 's/^ETH_RPC_URL=//p' "$EVM_DIR/.env" | head -1 | awk '{print $1}')"
 fi
 FORK_RPC="${QUID_FORK_RPC:-https://ethereum-rpc.publicnode.com}"
 FORK_RPC_HOST="${FORK_RPC#*://}"; FORK_RPC_HOST="${FORK_RPC_HOST%%/*}"
