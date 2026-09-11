@@ -156,14 +156,8 @@ contract BtcLevManager is LevBase {
         delete pos[lp];
         _untrackOpen(lp);
 
-        if (p.venue.COLLATERAL() == address(COLL)) {
-
-            if (back > 0) IVaultExposeB(VAULT).unexposeBtcFromLev(lp, back);
-        } else {
-
-            if (back > 0) IERC20Min(WBTC).transfer(lp, back);
-            _syncRange(lp);
-        }
+        if (back > 0) IERC20Min(WBTC).transfer(lp, back);
+        _syncRange(lp);
         emit Closed(lp, back);
     }
 
