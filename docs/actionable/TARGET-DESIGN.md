@@ -207,6 +207,47 @@ under §6 actually cover the drift a waiter absorbs?** If yes, §E313's fix is s
 it is still needed and `onShortfall`'s no-op is a live hole.
 ⛔ **Do not wire it before answering that** — the two mechanisms would double-charge the same gap.
 
+## 7c. ✅ **THE SHORTFALL SHOULD NOT EXIST — AND THE CODE ALREADY CONTRADICTS ITSELF ABOUT IT**
+Owner, 2026-09-11: *"we should have a design where there is no shortfall and no one has to bear it.
+just like we figured we can get rid of forecasts we can do the same here."* Followed through, and it
+removes three mechanisms instead of choosing between them.
+
+### 🔴 THE TREE HOLDS TWO INCOMPATIBLE DEFINITIONS OF AN LP CLAIM
+| site | what a share is |
+|---|---|
+| `Quid._convert` (redemption, 4626) | **PRO-RATA:** `shares × _pricingBacking() / lpShares` |
+| `Core._shortfallLoadBalance` | **DENOMINATED:** compares `lpShares` — a raw count — against `rangeETH`, an asset balance, as though **1 share = 1 ETH** |
+
+**A pro-rata claim cannot be short.** `shares_i/lpShares × rangeETH` is deliverable by construction at
+every ratio; that is what "pro-rata" means. ⇒ **the quantity `_shortfallLoadBalance` reports is not a
+solvency fact. It is the share price in ETH terms having fallen below 1** — which is IL, measured in
+the wrong unit and given an alarming name.
+
+### ⇒ DELETE THE MEASUREMENT, NOT THE SYMPTOM
+`sharesForShortfall`, `realInventory`, `onShortfall`, `_shortfallLoadBalance` and `proRataShortfall`
+**all exist to detect, announce, refuse or share a number that has no meaning under a pro-rata claim.**
+Removing the denominated comparison removes all five, and with them the first-out attack — **there is
+nothing to escape, so nothing to share, so nobody bears anything.**
+⭐ **THIS IS THE SAME MOVE AS §NO-GAMEABLE-BOUND, WHICH IS WHY IT IS THE RIGHT ONE:** we did not bound
+the gameable charge, we deleted the measurement it depended on. Here we do not share the shortfall or
+compensate it — **we delete the comparison that manufactures it.**
+
+### ⚠️ BUT ONE HALF OF THE MEASURED ATTACK IS REAL AND SURVIVES THIS
+§E313's 15.2 bps was later partly reattributed to *"the offramp's weETH→WETH conversion (measured
+floor ~25.6 bps)"*. That part is **not** an accounting artifact:
+> **The first exiter gets the cheap rung (Curve) and later exiters hit the expensive ones.** Queue
+> position changes your CONVERSION COST even when your pro-rata claim is exact.
+
+⇒ **TWO DIFFERENT THINGS WERE CALLED "THE SHORTFALL":**
+| | what it is | fix |
+|---|---|---|
+| **accounting shortfall** — `lpShares` vs `rangeETH` | ✅ **an artifact.** Delete the comparison. | nobody bears it because it does not exist |
+| **liquidity-cost asymmetry** — cheap rung first, expensive rung later | 🔴 **REAL.** Pro-rata does not touch it. | each exiter bears **their own** conversion cost, or §6 pays whoever takes the expensive/late path |
+
+⛔ **Do not let deleting the first convince anyone the second is gone.** The first is a naming error;
+the second is a queue with a price on it, and §6's paid deferral is the mechanism that already
+addresses it — **by paying the late exiter rather than by pretending the queue is free.**
+
 ## 8. The two questions a swap raises, and their answers
 **Serving is what CREATES the exposure**, so these are independent, not a chain.
 
