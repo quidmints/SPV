@@ -297,6 +297,9 @@ async fn run(chain_id: u64, btc_channels: Address, payout_xonly: [u8; 32]) -> Ve
         funding_tx_index: funding.tx_index,
         lp_pubkey,
         hop_pubkey,
+        // §LPETH-THIRD-FIELD: the LP's OWN funding key, unsorted — `node_b` is the LP here and
+        // `holder_pk` is its half, recovered from its own channel monitor above.
+        lp_identity_pubkey: holder_pk,
         amount_sats: amount_sats_open,
         // SIMPLE-TAPROOT: the 32-byte x-only MuSig2 key-path aggregate Q. The harness
         // now opens a real P2TR (`0x5120||Q`) channel (the vendored LDK

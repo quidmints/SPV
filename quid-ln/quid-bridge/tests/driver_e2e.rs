@@ -494,7 +494,13 @@ async fn swap_out_onchain_delivery_on_real_evm() {
     //    correlator, and initiate the swapper-directed splice-out. The vault holds the
     //    LP-side keys and splices its OWN channel — no LP round-trip, no lpAuth. ──
     let Opened { node_a, node_b, regtest, pk_a, .. } = o;
-    let mut vault = VaultNode::from_node(node_b, pk_a.0, SPLICE_FUNDING_FEERATE_SAT_PER_KW);
+    let mut vault = VaultNode::from_node(
+        node_b,
+        pk_a.0,
+        SPLICE_FUNDING_FEERATE_SAT_PER_KW,
+        // The hop (node_a) listens on the first port of this test's `open_channel` pair.
+        quid_common::ln::addr::LxSocketAddress::TcpIpv4 { ip: std::net::Ipv4Addr::LOCALHOST, port: 19_872 },
+    );
     let lifecycle_rx = vault.take_lifecycle_rx();
     let vault = Arc::new(vault);
     tokio::spawn(run_vault_delivery_correlator(lifecycle_rx, vault.deliveries.clone()));
@@ -538,7 +544,14 @@ async fn swap_out_onchain_delivery_on_real_evm() {
         .expect("post-splice funding pubkeys");
     let (params, raw, proof) = build_splice_params(&node_a.esplora, &splice_txid, splice_vout, spa, spb)
         .await.expect("rebuild splice params");
-    let cd = encode_deliver_swap_out_onchain(swap_id, cid, &params, &raw, &proof, &swapper_script);
+    // (§E233-ladder) The contract now requires the LP's fresh `ExitArming` ladder for the outpoint
+    // the delivery rotates to (`swap_out_onchain.rs:368`). This harness has no LP-signed consent —
+    // see step 1's note — so this is EMPTY and the contract will refuse it. Not a stub: the run
+    // already stops at `drive_open`'s consent check before reaching here. Since
+    // §NO-SELF-PROVISIONED-LPS the vault holds the LP half in-process, so the fixture is producible
+    // from `deadman_exit::arm_signer`; wiring that is the open item (SPRINT §BITCOIN-ORDER, tier 3).
+    let no_ladder: &[quid_hop::evm_codec::ExitArming] = &[];
+    let cd = encode_deliver_swap_out_onchain(swap_id, cid, &params, &raw, &proof, &swapper_script, no_ladder);
     let landed = mk_evm().send_tx(env.cfg.btc_channels, cd.clone(), env.cfg.gas_limit).expect("deliverSwapOutOnchain send");
     if !landed {
         let from = mk_evm().address();
@@ -630,7 +643,13 @@ async fn lp_raw_btc_withdrawal_on_real_evm() {
     //    splice `withdraw_sats` out to `0x5120||btcRecipient`. We take the vault's lifecycle
     //    stream directly (no correlator) and read the Spliced event's new outpoint. ──
     let Opened { node_a, node_b, regtest, pk_a, .. } = o;
-    let mut vault = VaultNode::from_node(node_b, pk_a.0, SPLICE_FUNDING_FEERATE_SAT_PER_KW);
+    let mut vault = VaultNode::from_node(
+        node_b,
+        pk_a.0,
+        SPLICE_FUNDING_FEERATE_SAT_PER_KW,
+        // The hop (node_a) listens on the first port of this test's `open_channel` pair.
+        quid_common::ln::addr::LxSocketAddress::TcpIpv4 { ip: std::net::Ipv4Addr::LOCALHOST, port: 19_874 },
+    );
     let mut lifecycle_rx = vault.take_lifecycle_rx();
     let vault = Arc::new(vault);
     let withdraw_sats = 500_000u64; // well within the channel, leaves the reserve
@@ -664,6 +683,7 @@ async fn lp_raw_btc_withdrawal_on_real_evm() {
     drive_splice(
         Arc::new(env.cfg.clone()), mk_evm(), rpc.clone(), node_a.esplora.clone(),
         node_a.chain_monitor.clone(), node_a.channel_manager.clone(), cid, splice_txid, splice_vout,
+        quid_bridge::vault::VaultRegistry::new(),
     ).await.expect("drive_splice mirror (withdrawal shrink)");
 
     let amount_after = read_channel_amount_sats(&*rpc, env.cfg.btc_channels, cid);

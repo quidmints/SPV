@@ -185,6 +185,10 @@ pub async fn boot_node(
         lsp,
         // Regtest harness: host is trusted, so the in-memory anchor is fine.
         std::sync::Arc::new(crate::freshness::InMemoryFreshnessAnchor::new()),
+        // (§T9) No on-chain truth source in the regtest harness — the host is trusted, same as
+        // the in-memory anchor above. The harness boots HOP nodes; the vault half is `boot_vault`.
+        None,
+        quid_ln::validating_signer::FundingRole::Hop,
     )
     .await
     .expect("boot hop node")
@@ -216,6 +220,10 @@ pub async fn reboot_node(
         lsp,
         // Regtest harness: host is trusted, so the in-memory anchor is fine.
         std::sync::Arc::new(crate::freshness::InMemoryFreshnessAnchor::new()),
+        // (§T9) No on-chain truth source in the regtest harness — the host is trusted, same as
+        // the in-memory anchor above. The harness boots HOP nodes; the vault half is `boot_vault`.
+        None,
+        quid_ln::validating_signer::FundingRole::Hop,
     )
     .await
     .expect("re-boot hop node from disk")

@@ -704,13 +704,16 @@ impl VaultNode {
     /// which reuses the harness's `open_channel` LP-side node as the vault rather than
     /// booting a fresh one. Production always goes through [`boot_vault`].
     #[cfg(feature = "harness")]
-    pub fn from_node(node: HopNode, hop_pk: PublicKey, splice_feerate: u32) -> Self {
+    pub fn from_node(
+        node: HopNode, hop_pk: PublicKey, splice_feerate: u32, hop_addr: LxSocketAddress,
+    ) -> Self {
         Self {
             node,
             registry: VaultRegistry::new(),
             deliveries: Arc::new(DeliveryCoordinator::default()),
             hop_pk,
             splice_feerate,
+            hop_addr,
         }
     }
 
