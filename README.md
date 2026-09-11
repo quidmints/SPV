@@ -23,7 +23,7 @@ reconstructs on-chain — the contract does secp256k1 elliptic-curve arithmetic 
 | path | what it holds |
 |---|---|
 | `evm/` | The Solidity. `src/` is the protocol; `script/DeployL1_s.sol` + `script/DeployLib.sol` are the one canonical deploy; `test/` is the Foundry suite; `lib/` the submodules. |
-| `quid-ln/` | The Rust workspace: the LN node, `quid-bridge`, `quid-hop`, and the SGX/enclave crates. `quid-ln/lib/rust-lightning` is our LDK fork (see below). |
+| `quid-ln/` | The Rust workspace: the LN node, `quid-bridge`, `quid-hop`, and the SGX/enclave crates. our LDK fork is the EXTERNAL repo `quidmints/rust-lightning` (see below). |
 | `svm/` | The Anchor workspace — one program, `svm/programs/quid`, plus TypeScript tests. |
 | `spa/` | Next.js — the landing page and the browser depositor surface. |
 | `app/` | The Expo / React Native wallet. |
@@ -40,7 +40,7 @@ LICENSE. It is **not** part of the deployed protocol stack and has a separate de
 
 ### The LDK fork
 
-`quid-ln/lib/rust-lightning` is a fork of `lexe-app/rust-lightning` @ `027c6a1`
+🔴 **The LDK fork is `https://github.com/quidmints/rust-lightning` (branch `main`), consumed via `[patch.crates-io]` — `Cargo.lock` pins the commit.** It is NOT vendored: `quid-ln/lib/rust-lightning/` was a 435-file / 13 MB copy that **nothing compiled**, deleted 2026-09-11 because it was the first hit for every grep while having no effect on any build. Our patches to it are documented in `quid-ln/LDK-FORK-PATCHES.md`; the code they describe must be verified against the locked commit in the fork, never against this tree.
 (branch `lexe-v0.2.2-2026_04_28`), vendored in-tree and consumed through `[patch.crates-io]` in
 `quid-ln/Cargo.toml`. **It is a fork, not a patched dependency: `+7,115 / −565` lines across 33
 files plus a new 548-line `lightning/src/sign/taproot_signer.rs`.** Simple-taproot channels and

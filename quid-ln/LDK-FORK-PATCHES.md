@@ -1,3 +1,12 @@
+> 🔴 **RELOCATED 2026-09-11 FROM `quid-ln/lib/rust-lightning/QUID_PATCHES.md`.** That directory was a
+> **vendored copy that nothing compiled** — `Cargo.lock` resolves `lightning 0.2.3` to
+> `git+https://github.com/quidmints/rust-lightning?branch=main` via `[patch.crates-io]`, and both the
+> root and the `quid-hop/fuzz` workspaces point at the git fork. The copy was 435 files / 13 MB of
+> code that could not affect a build but WAS the first hit for every grep — including for the MuSig2
+> nonce bug (§MUSIG-UNSPICED-CLOSE-AND-SPLICE), whose symbols all appear in it.
+> ⇒ **The fork is the external repo. This file stays here because our own source cites it; the code it
+> describes does not live in this tree and must be verified against the locked commit.**
+
 # Vendored `rust-lightning` (LDK) — QU!D fork-of-a-fork
 
 This directory is a **vendored copy** of the lexe LDK fork, pinned to:

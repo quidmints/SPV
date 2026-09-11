@@ -40,10 +40,11 @@ test = false
 doc = false
 bench = false
 
-# The LDK dep is the vendored fork (patched for the channel_funding_pubkeys
-# accessor). This detached workspace must re-declare the same [patch] the parent
-# Cargo.toml carries, or quid-hop won't compile here. Paths are relative to this
-# fuzz crate (quid-hop/fuzz/ → ../../lib/rust-lightning).
+# The LDK dep is our EXTERNAL fork (patched for the channel_funding_pubkeys
+# accessor) — see quid-ln/LDK-FORK-PATCHES.md. This detached workspace must re-declare
+# the same [patch] the parent Cargo.toml carries, or quid-hop won't compile here.
+# ⚠️ These are GIT refs, not paths: the old comment said "vendored" and pointed at
+# ../../lib/rust-lightning, which was deleted 2026-09-11 and never affected this build.
 [patch.crates-io]
 lightning = { git = "https://github.com/quidmints/rust-lightning", branch = "main" }
 lightning-invoice = { git = "https://github.com/quidmints/rust-lightning", branch = "main" }

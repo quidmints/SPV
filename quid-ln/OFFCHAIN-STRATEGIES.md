@@ -73,16 +73,20 @@ the delivering LP at `deliverSwapOutOnchain`).
 > `BTCChannels.sol:466-470`), so there is no shared pool to race over. Note `BTCChannels.sol:966-978`
 > still describes the old pool in a comment and contradicts `:467` in the same file.
 
-- **Rail A — Lightning** (`swap_out.rs`): the swapper is the LN receiver; the hop pays a
-  BOLT11 from pooled liquidity. **LIVE.**
+- **Rail A — Lightning**: **DELETED** (`34f6e30`; no `swap_out.rs` exists). Off-chain LN
+  delivery has no on-chain exact-settlement point, so the hop would be attesting both the
+  delivery and which LP paid it. Re-implementation, with hop attribution, is booked against
+  M11 (`SPRINT.md` `§M11-RAIL-A`).
 - **Rail B — on-chain** (`swap_out_onchain.rs`): the hop drives a splice-out from an LP's
   channel paying the swapper's Bitcoin address; settled via `deliverSwapOutOnchain`.
-  **ENV-GATED** (`QUID_SWAPOUT_ONCHAIN`, off by default).
-- **Dispatched-marker dedup**: the durable `store.dispatched_swap_outs` marker is set
-  atomically with `add_inflight` *before* the irreversible pay, kept past the inflight
-  drop, cleared only on failed-dispatch — the restart double-pay guard (LDK's
-  `PaymentId==hash` is the last-resort backstop). Replaced the historical `swapOutUsed`-
-  misread bug.
+  **ON whenever the vault runs — i.e. always** (§NO-SELF-PROVISIONED-LPS). The
+  `QUID_SWAPOUT_ONCHAIN` gate was deleted 2026-09-11 once
+  `driver_e2e::swap_out_onchain_delivery_on_real_evm` ran green.
+- **Rail B double-pay guard**: an INITIATED-but-unlocked delivery splice is neither retried
+  nor reversed (`swap_out_onchain.rs` §AUDIT-SWAPOUT-DOUBLEPAY / §DELIVERY-INFLIGHT-
+  RESOLUTION) — the typed `DeliveryInFlight` error carries the receiver so a late lock can
+  still be finished. (The `dispatched_swap_outs` marker this bullet used to describe was
+  rail A's and went with it; `store.rs` has zero references.)
 - **Reversal** (`store.run_reversal_retry` + dead-letter API): an undeliverable swap-out
   returns the swapper's USD via `settleSwapIn(paymentHash=swapId)`; deliver and reverse are
   mutually exclusive on-chain (`swapInUsed[swapId]`), capped retries → dead-letter.
@@ -178,5 +182,5 @@ the *authority*:
   ceiling + relayer-defer mitigates without a second key.
 - **External watchtower** (RESIDUAL): channel breach protection currently relies on the
   node being online; an external watchtower is the production hardening.
-- **Rail B (on-chain swap-out)**: needs the LP daemon's `QUID_L1_RPC_URL` wired (F-1) AND a
-  real bitcoind/esplora e2e before `QUID_SWAPOUT_ONCHAIN` is enabled.
+- **Rail B (on-chain swap-out)**: ungated since 2026-09-11 (there is no LP daemon; the
+  vault is fleet-hosted). Its e2e is `regtest/driver-e2e.sh` → `driver_e2e.rs`.

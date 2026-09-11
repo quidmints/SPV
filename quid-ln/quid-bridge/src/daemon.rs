@@ -139,43 +139,6 @@ where
     }
 }
 
-/// (M1#2 phase 1a) Whether the on-chain rail may run: the operator asked for it AND this
-/// daemon actually holds a vault to splice deliveries out of.
-///
-/// Factored out of [`run`] so the coupling is EXECUTABLE rather than asserted in a comment.
-/// The failure it guards is silent: the same flag mounts `/swap-in/onchain`, so a version
-/// that gated only the watcher would keep ACCEPTING deposit registrations that nothing ever
-/// services — real BTC into a black hole, with no error anywhere. One toggle, one registry.
-pub(crate) fn onchain_rail_enabled(env_flag: Option<&str>, has_vault: bool) -> bool {
-    matches!(env_flag, Some("1") | Some("true") | Some("yes")) && has_vault
-}
-
-#[cfg(test)]
-mod onchain_gate_tests {
-    use super::onchain_rail_enabled;
-
-    #[test]
-    fn vault_less_forces_the_rail_off_however_loudly_it_was_requested() {
-        for flag in ["1", "true", "yes"] {
-            assert!(
-                !onchain_rail_enabled(Some(flag), false),
-                "QUID_SWAPOUT_ONCHAIN={flag} must NOT enable the rail without a vault: the \
-                 swap-in endpoint shares this toggle, so enabling it would accept deposits \
-                 that no watcher can service"
-            );
-            assert!(onchain_rail_enabled(Some(flag), true), "with a vault it must enable");
-        }
-    }
-
-    #[test]
-    fn a_vault_alone_does_not_enable_it() {
-        // The vault is necessary, not sufficient — the operator still opts in explicitly.
-        assert!(!onchain_rail_enabled(None, true));
-        assert!(!onchain_rail_enabled(Some("0"), true));
-        assert!(!onchain_rail_enabled(Some(""), true));
-    }
-}
-
 pub async fn run(
     mut node: HopNode,
     cfg: BridgeConfig,
@@ -286,13 +249,11 @@ pub async fn run(
     let api_vault_registry = vault_registry.clone();
     let reconcile_vault_registry = vault_registry;
     let reconcile_wallet = node.wallet.clone(); // hop-funded fee splice-in
-    // On-chain swap-out (rail B) delivery-watcher handles (env-gated spawn below).
+    // On-chain swap-out (rail B) delivery-watcher handles (spawned below).
     let swapout_chain_monitor = node.chain_monitor.clone();
     let swapout_channel_manager = node.channel_manager.clone();
     let swapout_esplora = node.esplora.clone();
-    // (B) deliveries splice out of the VAULT's channels (it holds the LP-side keys), so
-    // vault-less this rail CANNOT run — see the `onchain_enabled` gate below, which is
-    // where it disables itself (together with the swap-in endpoint that it services).
+    // (B) deliveries splice out of the VAULT's channels (it holds the LP-side keys).
     let swapout_vault = vault.clone();
     // (#114) dead-man-exit heartbeat: needs the HOP-side signer + monitors (the vault
     // holds its own); the fleet runs both halves in-process, so both are reachable here.
@@ -403,37 +364,19 @@ pub async fn run(
         Some(node.wallet.clone()),
         store.clone(),
     ));
-    // On-chain swap-out (rail B) delivery driver — env-gated, OFF by default until
-    // the LP-side correlation (2b.3c.3) lands + is harness-verified. When DISABLED,
-    // an on-chain swap-out request simply stays pending on the EVM (no delivery
-    // attempted) and is reversible — safe. When ENABLED, the hop delivers USD→BTC to
-    // a swapper's Bitcoin address via swapper-directed splice-outs.
-    // The on-chain rail toggle — shared by the unified watcher AND the `/swap-in/onchain`
-    // registration endpoint below, which MUST share ONE registry (the endpoint inserts, the
-    // watcher services + removes).
-    //
-    // 🔴 VAULT-LESS FORCES THIS OFF, AND THE COUPLING IS THE WHOLE REASON. The watcher
-    // splices deliveries out of the VAULT's channels, so without a vault it cannot service
-    // anything. If only the watcher were gated, the `/swap-in/onchain` endpoint above would
-    // keep ACCEPTING deposit registrations that nothing would ever service — a silent black
-    // hole for real BTC. One toggle, one registry: they enable and disable together.
-    let onchain_enabled = onchain_rail_enabled(
-        std::env::var("QUID_SWAPOUT_ONCHAIN").as_deref().ok(),
-        vault.is_some(),
-    );
-    if std::env::var("QUID_SWAPOUT_ONCHAIN").is_ok() && vault.is_none() {
-        warn!(
-            "on-chain rail requested but this daemon runs VAULT-LESS: no LP-side keys to \
-             splice deliveries from. Rail B and /swap-in/onchain both stay DISABLED — \
-             pending swap-outs remain reversible, and no deposit is accepted unserviced."
-        );
-    }
+    // On-chain swap-out (rail B) delivery driver: the hop delivers USD→BTC to a swapper's
+    // Bitcoin address via swapper-directed splice-outs of the VAULT's channels. It runs
+    // whenever a vault does — and since §NO-SELF-PROVISIONED-LPS the vault boots
+    // unconditionally, so this is simply ON. `QUID_SWAPOUT_ONCHAIN` used to gate it "until a
+    // real bitcoind e2e" (`driver_e2e::swap_out_onchain_delivery_on_real_evm`); that ran green
+    // on 2026-09-11 and the flag went the way `QUID_FLEET_COHOSTS_VAULT` did (owner: no
+    // awkward variables). The watcher and the `/swap-in/onchain` registration endpoint below
+    // still share ONE registry (the endpoint inserts, the watcher services + removes) and one
+    // condition — a version that mounted the endpoint without the watcher would accept
+    // deposit registrations nothing ever services, real BTC into a silent black hole.
+    let onchain_enabled = vault.is_some();
     let swap_in_registry = crate::swap_in_onchain::SwapInRegistry::new(store.clone());
-    // `.filter` binds the concrete vault AND applies the toggle in one step, so the watcher
-    // takes a real handle with NO unwrap on the money path — the gate above already made
-    // `onchain_enabled` imply `vault.is_some()`, and an `expect` here would be a clamp
-    // guarding an invariant that already holds.
-    if let Some(swapout_vault) = swapout_vault.filter(|_| onchain_enabled) {
+    if let Some(swapout_vault) = swapout_vault {
         info!("on-chain watcher: eyes on the chain — rail-B deliveries + swap-in deposits, all in its lane");
         // The swap-in rail folded into this task: the per-swap-key BIP32 master + a
         // hop-owned scriptPubKey the claimed swap-in BTC lands on.

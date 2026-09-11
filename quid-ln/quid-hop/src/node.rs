@@ -136,7 +136,7 @@ pub type HopPeerManagerType = PeerManagerType<
 /// The channel's two 2-of-2 funding pubkeys (serialized, unsorted), looked up by
 /// funding outpoint: maps outpoint → `ChannelId` via the channel list, then reads
 /// the monitor's `funding_pubkeys()` (the QU!D LDK accessor —
-/// `lib/rust-lightning/QUID_PATCHES.md`). `None` if there's no such channel /
+/// `quid-ln/LDK-FORK-PATCHES.md`). `None` if there's no such channel /
 /// monitor, or the counterparty params aren't populated yet. Used to build
 /// `BTCChannels.OpenParams` at open time (the funding P2WSH hides the keys).
 pub fn channel_funding_pubkeys(
@@ -251,7 +251,7 @@ pub fn close_channels_to(
 
 /// The counterparty's (LP's) committed upfront shutdown script for the channel
 /// at `funding_txid:funding_vout`, via the QU!D `ChannelDetails` accessor
-/// (`lib/rust-lightning/QUID_PATCHES.md`). This is the exact output the LP's
+/// (`quid-ln/LDK-FORK-PATCHES.md`). This is the exact output the LP's
 /// balance is paid to at a COOPERATIVE close — LDK rejects any `Shutdown` that
 /// differs from the committed script. The open driver checks it equals
 /// `P2WPKH(lp_funding_pubkey)` (what `BTCChannels._lpFinalBalance` attributes
