@@ -38,6 +38,10 @@ Two constituencies, opposite preferences, and neither may fund the other:
 | **No LVR** | ✅ **STRUCTURAL.** LVR is arbitrageurs exercising a free option against a stale published price. We publish none. |
 | **No IL for a passive LP** | 🔧 **PURCHASED, NOT STRUCTURAL.** It costs either carry (the lever) or time (deferral). What IS structural is that ours is *smaller* than an AMM's, because the adverse-selection half is already gone. ⛔ **Do not claim it as a property of the architecture.** |
 
+⭐ **AND THE POSITIONING THAT FOLLOWS, STATED RATHER THAN LEFT AS A SURPRISE** (§PLP-U, verbatim):
+> *"This is a **yield-bearing market-making vault with deferred redemption**, not a better AMM. A fine
+> product **stated**; a bad surprise **unstated**."*
+
 ## 3. What IL actually is here (owner's correction, 2026-09-11)
 **It is three quantities, and conflating them is how the old design went wrong:**
 1. **REALISED, per LP** — fixed only at EXIT, a function of BOTH endpoints. Two LPs leaving the same
@@ -91,12 +95,49 @@ protocol's cost is zero — it pays out yield it would not otherwise have owed.
 says *"strictly conservative, no mint"* — right about supply, wrong about the LP, who is lending the
 protocol money for free.
 
+⭐ **IT IS THE RESTORING TERM.** §PLP-T's headline was *"nothing restores inventory, ever"*, and its
+table dismissed organic counter-flow as **"not a mechanism — a hope."** A dated claim converts that hope
+into a **priced instrument**: the pool does not need counter-flow by a deadline, because the waiter is
+paid for the time. ⇒ the gap §PLP-T names is closed by §6, not by buying inventory back.
+
+📌 **WHAT THE TENOR KEYS OFF: DELIVERABLE, NOT OWNED** (§PLP-U option B's surviving insight). weETH
+means *owned* and *deliverable now* are different numbers — a liquidity risk a CLMM structurally does
+not have. The term structure must read the deliverable quantity, never the owned one.
+📌 **THE CLEANEST CASE FOR A DATED CLAIM IS §PLP-R2'S FIFTH SHORTFALL:** *stables LENT OUT at
+utilisation, not withdrawable* — handled by none of the four shortfall paths. The stables exist; they
+are simply not liquid **now**, which is exactly the condition a tenor prices.
+🏷️ **ATTRIBUTION:** this mechanism was proposed in **§PLP-R2** (*"pay the swapper in QU!D rather than
+deny service. No new primitive is needed — two already exist"*), which had already identified the
+maturity tranche. What this model adds is the second half — **the waiter is PAID** — which is what
+turns "rather than deny service" into something a counterparty may prefer.
+
 ⭐ **THE ORDERING, taken from the volatile side, which already had it right.** `offrampBody` tries
 **Curve first** and falls to the dated claim only when that cannot serve. So:
 > **Try to serve NOW. Defer only when serving now is worse FOR THE COUNTERPARTY than waiting.**
 
 That makes deferral something the counterparty *wants*, not something the pool imposes — which is what
 *"defer should be opt-in"* actually requires.
+
+## 6b. 🔑 Why the hedge exists at all — two obligations, two denominations
+Reconciled 2026-09-11 from two SPRINT rows that contradict each other and are **both right**:
+- **§PLP-R3:** *"claims are pro-rata on **VALUE**, so the pool owes no particular asset"* ⇒ composition
+  drift is eliminable by settling in whatever is abundant.
+- **§PLP-A:** claims are **DENOMINATED** ⇒ *"the pool now **OWES ETH IT DOES NOT HAVE**"*.
+
+| obligation | denominated in | consequence |
+|---|---|---|
+| **SOLVENCY** — what the pool must be able to PAY | **VALUE** | composition drift can never make us insolvent. It is a **business** problem, not a solvency one (§PLP-T). |
+| **EXPOSURE** — what the LP must end up HOLDING | **THE ASSET** | *"preserve upside"* (§1) fails if an ETH depositor is handed value. |
+
+> ⇒ **THE HEDGE EXISTS PRECISELY BECAUSE THOSE TWO DIFFER.** Settling in value is always SAFE and
+> sometimes changes the LP's exposure; the hedge is what puts the exposure back.
+
+⚠️ **Reading either obligation alone produces a wrong design** — value-only says *"settle in anything,
+there is no problem"*; asset-only says *"we are structurally short and must always buy back"*. The
+first loses the LP's upside; the second pays carry it does not owe.
+⭐ **AND THIS IS WHY §PLP-T'S REFRAME IS THE DESIGN'S FRAMING:** *the fix does not have to restore a
+RATIO, it has to restore the ABILITY TO QUOTE BOTH SIDES.* A much weaker requirement, and it is what
+deferral satisfies without buying anything.
 
 ## 7. The hedge — drift, not price
 🔴 **Both of the old design's IL terms are CFMM laws, and we deleted the CFMM:**
@@ -177,6 +218,15 @@ That is a reason to reject BUY-BACK. The structural reason leverage is the right
 
 ⚠️ Limits stated with it: it REDUCES market impact rather than avoiding it (it still buys, at IL size);
 it costs carry; and it is not the only instrument.
+⭐ **AND §PLP-13 GIVES THE SHARPEST REASON IT IS THE *THIRD* CHOICE:** the up-leg needs **four
+dependencies — a borrow, a venue, an aggregator route and a keeper — "to undo something the range did
+to itself."** Serving now needs none of them. Deferring needs none of them. That asymmetry, not the
+carry alone, is why leverage is the residue.
+🔴 **AND ONE INSTRUMENT IS BLOCKED, NOT MERELY UNBUILT:** §PLP-U's option G, *"borrow WETH against the
+weETH instead of selling it"*, has **no market behind it** — `MorphoEscrowVenue.borrow` lends STABLE,
+not WETH. When it was wired anyway, every exit reaching that rung delivered the withdrawer **nothing**
+while taking their weETH (three tests, *"delivered ETH: 0"*). Its ECONOMIC point is right and already
+used (the ratchet survives if you do not sell — §10's net carry); only the instrument is unavailable.
 
 ---
 ---
