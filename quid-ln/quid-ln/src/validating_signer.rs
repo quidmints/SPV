@@ -1936,6 +1936,7 @@ impl TaprootChannelSigner for ValidatingChannelSigner {
     fn generate_splice_nonce(
         &self,
         prev_funding_txid: &bitcoin::Txid,
+        candidate_index: u64,
         secp_ctx: &Secp256k1<secp256k1::All>,
     ) -> Option<PublicNonce> {
         // The splice spends the OLD (current) funding output, so the KeyAggContext is
@@ -1948,7 +1949,7 @@ impl TaprootChannelSigner for ValidatingChannelSigner {
             key_agg,
             our_index,
             &self.inner.commitment_seed,
-            splice_nonce_height(prev_funding_txid),
+            splice_nonce_height(prev_funding_txid, candidate_index),
         )
         .ok()
     }
@@ -1960,6 +1961,7 @@ impl TaprootChannelSigner for ValidatingChannelSigner {
         all_prevouts: &[bitcoin::TxOut],
         counterparty_nonce: PublicNonce,
         prev_funding_txid: &bitcoin::Txid,
+        candidate_index: u64,
         secp_ctx: &Secp256k1<secp256k1::All>,
     ) -> Result<(PartialSignature, PublicNonce), ()> {
         // Policy: the continuing-funding destination lock (§T9-STEP-3), FIRST, before any
@@ -2000,7 +2002,7 @@ impl TaprootChannelSigner for ValidatingChannelSigner {
             counterparty_index,
             self.taproot_holder_funding_key(),
             &self.inner.commitment_seed,
-            splice_nonce_height(prev_funding_txid),
+            splice_nonce_height(prev_funding_txid, candidate_index),
             counterparty_nonce,
             message,
         )
@@ -2042,11 +2044,14 @@ impl TaprootChannelSigner for ValidatingChannelSigner {
 /// The
 /// window `[2^48, 2^56+2^48)` is disjoint from the commitment range (`<2^48`) and the
 /// closing range (top of `u64`). Mirrors `lightning::sign::splice_nonce_height`.
-fn splice_nonce_height(prev_funding_txid: &bitcoin::Txid) -> u64 {
+fn splice_nonce_height(prev_funding_txid: &bitcoin::Txid, candidate_index: u64) -> u64 {
     use bitcoin::hashes::{sha256, Hash, HashEngine};
     let mut eng = sha256::Hash::engine();
     eng.input(b"quid-taproot-splice-nonce");
     eng.input(prev_funding_txid.as_byte_array());
+    // §SPLICE-NONCE-PER-CANDIDATE. Folded into the HASH, not the arithmetic, so the window stays
+    // `[2^48, 2^48+2^56)` BY CONSTRUCTION and the disjointness assertion needs no new bound.
+    eng.input(&candidate_index.to_be_bytes());
     let h = sha256::Hash::from_engine(eng).to_byte_array();
     let mut x = [0u8; 8];
     x.copy_from_slice(&h[..8]);
@@ -3953,18 +3958,18 @@ mod tests {
         ];
 
         // Each side advertises its splice nonce (keyed on prev_funding_txid).
-        let lp_nonce = lp_vs.generate_splice_nonce(&prev_funding_txid, &secp).unwrap();
-        let hop_nonce = hop_vs.generate_splice_nonce(&prev_funding_txid, &secp).unwrap();
+        let lp_nonce = lp_vs.generate_splice_nonce(&prev_funding_txid, 0, &secp).unwrap();
+        let hop_nonce = hop_vs.generate_splice_nonce(&prev_funding_txid, 0, &secp).unwrap();
 
         // Each side produces its key-path partial over the splice sighash.
         let (lp_partial, lp_pubnonce) = lp_vs
             .partially_sign_splice_shared_input(
-                &splice_tx, 0, &all_prevouts, hop_nonce.clone(), &prev_funding_txid, &secp,
+                &splice_tx, 0, &all_prevouts, hop_nonce.clone(), &prev_funding_txid, 0, &secp,
             )
             .expect("LP splice partial");
         let (hop_partial, hop_pubnonce) = hop_vs
             .partially_sign_splice_shared_input(
-                &splice_tx, 0, &all_prevouts, lp_nonce.clone(), &prev_funding_txid, &secp,
+                &splice_tx, 0, &all_prevouts, lp_nonce.clone(), &prev_funding_txid, 0, &secp,
             )
             .expect("hop splice partial");
 
@@ -4006,22 +4011,50 @@ mod tests {
         let txid_b =
             bitcoin::Txid::from_raw_hash(bitcoin::hashes::Hash::hash(b"splice-parent-B"));
 
-        let nonce_a = lp_vs.generate_splice_nonce(&txid_a, &secp).unwrap();
-        let nonce_b = lp_vs.generate_splice_nonce(&txid_b, &secp).unwrap();
+        let nonce_a = lp_vs.generate_splice_nonce(&txid_a, 0, &secp).unwrap();
+        let nonce_b = lp_vs.generate_splice_nonce(&txid_b, 0, &secp).unwrap();
         assert_ne!(
             nonce_a.serialize(), nonce_b.serialize(),
             "splice nonce MUST differ across distinct prev_funding_txids (no reuse)"
         );
         // Same prev_funding_txid → SAME (re-derivable, crash-safe) nonce.
-        let nonce_a2 = lp_vs.generate_splice_nonce(&txid_a, &secp).unwrap();
+        let nonce_a2 = lp_vs.generate_splice_nonce(&txid_a, 0, &secp).unwrap();
         assert_eq!(
             nonce_a.serialize(), nonce_a2.serialize(),
             "splice nonce is deterministic/re-derivable for a fixed prev_funding_txid"
         );
 
+        // §SPLICE-NONCE-PER-CANDIDATE — BOTH HALVES, and the second is the one that cost a day.
+        //
+        // (a) THE FIX: a second candidate in the SAME negotiation must get a DIFFERENT nonce.
+        //     `prev_funding_txid` is constant across a negotiation, so an RBF / fee change /
+        //     revised contribution is a second message at the same outpoint. Without the index
+        //     that is one nonce over two messages — `x = (s1 − s2)/(e1 − e2)` on the funding key.
+        assert_ne!(
+            lp_vs.generate_splice_nonce(&txid_a, 0, &secp).unwrap().serialize(),
+            lp_vs.generate_splice_nonce(&txid_a, 1, &secp).unwrap().serialize(),
+            "a second candidate at the same outpoint MUST NOT reuse the nonce",
+        );
+        // (b) ADVERTISE == SIGN: identical `(txid, index)` must be identical, because the nonce is
+        //     published in `splice_init`/`splice_ack` BEFORE the message exists and the peer
+        //     aggregates against what we advertised. ⛔ This is the invariant b9213c55 broke by
+        //     spicing and 7a0549ae then over-corrected; it is an ASSERTION now, not a comment.
+        assert_eq!(
+            lp_vs.generate_splice_nonce(&txid_a, 7, &secp).unwrap().serialize(),
+            lp_vs.generate_splice_nonce(&txid_a, 7, &secp).unwrap().serialize(),
+            "the advertised nonce must be deterministic in (txid, candidate_index)",
+        );
+        // (c) The index must not leak out of the window either — hashing it in keeps the range
+        //     `[2^48, 2^48+2^56)` by construction, which is what the assertion below relies on.
+        for i in [0u64, 1, 7, u64::MAX] {
+            let hi = splice_nonce_height(&txid_a, i);
+            assert!(hi >= (1u64 << 48) && hi < u64::MAX - 1_000_000,
+                    "candidate {i} left the splice window");
+        }
+
         // And the splice nonce height must NOT collide with the commitment range
         // (<2^48) or the closing range (top of u64).
-        let h = splice_nonce_height(&txid_a);
+        let h = splice_nonce_height(&txid_a, 0);
         assert!(h >= (1u64 << 48), "splice nonce height above commitment range");
         assert!(h < u64::MAX - 1_000_000, "splice nonce height below closing range");
     }
