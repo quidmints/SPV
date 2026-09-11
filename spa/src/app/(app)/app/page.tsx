@@ -75,7 +75,7 @@ const enc = {
   auxSwap:     (tIn: string, tOut: string, amt: bigint, recip: string, minOut: bigint) =>
                 iface.encodeFunctionData('auxSwap(address,address,uint256,address,uint256)', [tIn, tOut, amt, recip, minOut]),
   redeemable:  () => iface.encodeFunctionData('redeemableAmount', []),
-  twapAsset:   (asset: string, p: number) => iface.encodeFunctionData('getTWAPforAsset', [asset, p]),
+  assetPrice:  (asset: string) => iface.encodeFunctionData('assetPrice', [asset]),
   metrics:     (force: boolean) => iface.encodeFunctionData('get_metrics', [force]),
   deposits:    () => iface.encodeFunctionData('get_deposits', []),
   avgYield:    () => iface.encodeFunctionData('avgYield', []),
@@ -387,9 +387,9 @@ export default function QuidApp() {
   const fetchMetrics = useCallback(async () => {
     if (!chainOk || CONTRACTS.aux === ZERO_ADDR) return
     // ETH TWAP — getTWAPforAsset(WETH, …); there is no ETH-only getTWAP on Aux.
-    try { setEthTwap(Number(BigInt(await ethCall(CONTRACTS.aux, enc.twapAsset(CONTRACTS.weth, 1800)))) / 1e18) } catch {}
+    try { setEthTwap(Number(BigInt(await ethCall(CONTRACTS.aux, enc.assetPrice(CONTRACTS.weth)))) / 1e18) } catch {}
     // WBTC TWAP (BTC/USD from the pinned Chainlink anchor, via Aux.getTWAPforAsset)
-    try { setBtcTwap(Number(BigInt(await ethCall(CONTRACTS.aux, enc.twapAsset(CONTRACTS.wbtc, 1800)))) / 1e18) } catch {}
+    try { setBtcTwap(Number(BigInt(await ethCall(CONTRACTS.aux, enc.assetPrice(CONTRACTS.wbtc)))) / 1e18) } catch {}
     // get_metrics (not view — state-mutating in some paths; eth_call still works)
     try {
       const m = await ethCall(CONTRACTS.aux, enc.metrics(false))

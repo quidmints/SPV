@@ -203,7 +203,7 @@ library ChannelLib {
         if (token == cfg.bold) {
             SPWithdrawResult memory r = withdrawFromSP(
                 vaults[token], token, cfg.weth, amount,
-                aux.getTWAPforAsset(cfg.weth, 0), sp);
+                aux.assetPrice(cfg.weth), sp);
             if (r.boldReceived == 0) return 0;
             sp.spLastUpdate = r.newSpLastUpdate;
             sp.spTotalYield = r.newSpTotalYield;

@@ -66,7 +66,7 @@ contract Quid is Shares,
     }
 
     function _wethTwap() private view returns (uint) {
-        return AUX.getTWAPforAsset(address(WETH), 1800);
+        return AUX.assetPrice(address(WETH));
     }
 
     function _auxRangeETH() private view returns (uint) {
@@ -609,7 +609,7 @@ contract Quid is Shares,
     }
 
     function _rebalance() internal returns (uint spotPrice,
-        uint loPrice, uint upPrice, uint myLiquidity, uint resolvedTwap) {
+        uint loPrice, uint upPrice, uint myLiquidity, uint anchorPrice) {
         QuidLib.RebalOut memory o = QuidLib.rebalanceBody(QuidLib.RebalIn({
             core: address(CORE), aux: address(AUX), ev: address(this), weth: address(WETH),
             lpShares: lpShares, totalLevPooled: totalLevPooled,
@@ -621,11 +621,11 @@ contract Quid is Shares,
 
         if (o.setLastRepack) LAST_REPACK = block.timestamp;
         RANGE_ANCHOR = o.spotPrice;
-        return (o.spotPrice, o.loPrice, o.upPrice, o.myLiquidity, o.resolvedTwap);
+        return (o.spotPrice, o.loPrice, o.upPrice, o.myLiquidity, o.anchorPrice);
     }
 
     function repack() public onlyUs returns (uint spotPrice,
-        uint loPrice, uint upPrice, uint myLiquidity, uint resolvedTwap) {
+        uint loPrice, uint upPrice, uint myLiquidity, uint anchorPrice) {
         return _rebalance();
     }
 

@@ -36,7 +36,6 @@ export const CORE_ABI = [
   // observes into one that "takes the range as an argument"; the isBTC split then went further and
   // made the range an INSTANCE, so `Core.observe(uint32[])` reads its own ring and there is nothing
   // left to select. Call it on `rangeCore` for ETH and `rangeCoreBtc` for BTC.
-  'function observe(uint32[] secondsAgos) view returns (uint192[] prices)',
   // Internal pool state — the REAL committed-vs-backing + in-range fractions.
   'function committedUsd18() view returns (uint)',     // USD committed to the in-range pools
   // §E235-spa — ONE PAIR, NOT FOUR ACCESSORS. `POOLED_ETH`/`POOLED_BTC`/`POOLED_USD_ETH`/
@@ -94,7 +93,7 @@ export const AUX_ABI = [
 
   // Pricing & metrics. There is NO ETH-only getTWAP convenience on Aux — the
   // ETH TWAP is getTWAPforAsset(WETH, period), the same accessor used for BTC.
-  'function getTWAPforAsset(address asset, uint32 period) returns (uint)',
+  'function assetPrice(address asset) view returns (uint)',
   'function get_metrics(bool force) returns (uint total, uint yield_)',
   // per-stable deposit amounts + yield weights (uint[13]: stables + aggregate slots),
   // basket avg yield, and the redemption depeg loss. DO NOT use uint[14]/3-tuple — the

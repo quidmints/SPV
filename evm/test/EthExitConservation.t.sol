@@ -66,7 +66,7 @@ contract EthExitConservationProbe is AllesFixture {
         // CONSERVATION: the LP's claim must not evaporate. Everything the LP gave up (pooledDrop)
         // must come back as ETH in hand plus QUID in hand — QUID is a live par claim on the basket,
         // so it counts as value received, not as loss.
-        uint ethPrice = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint ethPrice = AUX.assetPrice(address(WETH));
         // Both QUID-in-hand and the DEFERRED `usd_owed` are dollar claims (18-dec, ~$1) — value the
         // LP holds either way. Only their form differs (minted now vs minted on full exit).
         uint usdClaimInEth = ethPrice == 0 ? 0 : ((quidGained + owedGained) * 1e18) / ethPrice;

@@ -781,7 +781,7 @@ contract UnificationControls is AllesFixture {
         // fill actually conserves. Leg EQUALITY is not: a trade of X moves `POOLED_USD` DOWN by X and
         // `POOLED * price` UP by X, so the two separate by 2X per one-way trade BY CONSTRUCTION.
         uint value0 = CORE.POOLED_USD()
-                    + CORE.POOLED() * AUX.getTWAPforAsset(address(WETH), 1800) / 1e30;
+                    + CORE.POOLED() * AUX.assetPrice(address(WETH)) / 1e30;
         for (uint i; i < 4; i++) _trade(3_000e18);
         _assertTraded();
 
@@ -967,7 +967,7 @@ contract UnificationControls is AllesFixture {
         uint newCommitted0 = CORE.committedUsd18();
         assertEq(oldCommitted0, newCommitted0, "PREMISE: pre-flow the two definitions agree");
 
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint px = AUX.assetPrice(address(WETH));
         assertGt(px, 0, "PREMISE: a live TWAP, else capacity cannot be denominated in ETH");
 
         for (uint i; i < 20; i++) _trade(3_000e18);

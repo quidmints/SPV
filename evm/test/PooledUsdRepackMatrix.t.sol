@@ -121,8 +121,8 @@ contract PooledUsdRepackMatrix is AllesFixture {
     function _ethValue(Pair memory s, uint px) internal pure returns (uint) { return _value(s.eth.leg, px, s.eth.usd); }
     function _btcValue(Pair memory s, uint px) internal pure returns (uint) { return _value(s.btc.leg, px, s.btc.usd); }
 
-    function _pxEth() internal view returns (uint) { return AUX.getTWAPforAsset(address(WETH), 1800); }
-    function _pxBtc() internal view returns (uint) { return AUX.getTWAPforAsset(address(WBTC), 1800); }
+    function _pxEth() internal view returns (uint) { return AUX.assetPrice(address(WETH)); }
+    function _pxBtc() internal view returns (uint) { return AUX.assetPrice(address(WBTC)); }
 
     /// Seed BOTH ranges. Seeding BTC is what makes every cross-range assertion non-vacuous.
     function _seedBoth(uint ethDeposit, uint sats) internal {
@@ -188,12 +188,12 @@ contract PooledUsdRepackMatrix is AllesFixture {
     ///      tick extreme can be distinguished from a unit I simply misread. Would this
     ///      measurement look the same if I were wrong? -- that is what the t0/t1 rows answer.
     function _oracleTrace(string memory tag) internal {
-        (uint rTwap, bool rStale) = AUX.resolvedTwap(address(WETH), 1800);
+        (uint rTwap, bool rStale) = AUX.assetPriceStale(address(WETH));
         (uint sp,) = CORE.poolStats();
         uint spot = sp;   // §DETICK: poolStats() RETURNS the price; converting it again was a double conversion
         emit log_string(tag);
-        emit log_named_uint("   getTWAPforAsset ", AUX.getTWAPforAsset(address(WETH), 1800));
-        emit log_named_uint("   resolvedTwap    ", rTwap);
+        emit log_named_uint("   assetPrice ", AUX.assetPrice(address(WETH)));
+        emit log_named_uint("   anchorPrice    ", rTwap);
         emit log_named_uint("   stale?          ", rStale ? 1 : 0);
         emit log_named_uint("   curve spot      ", spot);
         emit log_named_uint("   spotPrice    ", uint(sp));
@@ -358,11 +358,11 @@ contract PooledUsdRepackMatrix is AllesFixture {
         //      (a) auto-heal  : fires only when `stale` (resolved price fell back to Chainlink)
         //      (b) twap == 0  : bootstrap / dead feed
         //      (c) manipulated: `dev * 10000 > twap * 300` (BasketLib.isManipulated:368)
-        (uint rTwap, bool rStale) = AUX.resolvedTwap(address(WETH), 1800);
+        (uint rTwap, bool rStale) = AUX.assetPriceStale(address(WETH));
         (uint sp2,) = CORE.poolStats();
         uint spot2 = sp2;  // §DETICK: see above
-        emit log_named_uint("(a) resolvedTwap stale?", rStale ? 1 : 0);
-        emit log_named_uint("(b) resolvedTwap price ", rTwap);
+        emit log_named_uint("(a) anchorPrice stale?", rStale ? 1 : 0);
+        emit log_named_uint("(b) anchorPrice price ", rTwap);
         emit log_named_uint("    curve spot         ", spot2);
         uint devBps = rTwap == 0 ? 0
             : (spot2 > rTwap ? spot2 - rTwap : rTwap - spot2) * 10000 / rTwap;
@@ -493,7 +493,7 @@ contract PooledUsdRepackMatrix is AllesFixture {
 
         // §OOR-UNCONSTRUCTIBLE — same as S3b, and the FRESHNESS this scenario buys does not reach the
         // question either. Keeping the Chainlink read inside `ASSET_FEED_MAX_AGE` only decides which
-        // price `resolvedTwap` returns; it cannot make the spot leave a band that is recentred on the
+        // price `anchorPrice` returns; it cannot make the spot leave a band that is recentred on the
         // spot. This scenario's remaining, real content is that the identity holds on the freshest
         // oracle path the fixture can produce.
         _assertFrameTracksSpot("S3c frame (ANCHORED+FRESH)", s0, s2);

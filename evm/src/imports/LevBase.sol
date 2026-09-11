@@ -4,12 +4,11 @@ pragma solidity ^0.8.28;
 import {Types, Reentrancy} from "./Types.sol";
 import {RangeLib} from "./RangeLib.sol";
 
-import {ILevVenue, ILevPooled, IAux, ICore, IERC20Min, IWeETH, DEFAULT_UNWIND_DEX, VenuePosition, TWAP_WINDOW_SECS} from "./Interfaces.sol";
+import {ILevVenue, ILevPooled, IAux, ICore, IERC20Min, IWeETH, DEFAULT_UNWIND_DEX, VenuePosition} from "./Interfaces.sol";
 import {LevMath} from "./LevMath.sol";
 
 abstract contract LevBase {
 
-    uint32 public constant TWAP_WINDOW = TWAP_WINDOW_SECS;
 
     uint256 public constant TARGET_LTV_CAP_BPS = 7500;
 
@@ -35,7 +34,7 @@ abstract contract LevBase {
     {
         Types.Pos memory p = pos[lp];
         if (!p.open) return (false, 0, 0, 0);
-        uint256 px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
+        uint256 px = AUX.assetPrice(ORACLE_KEY);
         return (true, LevMath.entryEquityUsd(p.entryEquity, px), debtUsd(lp), _ilTargetLive(p, px));
     }
 
@@ -169,7 +168,7 @@ abstract contract LevBase {
 
     function collValueUsd(uint units) public view returns (uint) {
         if (units == 0) return 0;
-        return (_collToBase(units) * AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW)) / 1e18;
+        return (_collToBase(units) * AUX.assetPrice(ORACLE_KEY)) / 1e18;
     }
 
     function _collNative(ILevVenue v, address lp) internal view returns (uint) {
@@ -218,12 +217,12 @@ abstract contract LevBase {
     }
 
     function ilLtvBps(address lp) public view returns (uint) {
-        uint px = AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW);
+        uint px = AUX.assetPrice(ORACLE_KEY);
         return LevMath.ltvBps(debtUsd(lp), LevMath.entryEquityUsd(pos[lp].entryEquity, px));
     }
 
     function ilTargetLtvBps(address lp) public view returns (uint) {
-        return _ilTargetLive(pos[lp], AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW));
+        return _ilTargetLive(pos[lp], AUX.assetPrice(ORACLE_KEY));
     }
 
     function _deliverableDollarsAt(address lp) internal view returns (uint) {
@@ -243,7 +242,7 @@ abstract contract LevBase {
     }
 
     function netEquity(address lp) public view returns (uint256) {
-        return _netEquityAt(lp, AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW));
+        return _netEquityAt(lp, AUX.assetPrice(ORACLE_KEY));
     }
 
     function deliverableDollars(address lp) public view returns (uint256) {
@@ -282,7 +281,7 @@ abstract contract LevBase {
             coll    += _collNativePool(v);
             debtUsd += LevMath._toUsd18(address(AUX), ILevVenue(v).stable(), ILevPooled(v).totalDebt());
         }
-        return LevMath.netEquityBase(coll, debtUsd, AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW));
+        return LevMath.netEquityBase(coll, debtUsd, AUX.assetPrice(ORACLE_KEY));
     }
 
     function _collNativePool(address v) internal view returns (uint256) {
@@ -303,7 +302,7 @@ contract RealRateBtcMorphoOracle {
     address public immutable WBTC;
     constructor(address aux, address wbtc) { AUX = aux; WBTC = wbtc; }
     function price() external view returns (uint256) {
-        uint256 twap = IAux(AUX).getTWAPforAsset(WBTC, 1800);
+        uint256 twap = IAux(AUX).assetPrice(WBTC);
         if (twap == 0) revert NoPrice();
         return twap * 1e6;
     }

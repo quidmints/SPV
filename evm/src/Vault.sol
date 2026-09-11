@@ -145,13 +145,13 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     }
 
     function _rebalance() internal returns (uint spotPrice,
-        uint loPrice, uint upPrice, uint myLiquidity, uint resolvedTwap) {
+        uint loPrice, uint upPrice, uint myLiquidity, uint anchorPrice) {
         BtcLib.RebalOut memory o = BtcLib.rebalanceBody(
             _btcCfg(), _lo(), _hi(), lpShares + totalBuffer);
 
         feesPerShare += o.feesPerShareInc; USD_FEES += o.usdFeesInc;
         RANGE_ANCHOR = o.spotPrice;
-        return (o.spotPrice, o.loPrice, o.upPrice, o.myLiquidity, o.resolvedTwap);
+        return (o.spotPrice, o.loPrice, o.upPrice, o.myLiquidity, o.anchorPrice);
     }
 
     function requestDeposit(address lpEth, uint sats) external nonReentrant onlyBTCChannels {
@@ -227,7 +227,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     }
 
     function repack() public onlyUs returns (uint spotPrice,
-        uint loPrice, uint upPrice, uint myLiquidity, uint resolvedTwap) {
+        uint loPrice, uint upPrice, uint myLiquidity, uint anchorPrice) {
         return _rebalance();
     }
 

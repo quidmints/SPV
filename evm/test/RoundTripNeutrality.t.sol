@@ -107,7 +107,7 @@ contract RoundTripNeutralityLevered is LevYbRealProbe {
         {   uint usd6 = CORE.POOLED_USD(); uint base6 = CORE.basketUsd();
             // Valued at the ORACLE, matching `_pricingBacking`. The range's leg ratio is NOT a
             // price for a concentrated position -- using it over-valued the increment ~2.2x.
-            uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+            uint px = AUX.assetPrice(address(WETH));
             if (px > 0 && usd6 != base6) {
                 if (usd6 > base6) backing += ((usd6 - base6) * 1e12) * 1e18 / px;
                 else { uint d = ((base6 - usd6) * 1e12) * 1e18 / px; backing = backing > d ? backing - d : 0; }

@@ -78,12 +78,12 @@ contract LevYbRealProbe is AllesFixture {
     function _setupMorpho() internal {
         _seedBasket();
         // PIN THE ETH/USD ANCHOR, as the real deploy does (DeployL1_s:326). Without it
-        // `getTWAPforAsset` resolves through twapResolve(feed=0x0, price=0) and returns ZERO —
+        // `assetPrice` resolves through twapResolve(feed=0x0, price=0) and returns ZERO —
         // and because it deliberately never reverts (#101 degrade-to-partial-fill), that zero
         // propagated as `pxWeth` into LevMath's divisors and killed these tests with
         // `panic: division or modulo by zero`. The fixture must match the deployed config.
         if (AUX.assetPriceFeed(address(WETH)) == address(0)) _auxSetAssetFeed(address(WETH), CL_ETH_USD);
-        rpx = AUX.getTWAPforAsset(address(WETH), 1800);            // 1e18 USD/ETH (real)
+        rpx = AUX.assetPrice(address(WETH));            // 1e18 USD/ETH (real)
         assertGt(rpx, 0, "ETH/USD anchor must resolve non-zero (pxWeth feeds LevMath divisors)");
         RealRateMorphoOracle oracle = new RealRateMorphoOracle(WEETH, CL_ETH_USD); // REAL ether.fi rate × Chainlink
         mOracle = address(oracle);
@@ -121,7 +121,7 @@ contract LevYbRealProbe is AllesFixture {
             // later on `debt == 0`, blaming Morpho — which the trace shows was never asked to borrow.
             uint _sf = ETH.soldFractionWad(syncKeyPx);
             if (_sf >= targetWad) { emit log_named_uint("RALLY EXIT soldFraction>=target", _sf); break; }
-            // 🔴 §E310 — THE OBSERVATION MUST COME FROM THE POOL. This read `AUX.getTWAPforAsset`,
+            // 🔴 §E310 — THE OBSERVATION MUST COME FROM THE POOL. This read `AUX.assetPrice`,
             // which reads the observation RING, and then set the Chainlink mock FROM it -- so the
             // anchor was a copy of the thing it anchors and NOTHING could ever move. Measured (§C18):
             // ring TWAP, Chainlink and the pinned `ilBasisPx` were all 2501.13975863 after TEN
@@ -150,9 +150,9 @@ contract LevYbRealProbe is AllesFixture {
     }
 
     /// Real DOWN move: sell ETH into the range so the mark crashes ~`dropBps` (drives the venue-safety de-lever).
-    /// Feed tracks the pool each step, so getCurrentLtvBps (weETH mark) falls for real — no getTWAPforAsset mock.
+    /// Feed tracks the pool each step, so getCurrentLtvBps (weETH mark) falls for real — no assetPrice mock.
     function _crashRange(uint dropBps, uint maxSteps, uint ethPerStep) internal {
-        uint start = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint start = AUX.assetPrice(address(WETH));
         vm.deal(address(this), maxSteps * ethPerStep);
         for (uint i; i < maxSteps; i++) {
             // 🔴 §E310 (DOWN-SIDE TWIN) — the same circularity the rally had, and it made the exit
@@ -197,7 +197,7 @@ contract LevYbRealProbe is AllesFixture {
         vm.deal(address(this), 20 ether);
         for (uint i; i < 16; i++) {
             vm.warp(block.timestamp + 6 minutes); vm.roll(block.number + 1);
-            uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px != 0) _setEthFeed(px / 1e10);
+            uint px = AUX.assetPrice(address(WETH)); if (px != 0) _setEthFeed(px / 1e10);
             // tiny alternating round-trips (θ ∝ 1/move² ⇒ small moves ⇒ σ²→~0 once the rally ages out of the 40min horizon)
             if (i % 2 == 0) { try AUX.swap(address(USDC), address(WETH), true, 30 * USDC_PRECISION, 0, true) { ++_calmOk; } catch {} }
             else            { try AUX.swap{value: 0.015 ether}(address(USDC), address(WETH), false, 0, 0, true) { ++_calmOk; } catch {} }
@@ -207,7 +207,7 @@ contract LevYbRealProbe is AllesFixture {
     /// Realign the mock range's price feed + spot to the REAL Chainlink market. The rally elevates the range's
     /// own feed (mock-token pool we can move); the leverage's external legs execute on REAL Uniswap (which we
     /// can't). Before any real weETH↔stable leg / basket reconcile, pin the range oracle to real so
-    /// getTWAPforAsset (⇒ _stableFloor, ⇒ POOLED_USD valuation) matches real execution — a fork artifact fix.
+    /// assetPrice (⇒ _stableFloor, ⇒ POOLED_USD valuation) matches real execution — a fork artifact fix.
     function _realignRangeToReal() internal {
         (, int256 clp,,,) = IChainlinkFeedT(CL_ETH_USD).latestRoundData();
         _setEthFeed(uint(clp)); ETH.reseat();
@@ -276,7 +276,7 @@ contract LevYbRealProbe is AllesFixture {
         //      · takeToSettle fails → returns 0 and emits DeliverDeleverSkipped(.., true)
         //      · pooled leg fails   → returns 0 and emits DeliverDeleverSkipped(.., false)
         //    So "no event" IS the proof that the 0-debt branch is what fired.
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint px = AUX.assetPrice(address(WETH));
         assertGt(px, 0, "premise: the ETH/USD anchor resolves (else every divisor below is 0)");
 
         vm.recordLogs();
@@ -296,7 +296,7 @@ contract LevYbRealProbe is AllesFixture {
         assertGt(rvenue.totalDebt(), 0, "control premise: the rebalance actually levered the pool");
 
         vm.recordLogs();
-        SwapLib.deleverEthOnDelivery(address(rlm), address(AUX), AUX.getTWAPforAsset(address(WETH), 1800), 1 ether, LP);
+        SwapLib.deleverEthOnDelivery(address(rlm), address(AUX), AUX.assetPrice(address(WETH)), 1 ether, LP);
         assertGt(_countSkips(vm.getRecordedLogs()), 0,
             "control: with debt the call REACHES the try and announces a skip, so the branch keys on debt");
     }
@@ -338,7 +338,7 @@ contract LevYbRealProbe is AllesFixture {
         assertEq(rlm.totalDeliverableDollars(), 0, "M.1b: and the book-wide sum agrees");
 
         // ── THE DELIVERY PATH DELIVERS NONE OF IT ────────────────────────────────────────────────
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint px = AUX.assetPrice(address(WETH));
         vm.recordLogs();
         uint delivered = SwapLib.deleverEthOnDelivery(address(rlm), address(AUX), px, 1 ether, LP);
         assertEq(_countSkips(vm.getRecordedLogs()), 0, "returned at the 0-debt branch, nothing swallowed");
@@ -432,7 +432,7 @@ contract LevYbRealProbe is AllesFixture {
         assertGt(ETH.lpShares() + ETH.totalBuffer(), ETH.lpShares(), "gross fee weight exceeds net equity by the buffer");
 
         // REAL CRASH: sell ETH into the range so the mark drops ~10% (feed tracks the pool) — LTV jumps for real,
-        // no getTWAPforAsset mock. De-lever then fires on the genuine mark move.
+        // no assetPrice mock. De-lever then fires on the genuine mark move.
         _crashRange(1000, 12, 30 ether);
         emit log_named_uint("LTV after crash (bps)", rlm.getCurrentLtvBps(LP));
 
@@ -518,7 +518,7 @@ contract LevYbRealProbe is AllesFixture {
     ///     · `QuidLib._rangeETH` (`imports/QuidLib.sol:535`) ends with
     ///       `try ILevEquity(c.levManager).totalNetEquity() returns (uint n) { total += n; }`
     ///     · `LevBase.totalNetEquity` (`imports/LevBase.sol:860`) returns
-    ///       `LevMath.netEquityBase(coll, debtUsd, AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW))`
+    ///       `LevMath.netEquityBase(coll, debtUsd, AUX.assetPrice(ORACLE_KEY))`
     ///     · `LevMath.netEquityBase` (`imports/LevMath.sol:399`) is `coll − debtUsd·1e18/price`
     ///   ⇒ **`rangeETH` CARRIES A TERM DIVIDED BY THE ORACLE PRICE.** `POOLED` is a raw token count
     ///   and cannot follow it, `levBuf` is stored state that only `syncLev`/reconcile moves, and
@@ -684,7 +684,7 @@ contract LevYbRealProbe is AllesFixture {
         // then arm B and this probe disagree and the arm is the thing that is wrong.
         for (uint i; i < 16; i++) {
             vm.warp(block.timestamp + 6 minutes); vm.roll(block.number + 1);
-            { uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px != 0) _setEthFeed(px / 1e10); }
+            { uint px = AUX.assetPrice(address(WETH)); if (px != 0) _setEthFeed(px / 1e10); }
             if (i % 2 == 0) { try AUX.swap(address(USDC), address(WETH), true, 30 * USDC_PRECISION, 0, true) {} catch {} }
             else            { try AUX.swap{value: 0.015 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch {} }
             emit log_named_string("LEG", i % 2 == 0 ? "DRAIN" : "SELL ");

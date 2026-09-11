@@ -6,7 +6,7 @@ import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {WAD, VenueNotAllowed} from "./Types.sol";
 
-import {ICore, IAux, IWeETH, IDepositAdapter, ILevVenue, ILevPooled, TWAP_WINDOW_SECS} from "./Interfaces.sol";
+import {ICore, IAux, IWeETH, IDepositAdapter, ILevVenue, ILevPooled} from "./Interfaces.sol";
 import {IERC20Min, IWETH9} from "../imports/Interfaces.sol";
 import {CURVE_BOLD_USDC, CRV_BOLD_IDX, CRV_BOLD_USDC_IDX, BOLD_TOKEN} from "./Interfaces.sol";
 import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, SWAP_SELECTOR, PROTO_UNIV3, PROTO_UNIV2,
@@ -74,14 +74,14 @@ library LevMath {
         return curDebt - targetDebt;
     }
 
-    struct WbtcCfg { address aux; address wbtc; uint32 twapWindow; uint16 slipBps; uint256 dex; uint256 dex2; bytes route; }
+    struct WbtcCfg { address aux; address wbtc; uint16 slipBps; uint256 dex; uint256 dex2; bytes route; }
 
     function leverUpBuyWbtc(ILevVenue venue, address lp, address stable, uint256 usd, uint256 minOut, WbtcCfg memory cfg)
         public returns (uint256 borrowed, uint256 wbtcBought) {
         borrowed = venue.borrow(lp, _fromUsd(cfg.aux, stable, usd));
         if (borrowed == 0) return (0, 0);
         {
-            uint256 floorWbtc = (usd * 1e18 / IAux(cfg.aux).getTWAPforAsset(cfg.wbtc, cfg.twapWindow))
+            uint256 floorWbtc = (usd * 1e18 / IAux(cfg.aux).assetPrice(cfg.wbtc))
                                 * (10_000 - cfg.slipBps) / 10_000;
             if (minOut < floorWbtc) minOut = floorWbtc;
         }
@@ -97,7 +97,7 @@ library LevMath {
         uint256 pulled;
         {
             uint256 repaid = venue.repay(lp, assets);
-            uint256 px = IAux(cfg.aux).getTWAPforAsset(cfg.wbtc, cfg.twapWindow);
+            uint256 px = IAux(cfg.aux).assetPrice(cfg.wbtc);
             pulled = venue.withdraw(lp, (_toUsd18(cfg.aux, stable, repaid) * 1e18 / px)
                                         * 10_000 / (10_000 - cfg.slipBps));
             uint256 floorStable = _fromUsd(cfg.aux, stable, pulled * px / 1e18)
@@ -159,11 +159,10 @@ library LevMath {
 
     function loanPxUsd18(address aux, address loan) internal view returns (uint256 px) {
         if (IAux(aux).assetPriceFeed(loan) == address(0)) return USD_PX;
-        px = IAux(aux).getTWAPforAsset(loan, TWAP_WIN_M);
+        px = IAux(aux).assetPrice(loan);
         if (px == 0) revert NoPrice();
     }
 
-    uint32  internal constant TWAP_WIN_M         = TWAP_WINDOW_SECS;
 
     uint256 internal constant SELL_SLIP_BPS      = 100;
 
@@ -173,7 +172,7 @@ library LevMath {
     uint256 internal constant SLIP_PER_MM_BPS    = 25;
 
     function _pxUsd18(address aux, address t) internal view returns (uint256) {
-        try IAux(aux).getTWAPforAsset(t, TWAP_WIN_M) returns (uint256 p) {
+        try IAux(aux).assetPrice(t) returns (uint256 p) {
             if (p != 0) return p;
         } catch {}
         return USD_PX;
@@ -527,14 +526,14 @@ library LevMath {
     }
 
     function _wethStableFloor(SellCtx memory c, address stable, uint256 wethAmt) internal view returns (uint256) {
-        uint256 usd18 = (wethAmt * IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M)) / 1e18;
+        uint256 usd18 = (wethAmt * IAux(c.aux).assetPrice(c.weth)) / 1e18;
 
         return swapFloor(c.aux, c.weth, wethAmt, stable, _slipBps(usd18));
     }
 
     function _wethForAssets(SellCtx memory c, address stable, uint256 assets) internal view returns (uint256) {
         uint256 usd18 = _toUsd18(c.aux, stable, assets);
-        uint256 weth = (usd18 * 1e18) / IAux(c.aux).getTWAPforAsset(c.weth, TWAP_WIN_M);
+        uint256 weth = (usd18 * 1e18) / IAux(c.aux).assetPrice(c.weth);
 
         return (weth * 10_000) / (10_000 - _slipBps(usd18));
     }
@@ -573,7 +572,7 @@ library LevMath {
         private returns (uint256 pulled)
     {
         return _repayAndPullPooled(assets, venueAddr, stable, extractUsd,
-            IAux(cfg.aux).getTWAPforAsset(cfg.weth, TWAP_WIN_M), cfg);
+            IAux(cfg.aux).assetPrice(cfg.weth), cfg);
     }
 
     function extractToVaultBody(uint256 assets, address venueAddr, address stable, uint256 extractUsd, address recipient, uint256 minOut, ExtractCfg memory cfg)

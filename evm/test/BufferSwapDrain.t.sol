@@ -49,7 +49,7 @@ contract BufferSwapDrain is LevCascadeProbe {
         uint pooledUsd0 = CORE.POOLED_USD();
         uint tvl0       = _tvl();
         (, uint liquid0) = AUX.checkBacking();
-        uint px0        = AUX.getTWAPforAsset(address(WETH), 1800); // PRE-swap fair upper bound on the WETH input
+        uint px0        = AUX.assetPrice(address(WETH)); // PRE-swap fair upper bound on the WETH input
 
         address swapper = User03;
         vm.deal(swapper, 40 ether);
@@ -67,7 +67,7 @@ contract BufferSwapDrain is LevCascadeProbe {
             // §C23 landed on after a grep for the pattern mis-booked six sites as defects when only
             // one was: `_rallyRange`/`_crashRange`/`_moveEth` are supposed to move the price and
             // must INJECT it, a drain loop is not and must not.
-            uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px == 0) break;
+            uint px = AUX.assetPrice(address(WETH)); if (px == 0) break;
             vm.prank(swapper);
             try AUX.swap{value: 0.5 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch { break; }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 20 minutes);
@@ -125,7 +125,7 @@ contract BufferSwapDrain is LevCascadeProbe {
             // §C23 landed on after a grep for the pattern mis-booked six sites as defects when only
             // one was: `_rallyRange`/`_crashRange`/`_moveEth` are supposed to move the price and
             // must INJECT it, a drain loop is not and must not.
-            uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px == 0) break;
+            uint px = AUX.assetPrice(address(WETH)); if (px == 0) break;
             vm.prank(swapper);
             try AUX.swap{value: 0.5 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch { break; }
             vm.roll(block.number + 1); vm.warp(block.timestamp + 20 minutes);

@@ -91,7 +91,7 @@ library QuidLib {
         uint loPrice; uint upPrice; uint bookmark;
     }
     struct RebalOut {
-        uint    spotPrice; uint    loPrice; uint    upPrice; uint    myLiquidity; uint resolvedTwap;
+        uint    spotPrice; uint    loPrice; uint    upPrice; uint    myLiquidity; uint anchorPrice;
         uint feesPerShareInc; uint usdFeesInc; uint venueFeesPerShareInc; uint newBookmark;
         bool setLastRepack; bool reseatBump;
     }
@@ -126,7 +126,7 @@ library QuidLib {
         }
         if (r.loPrice != c.loPrice || r.upPrice != c.upPrice) o.reseatBump = true;
         o.spotPrice = r.spotPrice; o.loPrice = r.loPrice; o.upPrice = r.upPrice;
-        o.myLiquidity = r.myLiquidity; o.resolvedTwap = r.resolvedTwap;
+        o.myLiquidity = r.myLiquidity; o.anchorPrice = r.anchorPrice;
     }
 
     function _refreshBookmarksLib(
@@ -197,7 +197,7 @@ library QuidLib {
                 if (inWETH < needed) {
                     address mgr = IEthVenue(ev).LEV_MANAGER();
                     if (mgr != address(0)) {
-                        uint px = IAux(aux).getTWAPforAsset(weth, 1800);
+                        uint px = IAux(aux).assetPrice(weth);
                         inWETH += SwapLib.deleverEthOnDelivery(
                             mgr, aux, px, needed - inWETH, address(this));
                     }

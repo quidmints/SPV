@@ -49,7 +49,7 @@ contract LevManager is LevBase {
     }
 
     function _coll() private view returns (address) { return address(COLL); }
-    function _px()   private view returns (uint256) { return AUX.getTWAPforAsset(ORACLE_KEY, TWAP_WINDOW); }
+    function _px()   private view returns (uint256) { return AUX.assetPrice(ORACLE_KEY); }
 
     function _supplyCollFrom(ILevVenue venue, address lp, uint256 amount) internal {
         address collTok = _coll();

@@ -81,7 +81,7 @@ export default function InfoTab({ address }: { address?: string | null }) {
     const vEth = n(await readOne(CONTRACTS.range, 'rangeETH'))
     if (pooledEth != null && vEth && vEth > 0) setTheta(pooledEth / vEth)
     // ── Pool ETH price (TWAP) — for the internal-vs-external comparison ──
-    const ethPx = n(await readOne(CONTRACTS.aux, 'getTWAPforAsset', [CONTRACTS.weth, 1800]))
+    const ethPx = n(await readOne(CONTRACTS.aux, 'assetPrice', [CONTRACTS.weth]))
     setPoolEth(ethPx)
     // ── LIVE inventory skew q ∈ [−1,1] of the in-range (actively-quoting) slice:
     //    + = overweight ETH (long the volatile asset), − = overweight USD. Compare

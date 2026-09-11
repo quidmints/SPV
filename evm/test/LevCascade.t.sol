@@ -185,12 +185,12 @@ contract LevCascadeProbe is AllesFixture {
         // PIN THE ETH/USD ANCHOR (2026-07-26, BUILD-QUEUE §A.13). This fixture already maintains
         // `ETH_FEED` as a pool-tracking mock (`_setEthFeed`, refreshed every crash/rally step) but never
         // registered it with Aux, so `assetPriceFeed(WETH)` was address(0) — MEASURED. With no anchor,
-        // once a crash walks the pool to its tick boundary `getTWAPforAsset` returns 0 and
+        // once a crash walks the pool to its tick boundary `assetPrice` returns 0 and
         // `rebalanceCore`'s `if (twap == 0) return r` leaves `didRepack == false`, so `addLiq` never
         // runs and the range can never be re-paired. Registering the tracking feed is what lets the
         // twapResolve anchor fall-through actually rescue this fixture, exactly as the real deploy
         // pins Chainlink (DeployL1_s:326).
-        _setEthFeed(AUX.getTWAPforAsset(address(WETH), 1800) / 1e10);   // seed it before pinning
+        _setEthFeed(AUX.assetPrice(address(WETH)) / 1e10);   // seed it before pinning
         _auxSetAssetFeed(address(WETH), ETH_FEED);
     }
 
@@ -211,7 +211,7 @@ contract LevCascadeProbe is AllesFixture {
         IERC20R(address(USDC)).approve(address(AUX), maxSteps * usdcPerStep);
         for (uint i; i < maxSteps; i++) {
             if (ETH.soldFractionWad(syncKeyPx) >= targetWad) break;
-            // 🔴 §E310 — READ THE POOL, NOT THE RING. This read `AUX.getTWAPforAsset` (the
+            // 🔴 §E310 — READ THE POOL, NOT THE RING. This read `AUX.assetPrice` (the
             // observation ring) and set the Chainlink mock FROM it, so the anchor was a copy of the
             // thing it anchors and NEITHER could move. Measured (§C18): ring TWAP, Chainlink and the
             // pinned `ilBasisPx` were all 2501.13975863 after TEN successful swaps, so `ilTargetBps`
@@ -240,7 +240,7 @@ contract LevCascadeProbe is AllesFixture {
 
     /// Real DOWN move: sell ETH into the range so the mark crashes ~`dropBps` (drives the venue-safety de-lever).
     function _crashRange(uint dropBps, uint maxSteps, uint ethPerStep) internal {
-        uint start = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint start = AUX.assetPrice(address(WETH));
         vm.deal(address(this), maxSteps * ethPerStep);
         for (uint i; i < maxSteps; i++) {
             // 🔴 §E310 (DOWN-SIDE TWIN) — the last circular crash helper, fixed to match
@@ -269,7 +269,7 @@ contract LevCascadeProbe is AllesFixture {
         vm.deal(address(this), 20 ether);
         for (uint i; i < 16; i++) {
             vm.warp(block.timestamp + 6 minutes); vm.roll(block.number + 1);
-            uint px = AUX.getTWAPforAsset(address(WETH), 1800); if (px != 0) _setEthFeed(px / 1e10);
+            uint px = AUX.assetPrice(address(WETH)); if (px != 0) _setEthFeed(px / 1e10);
             if (i % 2 == 0) { try AUX.swap(address(USDC), address(WETH), true, 30 * USDC_PRECISION, 0, true) {} catch {} }
             else            { try AUX.swap{value: 0.015 ether}(address(USDC), address(WETH), false, 0, 0, true) {} catch {} }
         }
@@ -660,7 +660,7 @@ contract LevCascadeProbe is AllesFixture {
         vm.prank(lp); QUID.approve(address(lm), type(uint).max);
         // Mature the LP's QUID vintage (redeem is mature-only). getCurrentLtvBps extrapolates the last tick across
         // the warp (OracleLib `observe`, target >= latest); refresh Chainlink for the redeem's stale-TWAP fallback.
-        { uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        { uint px = AUX.assetPrice(address(WETH));
           vm.warp(block.timestamp + 35 days); vm.roll(block.number + 1);
           _setEthFeed(px / 1e10); }
         // Stage the near-liq TRIGGER by tightening ONLY the venue liquidation threshold to just above the live LTV.
@@ -767,9 +767,9 @@ contract LevCascadeProbe is AllesFixture {
     function test_Economic_LeversToProvenIlTarget() public {
         _setupLev();
         _openAtEntry(lps[0], 10 ether);                 // opens at ZERO leverage
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint px = AUX.assetPrice(address(WETH));
         vm.mockCall(address(AUX),
-            abi.encodeWithSelector(AUX.getTWAPforAsset.selector, address(WETH), uint32(1800)), abi.encode(px * 2));
+            abi.encodeWithSelector(AUX.assetPrice.selector, address(WETH), uint32(1800)), abi.encode(px * 2));
         assertApproxEqAbs(lm.ilTargetLtvBps(lps[0]), 2929, 1, "on-chain IL target must be 1 - 1/sqrt(2)");
         for (uint k; k < 8; k++) lm.rebalance(lps[0], 0, DEX_WETH_USDC, 0, ""); // keeper loops successive ticks toward target
         uint ltv = lm.ilLtvBps(lps[0]);                  // debt/E0 basis (the sizing target)
@@ -908,13 +908,13 @@ contract LevCascadeProbe is AllesFixture {
     function test_BufferExhaustion_CapBindsAtViolentMove() public {
         _setupLev();
         _openAtEntry(lps[0], 10 ether);
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint px = AUX.assetPrice(address(WETH));
         vm.mockCall(address(AUX),
-            abi.encodeWithSelector(AUX.getTWAPforAsset.selector, address(WETH), uint32(1800)), abi.encode(px * 25));
+            abi.encodeWithSelector(AUX.assetPrice.selector, address(WETH), uint32(1800)), abi.encode(px * 25));
         assertEq(lm.ilTargetLtvBps(lps[0]), 7500,
             "violent move => IL target saturates at the PROTOCOL cap (raw 1-1/sqrt(25) = 8000)");
         vm.mockCall(address(AUX),
-            abi.encodeWithSelector(AUX.getTWAPforAsset.selector, address(WETH), uint32(1800)), abi.encode(px * 9));
+            abi.encodeWithSelector(AUX.assetPrice.selector, address(WETH), uint32(1800)), abi.encode(px * 9));
         assertEq(lm.ilTargetLtvBps(lps[0]), 6666,
             "a 9x move is BELOW the protocol cap now and must pass through uncapped (was capped at 5000)");
         // Levering toward a 9x-inflated target can't physically execute on the REAL Morpho market — its oracle

@@ -72,7 +72,7 @@ library RangeLib {
         address lp, Types.RangeP memory p
     ) public returns (uint addedNet, uint bufAdded) {
         if (p.gross == 0) return (0, 0);
-        uint price = IAux(c.aux).getTWAPforAsset(c.asset, 1800);
+        uint price = IAux(c.aux).assetPrice(c.asset);
         if (price == 0) return (0, 0);
         uint netEq = ILevEquity(p.mgr).netEquity(lp);
         addedNet = levAddNet(c, LP, levPooled, levBuf, lp, netEq, price, p);

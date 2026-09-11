@@ -10,7 +10,7 @@ interface IT { function balanceOf(address) external view returns (uint256); func
 interface IV3c { function token0() external view returns (address); }
 interface IAuxLite {
     function getStables() external view returns (address[] memory);
-    function getTWAPforAsset(address, uint32) external view returns (uint256);
+    function assetPrice(address) external view returns (uint256);
 }
 interface IDec { function decimals() external view returns (uint8); }
 interface IFiller { function onQuidFill(address give, uint256 amt, address want, uint256 owed, bytes calldata d) external; }
@@ -48,16 +48,16 @@ contract QuidFillDesk {
     ///    register WETH — so the floor came out **49,875e18 WETH for 50,000 USDC**, wrong by ~2,500x.
     ///    ⚠️ **`_fromUsd`'s own docblock warns this failure is SILENT** (*"every shape and decimal
     ///    typechecks"*), and it reproduced exactly. ⭐ **The tree avoids it by having DIRECTION-SPECIFIC
-    ///    floors:** `_stableToWethSor` reads `getTWAPforAsset` DIRECTLY because it knows its output is
+    ///    floors:** `_stableToWethSor` reads `assetPrice` DIRECTLY because it knows its output is
     ///    WETH; `_wethStableFloor` uses `_fromUsd` because it knows its output is a dollar stable.
     ///    **They are not interchangeable, and a generic desk must discriminate rather than pick one.**
-    /// ⚠️ `getTWAPforAsset` REVERTS `BadAsset()` for a stable, so the roster — not a catch-all default —
+    /// ⚠️ `assetPrice` REVERTS `BadAsset()` for a stable, so the roster — not a catch-all default —
     ///    is what says "par". An asset that is neither priced nor on the roster **reverts**, because a
     ///    silent par is precisely the bug above (standing rule 3: fail loud, never clamp).
     function _pxUsd18(address t) internal view returns (uint256) {
         address[] memory st = IAuxLite(AUX).getStables();
         for (uint256 i; i < st.length; ++i) if (st[i] == t) return 1e18;   // roster stable => par
-        try IAuxLite(AUX).getTWAPforAsset(t, 1800) returns (uint256 p) {
+        try IAuxLite(AUX).assetPrice(t) returns (uint256 p) {
             if (p == 0) revert NotPriced(t);
             return p;
         } catch { revert NotPriced(t); }

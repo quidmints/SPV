@@ -5,7 +5,6 @@ import {Aux} from "./Aux.sol";
 import {Vault} from "./Vault.sol";
 import {Basket} from "./Basket.sol";
 import {BasketLib} from "./imports/BasketLib.sol";
-import {OracleLib, RING} from "./imports/OracleLib.sol";
 import {FeeLib} from "./imports/FeeLib.sol";
 import {SwapLib} from "./imports/SwapLib.sol";
 
@@ -18,8 +17,6 @@ import {Types, BtcVaultPinned} from "./imports/Types.sol";
 
 contract Core {
 
-    OracleLib.ObsState internal obsState;
-    OracleLib.Observation[RING] internal observations;
 
     uint public basketUsd;
 
@@ -132,7 +129,6 @@ contract Core {
         if (_range != address(0)) RANGE = ICore(_range);
         BASKET = Basket(_basket);
 
-        OracleLib.seedRing(obsState, observations, seedPrice);
     }
 
     function drawPooledUsdBtc(uint usd6) external onlyUs {
@@ -177,11 +173,10 @@ contract Core {
         bool inputIsUsd, address token, uint amount, bool loadBalance)
         onlyUs public returns (uint out) {
 
-        uint px = AUX.getTWAPforAsset(ASSET, 1800);
+        uint px = AUX.assetPrice(ASSET);
         Delta memory delta;
         (delta, out) = _fillDelta(inputIsUsd, amount, px);
 
-        _observeIfSourced();
 
         _handleDelta(delta, false, recipient, token);
 
@@ -192,8 +187,7 @@ contract Core {
 
     function repack(uint anchorPrice) public onlyUs returns (uint price) {
         RANGE_ANCHOR = anchorPrice;
-        price = AUX.getTWAPforAsset(ASSET, 1800);
-        _observeIfSourced();
+        price = AUX.assetPrice(ASSET);
     }
 
     struct Delta { int256 usd; int256 vol; }
@@ -264,7 +258,7 @@ contract Core {
     }
 
     function poolStats() public view returns (uint priceWad, uint liquidity) {
-        priceWad = obsState.lastPrice;
+        priceWad = AUX.assetPrice(ASSET);
         liquidity = POOLED;
     }
 
@@ -284,39 +278,4 @@ contract Core {
                        : Delta(int256(out), -int256(amount));
     }
 
-    address public observationSource;
-
-    bytes public OBS_CALLDATA;
-
-    function setObservationSource(address src, bytes calldata call_) external {
-        require(msg.sender == DEPLOYER, "403");
-        require(observationSource == address(0), "!");
-        observationSource = src; OBS_CALLDATA = call_;
-    }
-
-    function _observeIfSourced() internal {
-        address src = observationSource;
-
-        if (src == address(0)) {
-
-            (uint anchorPx,) = SwapLib.twapResolve(
-                AUX.assetPriceFeed(ASSET), 0, VOL_DECIMALS != 18, 0, 1 days);
-            if (anchorPx != 0) _writeObservationPrice(anchorPx);
-            return;
-        }
-
-        (bool ok, bytes memory out) = src.staticcall(OBS_CALLDATA);
-        if (!ok || out.length < 32) return;
-        uint priceWad = abi.decode(out, (uint));
-        if (priceWad != 0) _writeObservationPrice(priceWad);
-    }
-
-    function _writeObservationPrice(uint price) internal {
-        OracleLib.writeObservation(observations, obsState, price);
-    }
-
-    function observe(uint32[] calldata secondsAgos)
-        external view returns (uint192[] memory) {
-        return OracleLib.observe(observations, obsState, secondsAgos);
-    }
 }

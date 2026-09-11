@@ -69,12 +69,12 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
         // PIN THE ETH/USD ANCHOR (BUILD-QUEUE §A.13). This fixture maintains ETH_FEED as a
         // pool-tracking mock (`_setEthFeed`) but never registered it with Aux, so assetPriceFeed(WETH)
         // was address(0). Without an anchor, a rally that walks the pool toward its tick boundary makes
-        // getTWAPforAsset return 0, `rebalanceCore`'s `if (twap == 0) return r` blocks the repack, and
+        // assetPrice return 0, `rebalanceCore`'s `if (twap == 0) return r` blocks the repack, and
         // the range stops being re-paired — which also makes `_realignRangeToReal`'s `ETH.reseat()` a
         // no-op. For a TREATMENT-vs-CONTROL comparison that is fatal: the two arms can diverge on
         // oracle availability rather than on the levered LP's actual effect, which is the only thing
         // this probe is trying to measure.
-        _setEthFeed(AUX.getTWAPforAsset(address(WETH), 1800) / 1e10);
+        _setEthFeed(AUX.assetPrice(address(WETH)) / 1e10);
         _auxSetAssetFeed(address(WETH), ETH_FEED);
     }
 
@@ -91,7 +91,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
         IERC20R(address(USDC)).approve(address(AUX), maxSteps * usdcPerStep);
         for (uint i; i < maxSteps; i++) {
             if (ETH.soldFractionWad(syncKeyPx) >= targetWad) break;
-            // 🔴 §E310 — READ THE POOL, NOT THE RING. This read `AUX.getTWAPforAsset` (the
+            // 🔴 §E310 — READ THE POOL, NOT THE RING. This read `AUX.assetPrice` (the
             // observation ring) and set the Chainlink mock FROM it, so the anchor was a copy of the
             // thing it anchors and NEITHER could move. Measured (§C18): ring TWAP, Chainlink and the
             // pinned `ilBasisPx` were all 2501.13975863 after TEN successful swaps, so `ilTargetBps`
@@ -176,7 +176,7 @@ contract LeverageCrossSubsidyProbe is AllesFixture {
     /// snapshot, value the ETH + QUID it receives, then revert. Matched-price so the measurement strips the
     /// lever's rally price move and isolates any cross-subsidy transfer.
     function _passiveValueUsd(uint shares) internal returns (uint usd) {
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint px = AUX.assetPrice(address(WETH));
         uint snap = vm.snapshotState();
         uint entryEquity = PASSIVE.balance; uint w0 = WETH.balanceOf(PASSIVE); uint q0 = QUID.balanceOf(PASSIVE);
         vm.prank(PASSIVE); try ETH.redeem(shares, PASSIVE, PASSIVE) {} catch {}

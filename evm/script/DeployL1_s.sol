@@ -351,7 +351,7 @@ contract Deploy is Script {
         BTCChannels btcChannels = BTCChannels(A.btcChannels);
 
         // ─── External anchors ──────────────────────────
-        // Pin the Chainlink anchors so getTWAPforAsset cross-checks the internal
+        // Pin the Chainlink anchors so assetPrice cross-checks the internal
         // observation-ring TWAP against a live feed (defeats the multi-block
         // internal-TWAP grind; the body defers safely on stale/zero/reverting).
         // Feed wiring is onlyOwner + pin-once → MUST run here, before the finalize

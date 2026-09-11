@@ -196,7 +196,7 @@ library DeployLib {
         //   That is deliberate and it is the honest state — it is also what BOTH instances now do, so
         //   the BTC/ETH asymmetry the old comment described no longer exists.
         // ⚠️ THE CIRCULARITY §E222 NAMES IS GONE EITHER WAY: the ring is no longer self-written from
-        //   `getTWAPforAsset`. What is open is finding a source that is neither a single venue nor
+        //   `assetPrice`. What is open is finding a source that is neither a single venue nor
         //   unaffordable. The ANCHORS are untouched and already wrapper-free (Chainlink "ETH / USD"
         //   and "BTC / USD").
         // 🔴 THE BTC INSTANCE WAS NEVER SET UP, AND IT COST 1,828 TEST FAILURES. The isBTC split

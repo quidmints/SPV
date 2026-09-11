@@ -5,15 +5,15 @@ import {AllesFixture} from "./Alles.t.sol";
 
 /// @notice End-to-end verification of the TWAP-anchor deadlock FIX (A+B+C).
 ///
-/// BEFORE: `getTWAPforAsset` REVERTED `TwapDeviation` when the internal 30-min
+/// BEFORE: `assetPrice` REVERTED `TwapDeviation` when the internal 30-min
 /// TWAP diverged >5% from Chainlink. The internal TWAP only moves via a
-/// swap/repack that ALSO route through `getTWAPforAsset`, so a fast >5% move
+/// swap/repack that ALSO route through `assetPrice`, so a fast >5% move
 /// froze the protocol — and `redeemAsBody` read the price unconditionally, so
 /// even fully stable-backed QUI redemption reverted (peg floor bricked).
 ///
 /// AFTER:
 ///  (A) redeem fetches the ETH TWAP lazily (try/catch → price=0 ⇒ stables-only).
-///  (C) getTWAPforAsset RETURNS fresh Chainlink when the internal TWAP is stale
+///  (C) assetPrice RETURNS fresh Chainlink when the internal TWAP is stale
 ///      (>5% off) instead of reverting — callers price against reality.
 ///  (B) a permissionless `Quid.reseat()` MOVES the stale curve spot onto the
 ///      oracle price and re-ranges, so swaps (whose 50bps guard compares the
@@ -38,7 +38,7 @@ contract TwapAnchorDeadlockTest is AllesFixture {
         QUID.mint(address(this), 50_000e6, address(USDC), 0);
         vm.warp(block.timestamp + 40 days); // mature the batch
 
-        uint pE = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint pE = AUX.assetPrice(address(WETH));
         assertGt(pE, 0, "internal ETH TWAP must be seeded");
 
         // ── Baseline: a FAIR anchor keeps the internal (DEX-native) TWAP ──
@@ -47,7 +47,7 @@ contract TwapAnchorDeadlockTest is AllesFixture {
         int256 fair = int256(pE / 1e10);
         _mockFeed(feed, fair, 1);
         _auxSetAssetFeed(address(WETH), feed); // pin-once
-        assertEq(AUX.getTWAPforAsset(address(WETH), 1800), pE,
+        assertEq(AUX.assetPrice(address(WETH)), pE,
             "within 5%: keep internal TWAP (normal swaps unaffected)");
 
         // ── Act: fast crash — Chainlink 10% below the fresh internal TWAP. ──
@@ -56,8 +56,8 @@ contract TwapAnchorDeadlockTest is AllesFixture {
 
         // (C) The oracle read NO LONGER reverts; returns ≈Chainlink, not the
         //     stale internal TWAP.
-        assertApproxEqRel(AUX.getTWAPforAsset(address(WETH), 1800), (pE * 90) / 100, 1e15,
-            "stale TWAP -> getTWAPforAsset returns Chainlink (no revert)");
+        assertApproxEqRel(AUX.assetPrice(address(WETH)), (pE * 90) / 100, 1e15,
+            "stale TWAP -> assetPrice returns Chainlink (no revert)");
 
         // (A)+(C) QUI REDEMPTION still delivers stable backing during the crash —
         //         peg floor alive (previously reverted TwapDeviation).

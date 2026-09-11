@@ -23,7 +23,7 @@ import {Quid} from "../src/Quid.sol";
 ///    the change are re-asserted below against the mechanism that now carries them.
 ///
 /// ⚠️ **AND THE OLD FILE'S OWN CAVEAT STILL BINDS, FOR THE SAME REASON:** a fill needs the range's
-///    ORACLE to have crossed the limit, and on a pinned fork `getTWAPforAsset` moves for neither
+///    ORACLE to have crossed the limit, and on a pinned fork `assetPrice` moves for neither
 ///    `vm.roll` nor `vm.warp`. Mocking it would prove only that the test can lie to itself. So the
 ///    crossing is asserted from the REFUSING side — an uncrossed limit reverts `IntentNotCrossed`,
 ///    which is the same guard from the other direction — and the end-to-end fill remains booked as
@@ -68,7 +68,7 @@ contract OorIntentTest is AllesFixture {
     /// A price the oracle has NOT reached, on the far side of a bid. Read live so the test does not
     /// pin a number the fork can move under it.
     function _uncrossedBid() internal view returns (uint) {
-        return AUX.getTWAPforAsset(address(WETH), 1800) / 2;
+        return AUX.assetPrice(address(WETH)) / 2;
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -179,7 +179,7 @@ contract OorIntentTest is AllesFixture {
         vm.prank(User01);
         ETH.deposit{value: 50 ether}(0, User01);
 
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint px = AUX.assetPrice(address(WETH));
         assertEq(maker.balance, 0, "premise: the maker holds no ether");
         assertEq(USDC.balanceOf(maker), 0, "premise: the maker holds no dollars");
         (uint makerPooled,,,) = ETH.autoManaged(maker);
@@ -230,7 +230,7 @@ contract OorIntentTest is AllesFixture {
         assertGt(claimBefore, 0, "premise: the maker has a basket claim to spend");
         assertEq(maker.balance, 0, "premise: and no ether yet");
 
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint px = AUX.assetPrice(address(WETH));
         SwapLib.OorIntent memory i = SwapLib.OorIntent({
             owner: maker, buyVolatile: true, size: 1_000 * 1e6, limitPx: px,
             expiry: uint64(block.timestamp + 1 days), nonce: 43, loadBalance: false, payoutToken: address(0) });
@@ -272,7 +272,7 @@ contract OorIntentTest is AllesFixture {
         uint usdcBefore     = USDC.balanceOf(maker);
 
         // A sell fills once price has risen TO OR THROUGH the limit, so sign AT spot.
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint px = AUX.assetPrice(address(WETH));
         SwapLib.OorIntent memory i = SwapLib.OorIntent({
             owner: maker, buyVolatile: false, size: 5_000 * 1e6, limitPx: px,
             expiry: uint64(block.timestamp + 1 days), nonce: 77, loadBalance: true,
@@ -333,7 +333,7 @@ contract OorIntentTest is AllesFixture {
         (uint committedBefore, uint liquidBefore) = AUX.tryCheckBacking();
         assertGt(liquidBefore, 0, "premise: the basket must hold something, else this is vacuous");
 
-        uint px    = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint px    = AUX.assetPrice(address(WETH));
         uint size  = 1 ether;
         uint usd6  = (size * px / 1e18) / 1e12;            // the maker's proceeds at their own limit
         assertGt(usd6, 0, "premise: a zero payout would make the assertions vacuous");
@@ -396,7 +396,7 @@ contract OorIntentTest is AllesFixture {
         vm.stopPrank();
 
         (uint committedBefore, uint liquidBefore) = AUX.tryCheckBacking();
-        uint px   = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint px   = AUX.assetPrice(address(WETH));
         uint usd6 = ((1 ether) * px / 1e18) / 1e12;
 
         // THE ONLY DIFFERENCE FROM THE TEST ABOVE: no `CORE.settleOor(...)`. The maker is paid and
@@ -464,7 +464,7 @@ contract OorIntentTest is AllesFixture {
         assertGt(pooledBefore, 0, "premise: the maker must hold an in-range position");
         uint usdcBefore = USDC.balanceOf(maker);
 
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint px = AUX.assetPrice(address(WETH));
         SwapLib.OorIntent memory i = SwapLib.OorIntent({
             owner: maker, buyVolatile: false, size: 5_000 * 1e6, limitPx: px,
             expiry: uint64(block.timestamp + 1 days), nonce: 78, loadBalance: false,

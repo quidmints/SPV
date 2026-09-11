@@ -72,7 +72,6 @@ contract Aux is
     }
 
     mapping(address => address) public assetPriceFeed;
-    uint public constant TWAP_MAX_DEVIATION_BPS = 500;
 
     function _setAssetFeed(address asset, address feed) private {
         if (assetPriceFeed[asset] != address(0)) revert FeedPinned();
@@ -325,17 +324,14 @@ contract Aux is
         revert BadAsset();
     }
 
-    function getTWAPforAsset(address asset, uint32 period)
-        public view returns (uint price) {
-        (price,) = resolvedTwap(asset, period);
+    function assetPrice(address asset) public view returns (uint price) {
+        (price,) = assetPriceStale(asset);
     }
 
-    function resolvedTwap(address asset, uint32 period)
+    function assetPriceStale(address asset)
         public view returns (uint price, bool stale) {
-        price = SwapLib.twapBody(address(_rangeOf(asset)), period);
-
-        (price, stale) = SwapLib.twapResolve(assetPriceFeed[asset], price,
-            asset == address(WBTC), TWAP_MAX_DEVIATION_BPS, ASSET_FEED_MAX_AGE);
+        (price, stale) = SwapLib.anchorPrice18(
+            assetPriceFeed[asset], asset == address(WBTC), ASSET_FEED_MAX_AGE);
     }
 
     function quoteSwapOut(address, uint)

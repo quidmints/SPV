@@ -73,7 +73,6 @@ interface ICurvePool {
 
 address constant ONEINCH_ROUTER = 0x111111125421cA6dc452d289314280a0f8842A65;
 
-uint32 constant TWAP_WINDOW_SECS = 1800;
 
 bytes4 constant UNOSWAP_SELECTOR = 0x83800a8e;
 
@@ -183,8 +182,8 @@ interface ISwap {
     function swap(address token, address asset, bool forVolatile, uint256 amount, uint256 minOut, bool loadBalance)
         external payable returns (uint256);
 
-    function getTWAPforAsset(address asset, uint32 period) external view returns (uint256 price);
-    function resolvedTwap(address asset, uint32 period) external view returns (uint256 price, bool stale);
+    function assetPrice(address asset) external view returns (uint256 price);
+    function assetPriceStale(address asset) external view returns (uint256 price, bool stale);
 
 }
 
@@ -300,7 +299,6 @@ interface ICore {
     function btcBacking() external view returns (uint);
     function poolStats() external view returns (uint priceWad, uint liquidity);
 
-    function observe(uint32[] calldata secondsAgos) external view returns (uint192[] memory);
     function POOLED_USD() external view returns (uint);
 
     function basketUsd() external view returns (uint);

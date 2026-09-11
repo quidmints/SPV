@@ -156,7 +156,7 @@ library BtcLib {
         p.buf = weight - LP.pooled;
         sharesAdded += settleBtcLp(LP, address(0), quid, p.feesPerShare, p.usdFees, weight);
 
-        uint price = IAux(c.aux).getTWAPforAsset(IAux(c.aux).WBTC(), 1800);
+        uint price = IAux(c.aux).assetPrice(IAux(c.aux).WBTC());
         if (price == 0) revert ZeroTwap();
         (uint deltaUSD, uint deltaBTC) = addLiqChannel(c.core, c.aux, sats, price);
 
@@ -229,7 +229,7 @@ library BtcLib {
     }
 
     struct RebalOut {
-        uint spotPrice; uint    loPrice; uint    upPrice; uint myLiquidity; uint resolvedTwap;
+        uint spotPrice; uint    loPrice; uint    upPrice; uint myLiquidity; uint anchorPrice;
         uint feesPerShareInc; uint usdFeesInc;
     }
 
@@ -242,7 +242,7 @@ library BtcLib {
             c.core, c.aux, IAux(c.aux).WBTC(), upPrice, loPrice);
 
         o.spotPrice = r.spotPrice; o.loPrice = r.loPrice; o.upPrice = r.upPrice;
-        o.myLiquidity = r.myLiquidity; o.resolvedTwap = r.resolvedTwap;
+        o.myLiquidity = r.myLiquidity; o.anchorPrice = r.anchorPrice;
     }
 
     event Borrowed(address indexed lp, uint stableOut);

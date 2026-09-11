@@ -30,34 +30,22 @@ import {IAggregatorV3} from "./Interfaces.sol";
 library SwapLib {
     using SafeERC20 for IERC20OZ;
 
-    function twapBody(address core, uint32 period)
-        external view returns (uint price) {
-        uint32[] memory secondsAgos = new uint32[](2);
-        secondsAgos[0] = period == 0 ? 1800 : period;
-        secondsAgos[1] = 0;
-        uint192[] memory pc = ICore(core).observe(secondsAgos);
-        price = BasketLib.cumsToPrice(pc[0], pc[1], secondsAgos[0]);
-    }
-
-    function twapResolve(address feed, uint price, bool isWbtc,
-        uint maxDevBps, uint maxAge) external view returns (uint, bool stale) {
-
-        if (feed == address(0)) return (price, false);
+    function anchorPrice18(address feed, bool isWbtc, uint maxAge)
+        external view returns (uint price, bool stale) {
+        if (feed == address(0)) return (0, true);
         try IAggregatorV3(feed).latestRoundData() returns (
             uint80, int256 ans, uint256, uint256 updatedAt, uint80
         ) {
-            if (ans > 0 && block.timestamp >= updatedAt
-                && block.timestamp - updatedAt <= maxAge) {
-                uint8 d = IAggregatorV3(feed).decimals();
-                if (d <= 18) {
-                    uint ext18 = uint(ans) * (10 ** (18 - d));
-                    if (isWbtc) ext18 *= 1e10;
-                    uint diff = price > ext18 ? price - ext18 : ext18 - price;
-                    if (diff * 10000 > ext18 * maxDevBps) return (ext18, true);
-                }
-            }
-        } catch {}
-        return (price, false);
+            if (ans <= 0) return (0, true);
+            uint8 d = IAggregatorV3(feed).decimals();
+            if (d > 18) return (0, true);
+            price = uint(ans) * (10 ** (18 - d));
+            if (isWbtc) price *= 1e10;
+            stale = block.timestamp < updatedAt
+                 || block.timestamp - updatedAt > maxAge;
+        } catch {
+            return (0, true);
+        }
     }
 
     error UnknownStableSweep();
@@ -162,7 +150,7 @@ library SwapLib {
     }
 
     function _priceOr(uint priceHint, address aux, address asset) internal view returns (uint) {
-        return priceHint != 0 ? priceHint : IAux(aux).getTWAPforAsset(asset, 1800);
+        return priceHint != 0 ? priceHint : IAux(aux).assetPrice(asset);
     }
 
     function _requireStable(address aux, address token) internal view {
@@ -393,7 +381,7 @@ library SwapLib {
                 uint8(sig[64]), bytes32(sig[0:32]), bytes32(sig[32:64])) != i.owner)
             revert IntentBadSig();
 
-        uint px = IAux(aux).getTWAPforAsset(asset, 1800);
+        uint px = IAux(aux).assetPrice(asset);
         if (i.buyVolatile ? px > i.limitPx : px < i.limitPx) revert IntentNotCrossed();
         used[i.owner][i.nonce] = true;
         if (i.buyVolatile) {
@@ -701,7 +689,7 @@ library SwapLib {
         bool    didRepack;
         uint    price;
 
-        uint    resolvedTwap;
+        uint    anchorPrice;
     }
 
     function rebalanceCore(
@@ -714,10 +702,10 @@ library SwapLib {
         (r.spotPrice, r.myLiquidity) = ICore(core).poolStats();
 
         uint twap; bool stale;
-        try IAux(aux).resolvedTwap(asset, 1800) returns (uint p, bool s) {
+        try IAux(aux).assetPriceStale(asset) returns (uint p, bool s) {
             twap = p; stale = s;
         } catch {}
-        r.resolvedTwap = twap;
+        r.anchorPrice = twap;
 
         if (stale && _reseatIfStale(core, r, twap)) return r;
 

@@ -14,7 +14,7 @@ contract DrainProbe is AllesFixture {
     function _valueUSD18(address who) internal returns (uint v) {
         v += USDC.balanceOf(who) * 1e12;          // 6 → 18
         v += QUID.balanceOf(who);                 // QUI already 18-dec, 1:1 USD
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800); // USD18 per 1e18 ETH
+        uint px = AUX.assetPrice(address(WETH)); // USD18 per 1e18 ETH
         v += WETH.balanceOf(who) * px / 1e18;
         v += who.balance * px / 1e18;             // any native ETH
     }
@@ -44,7 +44,7 @@ contract DrainProbe is AllesFixture {
         // to release pool backing for immature QUI (turn burns matured-only). The token
         // is NOT frozen — it could still be transferred/sold to a third party; that
         // simply isn't a drain on the pool. The loop-against-the-pool is broken.
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint px = AUX.assetPrice(address(WETH));
         assertLt(got * px / 1e18, 100 * 1e18,
             "immature QUI cannot pull ETH out of the pool via the protocol swap");
     }
@@ -133,7 +133,7 @@ contract DrainProbe is AllesFixture {
         uint entrantETH  = _realizeExitETH(User01);
         uint incumbentETH = _realizeExitETH(User02);
 
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint px = AUX.assetPrice(address(WETH));
         // (b) entrant did not profit: realized ETH worth ≤ dollars spent.
         assertLe(entrantETH * px / 1e18, X * 1e12, "round-trip extracted value");
         // ...and could not withdraw more ETH than it deposited.

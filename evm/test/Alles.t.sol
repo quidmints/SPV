@@ -984,7 +984,7 @@ contract AllesFixture is ForkPin, ExitFixture {
             // Guard the raw TWAP read: at extreme crash depth the no-Chainlink-
             // anchor fork's raw observation math can underflow (panic) — that is
             // the boundary of the realistic-depth regime, so STOP the drain here.
-            try AUX.getTWAPforAsset(address(WETH), 1800) returns (uint p) { px = p; }
+            try AUX.assetPrice(address(WETH)) returns (uint p) { px = p; }
             catch { break; }
             uint poolUsd6 = CORE.POOLED_USD();
             if (px == 0 || poolUsd6 == 0) break;
@@ -1010,7 +1010,7 @@ contract AllesFixture is ForkPin, ExitFixture {
         console.log("tranche", t);
         console.log("  ETH absorbed by pool (wei)", absorbed);
         console.log("  POOLED_USD (6-dec)", CORE.POOLED_USD());
-        try AUX.getTWAPforAsset(address(WETH), 1800) returns (uint px) {
+        try AUX.assetPrice(address(WETH)) returns (uint px) {
             console.log("  TWAP bps of start", p0 == 0 ? 0 : px * 10000 / p0);
         } catch { console.log("  TWAP READ REVERTED (ring past raw-valid range)"); return (exhausted, false); }
         try AUX.redeemableAmount() returns (uint r) {
@@ -1080,7 +1080,7 @@ contract AllesFixture is ForkPin, ExitFixture {
     /// ETH with USDC (price up). Returns steps that landed (a revert = pool exhausted /
     /// observe-underflow boundary).
     /// 🔴 §E310/§C23 — THIS MOVED NO PRICE, AND ITS OWN COMMENT SAID THE OPPOSITE. It read
-    ///    `AUX.getTWAPforAsset` (the observation RING) and then set the Chainlink mock FROM it,
+    ///    `AUX.assetPrice` (the observation RING) and then set the Chainlink mock FROM it,
     ///    claiming *"feed = pre-swap pool price"* — it was the pre-swap RING price, so the anchor was
     ///    a copy of the thing it anchors and NEITHER could move.
     /// ⛔ `rangePrice()` is no escape: `CORE.poolStats().priceWad` IS `obsState.lastPrice`. §V4-CUT
@@ -1120,7 +1120,7 @@ contract AllesFixture is ForkPin, ExitFixture {
         USDC.approve(address(AUX), type(uint).max);
         QUID.mint(User01, 200_000 * USDC_PRECISION, address(USDC), 0);
         vm.stopPrank();
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint px = AUX.assetPrice(address(WETH));
         _setEthFeed(px / 1e10);
         _auxSetAssetFeed(address(WETH), ETH_FEED);   // pin the anchor (owner, pre-renounce)
         vm.deal(lp, lpEth);
@@ -1325,7 +1325,7 @@ contract AllesFixture is ForkPin, ExitFixture {
 
     /// USD-18 value -> ETH-wei at the live TWAP (for unit-consistent coverage).
     function _ethEquiv(uint usd18) internal returns (uint) {
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint px = AUX.assetPrice(address(WETH));
         return px == 0 ? 0 : SoladyMath.fullMulDiv(usd18, 1e18, px);
     }
 
@@ -1735,7 +1735,7 @@ contract Alles is AllesFixture {
         //   lands here automatically instead of being re-pinned by hand.
         (uint sp,) = CORE.poolStats();
         uint spot = sp;   // §DE-TICK: already a price
-        uint twap = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint twap = AUX.assetPrice(address(WETH));
         (uint anchorLo, uint anchorUp) = SwapLib.updateBounds(twap, SwapLib.RANGE_DELTA);
         assertLe(spot, anchorUp, "spot is more than one LIVE RANGE_DELTA above the anchor -- the range is OUT of range");
         assertGe(spot, anchorLo, "spot is more than one LIVE RANGE_DELTA below the anchor -- the range is OUT of range");
@@ -1805,7 +1805,7 @@ contract Alles is AllesFixture {
         vm.prank(User01); ETH.deposit{value: 500 ether}(0, User01);
         vm.roll(vm.getBlockNumber() + 1);
 
-        uint base = AUX.getTWAPforAsset(address(WETH), 1800);       // USD18 per 1e18 raw ETH
+        uint base = AUX.assetPrice(address(WETH));       // USD18 per 1e18 raw ETH
         uint amtUsdc = 2000 * USDC_PRECISION;                        // ~0.2% of a ~$1M+ range ⇒ tiny slippage
         uint expectedWeth = SoladyMath.fullMulDiv(amtUsdc * 1e12, 1e18, base); // USD18/oracle ⇒ ETH18, pre-fee
 
@@ -1821,15 +1821,15 @@ contract Alles is AllesFixture {
     }
 
     // DIAGNOSTIC: which regime is the genesis price in? Prints the pool's own slot0 price, the
-    // getTWAPforAsset read, and whether a Chainlink feed is wired at setup — to prove the genesis
+    // assetPrice read, and whether a Chainlink feed is wired at setup — to prove the genesis
     // tick is a REAL market price, not garbage masked by self-referential reads.
     function testDiag_GenesisPriceRegime() public {
         (uint sp,) = CORE.poolStats();
         uint slot0Price = sp;   // §DETICK: poolStats() already returns the price
-        uint twap = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint twap = AUX.assetPrice(address(WETH));
         address feed = AUX.assetPriceFeed(address(WETH));
         emit log_named_uint("slot0 price (pool's own)", slot0Price);
-        emit log_named_uint("getTWAPforAsset(WETH)   ", twap);
+        emit log_named_uint("assetPrice(WETH)   ", twap);
         emit log_named_address("assetPriceFeed(WETH)  ", feed);
         // A real ETH price is ~$1000-$6000 (1e18-scaled). If slot0Price is that, the ref-pool
         // genesis tick is REAL. If it's ~1e18 (price 1.0) or wildly off, it's garbage.
@@ -1844,7 +1844,7 @@ contract Alles is AllesFixture {
         vm.prank(User01); ETH.deposit{value: 500 ether}(0, User01);
         vm.roll(vm.getBlockNumber() + 1);
 
-        uint base = AUX.getTWAPforAsset(address(WETH), 1800);        // USD18 per 1e18 raw ETH
+        uint base = AUX.assetPrice(address(WETH));        // USD18 per 1e18 raw ETH
         // 🔴 §E311 DELETED THE FLAT 420 ppm — owner: *"there is no 420 ppm, it's always the skew"*
         //   (`Core.sol:1473`). This line still priced against it and PASSED only because 0.042%
         //   hides inside its own 1.5% tolerance: **a wrong expectation that happens to be in range.**
@@ -1890,28 +1890,41 @@ contract Alles is AllesFixture {
 
     // GRIND-REMOVAL PROOF (oracle): the 0.5% cap used to stop one swap from dragging the internal
     // price far. Removed, a big uncapped swap CAN push spot — but the VALUE read is anchored:
-    // beyond 5% off Chainlink, twapResolve (the body of getTWAPforAsset) returns the FEED, so the
+    // beyond 5% off Chainlink, twapResolve (the body of assetPrice) returns the FEED, so the
     // oracle can't be poisoned regardless of how far the curve is pushed. Deterministic clamp proof.
-    function testGrindRemoval_ValueAnchorClampsPoisonedPrice() public {
+    /// @notice §TWAP-DELETED — the poisoning this test used to defend against is now UNCONSTRUCTIBLE,
+    ///         so it asserts the property that replaced the defence rather than the defence.
+    /// The old test fed `twapResolve` a poisoned INTERNAL price and proved it snapped to Chainlink
+    /// beyond 5%. There is no internal price any more: the ring was a time-average OF the Chainlink
+    /// feed, validated AGAINST the same feed, so it bought no manipulation resistance and added a
+    /// measured median 4,209 ppm of staleness — 10x the 420 ppm charge. `anchorPrice18` reads the
+    /// feed directly, and the only thing left to get wrong is decimals, sign, and freshness.
+    function testAnchorPriceIsTheFeed_AndFlagsStaleness() public {
         address feed = address(0xFEED0001);
         vm.mockCall(feed, abi.encodeWithSignature("decimals()"), abi.encode(uint8(8)));
         vm.mockCall(feed, abi.encodeWithSignature("latestRoundData()"),
             abi.encode(uint80(1), int256(3000e8), uint(0), block.timestamp, uint80(1)));
 
-        // Within 5% (1.67% off): trust the internal (DEX-native) price — normal operation.
-        (uint pIn, bool staleIn) = SwapLib.twapResolve(feed, 3050e18, false, 500, 1 days);
-        assertEq(pIn, 3050e18, "within-range internal price kept");
-        assertFalse(staleIn,   "within-range not flagged stale");
+        // PREMISE: there is no second price to disagree with the feed. Whatever the pool's own
+        // inventory did, the settlement price is the feed, scaled 8 -> 18 decimals.
+        (uint p, bool stale) = SwapLib.anchorPrice18(feed, false, 4 hours);
+        assertEq(p, 3000e18, "settlement price IS the feed, scaled to 18 decimals");
+        assertFalse(stale,   "a feed updated this block is not stale");
 
-        // Poisoned 10% HIGH (an uncapped buy dragged spot up): beyond 5% ⇒ snaps to Chainlink.
-        (uint pHi, bool staleHi) = SwapLib.twapResolve(feed, 3300e18, false, 500, 1 days);
-        assertEq(pHi, 3000e18, "poison-high clamped to Chainlink, drag ignored");
-        assertTrue(staleHi,    "poison-high flagged stale");
+        // FRESHNESS is the one check that survived, and it is load-bearing: SwapLib's rebalance
+        // path reseats on it (`if (stale && _reseatIfStale(...))`).
+        vm.mockCall(feed, abi.encodeWithSignature("latestRoundData()"),
+            abi.encode(uint80(2), int256(3000e8), uint(0), block.timestamp - 5 hours, uint80(2)));
+        (uint pOld, bool staleOld) = SwapLib.anchorPrice18(feed, false, 4 hours);
+        assertEq(pOld, 3000e18, "a stale feed still returns its price");
+        assertTrue(staleOld,    "past maxAge MUST flag stale, or the reseat never fires");
 
-        // Symmetric 10% LOW (an uncapped sell dragged spot down): also snaps to Chainlink.
-        (uint pLo, bool staleLo) = SwapLib.twapResolve(feed, 2700e18, false, 500, 1 days);
-        assertEq(pLo, 3000e18, "poison-low clamped to Chainlink, drag ignored");
-        assertTrue(staleLo,    "poison-low flagged stale");
+        // A feed that reverts, or reports a non-positive answer, yields NO price rather than zero
+        // dressed as one.
+        vm.mockCallRevert(feed, abi.encodeWithSignature("latestRoundData()"), "boom");
+        (uint pDead, bool staleDead) = SwapLib.anchorPrice18(feed, false, 4 hours);
+        assertEq(pDead, 0,    "a reverting feed yields no price");
+        assertTrue(staleDead, "and says so");
     }
 
     // GRIND-REMOVAL PROOF (deliverability): the grind implicitly slowed draining the reservoir. Its
@@ -1927,7 +1940,7 @@ contract Alles is AllesFixture {
         // Pin the external anchor and HOLD it (production-faithful: the global market/Chainlink is
         // NOT moved by draining OUR local pool — arbers keep them apart). Re-pinned each step to keep
         // the feed fresh as time is warped forward.
-        uint px0 = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint px0 = AUX.assetPrice(address(WETH));
         _setEthFeed(px0 / 1e10);
         _auxSetAssetFeed(address(WETH), ETH_FEED);
 
@@ -2438,11 +2451,11 @@ contract Alles is AllesFixture {
         assertLt(secBal1,  secBal0,  "second venue drawn down (pro-rata across venues)");
     }
 
-    /// @notice Regression guard: getTWAPforAsset(WBTC) is on a 1e18-RAW basis
+    /// @notice Regression guard: assetPrice(WBTC) is on a 1e18-RAW basis
     ///         (P*1e28), so valuing raw sats is `*price/WAD` (NOT `/1e8`). Guards
     ///         against a 1e10 over/under-scale in the BTC pairing math.
     function test_BtcPriceScale_NotOffBy1e10() public {
-        uint pB = AUX.getTWAPforAsset(address(WBTC), 1800);
+        uint pB = AUX.assetPrice(address(WBTC));
         uint usd18 = (uint(2e7) * pB) / 1e18;             // 0.2 BTC, the code's way
         assertGt(usd18, 1_000e18,     "0.2 BTC must be > $1k (guards 1e10 under-scale)");
         assertLt(usd18, 1_000_000e18, "0.2 BTC must be < $1M (guards 1e10 over-scale)");
@@ -2452,18 +2465,18 @@ contract Alles is AllesFixture {
     }
 
     /// @notice RISK-1 regression: a fair-priced WBTC Chainlink anchor must NOT
-    ///         trip TwapDeviation. getTWAPforAsset prices WBTC on the 1e18-RAW
+    ///         trip TwapDeviation. assetPrice prices WBTC on the 1e18-RAW
     ///         basis (P*1e28); the cross-check lifts the per-whole feed by 1e10
     ///         to match. Before that fix this reverted on EVERY BTC op once a
     ///         WBTC feed was wired.
     function test_WbtcChainlinkAnchor_NoFalseTwapDeviation() public {
-        uint pB = AUX.getTWAPforAsset(address(WBTC), 1800); // no feed wired yet
+        uint pB = AUX.assetPrice(address(WBTC)); // no feed wired yet
         address feed = address(0xB7C0FEED);
         vm.mockCall(feed, abi.encodeWithSignature("decimals()"), abi.encode(uint8(8)));
         vm.mockCall(feed, abi.encodeWithSignature("latestRoundData()"),
             abi.encode(uint80(1), int256(pB / 1e20), uint(0), block.timestamp, uint80(1)));
         _auxSetAssetFeed(address(WBTC), feed);
-        assertEq(AUX.getTWAPforAsset(address(WBTC), 1800), pB,
+        assertEq(AUX.assetPrice(address(WBTC)), pB,
             "fair WBTC anchor must not trip TwapDeviation (1e18-RAW basis match)");
     }
 
@@ -2486,7 +2499,7 @@ contract Alles is AllesFixture {
         vm.stopPrank();
         uint poolUsd = BCORE().POOLED_USD();
         assertGt(poolUsd, 0, "swaps funded POOLED_USD");
-        uint price = AUX.getTWAPforAsset(address(WBTC), 1800); // WAD per BTC
+        uint price = AUX.assetPrice(address(WBTC)); // WAD per BTC
         // Size a swap-in at ~a quarter of pool USD capacity (the 0.5% per-swap
         // price cap may partial-fill it - assertions below are directional).
         uint sats = ((poolUsd * 1e12) / 4 * 1e18) / price; // 18-dec USD -> raw sats
@@ -3044,7 +3057,7 @@ contract Alles is AllesFixture {
         vm.warp(block.timestamp + 35 days);                          // MATURE the QD (so turn() will burn it)
         uint qd0 = QUID.balanceOf(User01);
         uint eth0 = User01.balance; uint weth0 = WETH.balanceOf(User01);
-        uint px = AUX.getTWAPforAsset(address(WETH), 1800);          // USD18 per 1e18 raw ETH
+        uint px = AUX.assetPrice(address(WETH));          // USD18 per 1e18 raw ETH
         vm.prank(User01); AUX.swap(address(QUID), address(WETH), true, 1_000e18, 0, true);
         uint burned = qd0 - QUID.balanceOf(User01);
         uint got = (WETH.balanceOf(User01) - weth0) + (User01.balance - eth0);
@@ -3331,7 +3344,7 @@ contract Alles is AllesFixture {
     function test_RunSim_A_SolvencyDepth_ProcyclicalCrash() public {
         (address lp1, address lp2) = _stageRunSim(50 ether);
         _freezeUsdcLegs(); // redeemers are liquidity-bound on the USDC slice too
-        uint p0 = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint p0 = AUX.assetPrice(address(WETH));
         uint qdOut = QUID.balanceOf(User01) + QUID.balanceOf(User02);
         console.log("=== procyclical-crash solvency-depth ===");
         console.log("start TWAP / outstanding QUI", p0, qdOut);
@@ -3389,10 +3402,10 @@ contract Alles is AllesFixture {
         deal(address(USDC), t, 5_000_000 * USDC_PRECISION);
         vm.prank(t); USDC.approve(address(AUX), type(uint).max);
 
-        uint p0 = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint p0 = AUX.assetPrice(address(WETH));
         _moveEth(false, 3000 * USDC_PRECISION, 6, t);  // buy ETH up
         _moveEth(true, 1 ether, 6, t);                 // sell back down (round-trip)
-        uint p1 = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint p1 = AUX.assetPrice(address(WETH));
         console.log("chop: TWAP bps of start (should be ~10000)", p0 == 0 ? 0 : p1 * 10000 / p0);
 
         // Exit the LP's ACTUAL position (maxWithdraw). Passing type(uint).max as
@@ -3482,16 +3495,16 @@ contract Alles is AllesFixture {
     /// falling asset → REAL IL. Measure how much an ETH LP gets back vs principal
     /// after a sustained drop, and that a QUI holder still redeems at par
     /// (solvency through the drop). Bounded depth so the unanchored valuation TWAP
-    /// (getTWAPforAsset) stays in valid range — beyond it, the raw ring underflows
+    /// (assetPrice) stays in valid range — beyond it, the raw ring underflows
     /// (the #10 finding: the valuation TWAP must be anchored like swap pricing).
     function test_RunSim_IL_Baseline_TrendDownIL() public {
         address lp = makeAddr("il-lp-trend");
         _stageIL(lp, 50 ether);
         address t = makeAddr("il-trend-seller"); vm.deal(t, 5000 ether);
 
-        uint p0 = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint p0 = AUX.assetPrice(address(WETH));
         uint moved = _moveEth(true, 30 ether, 8, t);   // sustained one-way sell
-        uint p1 = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint p1 = AUX.assetPrice(address(WETH));
         console.log("trend: ETH sold into pool (count steps)", moved);
         console.log("trend: TWAP bps of start (drawdown)", p0 == 0 ? 0 : p1 * 10000 / p0);
 
@@ -4328,9 +4341,9 @@ contract Alles is AllesFixture {
 
         // Mock the WBTC TWAP 3× higher - a close-spot model would pay
         // delivered×3×price. The collapsed model ignores the oracle entirely.
-        uint realPrice = AUX.getTWAPforAsset(address(WBTC), 1800);
+        uint realPrice = AUX.assetPrice(address(WBTC));
         vm.mockCall(address(AUX),
-            abi.encodeWithSignature("getTWAPforAsset(address,uint32)", address(WBTC), uint32(1800)),
+            abi.encodeWithSignature("assetPrice(address)", address(WBTC), uint32(1800)),
             abi.encode(realPrice * 3));
 
         uint supBefore = QUID.totalSupply();
@@ -4828,7 +4841,7 @@ contract Alles is AllesFixture {
     /// source: three decimal bases coexist, and the WBTC price carries a x1e10 lift. Getting
     /// it wrong under- or over-pays by 1e10. Measured here rather than reasoned about.
     function testBtcFee_satsToUsdConversionIsWellScaled() public {
-        uint price = AUX.getTWAPforAsset(address(WBTC), 1800);   // the same call BtcLib uses
+        uint price = AUX.assetPrice(address(WBTC));   // the same call BtcLib uses
         assertGt(price, 0, "control: a live WBTC price, else the scaling below is vacuous");
         // 1 BTC = 1e8 sats. `sats * price / WAD` is the canonical form (BtcLib:93).
         uint oneBtcSats = 1e8;

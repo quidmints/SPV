@@ -249,7 +249,7 @@ contract LeveragePnLProbe is AllesFixture {
 
     function testLeverage_LvrControlVsTreatment() public {
         _seed(400 ether);
-        uint px0 = AUX.getTWAPforAsset(address(WETH), 1800); // USD18 per 1e18 ETH
+        uint px0 = AUX.assetPrice(address(WETH)); // USD18 per 1e18 ETH
         emit log_named_uint("ETH px0 (USD18)", px0);
 
         uint snap0 = vm.snapshotState();

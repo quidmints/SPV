@@ -24,7 +24,7 @@ interface IERC20V {
     function approve(address, uint) external returns (bool);
     function decimals() external view returns (uint8);
 }
-interface IAuxTwapV { function getTWAPforAsset(address asset, uint32 period) external view returns (uint); }
+interface IAuxTwapV { function assetPrice(address asset) external view returns (uint); }
 interface IAaveV3AddrProviderT { function getPoolDataProvider() external view returns (address); }
 
 /// @notice The BTC channel seam (splice / rekey / shutdown-key payout) plus the BTC leverage book,
@@ -570,11 +570,11 @@ contract VBtcLevFeeLane is AllesFixture {
         lmW.init(address(BTC), MORPHO, vs);        // hook=Vault, flash=MORPHO (de-lever), Aave-WBTC venue (FROZEN)
     }
 
-    /// Mock the ONE getTWAPforAsset(WBTC) read to `px` (USD18 per 1e18-raw, WBTC-lifted). Drives the IL target:
+    /// Mock the ONE assetPrice(WBTC) read to `px` (USD18 per 1e18-raw, WBTC-lifted). Drives the IL target:
     /// price ABOVE entry ⇒ ilTarget>0 ⇒ fold up; back to/below entry ⇒ ilTarget→0 ⇒ de-lever. The SOR swaps ride
     /// the REAL (un-mocked) pool price, so the 1% oracle floor clears as long as the mock ≈ live within range.
     function _mockPx(uint px) internal {
-        vm.mockCall(address(AUX), abi.encodeWithSelector(IAuxTwapV.getTWAPforAsset.selector, address(WBTC), uint32(1800)),
+        vm.mockCall(address(AUX), abi.encodeWithSelector(IAuxTwapV.assetPrice.selector, address(WBTC), uint32(1800)),
             abi.encode(px));
     }
 
@@ -597,7 +597,7 @@ contract VBtcLevFeeLane is AllesFixture {
         assertApproxEqAbs(wvenue.collateralOf(lp), coll, 1e4, "opened with ~1 WBTC collateral");
         assertEq(wvenue.debtOf(lp), 0, "opens at zero debt");
 
-        uint entryPx = AUX.getTWAPforAsset(address(WBTC), 1800);
+        uint entryPx = AUX.assetPrice(address(WBTC));
 
         // ── FOLD UP: price +25% ⇒ ilTarget = 1−√(1/1.25) ≈ 1054 bps ⇒ borrow USDC, SOR→WBTC, supply. ──
         _mockPx(entryPx * 125 / 100);
@@ -689,7 +689,7 @@ contract VBtcLevFeeLane is AllesFixture {
         _setupBtcLevWbtc();
         address lp = makeAddr("scaleLp");
         _openWbtcLev(lp, 2e8);                                     // 2 WBTC collateral, zero debt
-        uint px = AUX.getTWAPforAsset(address(WBTC), 1800);        // USD18 per 1e18-raw (WBTC-lifted)
+        uint px = AUX.assetPrice(address(WBTC));        // USD18 per 1e18-raw (WBTC-lifted)
         uint collUsd = 2e8 * px / 1e18;                            // USD18 value of 2 BTC
         _borrowWbtcVenue(lp, (collUsd / 2) / 1e12);                // ~50% LTV, USDC 6-dec
         // C-2: the venue LTV is the true ~50%, NOT ~0 (before the fix collValueUsd was 1e10 too big).
@@ -706,7 +706,7 @@ contract VBtcLevFeeLane is AllesFixture {
         _setupBtcLevWbtc();
         address lp = makeAddr("protectLp");
         _openWbtcLev(lp, 2e8);                                       // 2 WBTC, zero debt
-        uint px0 = AUX.getTWAPforAsset(address(WBTC), 1800);
+        uint px0 = AUX.assetPrice(address(WBTC));
         _borrowWbtcVenue(lp, ((2e8 * px0 / 1e18) / 2) / 1e12);       // ~50% LTV real Aave USDC debt
         assertGt(wvenue.debtOf(lp), 0, "LP has real BTC-lev debt");
 
@@ -719,7 +719,7 @@ contract VBtcLevFeeLane is AllesFixture {
         vm.stopPrank();
 
         // Mature the QUID vintage (redeem is mature-only); keep every oracle read fresh across the warp.
-        uint ethPx = AUX.getTWAPforAsset(address(WETH), 1800);
+        uint ethPx = AUX.assetPrice(address(WETH));
         vm.warp(block.timestamp + 35 days); vm.roll(block.number + 1);
         _setEthFeed(ethPx / 1e10);
         _mockPx(px0);
@@ -754,7 +754,7 @@ contract VBtcLevFeeLane is AllesFixture {
         address lp = makeAddr("repayWithdrawLp");
         _openWbtcLev(lp, 2e8);
 
-        uint px = AUX.getTWAPforAsset(address(WBTC), 1800);
+        uint px = AUX.assetPrice(address(WBTC));
         uint debtUsdc = ((2e8 * px / 1e18) / 2) / 1e12;             // ~50% LTV of real Aave debt
         _borrowWbtcVenue(lp, debtUsdc);
         uint debt0 = wvenue.debtOf(lp);
@@ -785,7 +785,7 @@ contract VBtcLevFeeLane is AllesFixture {
     // ─────────────────────────── #36 venue safety gates (REAL venues) ───────────────────────────
 
     /// @notice (#36a) `init` must REJECT any venue whose collateral is not WBTC. The manager values
-    ///   collateral as 8-dec BTC at the ONE `getTWAPforAsset(WBTC)` read, so any other token silently
+    ///   collateral as 8-dec BTC at the ONE `assetPrice(WBTC)` read, so any other token silently
     ///   misvalues into phantom BTC backing for rangeBTC — `LevMath.vetVenue`'s `coll != c0 && coll != c1`
     ///   is the guard and `BtcLevManager.init` passes WBTC for both.
     /// ⛔ THE SECOND HALF IS THE OWNER RULING (2026-09-07), NOT A DUPLICATE OF THE FIRST: a venue whose
@@ -871,8 +871,8 @@ contract EthLevDeleverLegs is AllesFixture {
         address[] memory vs = new address[](1); vs[0] = address(evenue);
         elm.init(address(ETH), MORPHO_E, vs);   // RANGE = the ETH range (the only `deleverToVault` caller)
         EV.setLevManager(address(elm));         // pin the leveraged book into rangeETH
-        // Pin the ETH/USD anchor, or `getTWAPforAsset` can answer 0 and the sizing divides by it.
-        _setEthFeed(AUX.getTWAPforAsset(address(WETH), 1800) / 1e10);
+        // Pin the ETH/USD anchor, or `assetPrice` can answer 0 and the sizing divides by it.
+        _setEthFeed(AUX.assetPrice(address(WETH)) / 1e10);
         _auxSetAssetFeed(address(WETH), ETH_FEED);
     }
 
