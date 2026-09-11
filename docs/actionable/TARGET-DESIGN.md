@@ -188,9 +188,41 @@ venue holds **one** position (§POOL-VENUE), so a liquidation hits every LP pro-
 of who borrowed. **Measured: a late zero-debt LP went 5.000000 → 2.599165 ETH for an early LP's
 liquidation — 4,801 bps of its own collateral** (`LeverageCrossSubsidyProbe`).
 ⇒ **"WHO FUNDS THE DRIFT" IS NOT AN OPEN PRODUCT QUESTION. IT IS `§CROSS-SUBSIDY-MEASURED` WEARING A
-DIFFERENT HAT**, and the decision that remains is the pooled-liquidation one: **isolate per-LP, or price
-and disclose the sharing.** The per-LP ledger to isolate against already exists — `debtUnits[lp]` and
-`collUnits[lp]`, 19 and 18 references in `evm/src`. **What is missing is that the SEIZURE consults it.**
+DIFFERENT HAT.**
+
+### ✅ AND THAT ONE IS NOT AN OWNER DECISION EITHER — **ISOLATION IS CONSTRUCTIBLE, AND IT IS ARITHMETIC**
+It was carried as *"isolate per-LP, or price and disclose the sharing."* **§1 already decides it** — an
+LP with zero drift funding an LP with positive drift is the conservation principle broken one level
+down — so the only real question was whether isolation is *possible* against a pooled venue. **It is.**
+
+**The mechanism, from the code that already exists.** A per-LP slice is
+`_unitSlice(u, tot, bal) = u × bal / tot` (`LevVenueBase.sol:45`). A seizure reduces `bal`, so today
+**every** slice falls pro-rata and the causing LP's debt is irrelevant to who pays — that is the 4,801 bps.
+⇒ **Burn `Δu = tot × S / bal` units from the LP whose position caused the seizure, and every other LP's
+slice is preserved EXACTLY**, because `u_i × (bal−S) / (tot−Δu) = u_i × bal / tot` for that Δu.
+
+**Verified in exact rational arithmetic, not reasoned:**
+| | causing LP | innocent LP |
+|---|---:|---:|
+| before (2 LPs, 500 units each, pool 1000) | 500 | 500 |
+| **today** — seizure of 240 | **380** | **380** ← the innocent LP pays 120 it did not cause |
+| **with the unit burn** (`Δu = 240`) | **260** | **500** ← preserved exactly |
+⇒ the causing LP absorbs **240 of a 240 seizure**. No approval, no Morpho change — Morpho still sees one
+aggregate; the attribution is entirely protocol-side, which is what `LevVenueBase.sol:200` already claims
+(*"isolation is PROTOCOL-ENFORCED rather than MORPHO-ENFORCED"*) and does not yet do.
+
+⚠️ **AND THE HONEST LIMIT, WHICH IS THE PART THAT MUST NOT BE HIDDEN:** if the seizure exceeds the causing
+LP's own collateral, the excess **cannot** be charged to it. Same arithmetic: a seizure of 700 against a
+1000 pool needs `Δu = 700` and the causing LP has only 500, so **200 units of loss are genuinely shared.**
+⇒ **That residue is BAD DEBT, and every lending protocol has it.** The difference is that today the
+sharing starts at the FIRST wei of seizure; with the burn it starts only after the causing LP is wiped
+out. **Isolation is not absolute, and claiming it would be the vacuous-bound error in a new costume.**
+
+▶️ **SO THE REMAINING WORK IS ENGINEERING, NOT A RULING:** (1) attribute — per-LP LTV is computable from
+`positionOf(lp)`, so the LPs above the threshold are identifiable; (2) burn `Δu` from them on seizure;
+(3) socialise only the residue, and **say so in the product copy**. ⛔ **It is still gated on the hedge
+existing at all** — measured 2026-09-11, the lever currently borrows nothing, so there is no liquidation
+to isolate until §7 is built.
 
 🔴 **Both of the old design's IL terms are CFMM laws, and we deleted the CFMM:**
 - ✅ `soldFractionWad` is **a constant, 0.507500313** (`LevMath.sol:170-187`). The range recentres on
