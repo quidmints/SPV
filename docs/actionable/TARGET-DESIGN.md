@@ -430,27 +430,69 @@ when the loan token is already WETH**) → `_wethToWeeth` (ether.fi mint). So
 ⇒ The whole primitive is ~12 lines on `LevManager`: pull WETH, `stableToColl`, transfer, `supply`,
 size against the sentinel slot's own LTV, `borrow`, hand the stable back.
 
-### ⏸️ AND THE FORK, WHICH IS AN OWNER RULING — **WHAT DOES A SELL-IN PAY WITH TODAY?**
-§3 says a sell-in should *"supply as collateral, BORROW"*, so that only `L` re-dollarises and `(1−L)`
-does not silently back a dollar claim with volatile. **But the protocol already has an answer to
-"where do the dollars come from", and it is not borrowing — it is MINTING QU!D against the volatile
-received.** That is the thing §3's `(1−L)` worry is about, already shipped.
+### 🪦 THE A/B/C FORK IS RETRACTED (2026-09-11). Owner: *"idk that either proposed solution for sell
+in is the most elegant."* Correct — **all three were wrong, and the mechanism already exists.**
 
-⇒ So the sell-in borrow is not a bolt-on. It is an **alternative to minting**, and wiring it means
-deciding one of:
-| | what a sell-in does | consequence |
-|---|---|---|
-| **A — keep minting** (today) | volatile enters the basket, QU!D is issued against it | the dollar claim is backed by volatile at the margin; the depeg exposure §3 names is real and unpriced |
-| **B — borrow instead** | supply the volatile, borrow `L`, pay from the borrow | only `L` becomes dollars; `(1−L)` stays equity. Costs carry (**~4.3%/yr**, §6 check 3) on every absorbed sell-in |
-| **C — mint up to a cap, borrow past it** | the cap is the capacity term §4 wants | two mechanisms, one seam — most code, most correct |
-
-**I am not choosing this unilaterally, because B and C change where QU!D comes from.** That is the
-issuance model, not a swap detail. The primitive above is ready for whichever wins; per the repo's own
-standing rule 1 I have NOT landed it unreachable.
+I tabled: **A** keep minting QU!D against the volatile · **B** borrow instead · **C** mint to a cap
+then borrow. Every one treats a sell-in as something that must be *funded now*. **It does not have to
+be.** See §12.
 
 ---
 
-## §11 — ✅ WHAT A CARRY-DERIVED NO-TRADE BAND ACTUALLY IS: **A DWELL TIME, NOT AN LTV WIDTH**
+## §12 — ✅ **THE SELL-IN IS ABSORBED BY MATURITY, NOT BY A BALANCE SHEET. IT IS ALREADY BUILT.**
+
+Owner, verbatim, earlier in the same design: *"defer should be opt-in, if you wanna get paid in
+volatile that's ok too, mirrored for volatile lp."* That IS the answer, and the machinery for it has
+been in the tree the whole time.
+
+### THE MECHANISM, read from code
+```solidity
+Basket.mint(address pledge, uint amount, address token, uint when)   // ← `when` IS the maturity month
+```
+- `BasketLib.calcMintYield(...)`: `month = max(nextMonth, when)`, then
+  `normalized += normalized · yield · (month − (nextMonth−1)) / (WAD·12)`.
+  ⇒ **the holder is PAID forward yield for accepting a later maturity**, at the basket's own `avgYield`.
+- `balanceOf[receiver][when]`, `totalSupplies[when]`, `perMonth[receiver]` — a per-vintage ledger.
+- `BasketLib.sol:1112`, stated outright: **"MATURE ONLY. Immature/forward QU!D is not a redeemable
+  claim and is not a fundable one."** Redemption reads `matureSupply()` and nets
+  `immatureBalanceOf(owner)`; `turn` burns matured vintages only.
+
+### WHY THIS DISSOLVES §3's SELL-IN PROBLEM RATHER THAN SOLVING IT
+§3 worried that a sell-in re-dollarises only `L`, so `(1−L)` *"permanently backs a dollar claim with
+volatile"*. **An immature claim is not a demand on dollars at all** — it is excluded from
+`matureSupply`, from the redeemable claim, and from `turn`. So there is nothing to back until it
+matures, and by then the flow has had time to reverse. The exposure §3 tried to price away does not
+form.
+
+⇒ A sell-in that outruns dollar inventory **pushes `when` out** instead of borrowing. The swapper is
+compensated out of yield the basket already earns, rather than the protocol paying **~4.3%/yr** carry
+(§6 check 3) on a transient imbalance.
+
+| | A: mint now | B: borrow | **§12: mature later** |
+|---|---|---|---|
+| new code | none | ~12 lines + a venue slot | **none — `when` is already a parameter** |
+| cost to protocol | depeg exposure at the margin | carry ~4.3%/yr, LTV headroom | pays `avgYield × months`, in a claim it issues |
+| opt-in? | no | no | **yes, by construction — the swapper picks the tenor** |
+| symmetric with the drain's deferral? | no | no | **yes** |
+
+### WHAT §4's CAPACITY TERM BECOMES: A TERM STRUCTURE
+The charge on a sell-in is no longer a premium in bps — it is **how far out `when` has to go**, and
+that is a function of ACTUAL DOLLAR INVENTORY, a balance-sheet fact. §NO-GAMEABLE-BOUND is satisfied
+for the same reason the flat fee satisfies it: an attacker can push others down the curve only by
+draining dollars, and draining dollars costs them the drain. Costly to move ≠ free to starve.
+
+### ⏸️ WHAT IS ACTUALLY LEFT TO BUILD, and it is small
+1. **Choose `when` from inventory** on the sell-in path (today every swap-side mint passes a flat
+   value). This is the whole feature.
+2. **Quote it.** The swapper must see the tenor before committing — the same seam
+   `Aux.quoteSwapOut` already occupies.
+3. **A floor on the term** so the curve cannot be pushed absurdly far by a single large sell.
+⛔ NOT NEEDED, and deleted from the plan: the sentinel-key protocol position (§10 finding 1), the
+`stableToColl(WETH,…)` on-ramp (finding 2), and any borrow on the swap path. Both findings were
+correct and both are now moot — kept in §10 only as the record of a road not taken.
+---
+
+## §11 — ✅ THE NO-TRADE BAND IS **NEITHER A WIDTH NOR A DWELL — IT IS A REALISED-COST ACCUMULATOR**
 
 §6b debt 2 asked for `_bandBps` to be derived from carry rather than from gas (*"gas has nothing to do
 with lvr"*) or from LVR (which needs σ, now deleted). With carry measured, the derivation runs — and
@@ -482,16 +524,21 @@ band) that is **T ≈ 14 days**.
 placeholder. On the carry argument alone the keeper rebalances far more often than the round trips
 pay for.
 
-⚠️ **DO NOT ACT ON THAT NUMBER YET, BECAUSE THE MODEL OMITS A TERM AND I WILL NOT HIDE IT.** Carry is
-not the only cost of being off-target: an unrebalanced hedge also FAILS TO CANCEL IL while it drifts.
-That term is real, it pushes the threshold DOWN, and sizing it from a forecast needs σ — which is
-precisely the input §NO-GAMEABLE-BOUND forbids.
-⭐ **THE WAY OUT, AND IT IS THE SAME MOVE THE FLAT FEE MADE:** price the hedge error from the
-**OBSERVED** gap rather than a forecast. `debtDeltaToTarget(lp)` already returns the realised USD gap,
-so the rule becomes *"rebalance when the observed gap's carrying cost exceeds the round trip"* — ex
-post, not ex ante. A counterparty can still move price to force a rebalance, but moving price costs
-them the price move, which is the difference between an input that is manipulable and one that is
-FREE to manipulate.
+🔴 **AND THE DWELL ITSELF IS A FORECAST, WHICH THE OWNER HAS NOW RULED OUT** (2026-09-11: *"we should
+not be making forecasts at all"*). A dwell waits because the move **might reverse** — an implicit
+mean-reversion bet, and nothing measures whether it is true. I had also left a caveat here saying the
+omitted hedge-error term *"needs σ"* and proposing to price it from the observed gap. **Both die
+under the same rule, and the replacement is simpler than either:**
+
+> **Rebalance when the carry ALREADY PAID on the excess debt exceeds the round trip it would cost to
+> fix it.**
+
+Purely backward-looking. No timer, no σ, no reversal assumption, no term to size — an accumulator of
+REALISED cost against a KNOWN cost. It is the same move the flat fee made one layer down: stop
+predicting what flow will do and charge what is actually there.
+⇒ So the answer to *"what should `_bandBps` be"* is: **neither a width nor a dwell — an accumulator.**
+The ~14-day figure above is what that accumulator would trip at under today's carry, but it is an
+OUTPUT of the rule, not a constant to set.
 
 ⏸️ **What is owed before changing either constant:** the ~17 bps round trip is quoted from §4's
 competitive band and has not been measured on our own rebalance path. That measurement is the same one
