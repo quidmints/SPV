@@ -764,8 +764,6 @@ symbols — `recordForceClosePenalty`, `termsLeaf`, `closeChannel` — that **ne
   Assign an owner explicitly before starting it.
 
 ### ⛔ §ACCEPTOR-ITEMS-ARE-IN-THE-FORK — not workable from this tree
-> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): superseded by §ACCEPTOR-SPLICE-GREEN; its zero-callers half is expected state. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
-
 `§ACCEPTOR-CONTRIBUTION-FEES` and `§ACCEPTOR-SPLICE-TEST-IS-RED` both live in
 `quid-ln/lib/rust-lightning`, now the external `quidmints/rust-lightning`. The settling run is
 `cargo test -p lightning --lib splicing_tests::test_acceptor_contributed_splice_out` **in that fork**.
@@ -1069,8 +1067,6 @@ copy of lines 163–40,468. **929 of 1,175 distinct `##` headings appeared twice
 offsets DRIFTED (41,354 / 41,362 / 41,459 / 41,474 / 41,485 / 41,527) — which is the tell: the first
 copy kept being edited and the second never was. Only **24 lines out of 41,315** were not already
 present verbatim in the first copy, and **15 of those 24 were the OLD text of a line the first copy
-> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): CidRegistry is DELETE-not-build; channelId is computable. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
-
 had since rewritten** (e.g. §T9-REGISTRY-HAS-NO-WRITER's and §SPLICE-ROTATES-BOTH-FUNDING-KEYS's
 pre-retitle headings).
 ⚠️ **THIS IS WHAT TRAP 2 ABOVE WAS DESCRIBING** ("a census that counted marker instances returned 390
@@ -1277,8 +1273,6 @@ All 150 row slots, 137 sections, 19 check-rows and six clusters have been read a
 ⛔ **SUPERSEDED — the 150 was taken 2026-08-30, before §BTC-9's 49 items and §PLP's list folded in, so
 it was never the denominator it claims to be here. ~~The open set is 213.~~ **The open set is 220** (re-measured 2026-09-08 after §DEDUP-2026-09-08 and after that day's booking pass; it was 226 between the two, and the 213 was measured on the DOUBLED file). See `§CENSUS-2026-09-07`.**
 
-> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): retracted by bf5aa5ff before it was executed. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
-
 ⛔ **`§FRESHNESS-RECOMMENDATION` — RETRACTED 2026-08-30 BEFORE IT WAS EXECUTED (owner: *"are you
 sure we are not giving up anything important with this deletion?"*). WE ARE. DO NOT DELETE IT.**
 
@@ -1386,7 +1380,7 @@ showed. It does NOT cover `§HOP-RCE-3` — on the LN rail the hop still NAMES t
 binds that to whoever paid. That needs the seller-signed intent (`§M1-RESIDUAL-100` residual 1), and
 no amount of address verification substitutes for it.
 
-> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): the reserve is deleted. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): the reserve is deleted. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
 
 ✅ **`§RESERVE-HAS-NO-RETURN-PATH` — DISSOLVED 2026-08-30: the reserve it describes no longer exists (`§FLEET-FRONTS-THE-WINDOW`). Kept because the lesson is not.** ~~A HOLE I INTRODUCED THIS SESSION (found 2026-08-30 by
 auditing my own commits against the owner's *"there should be no holes possible"*). IT MUST BE FIXED
@@ -1411,8 +1405,6 @@ precisely how `_releasePoolSats` could hook it. **The reserve is the hop's own w
 can spend it silently, with no event the contract sees.** So the cap is backed by a balance the
 contract cannot observe and can never reduce. ⇒ **The gap grows without bound: conjurable value =
 (cumulative proven) − (current reserve), and only the first term is tracked.**
-
-> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): built then deleted by 32168f74. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
 
 ⚠️ **IT IS ONLY LIVE BECAUSE I MADE THE RAIL WORK.** Before `§LN-RESERVE-FUNDER` the allowance had no
 funder at all, so every LN swap-in reverted and no phantom was reachable. **I did not widen an
@@ -1470,8 +1462,6 @@ reserve, no bond, no timelock, no return path, and no seller-signed intent neede
 `provenSatsAvailable`, `InsufficientProvenSats`, `SwapInPartialRejected`, `proveHopReserve`,
 `hopReserveScript`/`setHopReserveScript`, `ChannelLib.reserveSats`, `SIG_PROVE_HOP_RESERVE`,
 `encode_prove_hop_reserve`, and `reconcile_hop_reserve`. It also dissolves
-> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): the pool-backed LN rail is dissolved. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
-
 `§RESERVE-HAS-NO-RETURN-PATH` (no reserve), `§LN-SWAPIN-RAIL-BROKEN` (no rail to break), and
 `§HOP-RCE-3`'s buffered-rail half — **the hop naming the seller stops mattering, because on the
 proven rail naming yourself requires proving your own deposit.**
@@ -1487,9 +1477,9 @@ proven rail naming yourself requires proving your own deposit.**
 4. **Partial fills move off-chain**: `requireFull` existed because the LN rail cannot refund. The
    fleet now decides what to pay its own counterparty, and the pool sees only a proven deposit.
 ▶️ **THE ONE OWNER DECISION LEFT is whether the fleet is willing to be the principal on the LN leg.**
-> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): only reachable if the fleet is NOT principal on the LN leg; owner ratified that it IS. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
-
 If yes, this is strictly less code and no holes. If no, fall back to `§HOP-BOND` below.
+
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): only reachable if the fleet is NOT principal on the LN leg; the owner ratified that it IS. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
 
 ~~✅ **`§HOP-BOND` — THE BETTER FIX, AND IT CLOSES RATHER THAN BOUNDS.**~~ *(kept as the fallback if
 the fleet must NOT be principal)* The LN rail's real risk is a
@@ -1523,11 +1513,7 @@ untangle it are gone: `parkProvenSats`, `poolOwnedSats`, `poolSatsParker`, `_rel
 | item | how it closed |
 |---|---|
 | `§AUDIT-POOLPARKER-PHANTOM` | **DISSOLVED.** It was entirely `poolSatsParker` being overwritten by a second parker. There is no parker. |
-> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): poolColdScript was deleted 2026-08-31. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
-
 | `§POOL-SCRIPT-DESTINATION-REOPENED` | **DISSOLVED.** Pool sats never enter a channel, so an exit has no second output to place and no destination to choose. |
-> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): poolColdScript was deleted 2026-08-31. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
-
 | `§POOL-SCRIPT-DONE`'s `poolColdScript` | Deleted rather than left as a stub. |
 | the `lpEntitled` clamps + `PoolSatsLeftWithLp` | The pool subtraction is gone; **the over-payment clamps SURVIVE**, renamed `PayoutExceededChannel`, because a close or withdrawal splice can still pay `btcRecipientOf` more than the channel held from other inputs. Deleting them with the pool concept would have been the easy mistake. |
 
@@ -1542,6 +1528,8 @@ rotated outpoint and a freshly-armed ladder just to hand a hop a balance; it is 
 four-line reserve proof. Two stress tests carried `WrongPrevOutpoint` traps *"which is exactly how
 this test failed once"* — those traps existed only because funding the cap moved the channel. They
 are gone, not worked around.
+
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): built, then deleted by `32168f74`. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
 
 ✅ **`§LN-RESERVE-FUNDER` — BUILT AND WIRED END TO END 2026-08-30.** `proveHopReserve` +
 `ChannelLib.reserveSats` on the EVM; `SIG_PROVE_HOP_RESERVE` (listed in `HOP_BTCCHANNELS_SIGS`, or
@@ -1596,6 +1584,8 @@ contract pin rather than derived, since BDK reveals a fresh address on demand.**
 strands protocol BTC, so it is not a guess to make. `BTC_DEPOSIT_KEY` is documented as the fleet's
 **INTERNAL** key, used TWEAKED with a per-swap CLTV/terms leaf to derive deposit addresses. A reserve
 has no terms and so no leaf. The options differ in who can spend the backing.
+
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): the pool-backed LN rail is dissolved. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
 
 ✅ **`§LN-SWAPIN-RAIL-BROKEN` — DISSOLVED 2026-08-30: there is no pool-backed LN rail left to break.** ~~THE RETRACTION BELOW WAS ITSELF TOO BROAD. RE-FILED CORRECTLY
 2026-08-30 (third pass).** The join IS broken; I named the wrong function twice. **There are TWO
@@ -1677,6 +1667,8 @@ keygen"*). Three facts, checked after the fact, reframe the whole item:
 ⇒ **THE MECHANISM STANDS; THE DESTINATION IS OPEN.** Keep `poolColdScript` empty (the check is off)
 until the parking rail is wired and the owner names a destination that a dead fleet cannot take with
 it. Deciding it now would pin a custody artifact to a rail nobody can call.
+
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): `poolColdScript` was deleted 2026-08-31. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
 
 ✅ **`§POOL-SCRIPT-DONE` (2026-08-30).** Owner chose a **protocol cold P2TR**: output 1 pays
 `poolColdScript`, spendable by neither the hop nor the LP, so *"more than the hop alone"* is met by
@@ -1995,7 +1987,7 @@ pins its payee rather than accepting it**:
 ✅ **AND THE RESUME I ADDED TODAY INHERITS ALL OF IT** — it re-enters `deliverSwapOutOnchain`, so the
 watcher cannot redirect a delivery and cannot double-pay (`swapInUsed[swapId]`).
 
-> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): needs an LP-side LDK node producing justice packages. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): needs an LP-side LDK node producing justice packages. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
 
 🔴🔴 **`§NO-PENALTY-WATCHTOWER` — THE ONE SERIOUS GAP, AND IT IS EXACTLY THE OWNER'S INTERSECTION
 (LP OFFLINE × FLEET COMPROMISED).**
@@ -2955,8 +2947,6 @@ fork question:** the vendored LDK already carries SIMPLE-TAPROOT CHANNELS — Mu
 `to_local`/`to_remote`/anchors, splice key-path sighashes — which is a **far larger** protocol addition
 than this. A patch here is normal work, not an exotic step.
 
-> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): needs an LP that can initiate a splice, i.e. a node. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
-
 🔑 **AND IT IS MUCH SMALLER THAN §DELIVERY-MUST-BE-LP-INITIATED IMPLIES, BECAUSE THE PLUMBING IS
 ALREADY THERE. Measured:**
 | piece | state |
@@ -3020,8 +3010,6 @@ time bisecting a merge that is innocent.** ⇒ **The failure is in the capabilit
 ⛔ **SO STEP 2 OF §ACCEPTOR-CONTRIBUTION'S SCOPED PATCH IS *WRITTEN*, NOT *WORKING*.** That section's table marks
 `ChannelManager::internal_splice_init` as *"the ONLY blocker"*; the hardcoded `0i64` is gone and the plumbing is in — but the one test that
 proves the inverted shape completes end-to-end does not pass. **Do not mark §ACCEPTOR-CONTRIBUTION done, and do not build
-> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): needs an LP that can initiate a splice, i.e. a node. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
-
 §DELIVERY-MUST-BE-LP-INITIATED's replacement rail on top of it, until this is green.**
 
 🔴 **2. `register_acceptor_splice_contribution` HAS ZERO CALLERS OUTSIDE `lib/rust-lightning`.** Verified by grep over every `.rs` in
@@ -3037,9 +3025,9 @@ never clears attaches the swapper's output to an unrelated splice** — the prec
 wires a path no test covers.
 📌 **§SEQ-AUDIT: GATE 5 · lane L2. BLOCKED FOR THIS LANE 2026-09-09 — BOTH HALVES LIVE OUTSIDE IT.** `test_acceptor_contributed_splice_out` and `register_acceptor_splice_contribution` are both inside **`quid-ln/lib/rust-lightning`**, which is now the external repo `quidmints/rust-lightning` and is off-limits to the `quid-ln` lane — so neither the red test nor the capability can be touched from here. ▶️ **THE RUN THAT SETTLES THE RED HALF:** `cargo test -p lightning --lib splicing_tests::test_acceptor_contributed_splice_out` in that fork at the current pin, against the same run at `73233fd`; until it reports, *"pre-existing red"* is a claim carried forward, not a measurement of today's tree. ⭐ **THE ZERO-CALLERS HALF IS NOT A TEST QUESTION AND IS ANSWERED HERE:** the capability's only intended consumer is the delivery rework, which is `§MASTER-ORDER` 4b and unbuilt ⇒ **zero external callers is the EXPECTED state at this point in the order, not a defect** — and it must not be read as *"§ACCEPTOR-CONTRIBUTION is done"*, which is the mistake this section exists to prevent.**
 
-## 🔴 §DELIVERY-MUST-BE-LP-INITIATED — **STEP 1 OF THE REWORK IS IMPOSSIBLE IN THIS LDK. THE FORK IS THE OWNER'S.**
+> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): needs an LP that can initiate a splice, i.e. a node. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
 
-> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): its subject QUID_FLEET_COHOSTS_VAULT is deleted. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
+## 🔴 §DELIVERY-MUST-BE-LP-INITIATED — **STEP 1 OF THE REWORK IS IMPOSSIBLE IN THIS LDK. THE FORK IS THE OWNER'S.**
 
 Measured 2026-09-01, and it retires the plan in `§COHOST-FLAG-IS-NOT-THE-WORK` step 1
 (*"`drive_swap_out_onchain` initiates the splice from the HOP's `channel_manager`"*). **It cannot.**
@@ -9336,8 +9324,6 @@ strictly safer than BOTH the status quo and my pool-outpoint proposal, and effic
 **A two-out-of-three win, honestly counted, is a better answer than a three-out-of-three that was wrong
 about custody.**
 
-> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): its 'remaining EVM half, 29 sites' is the deleted pool-inventory family. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
-
 > ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): its 'remaining EVM half, 29 sites' is the deleted pool-inventory family. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
 
 ## ⭐⭐ **§BTC-SCOPE-SYNTHESIS — the segregation fix, the unwired sweep, and the jury question are ONE item** (2026-08-26, owner)
@@ -9396,8 +9382,6 @@ is discharged, so the remaining work is the EVM half alone: `poolOwnedSats` (11 
 ⚠️ **AND THE CLAUDE.md RULE THAT NAMES THIS FUNCTION IS NOW HISTORICAL TOO** — its `dead_code`
 warning must be GONE; if it returns, that is a regression, not a marker. Updated there in the same
 pass so the two do not disagree.
-
-> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): pool inventory is deleted; grep evm/src returns zero. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
 
 > ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): pool inventory is deleted; `grep evm/src` returns zero. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
 
@@ -9471,8 +9455,6 @@ feature but keeps the shared UTXO, so `poolOwnedSats` survives and must stay cor
 ⛔ **(3) is not a fix.** Listed only so it is rejected explicitly rather than re-proposed.
 ▶️ **THE TEST, AFTER THE DECISION:** park a non-zero amount, arm+broadcast a dead-man exit, record it,
 assert **`PoolSatsLeftWithLp` is NEVER emitted**. That single assertion is the whole property, and it
-> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): the subject is deleted; its own tail already says DO NOT WRITE THE TEST. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
-
 fails today. (§POOL-SATS-STRANDING-IS-UNTESTED has the fixture gap: 0 of 6 dead-man tests park.)
 
 > ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): subject deleted; its own tail says DO NOT WRITE THE TEST. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
@@ -13799,8 +13781,6 @@ worktree.
 `classifyRegime`** — one design decision, then a deletion), `§MINT-SITE-COUNT`, `§UNIT-*` cluster.
 
 ### 🔴 Owner decisions — **blocked on a person, not on work**
-> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): retracted in full; the ladder stays. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
-
 `§LP-SEED-ENTROPY`, `§LADDER-REMOVAL`, `§A.51`, `§A.19b` (`redeemVBtc` — and see `CLAUDE.md`: ibiza
 analysed it as cross-LP theft), `§NO-REJECT`, `§PHASE-ORDER`, `§MSIG-NOT-SAFE`.
 
@@ -16198,8 +16178,6 @@ view added, `Core` has 28 bytes). Both words come back **byte-identical**:
 ⇒ `slow >= fast` at every read ⇒ **`min` is unconditionally the fast leg. The §E55 defence does not
 operate, and the §UNIT-B self-inflation is undamped.** The docblocks at `:188-196` and `:249` describe
 a property the code does not have.
-
-> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): family/individual daemons are ruled out: one enclave, LP runs nothing. **The text below is kept as EVIDENCE, never as an instruction — its status markers are void.**
 
 | **E162-rekey-CORRECTED** | ⛔ **I CALLED `newLp == oldLp` *"the prevention"*. IT PREVENTS INHERITANCE, NOT COMPROMISE — and the compromise it does not reach is the whole vault exposure (owner: *"but not what happens to the old image… can still be drained?"*, 2026-08-10).** ⛔ **TWO ROUTES BY WHICH A COMPROMISED **OLD** IMAGE STILL DRAINS: ① **BEFORE ANY ROTATION** — it holds BOTH halves for vault channels, so a compromise today drains today; rekeying is a future event and does nothing retroactively. ② **THROUGH THE ROTATION ITSELF** — `newLp == oldLp` forces the LP half to stay and the attacker ALREADY HOLDS IT; nothing constrains the hop half's destination, so it splices to `(oldLp, attackerHop)` with both halves in its own control. **The contract sees a perfectly valid rotation.**** ✅ **WHAT THE RULE ACTUALLY BUYS, STATED NARROWLY: it bounds what a malicious UPGRADE TARGET inherits. It protects against the Safe whitelisting a bad new image and that image receiving WORKING keys. That is real and it is small.** 🔴 **⇒ THE HONEST POSITION, UNSOFTENED: FOR VAULT CHANNELS, COMPROMISE OF THE RUNNING IMAGE IS UNMITIGATED. Every route explored is closed — covenants (no L1 support: §E159-research), MPC (owner: no), family plans (custody rationale dissolved, §E158-why-self-hosted), bonding/fraud proofs (owner: no), cold vault + key deletion (owner: no), rekey splice (does not reach it, this entry). **The residual is CODE REVIEW plus the sealing guarantee that a DIFFERENT measurement cannot unseal.**** ⛔ **PROCESS: this is the same over-claim shape as §E158-trust-root and §E158-both-halves — a mechanism described by what it is FOR rather than by what an adversary retains after it. **State the attacker's residual capability, not the mechanism's intent.**** | ✅ **CLOSED 2026-09-09** — rekey bounds inheritance only and a compromised running image drains regardless; that residual is now *recorded in the code* (`vault.rs:31-33`) and every remedy is owner-closed, so the row is a finding, not a task  ✅ **CLOSED 2026-09-09 (§SEQ-AUDIT — verified against code): A RECORDED FINDING WITH NO BUILDABLE ITEM LEFT.** The row's own body enumerates every route — covenants (no L1 support), MPC (owner: no), family plans (rationale dissolved), bonding/fraud proofs (owner: no), cold vault + key deletion (owner: no), rekey splice (does not reach it) — and each is closed by an owner decision, leaving *"CODE REVIEW plus the sealing guarantee"*, neither of which is a row. ⚠️ **AND IT IS SCOPED SMALLER THAN IT READS:** the *"both halves in one image"* exposure exists ONLY in the co-hosted Option-B deployment, and **`quid-ln/quid-bridge/src/vault.rs:31-33` already declares it AT the opt-in** — *"In THAT deployment one custodian holds both halves and the 2-of-2 is NOMINAL"*, and `quid-bridge-daemon` *"says so at the opt-in and refuses to imply otherwise"*. The honest-statement-of-residual this row asks for is in the code; §E158-upgrade-authority's proposed fix for it is separately owner-refuted.** |
 
@@ -31526,8 +31504,6 @@ reading the EVM anti-rollback counter, which was per-channel from the day it was
 different thing. `§T3-FIX-IS-INEXPRESSIBLE-WITHOUT-PHASE-3` warns about exactly this conflation by
 name.
 
-> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): retracted in full; the ladder stays. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
-
 ### ✅ ③ THE LADDER IS LOAD-BEARING — `§LADDER-REMOVAL`'s RETRACTION IS CORRECT
 
 `LadderTooShallow` is live in `_armLadder`: `exits.length < 2` reverts, and a second revert requires
@@ -41260,8 +41236,6 @@ they use different denominators and answer different questions:
 ▶️ **ORDER CONFIRMED FROM THE FILE (I had asserted the reverse from memory):** §UNIT-A ✅ →
 **§UNIT-B (here)** → then the two-sided curve, with §UNIT-C-BAR deciding whether it is needed.
 *"Building the signed side before §UNIT-B ships an exploit."* §UNIT-C is GATED, not next.
-
-> ⛔ **§MODEL-DEAD-2026-09-11 — NOT A TASK. DO NOT WORK THIS ROW.** Retired by `§BITCOIN-ORDER-2026-09-11` §2 (top of file): family/individual daemons are ruled out: one enclave, the LP runs nothing. **Kept as EVIDENCE, never as an instruction — its status markers are VOID.**
 
 | **E158-why-self-hosted** | 🔑 **FAMILY/INDIVIDUAL DAEMONS: THE CUSTODY RATIONALE IS THAT THEY ARE THE ONLY NON-CUSTODIAL CONFIGURATION (owner asked *"why are familyplan or individual daemons necessary at all. anonymity?"*, 2026-08-10).** ✅ **VERIFIED, `BTCChannels.sol:859-860`: *"Self-hosted LPs must co-sign the splice and would see it; **IN FLEET MODE THE OPERATOR HOLDS BOTH HALVES (E94) AND CAN DO IT ALONE.**"*** ⇒ **a self-hosted LP holds a REAL funding half, so the 2-of-2 actually binds and the fleet cannot move its BTC alone. It also does not need the dead-man exit: it holds commitment txs and can LDK force-close, which is what `recordForceClosePermissionless` serves.** 🔑 **THIS PARTITIONS THE ENTIRE TRUST DISCUSSION: image upgrades, seed inheritance, and the shared freshness kill switch (§E158-freshness-killswitch) apply **ONLY TO VAULT LPs**. ⇒ **REMOVING FAMILY/INDIVIDUAL DAEMONS MAKES THE SYSTEM ENTIRELY CUSTODIAL** — that, not anonymity, is what would be lost.** ⛔ **AND IT REFUTES THE PASSIVE FORM OF §E158-no-seed-migration (owner: *"we cant let the old channels drain under the old image because it might have a vulnerability"*): **the upgrade is often FOR the vulnerability**, so leaving channels on the old image leaves them exposed to the very bug being fixed.** ✅ **REFINEMENT THAT SURVIVES: LPs migrate by CLOSING AND REOPENING, not by seed transfer. Voluntary, per-LP, no authority decision, always available (the exit is armed at open, §E156; self-hosted LPs can force-close with no counterparty at all). Exposure is bounded to channels still on the old image, and each LP picks its own window.** 🔑 **AND THE SHARPER STATEMENT OF WHY INHERITANCE WAS THE TARGET: inheritance is not intrinsically bad — it REQUIRES AN AUTHORIZATION DECISION (which image may inherit), and that decision is exactly what a 4-of-7 compromise attacks. Remove inheritance and there is nothing left to compromise.** | 🔑 self-hosted = the only non-custodial config; enclave risk is vault-only; migrate by close+reopen |
 
