@@ -33,7 +33,19 @@ EVM_DIR="$REPO/evm"
 RUST_WS="$REPO/quid-ln"
 ANVIL_PORT="${ANVIL_PORT:-8545}"
 ANVIL_RPC="http://127.0.0.1:$ANVIL_PORT"
+# The fork RPC: QUID_FORK_RPC, else the keyed ETH_RPC_URL from evm/.env (the same one every
+# forge fork suite uses), else the public endpoint. ⚠️ THE PUBLIC ENDPOINT CANNOT FINISH THE
+# DEPLOY: a fresh full-stack deploy simulates thousands of lazily-fetched storage reads, and
+# measured 2026-09-11 it sat 24 minutes on publicnode without landing one contract. With a key
+# the run also passes `--no-rate-limit`, because anvil otherwise throttles ITSELF to 330
+# compute-units/s against any fork provider — the key buys nothing until that is off.
+if [ -z "${QUID_FORK_RPC:-}" ] && [ -f "$EVM_DIR/.env" ]; then
+  QUID_FORK_RPC="$(sed -n 's/^ETH_RPC_URL=//p' "$EVM_DIR/.env" | head -1)"
+fi
 FORK_RPC="${QUID_FORK_RPC:-https://ethereum-rpc.publicnode.com}"
+FORK_RPC_HOST="${FORK_RPC#*://}"; FORK_RPC_HOST="${FORK_RPC_HOST%%/*}"
+RATE_LIMIT_FLAG=()
+[ "$FORK_RPC_HOST" != "ethereum-rpc.publicnode.com" ] && RATE_LIMIT_FLAG=(--no-rate-limit)
 
 # Anvil's deterministic account #0 — also the hopNode (DriverE2E sets
 # hopNode = deployer) and the driver's hot key, so the onlyHop gate passes.
@@ -67,12 +79,19 @@ export BITCOIND_EXE="$BITCOIND"
 # the EIP-170 24576-byte runtime limit (Vogue ~26.3KB, Vault ~25.1KB — a
 # PRE-EXISTING condition of the codebase, independent of this harness), so anvil
 # must not enforce the limit for the deploy to land.
-log "starting anvil forking $FORK_RPC"
-# Pin the fork block ONLY when QUID_FORK_BLOCK is set (needs an ARCHIVE RPC — the public
-# RPC rejects historical state). Unset ⇒ fork `latest` (works on the public RPC, slower).
+# Never echo the URL — a keyed one carries the key in its path.
+log "starting anvil forking $FORK_RPC_HOST${RATE_LIMIT_FLAG:+ (keyed, anvil rate limit off)}"
+# Pin the fork block: QUID_FORK_BLOCK if set, else the CURRENT head when the RPC is keyed (a
+# pin is what lets anvil cache fetched state on disk instead of re-fetching it; a historical
+# pin needs an ARCHIVE RPC, which the public endpoint is not — so unpinned there ⇒ `latest`).
 FORK_BLOCK_FLAG=()
-[ -n "${QUID_FORK_BLOCK:-}" ] && FORK_BLOCK_FLAG=(--fork-block-number "$QUID_FORK_BLOCK")
-anvil --port "$ANVIL_PORT" --chain-id 31337 --silent --disable-code-size-limit --fork-url "$FORK_RPC" "${FORK_BLOCK_FLAG[@]}" &
+if [ -n "${QUID_FORK_BLOCK:-}" ]; then
+  FORK_BLOCK_FLAG=(--fork-block-number "$QUID_FORK_BLOCK")
+elif [ ${#RATE_LIMIT_FLAG[@]} -gt 0 ]; then
+  FORK_BLOCK_FLAG=(--fork-block-number "$(cast block-number --rpc-url "$FORK_RPC")")
+fi
+[ ${#FORK_BLOCK_FLAG[@]} -gt 0 ] && log "fork pinned at block ${FORK_BLOCK_FLAG[1]}"
+anvil --port "$ANVIL_PORT" --chain-id 31337 --silent --disable-code-size-limit "${RATE_LIMIT_FLAG[@]}" --fork-url "$FORK_RPC" "${FORK_BLOCK_FLAG[@]}" &
 ANVIL_PID=$!
 trap 'kill $ANVIL_PID 2>/dev/null || true' EXIT
 # wait for the RPC to come up
