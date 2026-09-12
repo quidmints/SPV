@@ -1111,6 +1111,37 @@ an unbacked mint — which is exactly the shape mine took.
 ▶️ **`leverUpBuyWbtc` now reverts `VbtcLeverNeedsChannelIn()`** for a vBTC venue rather than silently
 transferring the wrong token. **Loud and honest beats a path that half-works.**
 
+### ⛔ CORRECTION — **"AN ASYNC SWAP-IN" WAS WRONG. THERE IS NO WBTC-TO-CHANNEL ROUTE AT ALL.**
+Owner: *"doesnt seem possible."* **Correct — I described a mechanism that does not exist.** Read the
+rail: `BTCChannels.settleSwapInProven` requires `_provenDeposit(terms, proof, rawDepositTx)` — **an
+actual Bitcoin-chain deposit, SPV-proven** — and then `creditSwapIn(seller, sats, token, …)` pays the
+depositor **stables**.
+⇒ 🔑 **THE SWAP-IN RAIL RUNS THE OTHER WAY: native BTC comes IN and stables go OUT, and it is initiated
+by an EXTERNAL SELLER who chooses to sell us BTC.** The protocol cannot pull that trigger, and **nothing
+anywhere converts WBTC into channel sats.** WBTC→native BTC is a BitGo merchant redemption or an
+off-chain venue trade; **neither is in this tree, and neither can be.**
+⇒ **SO "ASYNC" UNDERSTATED IT. BUYING WBTC DOES NOTHING FOR BTC COLLATERAL, EVER — not slowly, not
+eventually.** The pool's channel sats grow **only** when an outside party deposits real BTC. ⭐ **That
+makes BTC-leg collateral strictly a function of deposits, which is a design limit to state plainly, not
+a gap to engineer around.** My two previous framings both implied a route existed; there is none.
+
+### 🔑 AND WHY A LIQUIDATOR IS IN SCOPE AT ALL — the owner asked, and the answer is Morpho, not us
+**Because we just created twelve Morpho markets, and Morpho liquidation is PERMISSIONLESS.** The chain
+is short and every link is already built: an LP exposes sats ⇒ vBTC is posted as collateral ⇒
+`leverBorrow` draws a stable ⇒ BTC falls ⇒ LTV breaches ⇒ **any stranger repays the debt and seizes the
+collateral.** Nothing in our code can decline that; it is Morpho's, and it is the point of a lending
+market.
+🔴 **AND IT IS WORSE THAN ONE LP'S PROBLEM, BECAUSE THE POSITION IS POOLED.**
+`MorphoEscrowVenue.supply` calls `MORPHO.supplyCollateral(_params(), collAmount, **address(this)**, "")`
+— the Morpho position belongs to **the venue**, not the LP (§POOL-VENUE). ⇒ **a liquidation seizes from
+the POOLED position, so one LP's bad loan takes collateral away from every other LP in that venue.**
+📌 **That is the isolation problem, and the construction for it is already derived** (burn
+`Δu = tot·S/bal` units from the causing LP, verified in exact rational arithmetic, with the honest limit
+that a seizure exceeding that LP's own collateral is genuinely shared). **It is derived and NOT BUILT.**
+⇒ **So the liquidator matters for two independent reasons: they have no exit (so they will not bid, and
+the debt goes bad), and if they do bid, the loss lands on LPs who did nothing.** Both are consequences
+of turning on twelve markets, and neither existed before today.
+
 ### 🔴 TWO THINGS RE-OPEN BECAUSE OF THIS, stated rather than papered over
 1. **The BTC hedge can be OPENED against already-exposed sats but NOT LEVERED**, pending an async
    channel-in route. §BTC-IL-VIA-VBTC's collateral half stands; its leverage half does not.
