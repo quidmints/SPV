@@ -20,7 +20,7 @@ There is no curve, so there is no slippage and no price impact.
 |---|---|---|
 | **D1** | price from an **oracle**, not a curve | no slippage — and a **staleness** exposure instead |
 | **D2** | a **flat** charge, size- and flow-blind | nothing gameable by patience or slicing |
-| **D3** | **LPs must not bear IL** | a hedge ⇒ borrowing ⇒ collateral ⇒ an external lender |
+| **D3** | **LPs must not bear IL** | a hedge ⇒ borrowing ⇒ collateral ⇒ an external lender. 🔴 **UNDER REVIEW — see B5: this decision costs 19% of the Solidity and is the only thing that violates A3, and its break-even has never been computed** |
 | **D4** | **native** BTC, not a wrapper | Lightning custody, SPV proofs, async deposit and exit |
 
 ## A3. The one invariant
@@ -145,6 +145,62 @@ independent argument for §0a-quinquies and the only remedy in this document wit
 | hedge at the **recorded** sale price later | **you cannot trade at a past price.** The record is free; the execution is not |
 | deliver **borrowed** ETH so the drift never opens | that borrows the *volatile*, making the pool **short** ETH — the opposite of the hedge. Restores nothing |
 | hedge only the **persistent** component of drift | requires forecasting which component is persistent ⇒ **a flow-derived bound, forbidden by D2** |
+
+## B5. 🔴 **IS THE LEVERAGE DESIGN WORTH IT?** (owner, 2026-09-12: *"idk if the leverage design is worth itv"*) — **ON THE EVIDENCE, IT IS NOT YET JUSTIFIED, AND THE NUMBER THAT WOULD SETTLE IT HAS NEVER BEEN COMPUTED.**
+
+### B5.1 What it costs — measured, not estimated
+| cost | figure |
+|---|---|
+| **share of the Solidity** | `LevManager` 300 · `BtcLevManager` 188 · `LevBase` 313 · `LevMath` 763 · `LevVenueBase` 261 · `RangeLib` 111 = **1,936 of 9,858 lines = 19%** |
+| ⚠️ **and that UNDERCOUNTS** | it excludes `Shares`' five lev state variables, `syncLev`/`_doReconcile`/`reconcileLegs` in `Quid`/`QuidLib`/`BtcLib`, the 14-venue allowlist, and the lockstep invariant `levPooled` imposes on every share write |
+| **EIP-170** | `LevMath` is the **second-tightest contract in the fleet** (903 bytes spare) |
+| 🔴 **A3** | **a zero-debt LP lost 4,801 bps — 48% — of its own collateral** to another LP's liquidation (`§CROSS-SUBSIDY-MEASURED`). **This is the design's ONE invariant, and leverage is the only thing that violates it** |
+| **liquidation** | Morpho liquidation is permissionless, so **LP funds carry a stranger's right to seize** |
+| **carry** | borrow interest, paid continuously, whether or not the hedge ever pays off |
+
+### B5.2 ✅ What it buys, stated fairly — **IL here is REAL, so this is not a straw man**
+⛔ **DO NOT ARGUE "no curve ⇒ no IL". IT IS FALSE AND I CHECKED IT.**
+> 100 ETH in. A trader buys 50 at oracle price `P`. Pool: 50 ETH + \$50P. ETH doubles to `2P`. The LP's
+> claim is 50 ETH + \$50P = **75 ETH-equivalent against 100 held.**
+
+**Identical arithmetic to an AMM.** The curve only changes *why* the sale happened (trader choice rather
+than a mechanical rebalance), never whether the LP is short afterwards. ⇒ **the exposure the hedge
+targets exists.**
+
+### B5.3 🔴 BUT IT IS UNJUSTIFIED ON THE EVIDENCE, AND THE TEST IS ONE INEQUALITY
+**The hedge is worth it iff:  `fee income  >  financing + tracking error + liquidation risk`.**
+· **fee income** = 420 ppm × **turnover** — and **turnover has never been chosen** (`§E330`'s break-even
+  table is a *function* of it, which is why its number is meaningless today).
+· **tracking error** is bounded below by the oracle lag: median **4,209 ppm**, **10× the fee** (§0a-bis).
+· **liquidation risk** is the 4,801 bps above, and it is currently borne by LPs who did not borrow.
+⇒ 📌 **NOBODY HAS COMPUTED THE LEFT SIDE. So the honest position is not "the hedge is wrong" — it is
+"the hedge is unpriced", and a 19% subsystem that violates the one invariant should not be unpriced.**
+
+### B5.4 ⚠️ AND TWO OF MY OWN FINDINGS ARGUE AGAINST IT
+1. **B2.2** — drift is **mean-reverting**, so hedging it **buys high and sells low once per oscillation**,
+   paying the charge and the financing each way. **An LP who never exits would end flat unhedged.**
+2. **B4.3** — it is **not achievable pathwise** anyway. The hedge cannot be sized when the sale happens
+   (B4.2 shows that costs more than the fee), so *"no IL"* is true only in expectation.
+⇒ **we are paying 19% of the codebase and the A3 violation for a promise that is approximate by
+construction.**
+
+### B5.5 ⭐ THE ALTERNATIVE, STATED SO IT CAN BE CHOSEN: **DO NOT HEDGE. PRICE IL INTO THE FEE.**
+| what it deletes | what it costs |
+|---|---|
+| the 19%, and `LevMath` stops binding EIP-170 | ⛔ **we can no longer say "no IL for a passive LP"** — a positioning claim, not a mechanism |
+| 🔑 **the A3 violation ENTIRELY** — no pooled venue, no cross-subsidy, nothing to isolate | LPs bear IL and must be told so plainly |
+| permissionless liquidation over LP funds | the fee must rise, and by an amount nobody has measured |
+| **A5 becomes moot** — no hedge means no WBTC seed, so the BTC leg's blocking question dissolves | |
+| `§CROSS-SUBSIDY-MEASURED`, `§POOL-VENUE-IS-PINNED`, `§LEVER-UP-HAS-NO-AGGREGATE-GATE`, `§DELIVER-BACKING` — **4 of Tier 1's 9 rows** | |
+⇒ ⭐ **FOUR OF THE NINE ROWS THAT ARE THE DESIGN ARE LEVERAGE ROWS. Deleting the hedge deletes almost
+half the remaining hard work and the only measured breach of the invariant.**
+
+### B5.6 ▶️ WHAT WOULD SETTLE IT — one measurement, and it is cheap
+**Compute the break-even turnover: at what daily volume does 420 ppm cover financing + the 4,209 ppm
+tracking error?** ⛔ **If the required turnover is implausible for this venue's size, the hedge cannot
+pay for itself and should be deleted rather than fixed.** ⚠️ **Do not build any Tier 1 leverage row
+before this number exists** — three of them (`§CROSS-SUBSIDY`, `§POOL-VENUE`, `§LEVER-UP-GATE`) are
+expensive fixes to a subsystem that may not survive the arithmetic.
 
 ---
 
