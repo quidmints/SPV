@@ -566,6 +566,14 @@ impl InboundInvoicePaymentV2 {
         // ⚠️ THE WORST INPUT THAT STILL PASSES: a counterparty taking `MAX_RECEIVER_SKIM_PPM`
         // (double the 5,000 ppm receiver fee, so an honest fee may move without this firing)
         // plus the invoice's own partner terms. Without the check the worst case is 100%.
+        //
+        // ⛔ AND IT IS UNREACHABLE TODAY, DELIBERATELY KEPT: the hop sets
+        // `channel_config.accept_underpaying_htlcs = false` (`quid_hop::node::build_user_config`),
+        // so `skimmed_fee` is structurally always `None`/zero here and this branch never runs.
+        // **Do not delete it as dead code** — the flag is what makes it dead, flipping the flag
+        // is what makes it load-bearing, and the failure it admits is SILENT (the payer sees a
+        // paid invoice; the receiver just gets less). `user_config_refuses_underpaying_htlcs`
+        // in `quid-hop` asserts the flag so the two cannot drift apart unnoticed.
         if let Some(skim) = skimmed_fee {
             // `payment_value` is the pre-skim total; `amount` is what survived the skim.
             let payment_value = amount.saturating_add(skim);

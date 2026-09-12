@@ -747,6 +747,15 @@ pub fn build_user_config() -> UserConfig {
         // payment (surfaced as `counterparty_skimmed_fee_msat`) while LDK still
         // fires PaymentClaimable for the reduced amount — the hop has no LSP-fee
         // intercept flow that would need this, so it stays off.
+        //
+        // 🔗 THIS FLAG IS WHY `MAX_RECEIVER_SKIM_PPM` LOOKS DEAD, AND IT IS THE ONLY
+        // REASON. `payments::inbound.rs:569` bounds `skimmed_fee` against the invoice's
+        // own fee terms; with this FALSE, `counterparty_skimmed_fee_msat` is structurally
+        // always zero, so that check never fires and reads as unreachable code. ⛔ It is
+        // NOT deletable on that basis: flipping this line is what makes it load-bearing,
+        // and a deleted bound would make an unbounded skim silently acceptable the same
+        // day. `user_config_refuses_underpaying_htlcs` asserts the pair so the two cannot
+        // drift apart in silence.
         c.accept_underpaying_htlcs = false;
         c.cltv_expiry_delta = MIN_CLTV_EXPIRY_DELTA;
         c.max_dust_htlc_exposure =
@@ -1261,5 +1270,33 @@ mod tests {
         assert!(cfg.channel_handshake_config.commit_upfront_shutdown_pubkey);
         assert_eq!(cfg.channel_handshake_config.our_to_self_delay, 6 * 24 * 7);
         assert!(!cfg.reject_inbound_splices);
+    }
+
+    /// §BITCOIN-ORDER item 18's Rust residue: `MAX_RECEIVER_SKIM_PPM`
+    /// (`quid_ln::payments::inbound`) bounds a counterparty's skim against the invoice's
+    /// own fee terms — and that bound is UNREACHABLE while this flag is false, because
+    /// `counterparty_skimmed_fee_msat` is then structurally zero.
+    ///
+    /// ⛔ **THIS TEST EXISTS SO THE UNREACHABILITY CANNOT BECOME INVISIBLE.** The two live
+    /// in different crates (`quid-hop` sets the flag, `quid-ln` holds the bound), so
+    /// nothing but a test can hold them together. Rules 1 and 3 would ordinarily delete a
+    /// check that cannot fire; deleting this one is wrong because flipping this flag is
+    /// exactly what makes it fire, and the failure it would then admit — a forwarding LP
+    /// taking an arbitrary fraction of a seller's swap-in — is SILENT: the payer sees a
+    /// paid invoice and the receiver simply gets less.
+    ///
+    /// ⇒ if this assertion ever fails, the change is legitimate but it is not free:
+    /// re-verify `inbound.rs`'s bound against the fee terms actually being quoted, and
+    /// price the JIT allowance that comment says to widen "WITH the JIT path, or not at
+    /// all", before flipping it.
+    #[test]
+    fn user_config_refuses_underpaying_htlcs() {
+        assert!(
+            !build_user_config().channel_config.accept_underpaying_htlcs,
+            "the hop is the RECIPIENT of swap-ins; accepting underpaying HTLCs lets a \
+             forwarding LP skim the seller's payment. Flipping this makes \
+             quid_ln::payments::inbound's MAX_RECEIVER_SKIM_PPM bound LOAD-BEARING — \
+             re-verify it there before changing this line."
+        );
     }
 }

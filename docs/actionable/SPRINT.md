@@ -464,8 +464,41 @@ Each was carried as open, some in red, some for weeks.
 
 ### TIER 1 — TRUE REGARDLESS OF THE MODEL. Pure code or arithmetic; no topology can retire these.
 > `§ARCH-ASSUMPTION` isolates this class explicitly: *"TRUE REGARDLESS OF ANY ASSUMPTION."*
-**9. `NEW-1` / `§AUDIT-SPV-RETARGET`** — SPV retarget brick. **`%2016` alignment ✅ LANDED**; the
-   **`§AUDIT-REORG-DOS`** fork-switch walk-back (O(depth) SLOAD+SSTORE) is **still open**.
+**9. ✅ `NEW-1` / `§AUDIT-SPV-RETARGET` — BOTH HALVES CLOSED 2026-09-12.** **`%2016` alignment ✅
+   LANDED**; **`§AUDIT-REORG-DOS` is CLOSED BY MEASUREMENT, NOT BY A FIX**, and the measurement is
+   the deliverable because the row never had a number — only the shape `O(depth) SLOAD+SSTORE`.
+   ▶️ **MEASURED** (`SPVGatewayReorgGas.t.sol`, synthetic regtest chains, three depths so the slope
+   is measured rather than inferred from one point):
+   | reorg depth | gas for the switching tx |
+   |---|---|
+   | 8 | 225,219 |
+   | 32 | 433,528 |
+   | 64 | 672,603 |
+   ⇒ **7,471 gas per block of depth**, linear. At a 30M block gas limit the switching transaction
+   stops fitting at **~4,015 blocks of reorg depth — about 28 days of Bitcoin.**
+   🔑 **AND THAT DEPTH IS NOT PURCHASABLE, WHICH IS WHAT CLOSES IT.** `_updateMainchainHead` walks
+   only when `newBlockCumulativeWork > mainchainCumulativeWork`, so reaching the brick depth means
+   producing a fork with strictly more work than 4,000 mainchain blocks — out-working the entire
+   network for those 28 days. **The walk is not a cheap lever for an attacker; it is priced in
+   exactly the thing Bitcoin makes expensive.** The gas cost is difficulty-independent (the loop
+   counts heights, not work), so this number holds on mainnet.
+   ⛔ **NO CLAMP WAS ADDED, DELIBERATELY.** The failure mode is an out-of-gas REVERT — loud, not
+   silent — and standing rule 3 spends a guard on silence. What was missing was the number.
+   🔴 **ONE FACT THE ROW DID NOT CARRY, AND IT RAISES THE STAKES OF THE NUMBER RATHER THAN THE
+   NUMBER ITSELF: THE GATEWAY IS NOT UPGRADEABLE.** `DeployLib.sol:266` does `new SPVGateway()`
+   with **no proxy**, and `BTCChannels.spv` is `immutable`. The `Initializable` import reads like
+   an upgradeable contract and is not one here. ⇒ had the depth been reachable, the brick would
+   have been permanent and would have taken every SPV-proven path in `BTCChannels` with it
+   (swap-in settlement, swap-out delivery, force-close recording).
+   📌 **The test asserts the brick depth stays above 2,000 (~14 days), ~2× headroom over the
+   measured 4,015** — a bound priced from the measurement, not an adjective. It fires on drift, not
+   on an adversary: one extra cold SSTORE in the loop is +5,000 gas and takes the depth to 2,406; a
+   second drops it through the floor.
+   ⚠️ **SPOTTED IN PASSING, NOT FIXED, NOT THIS ROW:** `_getEpochPassedTime` reads
+   `getBlockHash(height − 2016)` — the **mainchain height index**, not the candidate block's own
+   ancestry — so a fork crossing an epoch boundary retargets against the MAINCHAIN's epoch start
+   rather than its own. It is `virtual`, so it was written to be overridden. **Booked as its own
+   question; do not fold it into this row's closure.**
 **10.** ~~`§AUDIT-JUSTICE-WEIGHT` — taproot justice tx asserts and panics.~~ ✅ **STRUCK — FIXED AT THE
    PINNED REV.** `package.rs:143` defines `WEIGHT_REVOKED_OUTPUT_TAPROOT`; `:147
    weight_revoked_output()` branches on `supports_simple_taproot()` and is called at `:202` from the
@@ -569,7 +602,18 @@ Each was carried as open, some in red, some for weeks.
    for two. **The tag and the spices are not one decision** — the tag separates PURPOSES at one height,
    the spices re-randomise per message — and only the carried-nonce site can afford the second.
 
-**13c. `§DEAD-SPICED-NONCE-HELPERS`** — `taproot_signer::our_key_path_partial_counterparty` and
+**13c.** ~~`§DEAD-SPICED-NONCE-HELPERS` — delete the zero-caller spiced helpers.~~ ⛔ **STRUCK
+   2026-09-12 — THE PREMISE WAS RETRACTED BY `033bd0ea` BEFORE ANYONE ACTED ON IT.** The row read
+   *"ZERO production callers **after `7a0549ae`**"* — and `7a0549ae` is the over-correction
+   §NONCE-TWO-RULES reversed. `our_key_path_partial_counterparty` is called from
+   `validating_signer.rs:1701` (`partially_sign_counterparty_commitment`), which is the ONE site
+   where the tag and the spices are REQUIRED, because the partial carries its own nonce.
+   ⭐ **THE REUSABLE PART IS THE DATING, NOT THE VERDICT.** This row was true on the day it was
+   written and false the next, and nothing in its text changed — a reference count is a reading with
+   a timestamp, exactly like the size table. **A deletion booked off a reference count must re-run
+   the count at the moment of deletion**, and had it been worked on faith it would have deleted the
+   live counterparty-commitment path and reintroduced the every-channel-open failure by hand.
+   *(original row:)* `taproot_signer::our_key_path_partial_counterparty` and
    `KeyPathFirstRound::new_counterparty` have **ZERO production callers** after `7a0549ae`; the only 4
    references are in `taproot_signer.rs`'s own test module. ⚠️ **Check before deleting:** those tests
    may be what pins the holder/counterparty/deadman **domain separation**, and `local_pubnonce_deadman`
@@ -680,9 +724,16 @@ Each was carried as open, some in red, some for weeks.
    with a *"worst input that still passes"* note. ⚠️ **And it guards an UNREACHABLE path:**
    `node.rs:750` sets `accept_underpaying_htlcs = false`, so `counterparty_skimmed_fee_msat` is
    structurally always zero here. ⇒ deletion candidate by rules 1 and 3, **but not a free one**: the
-   day someone flips that flag, an unbounded skim becomes silently acceptable. The honest fix is to
-   assert the flag where the skim is handled so the two cannot drift, rather than keep a second bound
-   behind it or remove the bound entirely. **Booked, not done.**
+   day someone flips that flag, an unbounded skim becomes silently acceptable.
+   ✅ **DONE 2026-09-12, AS THE ROW PRESCRIBED — the flag is asserted, the bound is kept.**
+   `user_config_refuses_underpaying_htlcs` (`quid-hop/src/node.rs`) asserts
+   `channel_config.accept_underpaying_htlcs == false`, and both ends now point at each other: the
+   flag's comment names `MAX_RECEIVER_SKIM_PPM` as what it makes dead and what flipping it makes
+   load-bearing, and `inbound.rs`'s comment names the flag as the ONLY reason its branch reads as
+   dead code. 🔑 **A test is the only instrument available here, because the two live in DIFFERENT
+   CRATES** — `quid-hop` sets the flag, `quid-ln` holds the bound, and `quid-ln` cannot see the
+   config. ⛔ **The bound is NOT deleted**, and the test says why in its own docblock: the failure it
+   would admit is silent (the payer sees a paid invoice; the receiver just gets less).
    📌 **This row and `14b` were the SAME finding** — I rediscovered the contract half independently
    before noticing `4e` already named it, which is evidence the row was right rather than stale.
    `14b` is folded here.
@@ -698,8 +749,17 @@ Each was carried as open, some in red, some for weeks.
    `swap_in_onchain.rs:112 outcome_action` maps `Undeliverable → DropToRefund` and delivered →
    `Claim { refund_sats: actual − consumed }`, reaching `build_claim_tx_with_refund` at `:341`.
    🔴 **What remains open is one thing: `settleSwapInProven` accepts partials by design**
-   (`BTCChannels.sol:2102`). ⚠️ Stale prose at `quid-bridge/src/evm.rs:49` still describes the old
-   "converted everything, refund nothing" fallback.
+   (`BTCChannels.sol:2102`).
+   ✅ **The stale prose at `quid-bridge/src/evm.rs:49` is CORRECTED 2026-09-12**, and it was worse
+   than "stale" — it documented the **exact direction §R-17 reversed**, telling its reader that an
+   unreadable `SwapInSettled` should be read as *"the pool converted everything, refund nothing"*
+   because an over-refund gives away the hop's own BTC. That is now the forbidden reading.
+   ⭐ **AND `deposited_sats` CHANGED ROLE WITHOUT CHANGING NAME OR POSITION, WHICH IS WHY THE
+   DOCBLOCK COULD ROT IN PLACE:** it is no longer a FALLBACK (the `Option` return made "I don't
+   know" expressible, so the caller bails and retries) — it is a **CEILING**, applied by
+   `decode_consumed_from_logs` as `consumed.min(sats)` so a readable-but-absurd `consumedSats`
+   above the deposit cannot make the hop keep more than arrived. Same argument, same signature,
+   opposite meaning.
 **20. `§AUDIT-SWAPOUT-CONCURRENT`** — ✅ single-writer rail B landed. ⚠️ **Its reachability was argued
    from `1b`, which is deleted; it survives because MAIN/FALLBACK reach it without `1b`.**
    ⛔ **I CLAIMED MAIN AND FALLBACK ARE SEED-SIBLINGS OFF ONE `root_seed`. THAT IS FALSE.** They are two
@@ -878,7 +938,8 @@ checked by opening the symbol.
 
 | verdict | items | meaning |
 |---|---|---|
-| **CONFIRMED-OPEN** | 0 · 1 · 6 · 8 · 9(half) · 13 · 14 · 15 · 18 · 21 · 22 · 26 · 27 · 29 | real, present, worth doing |
+| **CONFIRMED-OPEN** | 0 · 1 · 6 · 8 · 15 · 26 · 27 · 29 | real, present, worth doing |
+| ✅ **CLOSED SINCE THIS TABLE WAS BUILT** | **9 · 13 · 13c · 14 · 18 · 21 · 22** | 9 by MEASUREMENT (the depth is unpurchasable), 13 by item 27(a), 13c because its premise was reverted, 14/18/21/22 built. ⚠️ **Read each row; several closed differently from how they were scoped** |
 | ✅ **ALREADY-DONE — struck** | **2 · 7 · 10 · 11 · 16 · 17 · 24 · 25** | **the code already does it. Working these would have "fixed" correct code.** |
 | ⚠️ **MISSTATED — corrected in place** | 5 (six sites, not five) · 12 (fork IS readable) · 19 (claim-gating built) · 20 (seed-sibling claim false) · 23 (P2A, not ephemeral anchor) · 28 (5 files, not 10) | real subject, wrong description |
 

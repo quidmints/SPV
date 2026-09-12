@@ -45,10 +45,18 @@ pub trait EvmClient: Send + Sync + 'static {
 /// be the hop-invented key this rail exists to stop trusting.
 pub trait ProvenSwapInSettler: Send + Sync + 'static {
     /// Neither trailing argument is sent as calldata — the contract recomputes both.
-    /// `deposit_txid` (EVM/BE order) is how the caller gates on `swapInUsed`; `deposited_sats`
-    /// is ONLY the fallback for `consumed_sats` when the `SwapInSettled` log cannot be read,
-    /// where "the pool converted everything, refund nothing" is the safe direction — an
-    /// over-refund would give away the hop's own BTC.
+    /// `deposit_txid` (EVM/BE order) is how the caller gates on `swapInUsed`.
+    ///
+    /// ⛔ **`deposited_sats` IS A CEILING, NOT A FALLBACK — §R-17 REVERSED THE RULE THIS
+    /// DOCBLOCK USED TO STATE.** It once said an unreadable `SwapInSettled` should be read as
+    /// "the pool converted everything, refund nothing", because an over-refund gives away the
+    /// hop's own BTC. **That is now exactly the forbidden direction**: an unreadable log is
+    /// TRANSIENT ignorance (RPC hiccup, lagging index) and must never harden into a permanent
+    /// taking of the seller's BTC. `Client::read_consumed_sats` returns `Option<u64>` and
+    /// `None` on every unreadable shape, and the caller BAILS AND RETRIES rather than claiming
+    /// (`client.rs:712`). What `deposited_sats` does instead is clamp a log that IS readable:
+    /// `decode_consumed_from_logs` returns `consumed.min(sats)`, so a malformed-but-parseable
+    /// `consumedSats` above the deposit cannot make the hop keep more than arrived.
     #[allow(clippy::too_many_arguments)]
     fn settle_swap_in_proven(
         &self,
