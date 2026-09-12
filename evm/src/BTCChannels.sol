@@ -38,6 +38,18 @@ contract BTCChannels {
 
     mapping(address => bool) public btcRecipientLocked;
 
+    /// §R-10 / §LADDER-VALUE-IS-CONDITIONAL — the LP's COLD recovery key, registered before the
+    /// lock and never used in normal operation.
+    ///
+    /// 🔴 **WITHOUT THIS THE EXIT LADDER PROTECTS NOTHING AGAINST KEY LOSS.** Every rung pays
+    /// `0x5120‖btcRecipientOf`, and that value is LOCKED at open. An LP who loses the key behind it
+    /// still has a perfect ladder — one that pays an address it cannot spend, forever. The ladder
+    /// defends against a dead HOP; this defends against a dead LP KEY, and they are different
+    /// failures with no overlap.
+    /// ⚠️ **IT IS AS POWERFUL AS THE DESTINATION KEY AND MUST BE STORED SEPARATELY.** Whoever holds
+    /// it can redirect the payout, so a recovery key kept beside the key it recovers buys nothing.
+    mapping(address => bytes32) public btcRecoveryOf;
+
     mapping(address => bool) public hasOpenBtcChannel;
 
     mapping(bytes32 => mapping(uint64 => bool)) public exitArmedOnOutpoint;
@@ -889,6 +901,38 @@ contract BTCChannels {
 
         _registerBtcRecipient(msg.sender, xOnlyKey,
             _requireRecipientPoP(msg.sender, xOnlyKey, pop, bytes32(0)));
+    }
+
+    /// §R-10. Register the cold recovery key. Before the lock only — the same window as the payout
+    /// key itself, so an attacker who later takes the EVM account cannot introduce one.
+    /// The proof is bound with `bindHash = 1`, which no other call uses, so a possession proof
+    /// captured from `setBtcRecipient` (bind 0) cannot be replayed into this slot.
+    function setBtcRecovery(bytes32 key, bytes calldata pop) external {
+        if (btcRecipientLocked[msg.sender]) revert BtcRecipientLockedErr();
+        if (key == bytes32(0)) revert BadBtcRecipient();
+        _requireRecipientPoP(msg.sender, key, pop, bytes32(uint256(1)));
+        btcRecoveryOf[msg.sender] = key;
+    }
+
+    /// §R-10. Move the payout destination to the registered recovery key. **Deliberately bypasses
+    /// `btcRecipientLocked`** — the lock is exactly the condition this exists to escape.
+    ///
+    /// 🔑 **THE RECOVERY KEY BECOMES THE DESTINATION; IT DOES NOT NAME AN ARBITRARY ONE.** That is
+    /// what keeps this to one proof and one storage word, and it removes a whole class of mistake:
+    /// there is no new address to mistype, and a captured proof can do exactly one thing, because
+    /// the digest is bound to the key it moves to.
+    /// ⚠️ **PRE-SIGNED RUNGS ARE NOT RETROACTIVELY REDIRECTED** — a Bitcoin transaction signed
+    /// yesterday pays yesterday's script. `BtcRecipientRegistered` is emitted so the hop re-arms
+    /// against the new destination, and everything armed before this call still pays the old one.
+    /// ⇒ **recovery is insurance to use while the hop is ALIVE.** If the hop is already gone there
+    /// is nothing left to re-arm the ladder, and this cannot rescue it.
+    function recoverBtcRecipient(bytes calldata pop) external {
+        bytes32 key = btcRecoveryOf[msg.sender];
+        if (key == bytes32(0)) revert BadBtcRecipient();
+        btcRecipientIsV2[msg.sender] =
+            _requireRecipientPoP(msg.sender, key, pop, key);
+        btcRecipientOf[msg.sender] = key;
+        emit BtcRecipientRegistered(msg.sender, key);
     }
 
     function btcRecipientPoPDigest(address lpEth, bytes32 bindHash) public view returns (bytes32) {

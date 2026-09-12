@@ -712,8 +712,30 @@ Each was carried as open, some in red, some for weeks.
    📌 **COVERAGE BOUNDARY, STATED RATHER THAN PAPERED OVER:** the digest-tamper test covers *"the
    binding is in what the owners signed"*; the handshake ENFORCEMENT is exercised only by the enclave
    harness, which cannot run here. `cargo test -p quid-hop` 102/0, `-p quid-tls` 16/0.
-**22. `R-10`** — key recovery = a **second registered BIP-340 key**. 🔑 **`§LADDER-VALUE-IS-CONDITIONAL`:
-   the exit ladder protects NOTHING without this**, because every rung pays a locked `btcRecipientOf`.
+**22. ✅ `R-10` / `§LADDER-VALUE-IS-CONDITIONAL` — BUILT 2026-09-12** (owner: *"recovery matters more
+   than bytes"*). `btcRecoveryOf` + `setBtcRecovery` + `recoverBtcRecipient`.
+   🔑 **THE SHAPE THAT KEPT IT TO ONE WORD AND ONE PROOF: the recovery key BECOMES the destination,
+   it does not name an arbitrary one.** No new address to mistype, no second possession proof, and a
+   captured proof can do exactly one thing because the digest is bound to the key it moves to.
+   Registration is **before the lock only** — otherwise whoever takes the EVM account later just
+   registers their own recovery key and redirects — and uses `bindHash = 1`, which no other call
+   uses, so a proof captured from `setBtcRecipient` (bind 0) cannot be replayed into the slot.
+   ⚠️ **WHAT IT DOES NOT DO, AND THE ROW'S CLAIM NEEDS THIS QUALIFIER: pre-signed rungs are NOT
+   retroactively redirected.** A Bitcoin transaction signed yesterday pays yesterday's script.
+   `BtcRecipientRegistered` is emitted so the hop re-arms, and everything armed before the call still
+   pays the old destination. ⇒ **recovery is insurance to use while the hop is ALIVE.** If the hop is
+   already gone there is nothing left to re-arm and this cannot rescue the ladder — so the row's
+   *"the ladder protects NOTHING without this"* is right about key loss and must not be read as
+   making the ladder whole against both failures at once.
+   🔴 **MEASURED COST: `BTCChannels` 23,972 → 24,401, +429 bytes, 175 TO SPARE.** It deploys, and the
+   owner took the trade knowingly. **This contract now has essentially no room left** — anything
+   further must fold something first. ⚠️ The first measurement said +0, which was a STALE ARTIFACT:
+   `check-contract-sizes.py` reads `evm/out` and standalone `solc` does not write there. An unchanged
+   size after adding two external functions is the tell.
+   📌 Tests: `test_r10_recoveryKey_movesTheDestination` (premise asserted first) and
+   `test_r10_recovery_refusesWhenUnregisteredOrLate`. **The locked-bypass is NOT asserted** — this
+   fixture cannot open a channel, so the test is named for what it proves rather than what the
+   feature does.
 **23. `§BTC-2.4c` / `4k`** — ⚠️ **THE ROW PRESCRIBES WHAT THE CODE DELIBERATELY REJECTED.**
    The bump is **built**, as a **funded P2A**: `quid-ln/src/deadman_exit.rs:99 deadman_anchor_spk()`,
    appended as the last output of `build_deadman_exit_tx` (`:151-155`). Its own comment at `:91`

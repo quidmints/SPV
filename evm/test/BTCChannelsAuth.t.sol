@@ -89,6 +89,53 @@ contract BTCChannelsAuthTest is Test, ExitFixture {
         ch.setPqVerifier(makeAddr("v"));
     }
 
+    /// @notice §R-10 / §LADDER-VALUE-IS-CONDITIONAL — **KNOWN POSITIVE FOR RECOVERY.** Fails on any
+    ///   build without `btcRecoveryOf`: an LP that loses its payout key has a perfect exit ladder
+    ///   pointing at an address it cannot spend, and `btcRecipientLocked` is what makes that
+    ///   permanent. The ladder defends against a dead HOP; this defends against a dead LP KEY.
+    /// @dev The PREMISE is asserted first — the destination actually CHANGES — so a passing run
+    ///   cannot be a no-op that happened not to revert.
+    /// ⚠️ **THIS FIXTURE NEVER LOCKS, SO THE NAME DOES NOT CLAIM IT DOES.** `btcRecipientLocked` is
+    ///   set only by `openChannel`, which needs a funding tx and an SPV proof this suite does not
+    ///   build. The bypass is visible in the source — `recoverBtcRecipient` reads no lock — but it
+    ///   is NOT asserted here, and calling this test `...evenWhenLocked` would have been a name
+    ///   promising coverage the body does not have.
+    function test_r10_recoveryKey_movesTheDestination() public {
+        (bytes32 payout, bytes memory payoutPop) =
+            ownedPayout("r10-payout", ch.btcRecipientPoPDigest(address(this), bytes32(0)));
+        ch.setBtcRecipient(payout, payoutPop);
+        assertEq(ch.btcRecipientOf(address(this)), payout, "PREMISE: the payout key is registered");
+
+        (bytes32 rk, bytes memory rkPop) = ownedPayout(
+            "r10-recovery", ch.btcRecipientPoPDigest(address(this), bytes32(uint256(1))));
+        ch.setBtcRecovery(rk, rkPop);
+        assertTrue(rk != payout, "PREMISE: recovery is a DIFFERENT key, held separately");
+
+        // The proof is bound to the key it moves to, so a captured one can do exactly this.
+        (, bytes memory movePop) =
+            ownedPayout("r10-recovery", ch.btcRecipientPoPDigest(address(this), rk));
+        ch.recoverBtcRecipient(movePop);
+        assertEq(ch.btcRecipientOf(address(this)), rk, "the destination moved to the recovery key");
+    }
+
+    /// @notice §R-10 — the three refusals. An LP with no recovery key registered cannot invent one
+    ///   after the fact, and a recovery key cannot be introduced once the destination is locked —
+    ///   otherwise whoever takes the EVM account later simply registers their own and redirects.
+    function test_r10_recovery_refusesWhenUnregisteredOrLate() public {
+        vm.expectRevert(BTCChannels.BadBtcRecipient.selector);
+        ch.recoverBtcRecipient(hex"00");
+
+        vm.expectRevert(BTCChannels.BadBtcRecipient.selector);
+        ch.setBtcRecovery(bytes32(0), hex"00");
+
+        // A proof for the WRONG binding must not register: this is the digest `setBtcRecipient`
+        // uses (bind 0), replayed into the recovery slot (bind 1).
+        (bytes32 k, bytes memory wrongBind) =
+            ownedPayout("r10-wrong", ch.btcRecipientPoPDigest(address(this), bytes32(0)));
+        vm.expectRevert(BTCChannels.BadBtcRecipient.selector);
+        ch.setBtcRecovery(k, wrongBind);
+    }
+
     function _params() internal view returns (Types.OpenParams memory p) {
         p = Types.OpenParams({
             fundingBlockHash:   bytes32(uint256(1)),
