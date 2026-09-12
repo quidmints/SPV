@@ -95,6 +95,18 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         return true;
     }
 
+    function wrapWbtcToVbtc(uint sats) external {
+        if (msg.sender != LEV_MANAGER) revert NotLevManagerBtc();
+        IERC20Min(address(AUX.WBTC())).transferFrom(msg.sender, address(this), sats);
+        VBTC.mintTo(msg.sender, sats);
+    }
+
+    function unwrapVbtcToWbtc(uint sats) external {
+        if (msg.sender != LEV_MANAGER) revert NotLevManagerBtc();
+        VBTC.burnFrom(msg.sender, sats);
+        IERC20Min(address(AUX.WBTC())).transfer(msg.sender, sats);
+    }
+
     function sharesOf(address lp) external view returns (uint) { return autoManaged[lp].pooled; }
 
     function transferShares(address from, address to, uint amount) external nonReentrant {

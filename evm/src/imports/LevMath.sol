@@ -6,7 +6,7 @@ import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {WAD, VenueNotAllowed} from "./Types.sol";
 
-import {ICore, IAux, IWeETH, IDepositAdapter, ILevVenue, ILevPooled} from "./Interfaces.sol";
+import {ICore, IAux, IWeETH, IDepositAdapter, ILevVenue, ILevPooled, IVaultExposeB} from "./Interfaces.sol";
 import {IERC20Min, IWETH9} from "../imports/Interfaces.sol";
 import {CURVE_BOLD_USDC, CRV_BOLD_IDX, CRV_BOLD_USDC_IDX, BOLD_TOKEN} from "./Interfaces.sol";
 import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, SWAP_SELECTOR, PROTO_UNIV3, PROTO_UNIV2,
@@ -74,7 +74,7 @@ library LevMath {
         return curDebt - targetDebt;
     }
 
-    struct WbtcCfg { address aux; address wbtc; uint16 slipBps; uint256 dex; uint256 dex2; bytes route; }
+    struct WbtcCfg { address aux; address wbtc; address vault; uint16 slipBps; uint256 dex; uint256 dex2; bytes route; }
 
     function leverUpBuyWbtc(ILevVenue venue, address lp, address stable, uint256 usd, uint256 minOut, WbtcCfg memory cfg)
         public returns (uint256 borrowed, uint256 wbtcBought) {
@@ -86,7 +86,9 @@ library LevMath {
             if (minOut < floorWbtc) minOut = floorWbtc;
         }
         wbtcBought = _stableToWbtc(stable, borrowed, minOut, cfg.wbtc, cfg.route);
-        IERC20Min(cfg.wbtc).transfer(address(venue), wbtcBought);
+        IERC20Min(cfg.wbtc).approve(cfg.vault, wbtcBought);
+        IVaultExposeB(cfg.vault).wrapWbtcToVbtc(wbtcBought);
+        IERC20Min(ILevVenue(address(venue)).COLLATERAL()).transfer(address(venue), wbtcBought);
         venue.supply(lp, wbtcBought);
     }
 
@@ -104,6 +106,7 @@ library LevMath {
                                   * (10_000 - cfg.slipBps) / 10_000;
             if (minOut < floorStable) minOut = floorStable;
         }
+        IVaultExposeB(cfg.vault).unwrapVbtcToWbtc(pulled);
         uint256 stableOut = _volToStable(cfg.wbtc, stable, pulled, minOut, cfg.route);
         IERC20OZ(stable).forceApprove(flashProvider, assets);
         if (stableOut > assets) IERC20OZ(stable).safeTransfer(lp, stableOut - assets);
