@@ -132,10 +132,7 @@ contract Quid is Shares,
         return QuidLib.withdrawETH(_ethCfg(), _etherfiCfg(), token, amount, to);
     }
 
-    uint public bookmark;
 
-    uint public venueFeesPerShare;
-    mapping(address => uint) public venueBm;
 
     uint public totalLevPooled;
 
@@ -241,19 +238,8 @@ contract Quid is Shares,
         return _pendingFor(user);
     }
 
-    /// §BTC-10b(c). `tokAccum` is gone — it carried `feesPerShare`, which had no writer. The VENUE
-    /// bookmark below is untouched and is the live half: it pairs with `_pendingFor`'s venue accrual.
     function _refreshBookmarks(address user, uint usdAccum) internal {
-        Types.Deposit storage LP = autoManaged[user];
-
-        SwapLib.refreshBookmarks(LP, LP.pooled + levBuf[user], usdAccum);
-
-        venueBm[user] = _venueAccrued(user, LP.pooled);
-    }
-
-    function _venueAccrued(address user, uint pooled) private view returns (uint) {
-        return SoladyMath.fullMulDiv(
-            SwapLib.plainNet(pooled, levPooled[user]), venueFeesPerShare, WAD);
+        SwapLib.refreshBookmarks(autoManaged[user], autoManaged[user].pooled + levBuf[user], usdAccum);
     }
 
     function _creditShares(Types.Deposit storage LP, uint amount) private {
@@ -266,9 +252,7 @@ contract Quid is Shares,
     function _settlePending(Types.Deposit storage LP,
         address user, address mintRecipient) internal {
         if (LP.pooled == 0) return;
-        (uint tokR,
-         uint usdR) = _pendingFor(user);
-        if (tokR > 0) _creditShares(LP, tokR);
+        uint usdR = _pendingFor(user);
         if (mintRecipient != address(0)) {
             usdR += LP.usd_owed;
             if (usdR > 0) {
@@ -281,18 +265,9 @@ contract Quid is Shares,
         }
     }
 
-    function _pendingFor(address user)
-        internal view returns (uint tokReward, uint usdReward) {
+    function _pendingFor(address user) internal view returns (uint usdReward) {
         Types.Deposit storage LP = autoManaged[user];
-
-        // §BTC-10b(c). `tokReward` is NOT dead and must not be folded away with `feesPerShare`:
-        // the venue accrual below is its only LIVE source, `compound` pays the keeper's tip out of
-        // it (`tip > tokR / 2`), and `_creditShares` credits the LP the rest. What died is the
-        // v4 trading-fee contribution that used to be ADDED here from `feesPerShare`.
         usdReward = SwapLib.pendingFor(LP, LP.pooled + levBuf[user], USD_FEES);
-
-        uint venueOwed = _venueAccrued(user, LP.pooled);
-        if (venueOwed > venueBm[user]) tokReward = venueOwed - venueBm[user];
     }
 
     function _burnInRange(uint amount, address recipient)
@@ -398,7 +373,6 @@ contract Quid is Shares,
 
             if (shortfall > 0) _creditShares(LP, shortfall);
 
-                                                    bookmark = _venueBalance();
             }
         }
 
@@ -418,8 +392,7 @@ contract Quid is Shares,
             if (levBuf[user] > 0) { totalBuffer -= levBuf[user]; delete levBuf[user]; }
 
             if (lpShares == 0 && totalBuffer == 0) {
-                USD_FEES = 0;
-                venueFeesPerShare = 0; totalLevPooled = 0;
+                USD_FEES = 0; totalLevPooled = 0;
             }
         } else {
             _refreshBookmarks(user, USD_FEES);
@@ -490,8 +463,6 @@ contract Quid is Shares,
             _creditShares(LP, unpaired);
             _refreshBookmarks(pledge, USD_FEES);
         }
-
-        bookmark = _venueBalance();
     }
 
     function _venueBalance() internal returns (uint) {
@@ -614,16 +585,7 @@ contract Quid is Shares,
         QuidLib.RebalOut memory o = QuidLib.rebalanceBody(QuidLib.RebalIn({
             core: address(CORE), aux: address(AUX), ev: address(this), weth: address(WETH),
             lpShares: lpShares, totalLevPooled: totalLevPooled,
-            totalBuffer: totalBuffer, loPrice: _lo(), upPrice: _hi(), bookmark: bookmark}));
-        venueFeesPerShare += o.venueFeesPerShareInc;
-        bookmark = o.newBookmark;
-
-        // §BTC-10b(c). `feesPerShareInc`/`usdFeesInc` were NEVER ASSIGNED by either `rebalanceBody`
-        // — 4 occurrences each, two struct declarations and these two reads — so this line added
-        // zero to both accumulators on every rebalance since §V4-CUT removed the v4 trading-fee
-        // feed that used to populate them. Verified by reading the bodies, not by grepping the
-        // name: both use a NAMED return, so there is no positional constructor to hide an
-        // assignment in. `venueFeesPerShareInc` IS assigned and is untouched.
+            totalBuffer: totalBuffer, loPrice: _lo(), upPrice: _hi()}));
 
         if (o.setLastRepack) LAST_REPACK = block.timestamp;
         RANGE_ANCHOR = o.spotPrice;
@@ -696,7 +658,7 @@ contract Quid is Shares,
     function _transferShares(address from, address to, uint amount) internal {
         if (amount > 0) _rebalance();
         lpShares += QuidLib.transferSharesBody(
-            autoManaged, levPooled, levBuf, venueBm, from, to, amount, USD_FEES, venueFeesPerShare);
+            autoManaged, levBuf, from, to, amount, USD_FEES);
     }
 
     function _pricingBacking() internal view returns (uint total) {
@@ -794,28 +756,6 @@ contract Quid is Shares,
         _refreshBookmarks(msg.sender, usd_fees);
     }
 
-    uint private constant COMPOUND_GAS = 250_000;
-
-    uint private constant COMPOUND_MAX_GASPRICE = 200 gwei;
-
-    function compound(address lp) external nonReentrant {
-        Types.Deposit storage LP = autoManaged[lp];
-        if (LP.pooled == 0) return;
-        _rebalance();
-        uint usd_fees = USD_FEES;
-        (uint tokR, uint usdR) = _pendingFor(lp);
-
-        uint gp  = tx.gasprice < COMPOUND_MAX_GASPRICE ? tx.gasprice : COMPOUND_MAX_GASPRICE;
-        uint tip = gp * COMPOUND_GAS;
-        if (tip > tokR / 2) tip = tokR / 2;
-
-        uint sent = tip > 0 ? _burnInRange(tip, msg.sender) : 0;
-
-        uint net = tokR > sent ? tokR - sent : 0;
-        if (net > 0) _creditShares(LP, net);
-        if (usdR > 0) LP.usd_owed += usdR;
-        _refreshBookmarks(lp, usd_fees);
-    }
 
     function rangeBounds() public view returns (uint lo, uint hi) {
         return SwapLib.updateBounds(RANGE_ANCHOR, SwapLib.RANGE_DELTA);
