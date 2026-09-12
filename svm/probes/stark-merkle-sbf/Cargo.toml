@@ -1,0 +1,48 @@
+[package]
+name = "p3probe-sbf"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+no-entrypoint = []
+custom-heap = []
+default = ["custom-heap"]
+
+[dependencies]
+solana-program = "4"
+p3probe = { path = "../stark-merkle", default-features = false }
+p3-uni-stark = "0.5"
+p3-symmetric = "0.5"
+p3-koala-bear = "0.5"
+p3-field = "0.5"
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+getrandom = { version = "0.2", features = ["custom"] }
+# Plonky3 instruments with `tracing`; its callsite statics become writable `.data.*` sections the
+# SBF loader rejects. Compiling the levels off makes every callsite dead and lets LTO drop them.
+tracing = { version = "0.1", default-features = false, features = ["max_level_off", "release_max_level_off"] }
+
+[dev-dependencies]
+solana-program-test = { version = "4.2", features = ["agave-unstable-api"] }
+solana-sdk = "4"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+p3probe = { path = "../stark-merkle" }
+p3-sha256 = "0.5"
+rand = { version = "0.8", features = ["small_rng"] }
+
+solana-bpf-loader-program = { version = "4.2", features = ["agave-unstable-api"] }
+solana-program-runtime = { version = "4.2", features = ["agave-unstable-api"] }
+solana-compute-budget = "4.2"
+agave-feature-set = "4.2"
+solana-sbpf = "0.21"
+solana-syscalls = { version = "4.2", features = ["agave-unstable-api"] }
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
+
+# Standalone: not a member of the Anchor workspace above it.
+[workspace]

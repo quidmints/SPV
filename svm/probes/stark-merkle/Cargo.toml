@@ -1,0 +1,39 @@
+[package]
+name = "p3probe"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "p3probe"
+path = "src/lib.rs"
+
+[[bin]]
+name = "prove"
+path = "src/main.rs"
+required-features = ["native"]
+
+[features]
+default = ["native"]
+native = ["p3-sha256", "p3-dft/parallel", "p3-uni-stark/parallel"]
+
+[dependencies]
+p3-air = "0.5"
+p3-challenger = "0.5"
+p3-commit = "0.5"
+p3-dft = "0.5"
+p3-field = "0.5"
+p3-fri = "0.5"
+p3-koala-bear = "0.5"
+p3-matrix = "0.5"
+p3-merkle-tree = "0.5"
+p3-poseidon2 = "0.5"
+p3-poseidon2-air = "0.5"
+p3-symmetric = "0.5"
+p3-uni-stark = "0.5"
+p3-sha256 = { version = "0.5", optional = true }
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+rand = { version = "0.8", features = ["small_rng"] }
+
+# Standalone: not a member of the Anchor workspace above it.
+[workspace]

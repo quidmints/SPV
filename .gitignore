@@ -137,3 +137,5 @@ app/.fixtures-build/
 evm/.fork-block
 quid-ln/Cargo.lock
 evm/.pp-relay-e2e/
+svm/probes/*/target/
+svm/probes/*/Cargo.lock

@@ -136,6 +136,39 @@ journal is bound as a BLAKE2s digest — the same shape as 8288's `data_hash`.
 measured on 2026-09-12 and **$280 at 30 gwei, $930 at 100 gwei** (≈$3k/ETH). Verification gas is the
 dominant operating cost in congestion; the aggregator's 13× is worth having THEN, and 30k is the fix.
 
+### 🔴 §SOLANA-STARK-PROBE — A CEREMONY-FREE STARK VERIFIED ON SOLANA, MEASURED 2026-09-12 (owner: *"we must find a way to avoid the ceremony and do this on solana"* → *"go build the plonky3 merkle path measurement"*)
+**Built:** `svm/probes/stark-merkle` (Plonky3 0.5 — the newest that compiles on the SBF toolchain's
+rustc 1.89) — a real Merkle-path AIR: Poseidon2/KoalaBear width-16 (`p3-poseidon2-air`, canonical
+constants) with per-row chaining constraints (`bit ? sibling‖node : node‖sibling`, row i's output is
+row i+1's node, leaf and root as the 16 public values), FRI over SHA-256 Merkle commitments, 4-limb
+extension. `svm/probes/stark-merkle-sbf` — the SAME verifier compiled to SBF: the byte hash is the
+`sha256` syscall (`SolSha256`), the heap is a scratch ACCOUNT (Solana's own heap caps at 256 KiB; the
+verifier needs ~500 KB — `RegionAlloc` keeps its state at the heap start, not in a static, because
+the loader rejects writable `.data`/`.bss` sections), `tracing` compiled off for the same reason.
+Run on real SBPF (`solana-program-test` 4.2 loading the `.so`, `ELF loads and verifies (V0)`):
+| path height | FRI (log_blowup, queries, PoW) | proof | native prove | **SBF verify** | heap |
+|---|---|---|---|---|---|
+| 32 (one tree) | 3, 42, 16 | **104,438 B** | 8 ms | **17,598,163 CU** | 390 KB |
+| 32 | 2, 60, 16 | 129,009 B | 24 ms | 24,583,340 CU | 497 KB |
+| 128 (four trees' hashing) | 3, 42, 16 | 169,537 B | 7 ms | **19,001,845 CU** | 506 KB |
+A tampered byte is refused (`invalid program argument`). Trace width 173.
+**What it means:** a withdraw statement (four 32-deep paths + SMT selectors + range checks ≈ the 128-row
+line) verifies in **~19–25M CU ≈ 14–18 transactions at the 1.4M cap**, proof ~100–170 KB ≈ 100–170
+upload chunks of ~1 KB (parallel), fees ≈ 200 transactions × 5,000 lamports ≈ **0.001 SOL, cents**,
+regardless of congestion. Proving is milliseconds on a laptop — a phone proves it. No setup, hash-based,
+PQ-consistent. The cost is dominated by query count, not trace height (32 → 128 rows: +8%), so the
+four-tree statement is barely dearer than one path.
+**What is NOT built (the engineering, now sized):** (1) the verifier as a RESUMABLE multi-transaction
+program — `p3_uni_stark::verify` restructured into stages with a verification-state account (transcript
++ FRI folding state), FRI queries split ~3 per transaction; (2) the chunked proof upload (indexed
+chunks into a buffer account, as the eprint 2025/1741 pipeline does); (3) the statement AIRs beyond the
+Merkle path: the SMT exclusion selectors, the commitment/nullifier hashes, the range checks — with
+`pp-statements` (Rust) as the witness generator and the differential oracle; (4) `register` — RSA in an
+AIR is its own project; P-256 has the `secp256r1` precompile in the clear.
+⚠️ Toolchain facts that bind: Plonky3 ≥ 0.6 needs rustc > 1.90 and the SBF toolchain is 1.89, so the
+verifier is pinned to Plonky3 0.5 until platform-tools moves; `solana-program-test` 4.x needs the
+`agave-unstable-api` feature and rustc 1.98 on the host; `getrandom = { features = ["custom"] }` for SBF.
+
 ### THE INTERIM, HONESTLY — what runs between now and 8288, and what it costs
 | | keep Honk single | zkVM + vendor wrapper |
 |---|---|---|
