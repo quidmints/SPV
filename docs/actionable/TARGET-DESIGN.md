@@ -1058,6 +1058,65 @@ exposure unchanged, the hedging LP long, and every other LP correspondingly shor
 would be funded by the other LPs**, which is the same defect as §BREAK-8-11 wearing a new costume.
 **Buying WBTC externally brings NEW exposure in.** Right answer; the reason I gave for it was not.
 
+### 🔴🔴🔴 §NO-RATCHET-NEEDED — **THE VENUE ACCUMULATOR DOUBLE-COUNTS. THE RATCHET IS NOT BADLY BUILT, IT
+### IS REDUNDANT.** Owner: *"why is a ratchet needed?"* ⇒ **it is not, and that is stronger than §BREAK-10.**
+**The yield it distributes is ALREADY distributed. `QuidLib._rangeETH`:**
+```solidity
+uint w = IERC20(c.weeth).balanceOf(address(this));
+if (w > 0) total += IWeETH(c.weeth).getEETHByWeETH(w);      // <- the RATE rises with ether.fi yield
+total += IERC20(c.weth).balanceOf(address(this));
+total += IERC20(c.weth).balanceOf(c.aux);
+if (c.eeth != address(0)) total += IERC20(c.eeth).balanceOf(address(this));
+try ILevEquity(c.levManager).totalNetEquity() returns (uint n) { total += n; } catch {}
+```
+⇒ **the same weETH balance converts to MORE eETH as yield accrues, so venue yield lands in `rangeETH`
+with no accumulator, automatically, and `rangeETH` is exactly what LP claims price against**
+(`Quid.sol:73`; and `_pricingBacking` per §BREAK-7). **Every LP's claim has already risen.**
+
+💸 **THEN `compound()` PAYS IT AGAIN, TO WHOEVER CALLS IT:**
+```solidity
+(uint tokR, uint usdR) = _pendingFor(lp);        // tokR = the venue accrual — its ONLY live source
+uint tip = gp * COMPOUND_GAS; if (tip > tokR / 2) tip = tokR / 2;
+uint sent = tip > 0 ? _burnInRange(tip, msg.sender) : 0;   // keeper tip, BURNS range inventory
+uint net  = tokR > sent ? tokR - sent : 0;
+if (net > 0) _creditShares(LP, net);             // MINTS shares: LP.pooled += net; lpShares += net
+```
+⇒ 🔑 **THE SHARES ARE MINTED AGAINST YIELD THAT IS ALREADY IN EVERY LP'S CLAIM.** The pool's assets do
+not change at the moment of compounding — they grew earlier, from yield, for everyone. **So minting
+shares REDISTRIBUTES: the compounder's fraction of the pool rises and every other LP's falls.**
+⇒ **`compound()` is a transfer from non-compounders to compounders of value they all already owned, plus
+a keeper tip burned out of range inventory on top.**
+
+⭐ **THIS SUBSUMES §BREAK-10 RATHER THAN COMPETING WITH IT.** BREAK 10 said the bookmark credits on a
+rise and ratchets silently on a fall, so **volatility** mints claims. **This says that even when the
+ratchet fires CORRECTLY, the payout is a double-count.** ⇒ **fixing the asymmetry would leave a
+mechanism that should not exist. Do not fix the ratchet — delete it.**
+▶️ **WHAT GOES:** `venueFeesPerShare`, `venueBm`, `bookmark`, `_venueBalance`, `QuidLib._venueBalanceLib`,
+`_venueAccrued`, `venueFeesPerShareInc`, `compound()`, `COMPOUND_GAS`, `COMPOUND_MAX_GASPRICE`, and —
+since the venue accrual is `tokReward`'s only live source — **`tokReward` itself**, with `pendingFor`'s
+token half, `Types.Deposit.fees_tok`, and `refreshBookmarks`'s token argument. ⇒ **and no keeper is
+needed to compound something that compounds itself.**
+⚠️ **ONE THING I HAVE NOT VERIFIED, and it is the only gap: `_venueBalanceLib` measures
+`IEthVenue.rangeOp(0, 2) − totalNetEquity`, while `_rangeETH` sums weETH/WETH/eETH balances + net
+equity.** I have not proved those are the *same* pool of assets, only that both track venue holdings. **If
+they are disjoint, the double-count argument weakens and the deletion needs more care.** ⇒ **check that
+before deleting.**
+
+### 🔑 §LEVMATH-WBTC-CLUSTER-IS-DEAD — **owner: *"much of levmath changes with the new design though, or
+### not?"* ⇒ YES, AND IT IS THE WBTC ACQUISITION PATH.**
+It existed to serve **atomic BTC lever-up**, which §NO-WRAP established is **not constructible** — nothing
+converts WBTC into channel sats. With `vsB` now twelve **vBTC-collateral** venues:
+| symbol | status under the new design |
+|---|---|
+| `LevMath.leverUpBuyWbtc` | 🔴 **its own first line now reverts `VbtcLeverNeedsChannelIn()`** for a vBTC venue, and every venue is one ⇒ **unreachable body** |
+| `LevMath._stableToWbtc` | 🔴 only caller is `leverUpBuyWbtc:89` ⇒ **dead with it** |
+| `BtcLevManager.rebalanceWbtc` / `_requireRebalancable` | 🔴 `_requireRebalancable` demands `COLLATERAL() == WBTC` ⇒ **always reverts** |
+| `LevMath.WbtcCfg` | 🔴 constructed only for the two functions above |
+| 🔴 `LevMath.flashDeleverWbtcSettle` | ⛔ **WORSE THAN DEAD — BROKEN.** It withdraws collateral and then sells it via `_volToStable(cfg.wbtc, …)`, i.e. **as WBTC**. On a vBTC venue the withdrawal yields **vBTC**, so the flash-delever path is wrong rather than merely unused. **The plain delever works (`_withdrawColl`); the flash one does not.** |
+| ✅ `LevMath._volToStable` | **SURVIVES** — `:537` calls it with `c.weth` for the ETH leg. **Not BTC-only, do not delete it with the cluster** |
+⇒ **rule 1 (no unreachable code), and it is bytes in the second-tightest contract.** 📌 **And the
+`flashDeleverWbtcSettle` row is a live defect, not cleanup — book it separately from the deletion.**
+
 ### 🔑 §THE-BUFFER-TRIO — **I WENT FOR THE AGGRESSIVE REDUCTION. IT IS CORRECT AS ALGEBRA AND WRONG AS
 ### ENGINEERING, AND THE REASON IS ONE SENTENCE ALREADY IN `CLAUDE.md`.**
 Owner: *"are you sure you are being creative enough in rearchitecting the use of all these variables?"*
