@@ -967,10 +967,14 @@ Each was carried as open, some in red, some for weeks.
    left. **Every RA-TLS handshake in the workspace now negotiates the hybrid** — proved, not
    assumed: `do_tls_handshake` asserts the negotiated group on BOTH peers, and inverting that
    assertion fails with *"client negotiated X25519MLKEM768"*.
-   ⚠️ **STILL NOT VERIFIED, AND IT IS THE CLAIM EVERYTHING RESTS ON: the SGX build.** `cargo test`
-   proves the group negotiates on this host; it does NOT prove `ml-kem` compiles for
-   `x86_64-fortanix-unknown-sgx`. ▶️ **Run a `--target x86_64-fortanix-unknown-sgx` build before
-   treating this as closed.**
+   ✅ **AND THE SGX BUILD IS VERIFIED — the claim the whole approach rested on.**
+   `cargo build -p quid-tls-core --target x86_64-fortanix-unknown-sgx` is **clean** with `pq` on, so
+   pure-Rust `ml-kem` does compile for the enclave target. That was the one thing the analysis said
+   it could not assert, and it is the reason the aws-lc-rs provider was unusable.
+   📌 **`quid-tls` itself cannot be built for SGX on this toolchain, and that is PRE-EXISTING and
+   unrelated:** it pulls `tokio`, which needs `#![feature]` ⇒ nightly. Nothing to do with `ml-kem`.
+   `quid-tls-core` is the crate that holds `pq.rs` and the dependency, and it is the one that had to
+   compile there.
    📌 **`X25519` stays offered, second**, and that is not a hedge: TLS 1.3 covers group selection in
    the transcript, so a MITM cannot force the fallback silently.
    🔴 **THE TRAP THIS BUILD ALMOST FELL INTO, recorded because it is invisible when it happens:**
