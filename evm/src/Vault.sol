@@ -83,7 +83,6 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         if (msg.sender != LEV_MANAGER) revert NotLevManagerBtc();
 
         BtcLib.vbtcExposeBody(autoManaged, levPooled, lp, sats);
-        VBTC.mintTo(LEV_MANAGER, sats);
         return true;
     }
 
@@ -91,7 +90,6 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         if (msg.sender != LEV_MANAGER) revert NotLevManagerBtc();
 
         BtcLib.vbtcUnexposeBody(levPooled, lp, sats);
-        VBTC.burnFrom(LEV_MANAGER, sats);
         return true;
     }
 

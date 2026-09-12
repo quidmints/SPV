@@ -59,8 +59,7 @@ contract BtcLevManager is LevBase {
         _openPos(venue, AUX.assetPrice(ORACLE_KEY), initialVbtc);
 
         if (ILevVenue(address(venue)).COLLATERAL() == address(COLL)) {
-            IVaultExposeB(VAULT).exposeBtcToLev(msg.sender, initialVbtc);
-            COLL.transfer(address(venue), initialVbtc);
+            COLL.transferFrom(msg.sender, address(venue), initialVbtc);
         } else {
             IERC20Min(WBTC).transferFrom(msg.sender, address(venue), initialVbtc);
         }
@@ -82,8 +81,7 @@ contract BtcLevManager is LevBase {
 
     function _withdrawColl(ILevVenue venue, address lp, uint amount) private returns (uint got) {
         got = venue.withdraw(lp, amount);
-        if (got > 0 && venue.COLLATERAL() == address(COLL))
-            IVaultExposeB(VAULT).unexposeBtcFromLev(lp, got);
+        if (got > 0) IERC20Min(venue.COLLATERAL()).transfer(lp, got);
     }
 
     function deleverWithdraw(uint vbtc) external nonReentrant returns (uint out) {
@@ -183,10 +181,7 @@ contract BtcLevManager is LevBase {
         delete pos[lp];
         _untrackOpen(lp);
 
-        if (p.venue.COLLATERAL() != address(COLL)) {
-            if (back > 0) IERC20Min(WBTC).transfer(lp, back);
-            _syncRange(lp);
-        }
+        if (p.venue.COLLATERAL() != address(COLL)) _syncRange(lp);
         emit Closed(lp, back);
     }
 
