@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {AlreadyOpen, Types} from "./imports/Types.sol";
+import {AlreadyOpen, NotFlash, Types} from "./imports/Types.sol";
 import {IVBtcToken, ILevVenue, IERC20Min, IMorphoBase as IMorphoFlash} from "./imports/Interfaces.sol";
 import {BtcLib} from "./imports/BtcLib.sol";
 import {LevBase} from "./imports/LevBase.sol";
@@ -11,7 +11,6 @@ import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract BtcLevManager is LevBase {
-    error BtcLeverNeedsChannelIn();
     using SafeERC20 for IERC20OZ;
     address public immutable WBTC;
 
@@ -97,14 +96,43 @@ contract BtcLevManager is LevBase {
         _syncRange(msg.sender);
     }
 
-    function _leverUp(ILevVenue, address, address, uint, uint, uint256, uint256, bytes calldata)
-        internal pure override { revert BtcLeverNeedsChannelIn(); }
+    function rebalanceWbtc(address lp, uint minOut, uint256 dex, uint256 dex2, bytes calldata route)
+        external nonReentrant { _rebalance(lp, minOut, dex, dex2, route); }
 
-    function _delever(ILevVenue, address, address, uint, uint, uint256, uint256, bytes calldata)
-        internal pure override { revert BtcLeverNeedsChannelIn(); }
+    function _requireRebalancable(Types.Pos memory p) internal view override {
+        if (ILevVenue(address(p.venue)).COLLATERAL() != WBTC) revert BadTarget();
+    }
 
+    function _leverUp(ILevVenue venue, address lp, address stable, uint deltaUsd, uint minOut, uint256 dex, uint256 dex2, bytes calldata route)
+        internal override { _leverUpBuyWbtc(venue, lp, stable, deltaUsd, minOut, dex, dex2, route); }
 
+    function _delever(ILevVenue venue, address lp, address stable, uint deltaUsd, uint minOut, uint256 dex, uint256 dex2, bytes calldata route)
+        internal override {
+        _flashDeleverWbtc(venue, lp, stable, deltaUsd, minOut, dex, dex2, route);
+    }
 
+    function _leverUpBuyWbtc(ILevVenue venue, address lp, address stable, uint usd, uint minOut, uint256 dex, uint256 dex2, bytes memory route) internal {
+        (uint borrowed, uint wbtc) = LevMath.leverUpBuyWbtc(venue, lp, stable, usd, minOut, LevMath.WbtcCfg(address(AUX), WBTC, uint16(MAX_SLIPPAGE_BPS), dex, dex2, route));
+        if (borrowed > 0) { emit Borrowed(lp, borrowed); emit Supplied(lp, wbtc); }
+    }
+
+    function _flashDeleverWbtc(ILevVenue venue, address lp, address stable, uint repayUsd, uint minOut, uint256 dex, uint256 dex2, bytes memory route) internal {
+        if (repayUsd == 0) return;
+
+        IMorphoFlash(flashProvider).flashLoan(stable, LevMath._fromUsd(address(AUX),stable, repayUsd),
+            abi.encode(lp, address(venue), stable, minOut, dex, dex2, route));
+    }
+
+    function onMorphoFlashLoan(uint256 assets, bytes calldata data) external {
+        if (msg.sender != flashProvider) revert NotFlash();
+
+        (address lp, address venueAddr, address stable, uint minOut, uint256 dex, uint256 dex2, bytes memory route) =
+            abi.decode(data, (address, address, address, uint256, uint256, uint256, bytes));
+        LevMath.flashDeleverWbtcSettle(assets, lp, venueAddr, stable, minOut, flashProvider,
+            LevMath.WbtcCfg(address(AUX), WBTC, uint16(MAX_SLIPPAGE_BPS), dex, dex2, route));
+        emit Repaid(lp, assets);
+        _syncRange(lp);
+    }
 
     function consolidateForRepay(address lp, address refundTo)
         external nonReentrant returns (uint sent) {

@@ -16,6 +16,7 @@ address constant ETHERFI_CURVE_POOL = 0xDB74dfDD3BB46bE8Ce6C33dC9D82777BCFc3dEd5
 import {IMorphoBase as IMorphoFlash} from "../imports/Interfaces.sol";
 
 library LevMath {
+    error VbtcLeverNeedsChannelIn();
     using SafeERC20 for IERC20OZ;
 
     error NoPrice();
@@ -74,8 +75,41 @@ library LevMath {
         return curDebt - targetDebt;
     }
 
+    struct WbtcCfg { address aux; address wbtc; uint16 slipBps; uint256 dex; uint256 dex2; bytes route; }
 
+    function leverUpBuyWbtc(ILevVenue venue, address lp, address stable, uint256 usd, uint256 minOut, WbtcCfg memory cfg)
+        public returns (uint256 borrowed, uint256 wbtcBought) {
+        if (ILevVenue(address(venue)).COLLATERAL() != cfg.wbtc) revert VbtcLeverNeedsChannelIn();
+        borrowed = venue.borrow(lp, _fromUsd(cfg.aux, stable, usd));
+        if (borrowed == 0) return (0, 0);
+        {
+            uint256 floorWbtc = (usd * 1e18 / IAux(cfg.aux).assetPrice(cfg.wbtc))
+                                * (10_000 - cfg.slipBps) / 10_000;
+            if (minOut < floorWbtc) minOut = floorWbtc;
+        }
+        wbtcBought = _stableToWbtc(stable, borrowed, minOut, cfg.wbtc, cfg.route);
+        IERC20Min(cfg.wbtc).transfer(address(venue), wbtcBought);
+        venue.supply(lp, wbtcBought);
+    }
 
+    function flashDeleverWbtcSettle(uint256 assets, address lp, address venueAddr, address stable,
+                                    uint256 minOut, address flashProvider, WbtcCfg memory cfg) public {
+        ILevVenue venue = ILevVenue(venueAddr);
+        IERC20OZ(stable).safeTransfer(address(venue), assets);
+        uint256 pulled;
+        {
+            uint256 repaid = venue.repay(lp, assets);
+            uint256 px = IAux(cfg.aux).assetPrice(cfg.wbtc);
+            pulled = venue.withdraw(lp, (_toUsd18(cfg.aux, stable, repaid) * 1e18 / px)
+                                        * 10_000 / (10_000 - cfg.slipBps));
+            uint256 floorStable = _fromUsd(cfg.aux, stable, pulled * px / 1e18)
+                                  * (10_000 - cfg.slipBps) / 10_000;
+            if (minOut < floorStable) minOut = floorStable;
+        }
+        uint256 stableOut = _volToStable(cfg.wbtc, stable, pulled, minOut, cfg.route);
+        IERC20OZ(stable).forceApprove(flashProvider, assets);
+        if (stableOut > assets) IERC20OZ(stable).safeTransfer(lp, stableOut - assets);
+    }
 
     function netEquityBase(uint256 collBase, uint256 debtUsd, uint256 price)
         internal pure returns (uint256)
@@ -486,6 +520,10 @@ library LevMath {
             returns (uint256 dy) { return dy; } catch { return 0; }
     }
 
+    function _stableToWbtc(address stable, uint256 amt, uint256 minOut, address wbtc,
+                           bytes memory route) internal returns (uint256) {
+        return routedSwap(stable, wbtc, amt, minOut, route);
+    }
 
     function _volToStable(address vol, address stable, uint256 amt, uint256 minOut,
                           bytes memory route) internal returns (uint256) {
