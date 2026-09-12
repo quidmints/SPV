@@ -1095,6 +1095,46 @@ without touching `levPooled`**, so the bound is already false by construction. �
 reconcile. **A stress test written against the version I wrote down would have passed while the system
 was unbacked.**
 
+### 🔴🔴 §DELEVER-WITHDRAW-STRANDS-SATS — **THREE SIBLING PATHS UNWIND A POSITION. ONE FORGETS TO UNEXPOSE.**
+| path | where the vBTC goes | unexposes? |
+|---|---|---|
+| `_deleverSlice` (`BtcLevManager:163`) | `venue.withdraw` ⇒ **the MANAGER** | ✅ `unexposeBtcFromLev(lp, freedSats)` |
+| `closeBtcLev` (`:178-184`) | `venue.withdraw` ⇒ **the MANAGER** | ✅ `unexposeBtcFromLev(lp, back)` |
+| 🔴 `deleverWithdraw` (`BtcLib`) | `venue.withdraw` ⇒ manager, **then `IERC20Min(coll).transfer(lp, out)` ⇒ THE LP** | 🔴 **NO CALL AT ALL** |
+
+⇒ **the LP walks away holding loose vBTC while `levPooled[lp]` still counts those sats as exposed.**
+`exposeBtcToLev` incremented `levPooled` when the vBTC was minted; nothing decrements it here.
+⛔ **THE COST IS BORNE BY THE LP AND IT IS PERMANENT: `plainNet(pooled, levPooled)` is what gates every
+BTC withdrawal, so their own sats are locked in the range forever.** `closeBtcLev` will not rescue them —
+by then `venue.collateralOf(lp)` is already 0, so `back == 0`, the `unexposeBtcFromLev` is skipped, and
+the inflated `levPooled` is never unwound. **A silent, unrecoverable strand.**
+✅ **AND WHAT IS *NOT* WRONG, because I checked it before writing this up:** the aggregate backing
+survives. Supply and `wbtcHeld` fall together when the LP unwraps, so
+`totalSupply == Σ levPooled + wbtcHeld` still balances, and the LP's sats stay in the pool backing the
+WBTC they took. **This is a stranding, not a theft** — worth stating, because the first reading looked
+like one and the difference decides the fix.
+▶️ **ROOT FIX, not a fourth patch: the unexpose belongs where the collateral LEAVES the venue, so no
+unwind path can forget it.** All three call `venue.withdraw`; that is the one place. **Rule 17 — and
+`deleverWithdraw` also uniquely sends the collateral to the LP rather than keeping it at the manager,
+which is the tell that it was written against a different model than its two siblings.**
+
+### 🔴 §TWELVE-MARKETS-ONE-PEG-ASSUMPTION — **THE ORACLE PRICES EVERY STABLE AT EXACTLY $1**
+`RealRateBtcMorphoOracle.price()` returns `assetPrice(WBTC) * SCALE`, where `SCALE` is `10**loanDec`.
+**There is no stable price anywhere in it.** ⇒ across **12 markets** it asserts USDC = USDT = PYUSD =
+RLUSD = DAI = USDS = USDE = AUSD = cUSD = crvUSD = frxUSD = BOLD = **exactly one dollar, always.**
+| the stable trades | the borrower's debt is | consequence |
+|---|---|---|
+| **below** peg | worth **less** than modelled | over-collateralised — safe, LLTV merely wrong |
+| 🔴 **above** peg | worth **more** than modelled | **under-collateralised ⇒ bad debt, and liquidation fires late or not at all** |
+⚠️ **This is the §NO-GAMEABLE-BOUND question asked of a different input:** a 1.0 that nobody measured is
+a constant a guard consumes, and rule 18 ④ applies — **what is the worst input that still satisfies it?**
+**Any depeg, in the dangerous direction, silently.**
+📌 **The ETH leg does not have this problem, and the contrast is the evidence:** it uses Morpho's own
+`RLUSD_WEETH_ORACLE` and `PYUSD_WEETH_ORACLE` — **one oracle per pair, priced by someone who prices the
+stable.** We wrote one oracle for twelve pairs and priced none of them. ⇒ **either read a stable feed, or
+restrict the roster to stables whose depeg risk the owner has explicitly accepted.** Twelve is a lot of
+pegs to assume.
+
 ### ✅ AND ONE BOUND THAT IS FINE, checked so the absence is not read as unexamined
 `LevVenueBase._unitSlice(u, tot, bal) = fullMulDiv(u, bal + 1, tot + 1e6)` floors, and `_unitsFor` floors
 on the way in — so **collateral rounds against the LP at both ends (conservative) and debt rounds in the
