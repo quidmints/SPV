@@ -33,7 +33,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use alloy_primitives::{hex, Address, B256, U256};
+use alloy_primitives::{hex, Address, B256};
 use anyhow::Context as _;
 use serde_json::Value;
 use tracing::{debug, error, info, warn};

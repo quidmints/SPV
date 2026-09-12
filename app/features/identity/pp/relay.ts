@@ -126,18 +126,27 @@ export interface WithdrawProof {
  */
 const RELAY_ROUTE = "/pp/relay";
 
+/** What the relayer answers `GET /pp/relay?value=` with. */
+export interface RelayQuote {
+  /** The address a proof must name as `RelayData.feeRecipient`. */
+  feeRecipient: string;
+  /** The smallest `relayFeeBPS` that covers the relayer's gas for a withdrawal of `value`. */
+  minFeeBps: bigint;
+}
+
 /**
- * The address a proof must name as `RelayData.feeRecipient`. Asked of the relayer rather than read
- * as `MAIN_HOP` from chain, because the relayer is whichever hop serves the API: a proof naming any
- * other address is refused (it would pay gas for someone else's fee). `null` when the relayer is
- * not deployed, so the caller falls back to `buildSelfWithdrawal`.
+ * Ask the relayer who it is and what it charges for a withdrawal of `value`. Asked rather than read
+ * as `MAIN_HOP` from chain, because the relayer is whichever hop serves the API and a proof naming
+ * any other address is refused (it would pay gas for someone else's fee). `null` when there is no
+ * relayer, so the caller can fall back to `buildSelfWithdrawal`.
  */
-export async function relayerFeeRecipient(hopUrl: string): Promise<string | null> {
+export async function relayerQuote(hopUrl: string, value: bigint): Promise<RelayQuote | null> {
   try {
-    const r = await fetch(`${hopUrl}${RELAY_ROUTE}`);
+    const r = await fetch(`${hopUrl}${RELAY_ROUTE}?value=${value.toString(10)}`);
     if (!r.ok) return null;
-    const body = (await r.json()) as { fee_recipient?: string };
-    return body.fee_recipient ?? null;
+    const body = (await r.json()) as { fee_recipient?: string; min_fee_bps?: string };
+    if (!body.fee_recipient || body.min_fee_bps === undefined) return null;
+    return { feeRecipient: body.fee_recipient, minFeeBps: BigInt(body.min_fee_bps) };
   } catch {
     return null;
   }
@@ -146,8 +155,8 @@ export async function relayerFeeRecipient(hopUrl: string): Promise<string | null
 /** What `requestRelay` answers — the status is what the UI branches on. */
 export type RelayOutcome =
   | { status: "relayed" }
-  /** 402 — the fee does not cover the gas; `detail` carries the numbers. Raise `relayFeeBPS` and re-prove. */
-  | { status: "fee_too_low"; detail: string }
+  /** 402 — the fee does not cover the gas at the current price; re-prove with `minFeeBps`. */
+  | { status: "fee_too_low"; minFeeBps: bigint; detail: string }
   /** 400 — refused before any tx (binding, shape, or a simulated revert named in `detail`). */
   | { status: "refused"; detail: string }
   /** 409 — mined but reverted: the state moved under the proof. Re-prove against current state. */
@@ -192,8 +201,15 @@ export async function requestRelay(
   if (r.ok) return { status: "relayed" };
   const detail = await r.text();
   switch (r.status) {
-    case 402:
-      return { status: "fee_too_low", detail };
+    case 402: {
+      let minFeeBps = 0n;
+      try {
+        minFeeBps = BigInt((JSON.parse(detail) as { min_fee_bps: string }).min_fee_bps);
+      } catch {
+        /* an unparseable 402 is still a 402; minFeeBps 0 tells the caller to re-quote */
+      }
+      return { status: "fee_too_low", minFeeBps, detail };
+    }
     case 400:
       return { status: "refused", detail };
     case 409:

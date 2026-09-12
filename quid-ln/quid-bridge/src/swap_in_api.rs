@@ -656,7 +656,7 @@ pub async fn serve(
         .with_state(state)
         // (§PP-RELAYER) The one public route: its checks are the gate (see the module doc).
         .merge(Router::new()
-            .route("/pp/relay", axum::routing::get(crate::pp_relay::who).post(crate::pp_relay::relay))
+            .route("/pp/relay", axum::routing::get(crate::pp_relay::quote).post(crate::pp_relay::relay))
             .with_state(pp_relay));
     let listener = match tokio::net::TcpListener::bind(&listen).await {
         Ok(l) => l,

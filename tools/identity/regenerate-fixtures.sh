@@ -167,6 +167,19 @@ if [[ "$STAGE" == "e2e" || "$STAGE" == "all" ]]; then
    cp target/_e2e/proof "$FIXTURES_DIR"/withdraw_e2e.proof
    echo "  withdraw_e2e.proof verified")
 
+  # §PP-RELAYER: the same witness under the RELAYED context — processooor = Entrypoint, data =
+  # RelayData — for `test_RelayWithRealProof` and the Rust relayer's e2e. One signal differs.
+  step "e2e: prove the relayed variant"
+  # shellcheck disable=SC2086
+  node "$ROOT"/tools/identity/build-e2e-fixture.js ${ARGS/--context $(get context)/--context $(get relayContext)} --relay
+  (cd "$CIRCUITS_DIR"/withdraw_identity
+   cp Prover.relay-e2e.toml Prover.toml
+   nargo execute w_relay_e2e >/dev/null
+   bb prove -t evm -b target/withdraw_identity.json -w target/w_relay_e2e.gz -k target/vk -o target/_relay_e2e >/dev/null
+   bb verify -t evm -k target/vk -p target/_relay_e2e/proof -i target/_relay_e2e/public_inputs >/dev/null
+   cp target/_relay_e2e/proof "$FIXTURES_DIR"/withdraw_relay_e2e.proof
+   echo "  withdraw_relay_e2e.proof verified")
+
   # ⚠️ RAGEQUIT IS PART OF THIS STAGE, NOT A SEPARATE CONCERN. Its commitment, nullifier hash and
   # label are all derived from the SAME scope, so it goes stale with exactly the same changes - and
   # it fails as `OnlyOriginalDepositor`, which points at authorisation rather than at a fixture. It

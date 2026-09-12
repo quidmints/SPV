@@ -1,8 +1,12 @@
 //! §PP-RELAYER — the privacy-pool withdrawal relayer, served by the fleet enclave.
 //!
-//! GET  /pp/relay   → 200 { "fee_recipient":"0x.." }   the address a proof must name as
-//!                    `RelayData.feeRecipient` — asked of the relayer, because it is whichever hop
-//!                    serves this API, not necessarily `MAIN_HOP`.
+//! GET  /pp/relay?value=<wei>
+//!   → 200 { "fee_recipient":"0x..", "gas_price_wei":"..", "min_fee_bps":N }
+//!   `fee_recipient` is what a proof must name in `RelayData` — asked of the relayer, because it is
+//!   whichever hop serves this API, not necessarily `MAIN_HOP`. `min_fee_bps` is the smallest
+//!   `relayFeeBPS` that clears the gas check below for a withdrawal of `value`, priced at the
+//!   current gas price and the measured relay gas; the app proves with it and never sees a 402
+//!   unless gas moved more than the margin while it was proving.
 //! POST /pp/relay   (public — no bearer token: a relayer with a key on the door is not a relayer)
 //!   { "withdrawal": { "processooor":"0x..", "data":"0x.." },
 //!     "proof":      { "proof":"0x..", "pubSignals":["<u256 dec|hex>" ×8] },
@@ -10,7 +14,8 @@
 //!   → 200 { "success": true }        the `Entrypoint.relay` tx was mined and did not revert
 //!   → 400 <reason>                    refused before any tx (shape, binding, or a simulated revert
 //!                                     named by its custom-error selector)
-//!   → 402 <numbers>                   the fee does not cover the gas — raise `relayFeeBPS`, re-prove
+//!   → 402 { "fee_wei", "need_wei", "min_fee_bps" }  the fee does not cover the gas — re-prove
+//!                                     with `min_fee_bps`
 //!   → 503                             this deployment has no `QUID_PP_ENTRYPOINT`
 //!
 //! The door is protected by REFUSING, never by paying. What makes a relayer safe to run with a hot
@@ -50,6 +55,26 @@ const FEE_COVER_PCT: u128 = 110;
 
 /// `eth_estimateGas` + this headroom, as `channel_driver::gas_limit_for` does for BTCChannels.
 const GAS_HEADROOM_PCT: u64 = 125;
+
+/// What `Entrypoint.relay` costs with a real proof — measured 3,113,011 in
+/// `WithdrawEndToEnd.test_RelayWithRealProof` (the Honk verifier is nearly all of it). The QUOTE
+/// prices from this; the CHECK prices from the node's estimate of the actual call. Re-measure when
+/// the verifier changes; a quote below the estimate surfaces as 402s, never as a loss.
+const RELAY_GAS_ESTIMATE: u64 = 3_150_000;
+
+/// The fee floor for a relay that will be sent with `gas` at `price` — one function, so the quote
+/// and the check cannot disagree on the margin.
+fn fee_floor_wei(gas: u64, price: u128) -> U256 {
+    U256::from(gas as u128 * price * FEE_COVER_PCT / 100)
+}
+
+/// The smallest `relayFeeBPS` whose fee on `value` reaches `floor` (ceiling division).
+fn min_fee_bps(value: U256, floor: U256) -> U256 {
+    if value.is_zero() {
+        return U256::ZERO;
+    }
+    (floor * U256::from(10_000u64) + value - U256::from(1)) / value
+}
 
 /// The custom errors `Entrypoint.relay` → `PrivacyPool.withdraw` can raise, so a simulated revert
 /// comes back to the app as a name rather than four hex bytes. Reads, not writes: an error absent
@@ -185,9 +210,32 @@ fn require_native_pool(rpc: &DaemonRpc, entrypoint: Address, scope: U256) -> Res
     Ok(())
 }
 
-pub async fn who(State(st): State<Option<Arc<PpRelayIngrid>>>) -> Result<Json<serde_json::Value>, ApiError> {
+#[derive(Deserialize)]
+pub struct QuoteQuery {
+    /// The withdrawal's value in wei; the quote's `min_fee_bps` is relative to it.
+    pub value: Option<String>,
+}
+
+pub async fn quote(
+    State(st): State<Option<Arc<PpRelayIngrid>>>,
+    axum::extract::Query(q): axum::extract::Query<QuoteQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
     let st = st.ok_or((StatusCode::SERVICE_UNAVAILABLE, "no QUID_PP_ENTRYPOINT: relaying is off".into()))?;
-    Ok(Json(serde_json::json!({ "fee_recipient": st.evm.address().to_string() })))
+    let evm = st.evm.clone();
+    let price = tokio::task::spawn_blocking(move || evm.suggested_gas_price())
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {e}")))?
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("eth_gasPrice: {e}")))?;
+    let gas = RELAY_GAS_ESTIMATE.saturating_mul(GAS_HEADROOM_PCT) / 100;
+    let mut out = serde_json::json!({
+        "fee_recipient": st.evm.address().to_string(),
+        "gas_price_wei": price.to_string(),
+    });
+    if let Some(v) = q.value {
+        let value = parse_u256(&v, "value")?;
+        out["min_fee_bps"] = serde_json::json!(min_fee_bps(value, fee_floor_wei(gas, price)).to_string());
+    }
+    Ok(Json(out))
 }
 
 pub async fn relay(
@@ -204,6 +252,7 @@ pub async fn relay(
     // comparison, and only then the send.
     let st2 = st.clone();
     let cd = calldata.clone();
+    let req_signal2 = req.proof.pub_signals[2].clone();
     let (gas, price) = tokio::task::spawn_blocking(move || -> Result<(u64, u128), ApiError> {
         require_native_pool(&st2.rpc, st2.entrypoint, scope)?;
         let est = estimate_gas(&*st2.rpc, Some(relayer), st2.entrypoint, &cd)
@@ -213,11 +262,16 @@ pub async fn relay(
             .evm
             .suggested_gas_price()
             .map_err(|e| (StatusCode::BAD_GATEWAY, format!("eth_gasPrice: {e}")))?;
-        let need = U256::from(gas as u128 * price * FEE_COVER_PCT / 100);
+        let need = fee_floor_wei(gas, price);
         if fee < need {
+            // pubSignals[2] is the withdrawn value the fee is a share of.
+            let value = parse_u256(&req_signal2, "pubSignals[2]")?;
             return Err((
                 StatusCode::PAYMENT_REQUIRED,
-                format!("fee {fee} wei < {need} wei ({gas} gas × {price} wei × {FEE_COVER_PCT}%)"),
+                serde_json::json!({
+                    "fee_wei": fee.to_string(), "need_wei": need.to_string(),
+                    "min_fee_bps": min_fee_bps(value, need).to_string(),
+                }).to_string(),
             ));
         }
         Ok((gas, price))
@@ -313,6 +367,16 @@ mod tests {
         // slot — the index the client compared until 2026-09-11) is not bound to this RelayData.
         let e = check_and_encode(&req(RELAYER, ENTRYPOINT, 7), ep, me).unwrap_err();
         assert!(e.1.contains("context mismatch"), "{}", e.1);
+    }
+
+    #[test]
+    fn the_quote_is_the_smallest_bps_that_clears_the_check() {
+        let floor = fee_floor_wei(3_937_500, 2_000_000_000); // the measured relay at 2 gwei
+        let value = U256::from(300_000_000_000_000_000u128); // 0.3 ETH
+        let bps = min_fee_bps(value, floor);
+        assert!(value * bps / U256::from(10_000u64) >= floor, "quoted bps clears the floor");
+        assert!(value * (bps - U256::from(1)) / U256::from(10_000u64) < floor, "one bps less does not");
+        assert_eq!(min_fee_bps(U256::ZERO, floor), U256::ZERO, "no value, no quote");
     }
 
     #[test]

@@ -220,13 +220,17 @@ eq(w.pubSignals[5], IDENTITY_ROOT, 'identity_root disagrees with the chain');
 eq(w.pubSignals[6], CONTEXT, 'context disagrees with the chain');
 if (w.pubSignals[4] === 0n) throw new Error('DEGENERATE: state tree depth 0, no sibling hashed');
 
-const out = path.join(CIRCUITS_DIR, 'withdraw_identity', 'Prover.e2e.toml');
+// §PP-RELAYER: `--relay` proves the SAME witness under the relayed context (`--context` is then
+// e2e_params.relayContext) and writes beside the self-withdrawal's files rather than over them.
+const VARIANT = argv.includes('--relay') ? 'relay-e2e' : 'e2e';
+const SIGNALS_NAME = argv.includes('--relay') ? 'withdraw_relay_e2e_pubsignals.json' : 'withdraw_e2e_pubsignals.json';
+const out = path.join(CIRCUITS_DIR, 'withdraw_identity', `Prover.${VARIANT}.toml`);
 common.writeProverToml(out, w.inputs);
 
 // The signals, beside the proof they belong to, for the same reason build-withdrawal-fixture.js
 // writes its own: pinned in a test they go stale as `SumcheckFailed()`, which names nothing.
 fs.writeFileSync(
-  path.join(FIXTURES_DIR, 'withdraw_e2e_pubsignals.json'),
+  path.join(FIXTURES_DIR, SIGNALS_NAME),
   JSON.stringify(w.pubSignals.map((v) => '0x' + v.toString(16).padStart(64, '0')), null, 2) + '\n',
 );
 

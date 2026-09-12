@@ -63,7 +63,12 @@ export interface WithdrawPlan {
 export interface PlanParams {
   mnemonic: string;
   entrypointAddress: string;
-  fee: { feeRecipient: string; relayFeeBPS: bigint };
+  /**
+   * `relayFeeBPS` may be a function of the leg's withdrawn value: the relayer's fee is a share of
+   * the withdrawal but its cost is gas, so a small stipend leg needs more bps than the payout leg.
+   * `withdraw.ts` quotes each leg from the relayer; a constant is fine when one rate covers both.
+   */
+  fee: { feeRecipient: string; relayFeeBPS: bigint | ((withdrawnValue: bigint) => bigint) };
 
   /** The asset of the pool being withdrawn from. Use `NATIVE_ASSET` for ETH. */
   asset: string;
@@ -128,7 +133,7 @@ export function planWithdrawal(params: PlanParams): WithdrawPlan {
     const { withdrawal, context } = buildRelayedWithdrawal(entrypointAddress, scope, {
       recipient: recipient.address,
       feeRecipient: fee.feeRecipient,
-      relayFeeBPS: fee.relayFeeBPS,
+      relayFeeBPS: typeof fee.relayFeeBPS === "function" ? fee.relayFeeBPS(withdrawnValue) : fee.relayFeeBPS,
     });
     return { purpose, scope, note, withdrawnValue, withdrawal, context };
   };

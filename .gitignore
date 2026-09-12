@@ -136,3 +136,4 @@ graphify-out/
 app/.fixtures-build/
 evm/.fork-block
 quid-ln/Cargo.lock
+evm/.pp-relay-e2e/

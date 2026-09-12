@@ -16,6 +16,8 @@ import {PrivacyPoolSimple} from '../../../src/identity/pool/implementations/Priv
 import {WithdrawalHonkVerifier} from '../../../src/identity/generated/pool/verifiers/WithdrawalHonkVerifier.sol';
 import {RagequitHonkVerifier} from '../../../src/identity/generated/pool/verifiers/RagequitHonkVerifier.sol';
 import {IPrivacyPool} from '../../../src/identity/pool/interfaces/IPrivacyPool.sol';
+import {IEntrypoint} from '../../../src/identity/pool/interfaces/IEntrypoint.sol';
+import {IERC20} from '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import {ProofLib} from '../../../src/identity/pool/lib/ProofLib.sol';
 import {Constants} from '../../../src/identity/pool/lib/Constants.sol';
 import {EscrowFixtureBase} from '../registry/EscrowFixtureBase.sol';
@@ -101,6 +103,18 @@ contract WithdrawEndToEndTest is EscrowFixtureBase, BlacklistAnchorFixture {
   /// exists; `WITHDRAWN` is the same number read back OUT of the emitted signals, and
   /// `test_WalletMirrorsMatchTheChain` is where the two are required to agree.
   uint256 internal constant E2E_WITHDRAWN_PLAN = 0.3 ether;
+
+  /*
+   * §PP-RELAYER — the RELAYED shape of the same withdrawal: `processooor` is the Entrypoint and
+   * `data` is the RelayData the proof's context commits to. Same note, same roots, same withdrawn
+   * value as the self-withdrawal fixture; only pubSignals[6] differs, so the generator proves it
+   * from the same witness with `--relay`. `RELAY_FEE_RECIPIENT` is anvil's account #0 — the hot
+   * key `quid-bridge/tests/pp_relay_e2e.rs` relays with, so the fee lands where that test looks.
+   */
+  address internal constant RELAY_RECIPIENT = address(0xFEED);
+  address internal constant RELAY_FEE_RECIPIENT = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
+  uint256 internal constant RELAY_FEE_BPS = 300;
+  uint256 internal constant MAX_RELAY_FEE_BPS = 1_000;
 
   /// holderRoot for sk_identity = 1234 (pp/src/identity_asp.nr's published vector), as the wallet's
   /// RarimeUtils.getProfileKey derives it: Poseidon(babyJub.mulPointEScalar(Base8, 1234)).
@@ -243,7 +257,19 @@ contract WithdrawEndToEndTest is EscrowFixtureBase, BlacklistAnchorFixture {
    * insist on it. They do, in `_e2eProof`, with a message naming the generator - rather than failing
    * as `InvalidProof` against eight zeros, which names nothing.
    */
+  /// pubSignals[6] of the relayed proof — every other signal equals the self-withdrawal's.
+  uint256 internal RELAY_CONTEXT;
+  bool internal relaySignalsLoaded;
+
   function _loadE2ESignals() internal {
+    if (vm.isFile('test/identity/fixtures/withdraw_relay_e2e_pubsignals.json')) {
+      bytes32[] memory r = vm.parseJsonBytes32Array(
+        vm.readFile('test/identity/fixtures/withdraw_relay_e2e_pubsignals.json'), '$'
+      );
+      require(r.length == 8, 'relay fixture does not carry eight public signals');
+      RELAY_CONTEXT = uint256(r[6]);
+      relaySignalsLoaded = true;
+    }
     if (!vm.isFile('test/identity/fixtures/withdraw_e2e_pubsignals.json')) return;
     bytes32[] memory sig_ = vm.parseJsonBytes32Array(
       vm.readFile('test/identity/fixtures/withdraw_e2e_pubsignals.json'), '$'
@@ -259,7 +285,7 @@ contract WithdrawEndToEndTest is EscrowFixtureBase, BlacklistAnchorFixture {
     e2eSignalsLoaded = true;
   }
 
-  function setUp() public {
+  function setUp() public virtual {
     // 🔴 SCOPE IS `keccak256(address(this), block.chainid, asset)` (`pool/State.sol:89`), SO THE
     // CHAIN ID IS PART OF EVERY COMMITTED PROOF IN THIS SUITE — and it is not a property of these
     // contracts, it is whatever the invocation happened to hand us. Measured 2026-08-29: the same
@@ -478,12 +504,83 @@ contract WithdrawEndToEndTest is EscrowFixtureBase, BlacklistAnchorFixture {
     // computing it any other way is how a fixture ends up bound to a recipient nobody uses.
     vm.serializeUint(json, 'value', DEPOSIT_VALUE);
     vm.serializeUint(json, 'withdrawn', E2E_WITHDRAWN_PLAN);
-    string memory out = vm.serializeUint(
+    vm.serializeUint(
       json, 'context',
       uint256(keccak256(abi.encode(IPrivacyPool.Withdrawal({processooor: recipient, data: ''}), pool.SCOPE()))) % FIELD
     );
+    string memory out = vm.serializeUint(
+      json, 'relayContext', uint256(keccak256(abi.encode(_relayWithdrawal(), pool.SCOPE()))) % FIELD
+    );
     vm.writeJson(out, 'test/identity/fixtures/e2e_params.json');
   }
+
+  function _relayWithdrawal() internal view returns (IPrivacyPool.Withdrawal memory) {
+    return IPrivacyPool.Withdrawal({
+      processooor: address(entrypoint),
+      data: abi.encode(IEntrypoint.RelayData({
+        recipient: RELAY_RECIPIENT, feeRecipient: RELAY_FEE_RECIPIENT, relayFeeBPS: RELAY_FEE_BPS
+      }))
+    });
+  }
+
+  function _relayProof() internal view returns (ProofLib.WithdrawProof memory _p) {
+    require(
+      relaySignalsLoaded,
+      'no withdraw_relay_e2e_pubsignals.json - regenerate with tools/identity/regenerate-fixtures.sh e2e'
+    );
+    _p = _e2eProof();
+    _p.proof = vm.readFileBinary('test/identity/fixtures/withdraw_relay_e2e.proof');
+    _p.pubSignals[6] = RELAY_CONTEXT;
+  }
+
+  /// `Entrypoint.relay` needs the pool registered; the self-withdrawal path never did, because it
+  /// deposits by impersonating the Entrypoint. Registration does not move SCOPE (the pool's address).
+  function _registerPool() internal {
+    vm.prank(owner);
+    entrypoint.registerPool(IERC20(Constants.NATIVE_ASSET), pool, 0, 0, MAX_RELAY_FEE_BPS);
+  }
+
+  /*
+   * §PP-RELAYER — the RELAYED path with a genuine proof, through the real Entrypoint: the fee split,
+   * the context binding RelayData, and the gas the relayer must be paid for. Nothing exercised
+   * `relay()` with a real proof before this; `Entrypoint` tests use a verifier mock.
+   */
+  function test_RelayWithRealProof() public {
+    _registerPool();
+    IPrivacyPool.Withdrawal memory w = _relayWithdrawal();
+    require(
+      uint256(keccak256(abi.encode(w, pool.SCOPE()))) % FIELD == RELAY_CONTEXT,
+      'relay fixture is STALE: context moved - regenerate with tools/identity/regenerate-fixtures.sh e2e'
+    );
+    uint256 fee = WITHDRAWN * RELAY_FEE_BPS / 10_000;
+    uint256 sizeBefore = pool.currentTreeSize();
+
+    vm.prank(RELAY_FEE_RECIPIENT);
+    uint256 g = gasleft();
+    entrypoint.relay(w, _relayProof(), pool.SCOPE());
+    emit log_named_uint('relay gas', g - gasleft());
+
+    assertEq(RELAY_RECIPIENT.balance, WITHDRAWN - fee, 'recipient was not paid net of the fee');
+    assertEq(RELAY_FEE_RECIPIENT.balance, fee, 'the relayer was not paid its fee');
+    assertTrue(pool.nullifierHashes(E2E_NULLIFIER_HASH), 'nullifier was not marked spent');
+    assertEq(pool.currentTreeSize(), sizeBefore + 1, 'change note was not inserted');
+  }
+
+  /// A relayer paid by someone else's RelayData is a context the proof never committed to.
+  function test_RelayRefusesRedirectedFee() public {
+    _registerPool();
+    IPrivacyPool.Withdrawal memory w = IPrivacyPool.Withdrawal({
+      processooor: address(entrypoint),
+      data: abi.encode(IEntrypoint.RelayData({
+        recipient: RELAY_RECIPIENT, feeRecipient: address(0xBAD), relayFeeBPS: RELAY_FEE_BPS
+      }))
+    });
+    ProofLib.WithdrawProof memory p = _relayProof(); // reads a file: a cheatcode call of its own
+    uint256 scope = pool.SCOPE();
+    vm.expectRevert(IPrivacyPool.ContextMismatch.selector);
+    entrypoint.relay(w, p, scope);
+  }
+
 
   function _e2eProof() internal view returns (ProofLib.WithdrawProof memory _p) {
     require(
@@ -774,5 +871,44 @@ contract WithdrawEndToEndTest is EscrowFixtureBase, BlacklistAnchorFixture {
     vm.prank(depositor);
     vm.expectRevert();
     pool.ragequit(_ragequitProof());
+  }
+}
+
+/*
+ * §PP-RELAYER — the WHOLE deployed world, for `quid-bridge/tests/pp_relay_e2e.rs`: that test loads
+ * this dump into anvil (`--chain-id 1`, because SCOPE commits to the chain id pinned in setUp) and
+ * drives the Rust relayer's `POST /pp/relay` against it with the real proof.
+ *
+ * ⚠️ A SEPARATE CONTRACT WITH AN EMPTY `setUp`, AND THAT IS THE WHOLE TRICK. `vm.dumpState` writes
+ * the storage slots the CURRENT EVM run has touched — measured: dumped from a test after the base
+ * `setUp`, the pool carried ONE slot and anvil answered `currentRoot() == 0`, so every deposit was
+ * missing. Deploying inside the test function keeps every write in this run's journal. The
+ * addresses do not move: the test contract starts at the same nonce whether it deploys in `setUp`
+ * or here, and the context recomputation below is what asserts that.
+ *
+ * Runs only when asked, because it writes outside the fixtures directory.
+ */
+contract RelayWorldDump is WithdrawEndToEndTest {
+  function setUp() public override {}
+
+  function test_DumpStateForRelayer() public {
+    string memory path = vm.envOr('PP_RELAY_STATE_DUMP', string(''));
+    if (bytes(path).length == 0) return;
+    super.setUp();
+    _registerPool();
+    require(
+      uint256(keccak256(abi.encode(_relayWithdrawal(), pool.SCOPE()))) % FIELD == RELAY_CONTEXT,
+      'the world deployed here is not the one the relay fixture was proven against'
+    );
+    vm.dumpState(path);
+    string memory meta = 'relayMeta';
+    vm.serializeAddress(meta, 'entrypoint', address(entrypoint));
+    vm.serializeUint(meta, 'scope', pool.SCOPE());
+    vm.serializeUint(meta, 'timestamp', block.timestamp);
+    vm.serializeAddress(meta, 'recipient', RELAY_RECIPIENT);
+    vm.serializeAddress(meta, 'feeRecipient', RELAY_FEE_RECIPIENT);
+    vm.serializeUint(meta, 'relayFeeBPS', RELAY_FEE_BPS);
+    string memory out = vm.serializeBytes(meta, 'proof', _relayProof().proof);
+    vm.writeJson(out, string.concat(path, '.meta.json'));
   }
 }
