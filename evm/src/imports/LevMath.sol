@@ -124,12 +124,12 @@ library LevMath {
         return (entryEquity * price) / WAD;
     }
 
-    function bufTarget(address lm, address lp) public view returns (uint256) {
+    function bufTarget(address lm, address lp) internal view returns (uint256) {
         return lm == address(0) ? 0 : ILevEquity(lm).debtUsd(lp) / 1e12;
     }
 
     function levSyncState(address lm, address lp, uint256 levPooled_, uint256 levBuf_, uint256 levBufUsd_)
-        public view returns (uint256 gross, bool inSync) {
+        internal view returns (uint256 gross, bool inSync) {
         gross = lm == address(0) ? 0 : ILevEquity(lm).grossCollateral(lp);
         inSync = (gross == 0 && levPooled_ == 0 && levBuf_ == 0 && levBufUsd_ == 0)
               || (gross == levPooled_ + levBuf_ && levBufUsd_ == bufTarget(lm, lp));
