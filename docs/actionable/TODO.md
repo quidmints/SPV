@@ -111,6 +111,31 @@ bit-native hash) is cheap on the tower-era VM, and whether the DSL is usable by 
 hash-based STARK is EC arithmetic again; and its one advantage (tiny witnesses over huge state) does not
 apply to a 32-hash path. With keccak our trees are already 7864's shape.
 
+### 🔴 A leanVM VERIFIER ON THE EVM — MEASURED ON A REAL PROOF, 2026-09-12 (owner: *"just write the leanVM verifier"*)
+Cloned `leanEthereum/leanVM` @ `4332c8f` (2026-09-11), instrumented its reference Python verifier
+(`python-verifier/verifier.py`, 1,434 lines — GF(2^64)/GF(2^192) tower, BLAKE2s transcript, WHIR PCS,
+GKR grand products, per-opcode tables), and ran the repo's own real-proof test (`test_python_verifier`:
+a 2,048-instruction zkDSL program, **1,048,584 cycles** — the size class of a Merkle-path statement):
+· proof on the wire: **271,328 bytes** (Rust form); the raw form Python reads is 25,440 B of scalars +
+  **383,200 B of Merkle openings**; bytecode multilinear 262,144 B.
+· verifier work: **2,112,237 GF(2^64) multiplications** and **8,587 BLAKE2s calls over 953,870 bytes**.
+· Python verifies in 20.6 s; Rust in milliseconds.
+**On the EVM that is ~2 billion gas.** A carry-less GF(2^64) multiply is a 64-step shift/xor loop in
+Solidity (no CLMUL opcode; ≥ ~1k gas), so the field work alone is ~2×10^9; BLAKE2s has no precompile
+(`blake2f` is BLAKE2b) so the ~15k compressions are another ~50M; calldata is ~6.5M. The block gas limit
+is 36–60M. **Off by ~50× before any optimisation, and the multiplications are the floor, not the
+overhead.** This is not an engineering gap — it is WHY 8288 puts the leanSTARK verifier in consensus
+(native code, 4 ms) rather than in a contract. ⇒ **There is no on-chain leanVM verifier to write;
+the on-chain verifier IS the fork.** What exists and is usable today: the Rust and Python verifiers
+OFF-chain (a relayer can pre-check a leanSTARK before paying for anything), and — the useful surprise —
+**the zkDSL is genuinely writable**: Python-shaped source, `blake2s` intrinsic, `HeapBuf`/`StackBuf`,
+unrolled and runtime loops, a formal-verification tree, a pinned reference verifier. A withdraw
+statement in it is a few hundred lines. Its public input is two 192-bit words (`m[0]`, `m[1]`), so the
+journal is bound as a BLAKE2s digest — the same shape as 8288's `data_hash`.
+⚠️ **And the gas point the owner made, corrected in this file:** 3.1M gas is $0.45 at the 0.05 gwei
+measured on 2026-09-12 and **$280 at 30 gwei, $930 at 100 gwei** (≈$3k/ETH). Verification gas is the
+dominant operating cost in congestion; the aggregator's 13× is worth having THEN, and 30k is the fix.
+
 ### THE INTERIM, HONESTLY — what runs between now and 8288, and what it costs
 | | keep Honk single | zkVM + vendor wrapper |
 |---|---|---|
