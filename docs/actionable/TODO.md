@@ -101,10 +101,30 @@ dependency the leanSTARK verifier accepts, and only one is buildable:
   and post-8288 the declared dependency is a leanVM program that VERIFIES that zkVM's proof. The zkVM
   vendor supplies that recursion program (it is how every app on their stack reaches 8288); our statement,
   journal and adapter are unchanged. **This is what the four-rule invariant above already encodes.**
-⇒ Route (B). **The interim zkVM is a commodity once the statements are keccak-native (§TRUST-THE-TOWER
-below): SP1 and RISC Zero both have keccak precompiles and wrapped Groth16 verifiers on-chain; a
-binary-tower zkVM (RISC Zero × Binius, Polygon × Irreducible) replaces it when one ships.** The owner's
-call (*"trust the tower"*) is that the hash, not the interim field, is what aligns us.
+#### (A) vs (B), FROM ALL SIDES (owner, 2026-09-12: *"im not sure about the choice … look at the subject from all sides"*)
+| axis | (A) statement written FOR leanVM | (B) general zkVM + a leanVM recursion wrapper |
+|---|---|---|
+| **what the dependency is** | our proof IS the leanSTARK: one proof system, the one the EIP formally verifies | two systems chained: the zkVM's STARK, verified inside a leanVM program; soundness of BOTH, plus the wrapper program's |
+| **who proves what, per withdrawal** | the user (or our relayer) proves a ~130-hash program | the user proves in the zkVM, THEN someone proves the leanVM program that verifies that STARK — a STARK verifier is far bigger than our statement, and if the zkVM's field ≠ the tower's it is non-native arithmetic. **This tax lands in OUR pipeline, on every withdrawal**; the mempool only aggregates leanSTARKs it is handed |
+| **fit to our workload** | the pool statements are Merkle paths + a few range checks: hash-dominated, i.e. leanVM's design target (*"proving a massive number of hashes glued together with specific logic"*) | fits anything; pays instruction-emulation overhead for a workload that is 95% hashing |
+| **passport `register`** | RSA-2048/P-256/brainpool bignum in a 4-instruction field VM: painful (SHA-1/256 are bit-native on the tower, modexp is not) | RISC-V zkVMs have bignum/modexp precompiles; the natural home |
+| **hash coupling** | the tree hash must be cheap in the DSL: on the TOWER, keccak/BLAKE are XOR-native, so keccak on-chain + keccak in the statement is consistent (**this is what "trust the tower" buys — on KoalaBear-era leanVM, keccak would have been the expensive one**) | keccak precompiled everywhere; no coupling |
+| **on-device proving** | leanVM is built to be light (0.29 s recursion on their bench); a small program is the best case | SP1/RISC Zero need a GPU/desktop for millions of cycles; our withdraw is ~1–2M cycles: marginal on a phone, so delegated proving (the note secret leaves the device) is likelier |
+| **buildable today** | **no** — DSL pre-production, ISA and field in flux; no on-chain leanSTARK verifier exists for the pre-8288 era | **yes** — Groth16-wrapped verifiers on-chain now (~300k gas) |
+| **dependency risk** | a rewrite when the ISA moves — the statements are ~200 lines each, days of work, with the Rust crate as the oracle | the recursion program for OUR zkVM's proof format must exist; vendors will want it, nobody has promised it |
+| **8288 gas** | 30k | 30k (the wrapper is a leanSTARK too) — plus the wrapper proving cost off-chain |
+| **timeline** | 8288 is Draft, floated for I-star after Hegota: years; leanVM matures in that window or 8288 does not ship | ships now; the wrapper question is deferred to the same window |
+⇒ **THE ANSWER IS NOT ONE OR THE OTHER, IT IS STAGED, AND THE HASH IS WHAT MAKES THE STAGING FREE:**
+1. **Now:** statements keccak-native in Rust (`pp-statements`) — the REFERENCE and the test oracle, prover-agnostic.
+2. **Interim (pre-8288):** prove them in a keccak-precompiled zkVM behind the pinned adapter. This is (B)'s
+   shape WITHOUT committing to (B)'s wrapper — nothing in the contracts or the wallet learns the zkVM.
+3. **At 8288:** the pool statements go (A) — rewritten in leanVM's DSL from the Rust reference, differential-
+   tested against it, keccak native on the tower. No wrapper, no second proof system, no per-withdrawal
+   recursion tax. `register` (bignum) stays (B) or on-chain Solidity as today; its decision is separate.
+4. If leanVM never becomes writable by outsiders, (B)'s wrapper is the fallback and nothing built in 1–2 is lost.
+**What decides it later, and is booked to re-check:** whether the tower-era leanVM exposes keccak (or any
+bit-native hash) cheaply enough, and whether its DSL is usable by non-core teams. Both are observable in
+the repo; neither needs a decision today.
 ⚠️ **AND THE HONEST LIMIT: "100%" against a Draft whose reference stack changed fields between spec and
 repo is a posture, not a fact.** What we can guarantee is the invariant — statement-as-program, journal =
 the public inputs, no proof-format commitment, one pinned adapter — and re-verify the seam when leanVM
