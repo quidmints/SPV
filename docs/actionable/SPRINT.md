@@ -926,9 +926,66 @@ Each was carried as open, some in red, some for weeks.
    ⚠️ **RE-MEASURED: the "10 files, 7 inside the vendored LDK" figure was a DIFFERENT count entirely**
    (it was the `TAPROOT-CHANNELS-BUILD-SPEC.md` citation count). Live tree: **5 files, 0 in LDK.**
    📌 Prose is partly cleaned already (`:252`, `:770`); one stale P2WPKH remains at `BitcoinTx.sol:258`.
-**29. `§BTC-4.5` — ML-KEM on RA-TLS.** The strongest quantum item, and **PHASE 4 was scheduled by no
-   gate at all.** ⭐ `§NO-POST-QUANTUM-ANYWHERE` ranked taproot first and **retracted itself**: the
-   exposure is the **transport** (HNDL on the migration path), not the channels.
+**29. 🔴 `§BTC-4.5` — ML-KEM on RA-TLS. MEASURED 2026-09-12: THE EXPOSURE IS EXACT, THE BLOCKER IS
+   EXACT, AND THE PATH DOES NOT REQUIRE LEAVING SGX.** The strongest quantum item, and **PHASE 4 was
+   scheduled by no gate at all** — so this is the first analysis it has had.
+   ⭐ `§NO-POST-QUANTUM-ANYWHERE` ranked taproot first and **retracted itself**: the exposure is the
+   **transport** (HNDL on the migration path), not the channels. **That retraction is correct and
+   the measurement below is why.**
+
+   🔴 **THE EXPOSURE, NAMED TO THE LINE.** `quid-tls-core/src/lib.rs:42`:
+   ```rust
+   static QUID_KEY_EXCHANGE_GROUPS: &[&dyn rustls::crypto::SupportedKxGroup] =
+       &[rustls::crypto::ring::kx_group::X25519];
+   ```
+   One group, classical, no hybrid. And `quid-hop/src/seed.rs:18` says what rides it: *"a seed
+   POSTed over RA-TLS"* — `provision_seed`, the enclave-to-enclave migration. ⇒ **the payload is
+   the ROOT SEED**, from which `derive_vault_seed` and every channel funding key descend.
+   🔑 **THIS IS WHY THE TRANSPORT OUTRANKS TAPROOT, STATED AS THE ASYMMETRY IT IS.** Recording a
+   taproot spend and breaking it later buys the coins that output held. Recording THIS handshake
+   and breaking it later buys **the seed**, and a seed does not expire — it re-derives every key
+   the fleet has ever had or will have. Harvest-now-decrypt-later is not a generic worry here; it
+   has one specific, maximally-valuable target, and the migration path is the only place that
+   target crosses a wire at all.
+
+   🔴 **THE BLOCKER, AND IT IS NOT "NOBODY GOT TO IT" — IT IS A PROVIDER PIN.** Measured against
+   `rustls 0.23.40` on disk:
+   · `crypto/ring/kx.rs` offers exactly **X25519, SECP256R1, SECP384R1**. **No ML-KEM.**
+   · ML-KEM exists ONLY under `crypto/aws_lc_rs/pq/` (`mlkem.rs`, `hybrid.rs`).
+   · `grep aws-lc Cargo.lock` → **0**. The workspace pins
+     `rustls = { default-features = false, features = ["ring", "std"] }`.
+   · And `ring` is a **FORK** — `git = "https://github.com/quidmints/ring", rev = 12d3b388` —
+     pinned because everything here targets `x86_64-fortanix-unknown-sgx`.
+   ⇒ **the obvious move (switch to the aws-lc-rs provider) is the one move that is closed**, because
+   aws-lc builds C and assembly and the fork exists precisely to make the crypto build for SGX.
+   **Reading the row without this, "add ML-KEM" looks like a config line; it is not.**
+
+   ✅ **THE PATH, AND ITS FEASIBILITY IS CHECKED RATHER THAN ASSUMED — KEEP `ring`, ADD ONE GROUP.**
+   `rustls::crypto::SupportedKxGroup` is **public**, and its `start_and_complete` docstring names
+   this exact case: *"If there is such a data dependency (like key encapsulation mechanisms), this
+   function should be implemented."* `aws_lc_rs/pq/hybrid.rs` composes a classical group with a KEM
+   using **only public API** — `ActiveKeyExchange`, `CompletedKeyExchange`, `SharedSecret`,
+   `SupportedKxGroup`, `Error`, `NamedGroup`, `ProtocolVersion` — so the same composition is
+   writable OUTSIDE rustls. `NamedGroup::X25519MLKEM768 = 0x11ec` is already in the public enum
+   (`msgs/enums.rs:256`).
+   ⇒ implement a hybrid group over `ring::kx_group::X25519` + a **pure-Rust** ML-KEM-768 and put it
+   FIRST in `QUID_KEY_EXCHANGE_GROUPS`, X25519 second. Pure Rust keeps the SGX target. `ml-kem`
+   (RustCrypto) resolves to **0.3.2** with an `alloc` feature and no `getrandom` requirement —
+   checked with `cargo add --dry-run`, so this is not an assumption about availability.
+   📌 **Listing BOTH groups is the rollout, not a hedge:** TLS 1.3 group selection is covered by the
+   transcript, so an old peer negotiates X25519 and a MITM cannot force that downgrade silently.
+
+   ⏸️ **ONE OWNER DECISION, AND THE CRATE ITSELF RAISES IT.** `quid-tls-core/Cargo.toml:23` carries a
+   standing rule: *"Beyond `rustls`, please only add dependencies behind a feature flag."* This adds
+   a cryptographic dependency **inside the TEE boundary**, which is a supply-chain decision and not
+   an engineer's. The rule also supplies its own answer — `ml-kem` optional behind a `pq` feature —
+   but whether that feature is ON by default is the part that decides whether the exposure actually
+   closes, and that is the owner's call.
+   ⚠️ **AND WHAT CANNOT BE VERIFIED FROM THIS MACHINE, STATED SO NOBODY READS A GREEN `cargo test`
+   AS PROOF: the SGX build.** A loopback handshake test (`quid-tls`'s existing `do_tls_handshake`
+   helper) proves the group negotiates; it does **not** prove `ml-kem` compiles for
+   `x86_64-fortanix-unknown-sgx`. That is the one claim this analysis cannot make, and it is the
+   claim the whole path rests on.
 **30. 🟠 RAIL A — LIGHTNING SWAP-OUT, re-implemented under M11 (owner, 2026-09-11: *"so it's getting added back later?"* — yes).** The off-chain LN swap-out (pool pays a swapper's BOLT11) was **deleted** (`34f6e30`, pre-snapshot; `BTCChannels` has only `requestSwapOutOnchain`, `daemon.rs:12` *"removed (re-added in a later milestone)"*). Why: every swap-out now settles against an SPV-verified splice-out that proves the sats AND whose channel they left; an HTLC resolving inside a channel proves neither, so the hop would attest both — the hop-as-payee-and-attester hole the swap-IN side spent §E158/§E166/T1 removing. **It comes back ONLY with hop attribution under SGX** (the enclave attests which channel's sats paid the invoice, bounded by that channel's locked sats — the §E158 economic-bound shape). Two conditions travel with it: (1) `quid-ln/src/route.rs:49` `MAX_TOTAL_ROUTING_FEE_MSAT = None` — a hop paying swapper invoices with no routing-fee ceiling exposes the pool; set it before the first hop LN-pay. (2) T3 was closed on *"every LP-balance change is a splice"* and said in terms *"re-run it when rail A arrives"* — off-chain delivery moves an LP balance without a splice. Sequenced LAST, with M11. Not to be confused with LN swap-IN (live) or rail B (on-chain swap-out, live behind the `MAIN_HOP` single-writer gate).
 
 ## 3b · VERIFIED AGAINST CODE — 2026-09-11. **Every surviving item was opened, not trusted.**
