@@ -102,7 +102,6 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     }
 
     function unwrapVbtcToWbtc(uint sats) external {
-        if (msg.sender != LEV_MANAGER) revert NotLevManagerBtc();
         VBTC.burnFrom(msg.sender, sats);
         IERC20Min(address(AUX.WBTC())).transfer(msg.sender, sats);
     }
