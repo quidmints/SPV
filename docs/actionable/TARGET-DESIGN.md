@@ -1058,6 +1058,74 @@ exposure unchanged, the hedging LP long, and every other LP correspondingly shor
 would be funded by the other LPs**, which is the same defect as §BREAK-8-11 wearing a new costume.
 **Buying WBTC externally brings NEW exposure in.** Right answer; the reason I gave for it was not.
 
+### 🔑 §THE-BUFFER-TRIO — **I WENT FOR THE AGGRESSIVE REDUCTION. IT IS CORRECT AS ALGEBRA AND WRONG AS
+### ENGINEERING, AND THE REASON IS ONE SENTENCE ALREADY IN `CLAUDE.md`.**
+Owner: *"are you sure you are being creative enough in rearchitecting the use of all these variables?"*
+⇒ **Here is the most aggressive version I can construct, stated in full before I explain why it fails.**
+
+**THE RECONCILE'S OWN SYNC CONDITION IS THE WHOLE CLUE** (`Quid.sol:441`):
+```solidity
+if (gross == levPooled[lp] + levBuf[lp] && levBufferUsd[lp] == QuidLib.bufTarget(lm, lp)) return;
+```
+| stored | compared against | which is |
+|---|---|---|
+| `levPooled[lp] + levBuf[lp]` | `gross = ILevEquity(lm).grossCollateral(lp)` | **a live read** |
+| `levBufferUsd[lp]` | `bufTarget(lm,lp) = ILevEquity(lm).debtUsd(lp)/1e12` | **a live read** |
+| `totalLevPooled + totalBuffer` | `LevBase.totalGrossCollateral()` | **already implemented** |
+⇒ ⭐ **BOTH HALVES OF THE CONDITION COMPARE STORED STATE AGAINST A LIVE READ. THAT IS THE DEFINITION OF A
+CACHE, AND `reconcileLegs` IS ITS INVALIDATION ROUTINE.** ⇒ **five variables are a local mirror of two
+values the lev manager already serves, and the aggregate it already exposes.** Delete all five, read the
+manager, and `syncLev` / `_reconcileLev` / `reconcileLegs` delete with them.
+
+⛔ **AND IT MUST NOT BE DONE. `CLAUDE.md:1630`, which I checked rather than recalled:**
+> *"any relocation must preserve the **recorded-vs-live** lev distinction, or the socialised-liquidation
+> race in §A.16b reopens."*
+
+🔑 **THE STALENESS *IS* THE PAYLOAD.** `levPooled` is the **recorded** lev; `grossCollateral(lp)` is the
+**live** lev. An LP's exit must be priced against what the book recorded, **not** against a number a
+liquidation may have moved a block ago — otherwise the loss allocation depends on when you look, which
+is the race. **A cache whose entire purpose is to be stale on purpose is not a cache; it is a snapshot,
+and it cannot be replaced by the thing it snapshots.**
+
+### ✅ AND `levBuf` / `levBufferUsd` ARE NOT A UNIT DUPLICATE EITHER — measured, not assumed
+```solidity
+function capBufferUsd(uint bufBase, uint price, uint debtUsd) internal pure returns (uint bufUsd) {
+    bufUsd = ((bufBase * price) / WAD) / 1e12;
+    uint dCap = debtUsd / 1e12;
+    if (bufUsd > dCap) bufUsd = dCap;          // <- CAPPED
+}
+```
+**`levBufferUsd = min(levBuf × price, debtUsd)`.** Once the cap binds, **neither recovers the other**, so
+the pair is not a wad→usd round trip. ⚠️ **AND A SHARPER OBSERVATION FALLS OUT: when the cap binds,
+`levBufferUsd == debtUsd/1e12 == bufTarget(lm, lp)` EXACTLY — so "in sync" IS "the cap binds".** In
+steady state the stored value equals the live read, and its only content is **how stale it is**. Which is
+§A.16b again, from the other end.
+
+### 🔑 AND WHY THERE ARE *TWO* OF THEM, WHICH IS THE PART I EXPECTED TO BE DRIFT AND IS NOT
+`levPooled` and `levBuf` sum to the recorded gross, so the obvious move is to keep the sum and drop the
+split. **It destroys two formulas, because they enter with OPPOSITE SIGNS on DIFFERENT AXES:**
+| formula | uses | sign |
+|---|---|---|
+| fee weight — `refreshBookmarks(LP, LP.pooled + levBuf[lp], …)` | **`levBuf`** | **+** |
+| free sats — `plainNet(pooled, levPooled) = pooled − levPooled` | **`levPooled`** | **−** |
+⇒ **the buffer slice EARNS fees and the net-equity slice does NOT reduce withdrawability the same way.**
+**Two numbers, two axes, opposite signs — a real distinction, not drift.** ⇒ **`levBuf`, `levPooled`,
+`levBufferUsd`, `totalBuffer`, `totalLevPooled` all survive**, and I could not break any of them.
+
+### ▶️ THE ONE THING THAT *IS* REDUCIBLE, found by the same pass
+**`bufTarget` is open-coded.** `BtcLib:203` writes
+`levBufferUsd[lp] == (mgr == address(0) ? 0 : ILevEquity(mgr).debtUsd(lp) / 1e12)` **by hand**, while
+`Quid.sol:441` calls `QuidLib.bufTarget(lm, lp)` — **the same expression in two spellings, one of them
+inlined.** ⇒ **fold `BtcLib:203` onto `bufTarget` (rule 8).** Small, and it is the kind of divergence
+that lets the two legs drift apart silently later.
+
+### ✅ AND ON `feesPerShare` — I DID NOT CHANGE MY MIND, I HANDED IT OVER
+§BREAK-9 booked its removal. **project-6b then measured that it is 38 references across 8 files and
+called it a coordinated pass; I agreed to defer rather than start a nine-file edit while three sessions
+were live.** ⇒ **they are executing it right now** — `Shares.sol` is losing `uint public feesPerShare`
+in their working tree as of this writing. **Deferring to the session already in those files is not a
+reversal.** ⚠️ **What WOULD have been a reversal is letting it sit unowned, and it is owned.**
+
 ### ⭐ §LOCKSTEP — **THE ONE INVARIANT THAT EXPLAINS WHY `unexpose` SHOULD NOT EXIST**
 Owner: *"unexpose feels like a noun that shouldnt exist… dont double encumber."* **The algebra says
 exactly that.** Every write to `levPooled` in the tree:
