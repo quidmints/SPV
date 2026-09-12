@@ -1075,6 +1075,27 @@ the same session I restored the markets. ▶️ **The fix is the unwrap: `unwrap
 by any vBTC holder, not only the manager** — it burns vBTC and pays WBTC, which is exactly the
 liquidator's exit, and it is already written. **Gating it was the mistake, not its absence.**
 
+### ⚠️ §WRAP-ASSUMES-PARITY IS REFRAMED — **THE WHOLE SYSTEM ALREADY PRICES WBTC AS NATIVE BTC**
+**Measured, and it changes the recommendation:** the feed registered for WBTC is
+`0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c` — **Chainlink BTC/USD**, not a WBTC feed
+(`DeployL1_s:291`/`:682`, `DriverE2E:110`, wired as `aFee[1] = cfg.btcFeed` in `DeployLib:189`). So
+`assetPrice(WBTC)` returns the **native BTC** price, and every consumer inherits it: swap pricing, hedge
+sizing, `netEquityBase`, and all **twelve** market oracles.
+⇒ 🔑 **THE "FIAT" IS NOT A CHOICE STILL TO BE MADE — IT IS ALREADY THE SYSTEM'S BEHAVIOUR EVERYWHERE, AND
+NOBODY WROTE IT DOWN.** The wrap minting 1:1 is therefore **consistent** with the rest of the design, and
+pricing *only the wrap* off the basis would be the **inconsistent** option — it would make one door
+charge for a spread that every other door ignores.
+⇒ **SO THE DECISION IS BIGGER AND SIMPLER THAN I FRAMED IT: it is not "how should the wrap price?" but
+"does the protocol accept WBTC/BTC basis risk system-wide?"** ⚠️ **It already does. The only defect is
+that this is undocumented**, so every reader has to rediscover that a WBTC balance is valued at native
+price. ▶️ **State it as a design premise, and the wrap needs no change.** ⛔ **If the answer is instead
+that the basis must be priced, the fix is NOT in `wrapWbtcToVbtc` — it is a WBTC/BTC feed behind
+`assetPrice`, once, where all four surfaces read it.**
+📌 **AND THE EXPOSURE IS LARGER THAN THE WRAP, WHICH IS WHY THE REFRAME MATTERS:** it is not the minting
+step that carries the risk, it is **every WBTC the pool holds**, valued at native-BTC price on every
+read. **My original write-up under-stated it by attributing it to one function.**
+
+### (original, narrower framing — kept because the arb it describes is real, but see the reframe above)
 ### 🔴🔴 §WRAP-ASSUMES-PARITY — **`wrapWbtcToVbtc` MINTS 1:1, AND 1:1 IS AN ASSUMPTION, NOT A PRICE**
 `wrapWbtcToVbtc(sats)` takes WBTC and mints **the same number** of vBTC. But **WBTC is a custodial
 wrapper that trades at a discount to native BTC**, and vBTC is a claim on **native channel sats**. ⇒ when
