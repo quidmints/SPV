@@ -26,6 +26,7 @@ import {SPVGateway} from "../src/spv/SPVGateway.sol";
 import {LevManager} from "../src/LevManager.sol";
 import {BtcLevManager} from "../src/BtcLevManager.sol";
 import {MorphoEscrowVenue, MarketParams} from "../src/imports/LevVenueBase.sol";
+import {RealRateBtcMorphoOracle} from "../src/imports/LevBase.sol";
 import {ISwap} from "../src/imports/Interfaces.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -522,7 +523,29 @@ contract Deploy is Script {
         // USDT first: the file's liveness note wants the BTC legs held apart from the ETH legs'
         // RLUSD/PYUSD, and the "dont even borrow usdc, too thin" warning was about the ETH weETH/USDC
         // market ($0.17M idle), not this one.
-        address[] memory vsB = new address[](2);
+        //
+        // 🔑 AND THE vBTC MARKETS ARE ALLOWLISTED TOO, FOR A REASON THAT IS ABOUT TIMING, NOT ABOUT
+        //    WHETHER THEY WORK TODAY. `init` sets `venuesFrozen = true` and there is NO setter, so a
+        //    venue absent at deploy can NEVER be added. They have no supplier on day one; that is a
+        //    bootstrapping state, not a property — vBTC is a claim on channel-locked BTC with a live
+        //    oracle, so suppliers can arrive. Omitting them would foreclose that permanently.
+        //    ⇒ they also carry a capability the WBTC venues do not: `openBtcLev` posts the LP's OWN
+        //    shares and `leverBorrow` draws stables against them, i.e. borrow-against-your-position
+        //    with no swap loop. `vetVenue(v, WBTC, COLL, WBTC)` admits both collaterals by design.
+        //    Only `leverUpBuyWbtc` requires WBTC, and it reverts on a vBTC venue rather than misfiring.
+        address[] memory vsB = new address[](2 + STABLECOINS.length);
+        for (uint i; i < STABLECOINS.length; ++i) {
+            MarketParams memory mpV = MarketParams({
+                loanToken: STABLECOINS[i],
+                collateralToken: address(ETH.VBTC()),
+                oracle: address(new RealRateBtcMorphoOracle(address(AUX), address(WBTC), STABLECOINS[i])),
+                irm: vm.envOr("MORPHO_IRM", ADAPTIVE_IRM),
+                lltv: MORPHO_LLTV_86
+            });
+            (,,,,uint128 lu,) = IMorphoMkt(morpho).market(Id.wrap(keccak256(abi.encode(mpV))));
+            if (lu == 0) IMorphoMkt(morpho).createMarket(mpV);
+            vsB[2 + i] = address(new MorphoEscrowVenue(morpho, mpV, address(bm)));
+        }
         vsB[0] = _mkMorphoVenue(morpho, MarketParams({
             loanToken: address(USDT), collateralToken: address(WBTC),
             oracle: 0x008bF4B1cDA0cc9f0e882E0697f036667652E1ef,
