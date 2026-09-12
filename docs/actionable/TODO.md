@@ -101,15 +101,59 @@ dependency the leanSTARK verifier accepts, and only one is buildable:
   and post-8288 the declared dependency is a leanVM program that VERIFIES that zkVM's proof. The zkVM
   vendor supplies that recursion program (it is how every app on their stack reaches 8288); our statement,
   journal and adapter are unchanged. **This is what the four-rule invariant above already encodes.**
-⇒ **DECISION (recommended, owner to confirm): route (B) on SP1 Hypercube** — Poseidon2 over KoalaBear,
-multilinear/logup, i.e. the EIP's own stated parametrization and the same proof family the lean stack uses
-(`SP1 Hypercube is live on mainnet`, wrapped Groth16 verifier on-chain for the pre-8288 era). RISC Zero
-(BabyBear) and Airbender (Mersenne31) are the alternatives; none is leanVM.
+⇒ Route (B). **The interim zkVM is a commodity once the statements are keccak-native (§TRUST-THE-TOWER
+below): SP1 and RISC Zero both have keccak precompiles and wrapped Groth16 verifiers on-chain; a
+binary-tower zkVM (RISC Zero × Binius, Polygon × Irreducible) replaces it when one ships.** The owner's
+call (*"trust the tower"*) is that the hash, not the interim field, is what aligns us.
 ⚠️ **AND THE HONEST LIMIT: "100%" against a Draft whose reference stack changed fields between spec and
 repo is a posture, not a fact.** What we can guarantee is the invariant — statement-as-program, journal =
 the public inputs, no proof-format commitment, one pinned adapter — and re-verify the seam when leanVM
 freezes. Booked to re-check: the `data_hash` hash (*"unspecified … BLAKE3"*), and whether the lean
 recursion program for SP1's proof exists before we need it.
+
+### 🔴 §TRUST-THE-TOWER — THE HASH IS THE ALIGNMENT DECISION, AND IT IS PRE-LAUNCH SO IT COSTS NO REDEPLOY (owner, 2026-09-12: *"trust the tower"*)
+The lean stack's direction is the REPO, not the EIP text: leanVM proves over a **192-bit binary tower**
+with **BLAKE2s** (`leanEthereum/leanVM` README), and the wider hash-based world is going the same way
+([Binius64](https://www.irreducible.com/posts/announcing-binius64): 64-bit words, XOR/AND/shift-native,
+SHA-256 Merkleization; RISC Zero × Irreducible and Polygon × Irreducible are building zkVMs on it).
+**In a binary-field prover a bit-oriented hash (keccak, SHA-2, BLAKE) is cheap and a prime-field
+Poseidon is the expensive, non-native thing — the exact inverse of the SNARK world our circuits came
+from.** Our on-chain trees are BN254 Poseidon: `PoseidonT3` in the pool's LeanIMT (`lean-imt.sol`),
+`PoseidonUnit2L/3L` set as the `SparseMerkleTree` hashers in `IdentityRegistry.sol:219`, the blacklist
+SMT, and the note commitment/nullifier hashes. Keeping them means every statement pays non-native
+BN254 arithmetic forever, on every prover the tower produces.
+⇒ **DECISION: keccak256 everywhere** — the pool's state LeanIMT, the identity and blacklist SMTs, the
+commitment/nullifier/precommitment hashes, `blacklist_key`, `identity_commitment`. keccak is EVM-native
+(30 + 6/word gas vs ~50k for a PoseidonT3 call, so the on-chain trees get CHEAPER), has a precompile in
+every RISC-V zkVM for the interim, and is bit-native on the tower. The BN254 scalar field then leaves
+the statements entirely: journal words are plain `bytes32`, `context` needs no `% SNARK_SCALAR_FIELD`.
+**Nothing is launched, so this is a DESIGN change, not a redeploy** — the "no redeploy for 8288"
+rule binds AFTER launch and is exactly why the hash must be settled before it.
+⚠️ **The live Noir path cannot follow cheaply** (keccak in UltraHonk ≈ 10–20k gates per hash; ~130 per
+withdrawal), and it is slated for deletion anyway. ⇒ **Cut over ONCE, both halves together**: build the
+keccak trees in Rust (`pp-statements`), TS (wallet) and Solidity with a three-way differential pin —
+the cross-implementation guarantee the Poseidon path had from its real proof — and switch the
+contracts + wallet + prover in the same landing, when the zkVM guest proves the keccak statement.
+Until then the Poseidon/Honk path stays green as the reference, and `pp-statements` carries BOTH hash
+backends so the keccak one is tested against the same tree semantics the real proof settled.
+⚠️ `Bytes2Poseidon`, `PublicSignalsTD1Builder`, the passport/certificate dispatchers and
+`HolderStateKeeper` are the RARIMO registration side (`§ONE-WALLET-APP`); their Poseidon is the
+passport rail's and moves with the `register` program port, not with the pool.
+**Verkle trees — no, and Ethereum itself said no.** Verkle is a KZG/IPA vector commitment over an
+elliptic curve (Bandersnatch): its openings are NOT post-quantum, which is why Hegota dropped it for the
+[EIP-7864](https://eips.ethereum.org/EIPS/eip-7864) binary HASH tree. Verifying a verkle opening
+inside a hash-based STARK would also need EC scalar arithmetic — the non-native cost again. Its one
+advantage, tiny witnesses for very large state, does not apply: a 32-deep Merkle path is 32 hashes,
+which in a tower VM is the cheapest thing it does. Our trees are already binary hash trees — with
+keccak they are 7864's shape.
+- [ ] `pp-statements`: keccak backend for `lean_imt`, `smt`, `commitment`, `blacklist_key`,
+      `identity_commitment` (generic over the hash; both backends tested).
+- [ ] Solidity: keccak `LeanIMT` (replace `@zk-kit/lean-imt.sol`'s PoseidonT3), `setHashers(keccak)`
+      on the identity/blacklist SMTs, keccak commitments in `PrivacyPool`/`Entrypoint`; `context`
+      loses the field reduction.
+- [ ] Wallet: `notes.ts`/`stateTree.ts`/`identityProof.ts`/blacklist keys on keccak.
+- [ ] The three-way differential fixture (Rust ↔ TS ↔ Solidity) on identical trees.
+- [ ] Cutover: contracts + wallet + zkVM guest in one landing; delete Noir after.
 
 ### THE PIN — ONE GOVERNED POINTER IS THE PRICE OF NO REDEPLOY
 The adapter address is settable ONLY by the enclave-image msig (the same 2-of-3 that authorises
