@@ -1,0 +1,19 @@
+[package]
+name = "pp-statements"
+version = "0.1.0"
+authors = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+publish = false
+description = "§PROVING-ARCHITECTURE-8288 — the privacy-pool statements as plain Rust, proof system underneath swappable"
+
+[dependencies]
+# circomlib-parameter Poseidon over BN254 — the hash every tree and commitment here uses, and what
+# `@iden3/js-crypto` (the wallet), `poseidon::bn254` (the Noir circuits) and `PoseidonT3` (the pool's
+# on-chain LeanIMT) all compute. Light Protocol's, audited, used in production on Solana.
+light-poseidon = "0.4"
+ark-bn254 = "0.5"
+ark-ff = "0.5"
+
+[dev-dependencies]
+toml = "0.8"

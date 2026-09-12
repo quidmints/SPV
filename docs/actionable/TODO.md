@@ -174,7 +174,11 @@ context. Recommendation; owner to confirm before the circuit term is written.
 - [ ] The float: the relayer's ETH balance is an operational input; alarm below N relays' worth. Fees accrue in the asset at the hop address.
 
 ### BACKEND — the queue
-- [ ] `crates/statements/{withdraw,ragequit,holder,notary,title,envelope}`: the single statements, journal = ABI tuple, keccak Merkle gadget generic over tree shape.
+- [ ] `quid-ln/pp-statements` (the crate; ⚠️ the row said "keccak Merkle gadget" — WRONG, the deployed pool's trees are circomlib POSEIDON: `PoseidonT3` in the LeanIMT, `@iden3/js-crypto` in the wallet, so the statements use `light-poseidon` and every vector matches):
+  - [x] `withdraw` — `verify_withdrawal(signals, witness)` + `journal()` = the 8 `pubSignals` words; gadgets `lean_imt`, `smt` (inclusion + both exclusion shapes + the `old_key == key` soundness line), `commitment`. **Acceptance: accepts `withdraw_identity/Prover.e2e.toml` — the witness a real Honk proof was made from — and its journal equals `withdraw_e2e_pubsignals.json` word for word; every single-field perturbation rejects.** Gadget vectors: circomlibjs SMT tree, `lean-imt.sol` fuzz, Poseidon Solidity vector (2026-09-12).
+  - [x] `ragequit` — same, against `ragequit/Prover.e2e.toml`.
+  - [ ] `holder`, `notary`, `title`, `envelope` — port `pp/src/{envelope,title_holder,holder_root,jubjub}.nr` (BabyJubJub scalar-mul is the one non-Poseidon gadget; `ark-ed-on-bn254` has the curve).
+  - [ ] the zkVM guest `main`s (one per statement: read journal+witness, call verify, commit journal) — written when the prover is chosen (§"proving location"); the library above is prover-agnostic on purpose.
 - [ ] `crates/statements/batch`: the disposable K-loop wrapper.
 - [ ] `crates/statements/register`: one program for all passport shapes; carry the orphan/missing-profile coverage; brainpool in software.
 - [ ] `evm/src/identity`: journal seam — `adapter.verify(journal, proof)` is the only proving contact; delete `NUMBER_OF_PUBLIC_INPUTS` indexing and every `IVerifier` reference from the pool/registries.

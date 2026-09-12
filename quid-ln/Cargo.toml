@@ -23,6 +23,7 @@ members = [
     "quid-sgx-toml",
     "quid-run-sgx",
     "quid-sgx-test",
+    "pp-statements",
 ]
 # Vendored LDK fork (patched via [patch.crates-io] below) is its own workspace;
 # keep it out of this one.
