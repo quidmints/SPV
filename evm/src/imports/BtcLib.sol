@@ -21,12 +21,21 @@ library BtcLib {
         Types.Deposit storage LP,
         address payTo, address quid,
         uint feesPerShare, uint usdFees, uint weight
-    ) public returns (uint compoundedSats) {
-
-        if (weight == 0) return 0;
-        (uint tokR, uint usdR) = SwapLib.pendingFor(LP, weight, feesPerShare, usdFees);
-
-        if (tokR > 0) { LP.pooled += tokR; compoundedSats = tokR; }
+    ) public {
+        // §BTC-10b(c)+(d). This RETURNED `compoundedSats` — the native fee leg compounded into
+        // shares — and it was always ZERO, because `feesPerShare` has no writer left: its only
+        // increments were `+= o.feesPerShareInc`, and that field was never assigned. So
+        // `pendingFor`'s `tokReward` is identically 0 and the `if (tokR > 0)` branch was
+        // unreachable.
+        // 🔑 **DELETING THE RETURN IS THE ROOT FIX FOR THE EXIT-PATH MINT, NOT A TIDY-UP.**
+        // `_resize` did `lpShares = lpShares + o.feeCompounded - o.sharesRemoved`, and
+        // `feeCompounded` was a MINT on a path that never calls `checkBacking()` —
+        // `requestDeposit` has that check, the exit does not. It was safe only because this value
+        // could not be non-zero, i.e. two dead things were making each other safe. Adding a guard
+        // would have held the mint; removing the mint means there is nothing left to guard, and
+        // reviving the fee feed cannot silently re-arm it.
+        if (weight == 0) return;
+        (, uint usdR) = SwapLib.pendingFor(LP, weight, feesPerShare, usdFees);
         if (payTo != address(0)) {
             usdR += LP.usd_owed;
             LP.usd_owed = 0;
@@ -70,7 +79,7 @@ library BtcLib {
         uint    usdFees;
     }
 
-    struct ResizeOut { uint sharesRemoved; bool cleared; uint bufRemoved; uint feeCompounded; }
+    struct ResizeOut { uint sharesRemoved; bool cleared; uint bufRemoved; }
 
     function resizeBtcLpTail(
         address core, address quid,
@@ -82,7 +91,7 @@ library BtcLib {
         Types.Deposit storage LP = autoManaged[a.lpEth];
         {
 
-            o.feeCompounded = settleBtcLp(LP, a.lpEth, quid, a.feesPerShare, a.usdFees, LP.pooled + a.buf);
+            settleBtcLp(LP, a.lpEth, quid, a.feesPerShare, a.usdFees, LP.pooled + a.buf);
             uint deliveredRaw = a.shrinkSats > a.lpPayoutSats ? a.shrinkSats - a.lpPayoutSats : 0;
             uint deliveredSlice = settleDelivered(a.lpEth, deliveredRaw, a.exactUsd, core, quid);
             uint nativeSlice = a.shrinkSats - deliveredSlice;
@@ -155,7 +164,7 @@ library BtcLib {
         p.feesPerShare = ICore(address(this)).feesPerShare();
         p.usdFees = ICore(address(this)).USD_FEES();
         p.buf = weight - LP.pooled;
-        sharesAdded += settleBtcLp(LP, address(0), quid, p.feesPerShare, p.usdFees, weight);
+        settleBtcLp(LP, address(0), quid, p.feesPerShare, p.usdFees, weight);
 
         uint price = IAux(c.aux).assetPrice(IAux(c.aux).WBTC());
         if (price == 0) revert ZeroTwap();
@@ -204,10 +213,9 @@ library BtcLib {
         p.usdFees = ICore(address(this)).USD_FEES();
         p.mgr = mgr; p.gross = gross;
 
-        uint feeCompounded = settleBtcLp(LP, address(0), quid, p.feesPerShare, p.usdFees, w);
+        settleBtcLp(LP, address(0), quid, p.feesPerShare, p.usdFees, w);
         (d.burnedNet, d.bufBurned) = RangeLib.levBurnAll(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
         (d.addedNet, d.bufAdded)   = RangeLib.levAddGross(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
-        d.addedNet += feeCompounded;
     }
 
     function vbtcExposeBody(
@@ -234,15 +242,19 @@ library BtcLib {
         mapping(address => uint) storage levBuf,
         address from, address to, uint amount,
         uint feesPerShare, uint usdFees, address quid
-    ) public returns (uint lpSharesDelta) {
+    ) public {
+        // §BTC-10b(c). This returned a share DELTA that was only ever the dead fee-compounding
+        // amount, so the caller's `lpShares += …` added zero. ⭐ And a transfer must not move total
+        // supply at all — it moves `L.pooled` to `R.pooled` — so removing the return does not just
+        // delete a no-op, it makes that invariant visible instead of arithmetic nobody can check.
         if (to == address(0) || from == to) revert BadTarget();
-        if (amount == 0) return 0;
+        if (amount == 0) return;
         Types.Deposit storage L = autoManaged[from];
 
-        lpSharesDelta = settleBtcLp(L, address(0), quid, feesPerShare, usdFees, L.pooled + levBuf[from]);
+        settleBtcLp(L, address(0), quid, feesPerShare, usdFees, L.pooled + levBuf[from]);
         Types.Deposit storage R = autoManaged[to];
         if (R.pooled > 0)
-            lpSharesDelta += settleBtcLp(R, address(0), quid, feesPerShare, usdFees, R.pooled + levBuf[to]);
+            settleBtcLp(R, address(0), quid, feesPerShare, usdFees, R.pooled + levBuf[to]);
         L.pooled -= amount; R.pooled += amount;
         SwapLib.refreshBookmarks(L, L.pooled + levBuf[from], feesPerShare, usdFees);
         SwapLib.refreshBookmarks(R, R.pooled + levBuf[to], feesPerShare, usdFees);
@@ -250,7 +262,6 @@ library BtcLib {
 
     struct RebalOut {
         uint spotPrice; uint    loPrice; uint    upPrice; uint myLiquidity; uint anchorPrice;
-        uint feesPerShareInc; uint usdFeesInc;
     }
 
     function rebalanceBody(
@@ -294,15 +305,6 @@ library BtcLib {
         emit Supplied(lp, amount);
     }
 
-    function deleverWithdraw(
-        mapping(address => Types.Pos) storage pos,
-        address coll, address lp, uint amount
-    ) external returns (uint out) {
-        if (!pos[lp].open) revert NotOpen();
-        out = pos[lp].venue.withdraw(lp, amount);
-        if (out > 0) IERC20Min(coll).transfer(lp, out);
-        emit Withdrawn(lp, out);
-    }
 
     function repay(
         mapping(address => Types.Pos) storage pos,

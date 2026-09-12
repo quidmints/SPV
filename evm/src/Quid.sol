@@ -617,7 +617,12 @@ contract Quid is Shares,
         venueFeesPerShare += o.venueFeesPerShareInc;
         bookmark = o.newBookmark;
 
-        feesPerShare += o.feesPerShareInc; USD_FEES += o.usdFeesInc;
+        // §BTC-10b(c). `feesPerShareInc`/`usdFeesInc` were NEVER ASSIGNED by either `rebalanceBody`
+        // — 4 occurrences each, two struct declarations and these two reads — so this line added
+        // zero to both accumulators on every rebalance since §V4-CUT removed the v4 trading-fee
+        // feed that used to populate them. Verified by reading the bodies, not by grepping the
+        // name: both use a NAMED return, so there is no positional constructor to hide an
+        // assignment in. `venueFeesPerShareInc` IS assigned and is untouched.
 
         if (o.setLastRepack) LAST_REPACK = block.timestamp;
         RANGE_ANCHOR = o.spotPrice;

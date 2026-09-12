@@ -92,7 +92,7 @@ library QuidLib {
     }
     struct RebalOut {
         uint    spotPrice; uint    loPrice; uint    upPrice; uint    myLiquidity; uint anchorPrice;
-        uint feesPerShareInc; uint usdFeesInc; uint venueFeesPerShareInc; uint newBookmark;
+        uint venueFeesPerShareInc; uint newBookmark;
         bool setLastRepack; bool reseatBump;
     }
 
