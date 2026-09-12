@@ -1075,6 +1075,61 @@ the same session I restored the markets. ▶️ **The fix is the unwrap: `unwrap
 by any vBTC holder, not only the manager** — it burns vBTC and pays WBTC, which is exactly the
 liquidator's exit, and it is already written. **Gating it was the mistake, not its absence.**
 
+### ⛔ §NO-WRAP — **THE WRAP IS DELETED. vBTC MAY ONLY BE MINTED AGAINST CHANNEL-LOCKED BTC.**
+Owner: *"but we dint mint vbtc against anythibg except channel locked btc."* **The two mint sites, side
+by side, are the whole argument:**
+```solidity
+// BtcLib.vbtcExposeBody — the ONLY legitimate one, and it is BOUNDED
+uint free = SwapLib.plainNet(pooled, levPooled[lp]);
+if (sats == 0 || sats > free) revert InsufficientChannelBtc();
+
+// what I added an hour ago — NO BOUND OF ANY KIND
+function wrapWbtcToVbtc(uint sats) external {
+    IERC20Min(address(AUX.WBTC())).transferFrom(msg.sender, address(this), sats);
+    VBTC.mintTo(msg.sender, sats);          // <- no channel sats behind it
+}
+```
+⇒ **an unbacked mint, against the very invariant §VBTC-IS-THE-SHARES names as protecting the leg**
+(`sats <= plainNet(pooled, levPooled)`). ⚠️ **And it composed with the liquidator ungate into a live
+drain:** wrap creates vBTC from WBTC, the ungated unwrap lets a **sats-backed** holder take that WBTC
+out ⇒ a channel LP converts their claim to WBTC and leaves while their sats stay locked, with the WBTC
+having come from **another LP's** lever-up.
+
+⭐ **HOW THE REASONING FAILED, AND IT IS THE REUSABLE PART: I CITED §MIXED-SETTLEMENT, WHICH IS ABOUT
+SETTLEMENT, TO AUTHORISE ISSUANCE.** *"Obligations settle in whatever the pool holds, WBTC included"*
+says what the pool may **PAY WITH**. It says nothing about what the pool may **MINT AGAINST**. **Those
+are different questions and only the first was ever ruled on.** ⇒ **before citing a ruling as
+permission, check which side of the balance sheet it governs.**
+
+🔑 **AND THE CONSEQUENCE IS THE ONE THE ORIGINAL DESIGN ALREADY RECORDED AND I READ PAST — the deleted
+deploy comment said it in eight words: *"No swapper / no flash — BTC acquisition is external+async."***
+**ATOMIC LEVER-UP ON THE BTC LEG IS NOT CONSTRUCTIBLE.** Collateral can only be sats **already in a
+channel**; getting freshly-bought WBTC into a channel is an **async swap-in**. The ETH leg can do it in
+one transaction only because **weETH is mintable on-chain**; native BTC is not. **This is a physics
+asymmetry between the legs, not a gap in the code**, and every attempt to close it synchronously ends in
+an unbacked mint — which is exactly the shape mine took.
+▶️ **`leverUpBuyWbtc` now reverts `VbtcLeverNeedsChannelIn()`** for a vBTC venue rather than silently
+transferring the wrong token. **Loud and honest beats a path that half-works.**
+
+### 🔴 TWO THINGS RE-OPEN BECAUSE OF THIS, stated rather than papered over
+1. **The BTC hedge can be OPENED against already-exposed sats but NOT LEVERED**, pending an async
+   channel-in route. §BTC-IL-VIA-VBTC's collateral half stands; its leverage half does not.
+2. **§LIQUIDATOR-HAS-NO-EXIT RETURNS.** The unwrap was the exit I proposed, and it was **the wrong
+   exit** — it paid out an asset vBTC was never minted against. ⇒ **the real exit must be swap-out**
+   (owner: *"there is no redeem really just swapout"*), which means a liquidator has to be able to reach
+   the swap-out rail. **That is the open question, and it is the one that decides whether the 12 markets
+   are investable.**
+
+### ✅ AND ONE THING FROM THE DELETED SECTION SURVIVES, because it was never about the wrap
+**The system prices WBTC as NATIVE BTC everywhere**, and that is measured, not inferred: the feed
+registered for WBTC is `0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c` — **Chainlink BTC/USD**
+(`DeployL1_s:291`/`:682`, `DriverE2E:110`, wired as `aFee[1] = cfg.btcFeed` in `DeployLib:189`). So
+`assetPrice(WBTC)` returns the native price and **swap pricing, hedge sizing, `netEquityBase` and all
+twelve market oracles inherit it.** ⇒ **the protocol already carries WBTC/BTC basis risk on every WBTC
+it holds, and nothing says so.** **Undocumented, not wrong — but it should be stated as a premise**, and
+it is unaffected by the wrap's removal because it was never the wrap's doing.
+
+### (the two paragraphs below are MOOT — the wrap they describe no longer exists)
 ### ⚠️ §WRAP-ASSUMES-PARITY IS REFRAMED — **THE WHOLE SYSTEM ALREADY PRICES WBTC AS NATIVE BTC**
 **Measured, and it changes the recommendation:** the feed registered for WBTC is
 `0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c` — **Chainlink BTC/USD**, not a WBTC feed
