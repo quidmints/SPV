@@ -765,7 +765,19 @@ contract BTCChannels {
             BTC_DEPOSIT_KEY, terms, proof.userRefund, proof.cltvHeight, rawDepositTx);
     }
 
-    function reverseSwapOut(bytes32 swapId, uint minDeliveredUsd, bool requireFull)
+    /// §BTC-2.5a / `4e` — **THE FLOOR IS `so.usd`, DERIVED, AND THE HOP CANNOT SUPPLY ONE.**
+    ///
+    /// Owner ruling 2026-09-12: *"no haircut, refund the full amount they put in."* A reversal
+    /// undoes a swap-out that never delivered, so the swapper is owed exactly what
+    /// `requestSwapOutOnchain` took — the value already recorded in `so.usd` and debited two lines
+    /// below via `subPendingSwapOut`.
+    /// ⛔ **THIS USED TO BE A `minDeliveredUsd` PARAMETER AND THE CALLER IS `_onlyHop`.** That made
+    /// the hop the author of the swapper's own slippage protection, and `0` filled at any price —
+    /// not a fee, but the same trust shape as one, and the ONE swap-in path where a number deciding
+    /// what a user receives came from the daemon. Deriving it does not merely bound the mistake, it
+    /// makes it UNCONSTRUCTIBLE: there is no argument left to get wrong.
+    /// 📌 It also costs nothing to read — `so` is already in memory for `subPendingSwapOut`.
+    function reverseSwapOut(bytes32 swapId, bool requireFull)
         external nonReentrant returns (uint consumed)
     {
         _onlyHop();
@@ -775,7 +787,7 @@ contract BTCChannels {
         swapInUsed[swapId] = true;
         delete pendingOnchainSwapOut[swapId];
         btc.subPendingSwapOut(so.usd);
-        consumed = btc.creditSwapIn(so.swapper, so.sats, so.token, minDeliveredUsd);
+        consumed = btc.creditSwapIn(so.swapper, so.sats, so.token, so.usd);
 
         if (requireFull && consumed < so.sats) revert SwapInPartialRejected();
         emit SwapInSettled(so.swapper, swapId, so.sats, consumed, so.token);

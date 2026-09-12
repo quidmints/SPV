@@ -441,8 +441,13 @@ async fn reverse_swap_out_onchain<R: JsonRpc + Send + Sync + 'static>(
     // A reversal returns the swapper's OWN committed USD (the freed swap-out reserve), so it
     // must be all-or-nothing: require_full = true → a can't-fully-return reverts to
     // Undeliverable and is retried, never a partial return.
+    // §BTC-2.5a / `4e` — **THIS CALL USED TO PASS `U256::ZERO` AS THE FLOOR, AND THAT WAS THE BUG
+    // IN ITS LIVE FORM, NOT A HYPOTHETICAL ONE.** A zero floor accepts any fill, so the swapper's
+    // refund was bounded by nothing on the one path that exists to make them whole. The contract
+    // now derives it from `so.usd` — what their own `requestSwapOutOnchain` recorded — and there is
+    // no argument here to get wrong (owner: *"no haircut, refund the full amount they put in"*).
     let outcome = tokio::task::spawn_blocking(move || {
-        evm.reverse_swap_out(B256::from(swap_id), U256::ZERO, true)
+        evm.reverse_swap_out(B256::from(swap_id), true)
     })
     .await
     .context("reverse_swap_out join")??;

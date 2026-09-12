@@ -642,14 +642,17 @@ impl<R: JsonRpc, S: TxSigner> JsonRpcEvmClient<R, S> {
     /// landed, and a revert with it CLEAR is a genuine failure to refund. `consumed_sats` is
     /// not read back: nothing is claimed against a reversal, so there is no remainder to
     /// refund and no log to decode.
+    /// §BTC-2.5a / `4e` — **NO `min_delivered_usd` ARGUMENT, AND THERE MUST NOT BE ONE.** The
+    /// contract derives the refund floor from `so.usd`, the amount the swapper's own
+    /// `requestSwapOutOnchain` recorded (owner: *"no haircut, refund the full amount they put
+    /// in"*). A hop-supplied floor made this daemon the author of the swapper's slippage
+    /// protection, with `0` filling at any price.
     pub fn reverse_swap_out(
         &self,
         swap_id: B256,
-        min_delivered_usd: U256,
         require_full: bool,
     ) -> anyhow::Result<SettleOutcome> {
-        let data =
-            quid_hop::swap::reverse_swap_out_calldata(swap_id.0, min_delivered_usd, require_full);
+        let data = quid_hop::swap::reverse_swap_out_calldata(swap_id.0, require_full);
         let depth = self.cfg.settle_min_confirmations;
         let mined = self.submit(self.cfg.btc_channels, &data, self.cfg.gas_limit)?;
         debug!(success = mined.success, block = mined.block, "reversal mined");

@@ -667,7 +667,30 @@ Each was carried as open, some in red, some for weeks.
    `BTCChannels.sol:2050 _emitForceCloseLpOutput` + `event ForceCloseLpOutput` (`:2012`), called from
    `recordForceClosePermissionless` (`:1993`); locates the LP output via `ch.lpToRemoteKey` and emits
    `(lpPaidSats, checkpointSats, paidOutSats)`. **Emit-only, no revert, no re-value — exactly as specified.**
-**18. `4e`** — `reverseSwapOut` floor **and** the skimmed-fee bound. **One finding, two places, one change.**
+**18. ✅ `4e` / `§BTC-2.5a` + `§BTC-8e D2.1` — BOTH PLACES CLOSED 2026-09-12.** *"An economic value
+   supplied by a counterparty and bounded by nothing."*
+   ✅ **Contract side — and the live caller really was passing ZERO.** `reverseSwapOut` took
+   `minDeliveredUsd` from an `_onlyHop` caller, and `swap_out_onchain.rs:445` passed `U256::ZERO`, so
+   the swapper's refund was bounded by nothing on the one path that exists to make them whole.
+   Owner ruling: *"no haircut, refund the full amount they put in."* ⇒ **the parameter is DELETED and
+   the floor is derived from `so.usd`** — what the swapper's own `requestSwapOutOnchain` recorded,
+   already in memory for `subPendingSwapOut`. Not bounded, **unconstructible**: there is no argument
+   left to get wrong. ⭐ It also SAVED 9 bytes (24,401 → 24,392) on the tightest contract.
+   ✅ **Rust/LN side was ALREADY BUILT** — `MAX_RECEIVER_SKIM_PPM` enforced at `inbound.rs:569-581`,
+   with a *"worst input that still passes"* note. ⚠️ **And it guards an UNREACHABLE path:**
+   `node.rs:750` sets `accept_underpaying_htlcs = false`, so `counterparty_skimmed_fee_msat` is
+   structurally always zero here. ⇒ deletion candidate by rules 1 and 3, **but not a free one**: the
+   day someone flips that flag, an unbounded skim becomes silently acceptable. The honest fix is to
+   assert the flag where the skim is handled so the two cannot drift, rather than keep a second bound
+   behind it or remove the bound entirely. **Booked, not done.**
+   📌 **This row and `14b` were the SAME finding** — I rediscovered the contract half independently
+   before noticing `4e` already named it, which is evidence the row was right rather than stale.
+   `14b` is folded here.
+   ⭐ The Rust calldata test got STRICTLY TIGHTER as a result and is the durable guard: the reversal
+   now carries **two words, and the count has only ever gone down** — six → four → three → two
+   (payee+sats, then the token at §T1-d, then the floor here). A compromised hop has nowhere to put a
+   payee, an amount, a token or a floor, and re-adding any of them fails on LENGTH before anything
+   reaches the chain.
 **19. `§LN-SWAPIN-REMAINDER` / `R-17`** — ✅ ruled: **never take what you cannot pay for, AND keep the
    refund, because the availability check is a TOCTOU.**
    ✅ `read_consumed_sats` returns `Option` (`client.rs:564`). ⭐ **AND THE CLAIM-GATING IS BUILT END TO

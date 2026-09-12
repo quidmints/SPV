@@ -2566,7 +2566,7 @@ contract Alles is AllesFixture {
         uint pendingAfterReq = BTC.CORE().pendingSwapOutUsd();
         uint swapperUsdcBeforeRefund = USDC.balanceOf(swapper);
         vm.prank(hop);
-        ch.reverseSwapOut(swapId, 0, false);
+        ch.reverseSwapOut(swapId, false);
         assertGt(USDC.balanceOf(swapper), swapperUsdcBeforeRefund,
             "reversal returned a basket stable to the swapper");
         assertEq(BTC.CORE().pendingSwapOutUsd(), pendingAfterReq - owedUsd,

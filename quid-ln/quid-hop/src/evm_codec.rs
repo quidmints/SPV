@@ -137,7 +137,7 @@ pub const SIG_SETTLE_SWAP_IN_PROVEN: &str =
 /// hop cannot redirect a refund, inflate it, or re-denominate it: the two arguments it DOES
 /// supply (`minDeliveredUsd`, `requireFull`) can only make the reversal stricter.
 /// That is the whole reason this is a separate entrypoint rather than a flag on the credit path.
-pub const SIG_REVERSE_SWAP_OUT: &str = "reverseSwapOut(bytes32,uint256,bool)";
+pub const SIG_REVERSE_SWAP_OUT: &str = "reverseSwapOut(bytes32,bool)";
 /// (E178) Every signature the hop's hot key may legitimately be asked to sign on
 /// `BTCChannels`. The EVM tx policy derives its selector set from THIS — it does not keep
 /// its own list — so the policy cannot disagree with what the codec actually sends.

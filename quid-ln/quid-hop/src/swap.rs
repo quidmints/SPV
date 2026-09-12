@@ -26,9 +26,13 @@
 
 use alloy_primitives::{keccak256, Address, Bytes, U256};
 
-/// ABI-encode [`SIG_REVERSE_SWAP_OUT`] — `reverseSwapOut(swapId, token, minDeliveredUsd,
-/// requireFull)`, which returns the USD an undeliverable on-chain swap-out already took
-/// from the swapper.
+/// ABI-encode [`SIG_REVERSE_SWAP_OUT`] — `reverseSwapOut(swapId, requireFull)`, which returns the
+/// USD an undeliverable on-chain swap-out already took from the swapper.
+///
+/// §BTC-2.5a / `4e` — **THERE IS NO `min_delivered_usd` ARGUMENT ANY MORE, DELIBERATELY.** The
+/// contract derives the floor from `so.usd`, the value it already recorded when the swapper paid
+/// in (owner: *"no haircut, refund the full amount they put in"*). A hop-supplied floor made the
+/// daemon the author of the swapper's slippage protection, and `0` filled at any price.
 ///
 /// This is NOT a swap-in and it deliberately does not look like one. A swap-in credit is an
 /// assertion that BTC arrived; a reversal asserts nothing, because the swapper's own USD is
@@ -36,16 +40,11 @@ use alloy_primitives::{keccak256, Address, Bytes, U256};
 /// it. Hence there is no `seller`, no `sats` and (since §T1-d pinned it in the record) no
 /// `token` to encode: the contract reads all three from that record. `require_full = true` because a partial refund would strand the remainder — on
 /// this path the swapper has no deposit or HTLC to reclaim it from.
-pub fn reverse_swap_out_calldata(
-    swap_id: [u8; 32],
-    min_delivered_usd: U256,
-    require_full: bool,
-) -> Bytes {
+pub fn reverse_swap_out_calldata(swap_id: [u8; 32], require_full: bool) -> Bytes {
     let sel = keccak256(crate::evm_codec::SIG_REVERSE_SWAP_OUT);
-    let mut data = Vec::with_capacity(4 + 96);
+    let mut data = Vec::with_capacity(4 + 64);
     data.extend_from_slice(&sel[..4]);
     data.extend_from_slice(&swap_id);
-    data.extend_from_slice(&min_delivered_usd.to_be_bytes::<32>());
     data.extend_from_slice(&U256::from(require_full as u8).to_be_bytes::<32>());
     Bytes::from(data)
 }
@@ -159,27 +158,30 @@ mod tests {
     use super::*;
 
 
-    /// (T1-b) The reversal's calldata layout — and, in the length assertion, the security
-    /// property that separates it from a credit: FOUR words, not six. There is nowhere to
-    /// put a payee or an amount, so a compromised hop cannot supply either. If someone ever
-    /// re-adds them, this test fails on length before anything reaches the chain.
+    /// (T1-b) The reversal's calldata layout — and, in the length assertion, the security property
+    /// that separates it from a credit: **TWO words, and that is the whole point.**
+    ///
+    /// A compromised hop has nowhere to put a payee, an amount, a token, OR a floor. Every one of
+    /// those is read from `pendingOnchainSwapOut[swapId]`, which the SWAPPER's own
+    /// `requestSwapOutOnchain` wrote. ⭐ **The count has only ever gone DOWN — six → four → three →
+    /// two** (payee and sats, then the token at §T1-d, then the floor at `4e` when the owner ruled
+    /// *"no haircut, refund the full amount they put in"*). If someone re-adds one, this fails on
+    /// LENGTH before anything reaches the chain, which is why the assertion is on the total and not
+    /// only on the words it still carries.
     #[test]
     fn reverse_swap_out_calldata_layout_and_carries_no_payee() {
         let swap_id = [0xCDu8; 32];
-        let cd = reverse_swap_out_calldata(swap_id, U256::from(7u64), true);
-        // THREE words since §T1-d, not four: the token joined the payee and the sats in the
-        // on-chain record, so there is one less thing a compromised hop can choose.
-        assert_eq!(cd.len(), 4 + 96, "reversal must carry exactly swapId/floor/flag");
+        let cd = reverse_swap_out_calldata(swap_id, true);
+        assert_eq!(cd.len(), 4 + 64, "reversal must carry exactly swapId/flag — nothing choosable");
         assert_eq!(&cd[..4], &keccak256(crate::evm_codec::SIG_REVERSE_SWAP_OUT)[..4]);
         assert_eq!(&cd[4..4 + 32], &swap_id, "word 0: swapId verbatim");
-        assert_eq!(U256::from_be_slice(&cd[4 + 32..4 + 64]), U256::from(7u64));
-        assert_eq!(U256::from_be_slice(&cd[4 + 64..4 + 96]), U256::from(1u64), "requireFull");
+        assert_eq!(U256::from_be_slice(&cd[4 + 32..4 + 64]), U256::from(1u64), "requireFull");
         // A reversal must never be mistakable for a credit: different selector entirely.
         // (§FLEET-FRONTS-THE-WINDOW) compared against the PROVEN credit — the buffered one is gone.
         let credit = keccak256(crate::evm_codec::SIG_SETTLE_SWAP_IN_PROVEN);
         assert_ne!(&cd[..4], &credit[..4]);
-        let cd0 = reverse_swap_out_calldata(swap_id, U256::ZERO, false);
-        assert_eq!(U256::from_be_slice(&cd0[4 + 64..4 + 96]), U256::ZERO);
+        let cd0 = reverse_swap_out_calldata(swap_id, false);
+        assert_eq!(U256::from_be_slice(&cd0[4 + 32..4 + 64]), U256::ZERO);
     }
 
     /// The hop's tx policy must ALLOW the reversal — §E178's drift was a policy that
