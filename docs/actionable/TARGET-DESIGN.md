@@ -1096,11 +1096,24 @@ mechanism that should not exist. Do not fix the ratchet — delete it.**
 since the venue accrual is `tokReward`'s only live source — **`tokReward` itself**, with `pendingFor`'s
 token half, `Types.Deposit.fees_tok`, and `refreshBookmarks`'s token argument. ⇒ **and no keeper is
 needed to compound something that compounds itself.**
-⚠️ **ONE THING I HAVE NOT VERIFIED, and it is the only gap: `_venueBalanceLib` measures
-`IEthVenue.rangeOp(0, 2) − totalNetEquity`, while `_rangeETH` sums weETH/WETH/eETH balances + net
-equity.** I have not proved those are the *same* pool of assets, only that both track venue holdings. **If
-they are disjoint, the double-count argument weakens and the deletion needs more care.** ⇒ **check that
-before deleting.**
+✅ **GAP CLOSED — THEY ARE THE SAME NUMBER, SO THE DOUBLE-COUNT IS DERIVED AND NOT INFERRED.**
+`Quid.rangeOp(amount, op)` → `SwapLib.rangeOpBody(amount, op, WETH, rangeETH())`, and `rangeOpBody` at
+`op == 2` is `return rangeETHLive` — **the `rangeETH()` it was handed.** Therefore:
+```
+_venueBalanceLib = rangeOp(0,2) − totalNetEquity
+                 = rangeETH()   − totalNetEquity
+                 = (weETH_asEETH + WETH + eETH + totalNetEquity) − totalNetEquity
+                 = weETH_asEETH + WETH + eETH
+```
+⇒ 🔑 **THE BOOKMARK TRACKS EXACTLY THE NON-LEV PART OF `rangeETH` — the same assets LP claims are priced
+against, with the lev book algebraically cancelled out.** Venue yield raises `rangeETH` ⇒ every LP's claim
+rises; the ratchet then mints shares for **that same growth**. **Confirmed double-count. The deletion is
+safe on this axis.**
+⭐ **AND THE SAME ALGEBRA DERIVES §BREAK-10's PRICE SENSITIVITY INSTEAD OF MERELY OBSERVING IT:**
+`_venueBalanceLib` **subtracts** `totalNetEquity` while `_rangeETH` **adds** it, so the bookmark's
+subject is `rangeETH − netEquity` — and `netEquity` moves with the oracle price. ⇒ **the bookmark moves
+when NO ASSET HAS CHANGED, purely because the price did.** BREAK 10 measured that from the sign of
+`netEquityBase`; it falls out of this cancellation in one line.
 
 ### 🔑 §LEVMATH-WBTC-CLUSTER-IS-DEAD — **owner: *"much of levmath changes with the new design though, or
 ### not?"* ⇒ YES, AND IT IS THE WBTC ACQUISITION PATH.**
