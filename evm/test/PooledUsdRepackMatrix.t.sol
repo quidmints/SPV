@@ -52,9 +52,7 @@ contract PooledUsdRepackMatrix is AllesFixture {
     uint warpPerSwap = 20 minutes;
 
     /// §ONE-PER-INSTANCE — ONE field per concept, and a Snap is of ONE RANGE. The previous version
-    /// carried `usdEth`/`usdBtc`, `feesPerShareEth`/`feesPerShareBtc` and so on: four names for two
     /// concepts, mirroring in the fixture exactly the duplication the contracts just deleted. A range
-    /// manager owns one `feesPerShare` and one `USD_FEES`; two ranges means two SNAPSHOTS, not two
     /// fields. `_snap(range)` takes the instance, so the range-qualified spelling cannot be written.
     ///
     /// 🔴 AND THE OLD SHAPE HID A LIVE DEFECT. `usdBtc`/`btcLeg` were assigned from `CORE` -- the
@@ -68,8 +66,7 @@ contract PooledUsdRepackMatrix is AllesFixture {
     /// print is a worse instrument than the two values.
     struct Snap {
         uint usd;  uint leg;
-        uint committed;
-        uint feesPerShare; uint usdFees;
+        uint committed; uint usdFees;
         uint lastRepack;
         uint price;   // §DETICK: was `tick`; it holds a PRICE now and the name said otherwise
     }
@@ -79,7 +76,7 @@ contract PooledUsdRepackMatrix is AllesFixture {
         Core c = Core(payable(range.CORE()));
         s.usd = c.POOLED_USD();  s.leg = c.POOLED();
         s.committed = c.committedUsd18();          // joint by construction; same on both ranges
-        s.feesPerShare = range.feesPerShare(); s.usdFees = range.USD_FEES();
+        s.usdFees = range.USD_FEES();
         (s.price,) = c.poolStats();                // was CALLED AND DISCARDED, leaving `price` at 0
     }
     /// Both ranges, each read through ITS OWN engine. `Snap` stays one-per-instance; this is two
@@ -104,9 +101,7 @@ contract PooledUsdRepackMatrix is AllesFixture {
         emit log_named_uint("   BTC range USD (6d) ", s.btc.usd);
         emit log_named_uint("   BTC range BTC (8d) ", s.btc.leg);
         emit log_named_uint("   committedUsd18    ", s.eth.committed);
-        emit log_named_uint("   feesPerShare  ETH ", s.eth.feesPerShare);
         emit log_named_uint("   USD_FEES      ETH ", s.eth.usdFees);
-        emit log_named_uint("   feesPerShare  BTC ", s.btc.feesPerShare);
         emit log_named_uint("   USD_FEES      BTC ", s.btc.usdFees);
         emit log_named_uint("   LAST_REPACK   ETH ", s.eth.lastRepack);
         emit log_named_uint("   price         ETH ", s.eth.price);
@@ -291,12 +286,14 @@ contract PooledUsdRepackMatrix is AllesFixture {
         _assertClaimsSane(s0, s1, pxE, pxB);
 
         // CROSS-RANGE ISOLATION — now non-vacuous, the BTC range holds real sats.
-        assertEq(s1.btc.feesPerShare, s0.btc.feesPerShare, "ETH flow must not move the BTC token-fee accumulator");
         assertEq(s1.btc.usdFees,   s0.btc.usdFees,   "ETH flow must not move the BTC USD-fee accumulator");
         assertEq(s1.btc.leg,          s0.btc.leg,          "ETH flow must not move the BTC range's BTC leg");
         assertEq(s1.btc.usd,          s0.btc.usd,          "ETH flow must not move the BTC range's USD leg");
-        // The ETH range's own accumulators MUST have moved, else the isolation claim is untested.
-        assertTrue(s1.eth.feesPerShare != s0.eth.feesPerShare || s1.eth.usdFees != s0.eth.usdFees,
+        // The ETH range's own accumulator MUST have moved, else the isolation claim is untested.
+        // §BTC-10b(c): this was `feesPerShare != … || usdFees != …`. The first term could never be
+        // true — `feesPerShare` had no writer — so the `||` made a one-sided premise look
+        // two-sided. Naming `usdFees` alone is the same check, stated exactly.
+        assertTrue(s1.eth.usdFees != s0.eth.usdFees,
             "PREMISE: ETH-range accumulators moved");
     }
 
@@ -319,7 +316,6 @@ contract PooledUsdRepackMatrix is AllesFixture {
         assertGt(s1.btc.leg, s0.btc.leg, "PREMISE: the BTC range actually grew");
         _assertClaimsSane(s0, s1, pxE, pxB);
 
-        assertEq(s1.eth.feesPerShare, s0.eth.feesPerShare, "BTC growth must not move the ETH token-fee accumulator");
         assertEq(s1.eth.usdFees,   s0.eth.usdFees,   "BTC growth must not move the ETH USD-fee accumulator");
         assertEq(s1.eth.leg,       s0.eth.leg,       "BTC growth must not move the ETH range's ETH leg");
     }

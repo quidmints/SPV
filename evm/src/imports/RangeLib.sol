@@ -31,7 +31,7 @@ library RangeLib {
         LP.pooled -= netRem; levPooled[lp] -= netRem;
         levBuf[lp] = 0; levBufferUsd[lp] = 0;
 
-        SwapLib.refreshBookmarks(LP, LP.pooled, p.feesPerShare, p.usdFees);
+        SwapLib.refreshBookmarks(LP, LP.pooled, p.usdFees);
         return (netRem, bufBurned);
     }
 
@@ -45,7 +45,7 @@ library RangeLib {
         (uint netUsd, uint netTok) = ICore(address(this)).addLiq(netEq, price);
         if (netTok == 0) return 0;
         LP.pooled += netTok; levPooled[lp] += netTok;
-        SwapLib.refreshBookmarks(LP, LP.pooled + levBuf[lp], p.feesPerShare, p.usdFees);
+        SwapLib.refreshBookmarks(LP, LP.pooled + levBuf[lp], p.usdFees);
         ICore(c.core).modLP(-int256(netTok), -int256(netUsd), lp);
         return netTok;
     }
@@ -59,7 +59,7 @@ library RangeLib {
         uint bufUsd = LevMath.capBufferUsd(bufTok, price, ILevEquity(p.mgr).debtUsd(lp));
         if (bufUsd == 0) return 0;
         levBuf[lp] += bufTok; levBufferUsd[lp] += bufUsd;
-        SwapLib.refreshBookmarks(LP, LP.pooled + levBuf[lp], p.feesPerShare, p.usdFees);
+        SwapLib.refreshBookmarks(LP, LP.pooled + levBuf[lp], p.usdFees);
         ICore(c.core).modLP(-int256(bufTok), -int256(bufUsd), lp);
         return bufTok;
     }

@@ -241,11 +241,12 @@ contract Quid is Shares,
         return _pendingFor(user);
     }
 
-    function _refreshBookmarks(address user,
-        uint tokAccum, uint usdAccum) internal {
+    /// §BTC-10b(c). `tokAccum` is gone — it carried `feesPerShare`, which had no writer. The VENUE
+    /// bookmark below is untouched and is the live half: it pairs with `_pendingFor`'s venue accrual.
+    function _refreshBookmarks(address user, uint usdAccum) internal {
         Types.Deposit storage LP = autoManaged[user];
 
-        SwapLib.refreshBookmarks(LP, LP.pooled + levBuf[user], tokAccum, usdAccum);
+        SwapLib.refreshBookmarks(LP, LP.pooled + levBuf[user], usdAccum);
 
         venueBm[user] = _venueAccrued(user, LP.pooled);
     }
@@ -284,10 +285,14 @@ contract Quid is Shares,
         internal view returns (uint tokReward, uint usdReward) {
         Types.Deposit storage LP = autoManaged[user];
 
-        (tokReward, usdReward) = SwapLib.pendingFor(LP, LP.pooled + levBuf[user], feesPerShare, USD_FEES);
+        // §BTC-10b(c). `tokReward` is NOT dead and must not be folded away with `feesPerShare`:
+        // the venue accrual below is its only LIVE source, `compound` pays the keeper's tip out of
+        // it (`tip > tokR / 2`), and `_creditShares` credits the LP the rest. What died is the
+        // v4 trading-fee contribution that used to be ADDED here from `feesPerShare`.
+        usdReward = SwapLib.pendingFor(LP, LP.pooled + levBuf[user], USD_FEES);
 
         uint venueOwed = _venueAccrued(user, LP.pooled);
-        if (venueOwed > venueBm[user]) tokReward += venueOwed - venueBm[user];
+        if (venueOwed > venueBm[user]) tokReward = venueOwed - venueBm[user];
     }
 
     function _burnInRange(uint amount, address recipient)
@@ -413,12 +418,11 @@ contract Quid is Shares,
             if (levBuf[user] > 0) { totalBuffer -= levBuf[user]; delete levBuf[user]; }
 
             if (lpShares == 0 && totalBuffer == 0) {
-                feesPerShare = 0; USD_FEES = 0;
+                USD_FEES = 0;
                 venueFeesPerShare = 0; totalLevPooled = 0;
             }
         } else {
-            _refreshBookmarks(user,
-            feesPerShare, USD_FEES);
+            _refreshBookmarks(user, USD_FEES);
         }
     }
 
@@ -478,8 +482,7 @@ contract Quid is Shares,
         (deltaUSD, deltaETH) = this.addLiq(                      amount, price);
         if (deltaETH > 0) {
             _creditShares(LP, deltaETH);
-            _refreshBookmarks(pledge,
-            feesPerShare, USD_FEES);
+            _refreshBookmarks(pledge, USD_FEES);
 
             _modLpEth(deltaETH, deltaUSD, pledge);
         }
@@ -487,7 +490,7 @@ contract Quid is Shares,
         if (unpaired > 0) {
 
             _creditShares(LP, unpaired);
-            _refreshBookmarks(pledge, feesPerShare, USD_FEES);
+            _refreshBookmarks(pledge, USD_FEES);
         }
 
         bookmark = _venueBalance();
@@ -584,7 +587,7 @@ contract Quid is Shares,
     }
 
     function creditFee(uint premium6) external onlyUs {
-        (, uint usdInc) = SwapLib.feeIncrements(0, premium6, lpShares + totalBuffer);
+        uint usdInc = SwapLib.feeIncrements(premium6, lpShares + totalBuffer);
         USD_FEES += usdInc;
     }
 
@@ -695,7 +698,7 @@ contract Quid is Shares,
     function _transferShares(address from, address to, uint amount) internal {
         if (amount > 0) _rebalance();
         lpShares += QuidLib.transferSharesBody(
-            autoManaged, levPooled, levBuf, venueBm, from, to, amount, feesPerShare, USD_FEES, venueFeesPerShare);
+            autoManaged, levPooled, levBuf, venueBm, from, to, amount, USD_FEES, venueFeesPerShare);
     }
 
     function _pricingBacking() internal view returns (uint total) {
@@ -788,10 +791,9 @@ contract Quid is Shares,
         Types.Deposit storage LP = autoManaged[msg.sender];
         if (LP.pooled == 0) revert NoPosition();
         _rebalance();
-        uint eth_fees = feesPerShare;
         uint usd_fees = USD_FEES;
         _settlePending(LP, msg.sender, msg.sender);
-        _refreshBookmarks(msg.sender, eth_fees, usd_fees);
+        _refreshBookmarks(msg.sender, usd_fees);
     }
 
     uint private constant COMPOUND_GAS = 250_000;
@@ -802,7 +804,6 @@ contract Quid is Shares,
         Types.Deposit storage LP = autoManaged[lp];
         if (LP.pooled == 0) return;
         _rebalance();
-        uint eth_fees = feesPerShare;
         uint usd_fees = USD_FEES;
         (uint tokR, uint usdR) = _pendingFor(lp);
 
@@ -815,7 +816,7 @@ contract Quid is Shares,
         uint net = tokR > sent ? tokR - sent : 0;
         if (net > 0) _creditShares(LP, net);
         if (usdR > 0) LP.usd_owed += usdR;
-        _refreshBookmarks(lp, eth_fees, usd_fees);
+        _refreshBookmarks(lp, usd_fees);
     }
 
     function rangeBounds() public view returns (uint lo, uint hi) {

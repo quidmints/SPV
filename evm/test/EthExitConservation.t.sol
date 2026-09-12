@@ -32,7 +32,7 @@ contract EthExitConservationProbe is AllesFixture {
         // USD leg to `usd_owed` on a PARTIAL exit and only MINTS QUID on a FULL exit
         // (JIT-DEPTH §4.1). An accounting that reads only `pooled` + QUID balance therefore MISSES
         // the USD leg entirely and looks like an ~18% loss when nothing was lost.
-        (uint pooledBefore, uint owedBefore,,) = ETH.autoManaged(User01);
+        (uint pooledBefore, uint owedBefore,) = ETH.autoManaged(User01);
         // ETH **+ WETH**: the ladder pays part of an exit as WETH (BUILD-QUEUE §A.9). This test was
         // written to prove conservation and then measured only NATIVE ETH — so it reported the ~19%
         // ETH/WETH split ratio as missing value, which is the very artifact it exists to rule out.
@@ -48,7 +48,7 @@ contract EthExitConservationProbe is AllesFixture {
         vm.roll(vm.getBlockNumber() + 1);
         vm.prank(User01); ETH.withdraw(type(uint).max, User01, User01);
 
-        (uint pooledAfter, uint owedAfter,,) = ETH.autoManaged(User01);
+        (uint pooledAfter, uint owedAfter,) = ETH.autoManaged(User01);
         uint owedGained = owedAfter > owedBefore ? owedAfter - owedBefore : 0;
         uint ethGained  = (User01.balance + WETH.balanceOf(User01)) - ethBefore;
         uint quidGained = QUID.balanceOf(User01) - quidBefore;

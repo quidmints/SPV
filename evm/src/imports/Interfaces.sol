@@ -329,7 +329,6 @@ interface ICore {
     function repack() external returns (uint price, uint lower, uint upper, uint liquidity, uint);
 
     function rangeBounds() external view returns (uint lo, uint hi);
-    function feesPerShare() external view returns (uint);
     function USD_FEES() external view returns (uint);
 
     function CORE() external view returns (address);

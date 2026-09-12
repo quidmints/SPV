@@ -25,7 +25,7 @@ contract RoundTripNeutrality is AllesFixture {
         vm.prank(User01);
         ETH.deposit{value: 10 ether}(0, User01);          // VENUE_GALAXY
 
-        (uint pooled,,,) = ETH.autoManaged(User01);
+        (uint pooled,,) = ETH.autoManaged(User01);
         assertEq(pooled, 10 ether, "deposit credits pooled 1:1 with assets");
         assertEq(ETH.lpShares() - before, pooled, "lpShares moves by EXACTLY the credited pooled");
         assertEq(ETH.balanceOf(User01), pooled, "balanceOf(user) == that user's pooled");
@@ -44,7 +44,7 @@ contract RoundTripNeutrality is AllesFixture {
         uint entryEquity = User01.balance + WETH.balanceOf(User01);
         vm.prank(User01); ETH.withdraw(type(uint).max, User01, User01);
         uint delivered = (User01.balance + WETH.balanceOf(User01)) - entryEquity;
-        (uint retained,,,) = ETH.autoManaged(User01);
+        (uint retained,,) = ETH.autoManaged(User01);
 
         // TOLERANCE 1e12 -> 3e15 (0.001 bps -> 3 bps of 10 BTC). NOT a nudge to green: the mechanism is
         // TRACED. The exit runs `Curve.exchange(1, 0, 9.0795e18, ...)` and mints NO wait-NFT, so the
@@ -65,14 +65,14 @@ contract RoundTripNeutrality is AllesFixture {
     ///     compared before/after against a tolerance derived from its own size, not a constant.
     function testRT_BystanderClaimUnmovedByAnotherLpRoundTrip() public {
         vm.prank(User02); ETH.deposit{value: 10 ether}(0, User02);   // the bystander
-        (uint bystanderPooled,,,) = ETH.autoManaged(User02);
+        (uint bystanderPooled,,) = ETH.autoManaged(User02);
         uint valueBefore = ETH.convertToAssets(bystanderPooled);
 
         vm.prank(User01); ETH.deposit{value: 25 ether}(0, User01);   // the round-tripper
         vm.roll(block.number + 1);
         vm.prank(User01); ETH.withdraw(type(uint).max, User01, User01);
 
-        (uint stillPooled,,,) = ETH.autoManaged(User02);
+        (uint stillPooled,,) = ETH.autoManaged(User02);
         assertEq(stillPooled, bystanderPooled, "a bystander's SHARE COUNT is untouched by another LP");
         assertApproxEqRel(ETH.convertToAssets(stillPooled), valueBefore, 0.005e18,
             "a bystander's REDEEMABLE VALUE is untouched by another LP's full round-trip");

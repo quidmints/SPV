@@ -20,7 +20,7 @@ library BtcLib {
     function settleBtcLp(
         Types.Deposit storage LP,
         address payTo, address quid,
-        uint feesPerShare, uint usdFees, uint weight
+        uint usdFees, uint weight
     ) public {
         // §BTC-10b(c)+(d). This RETURNED `compoundedSats` — the native fee leg compounded into
         // shares — and it was always ZERO, because `feesPerShare` has no writer left: its only
@@ -35,7 +35,7 @@ library BtcLib {
         // would have held the mint; removing the mint means there is nothing left to guard, and
         // reviving the fee feed cannot silently re-arm it.
         if (weight == 0) return;
-        (, uint usdR) = SwapLib.pendingFor(LP, weight, feesPerShare, usdFees);
+        uint usdR = SwapLib.pendingFor(LP, weight, usdFees);
         if (payTo != address(0)) {
             usdR += LP.usd_owed;
             LP.usd_owed = 0;
@@ -44,7 +44,7 @@ library BtcLib {
         } else if (usdR > 0) {
             LP.usd_owed += usdR;
         }
-        SwapLib.refreshBookmarks(LP, weight, feesPerShare, usdFees);
+        SwapLib.refreshBookmarks(LP, weight, usdFees);
     }
 
     function settleDelivered(address lpEth, uint deliveredRaw, uint exactUsd,
@@ -75,7 +75,6 @@ library BtcLib {
         uint spotPrice;
         uint    loPrice;
         uint    upPrice;
-        uint    feesPerShare;
         uint    usdFees;
     }
 
@@ -91,7 +90,7 @@ library BtcLib {
         Types.Deposit storage LP = autoManaged[a.lpEth];
         {
 
-            settleBtcLp(LP, a.lpEth, quid, a.feesPerShare, a.usdFees, LP.pooled + a.buf);
+            settleBtcLp(LP, a.lpEth, quid, a.usdFees, LP.pooled + a.buf);
             uint deliveredRaw = a.shrinkSats > a.lpPayoutSats ? a.shrinkSats - a.lpPayoutSats : 0;
             uint deliveredSlice = settleDelivered(a.lpEth, deliveredRaw, a.exactUsd, core, quid);
             uint nativeSlice = a.shrinkSats - deliveredSlice;
@@ -114,7 +113,7 @@ library BtcLib {
             o.cleared = true;
         } else {
 
-            SwapLib.refreshBookmarks(LP, LP.pooled + a.buf, a.feesPerShare, a.usdFees);
+            SwapLib.refreshBookmarks(LP, LP.pooled + a.buf, a.usdFees);
         }
     }
 
@@ -142,7 +141,6 @@ library BtcLib {
             }
         }
         (a.spotPrice, a.loPrice, a.upPrice,,) = ICore(address(this)).repack();
-        a.feesPerShare = ICore(address(this)).feesPerShare();
         a.usdFees = ICore(address(this)).USD_FEES();
         return resizeBtcLpTail(core, quid, autoManaged, levPooled, levBuf, a);
     }
@@ -161,10 +159,9 @@ library BtcLib {
         Types.RangeP memory p;
 
         (p.spotPrice, p.loPrice, p.upPrice,,) = ICore(address(this)).repack();
-        p.feesPerShare = ICore(address(this)).feesPerShare();
         p.usdFees = ICore(address(this)).USD_FEES();
         p.buf = weight - LP.pooled;
-        settleBtcLp(LP, address(0), quid, p.feesPerShare, p.usdFees, weight);
+        settleBtcLp(LP, address(0), quid, p.usdFees, weight);
 
         uint price = IAux(c.aux).assetPrice(IAux(c.aux).WBTC());
         if (price == 0) revert ZeroTwap();
@@ -176,7 +173,7 @@ library BtcLib {
 
             LP.pooled += unpaired; sharesAdded += unpaired;
 
-            SwapLib.refreshBookmarks(LP, LP.pooled + p.buf, p.feesPerShare, p.usdFees);
+            SwapLib.refreshBookmarks(LP, LP.pooled + p.buf, p.usdFees);
         }
     }
 
@@ -186,7 +183,7 @@ library BtcLib {
     ) private returns (uint) {
         LP.pooled += deltaBTC;
 
-        SwapLib.refreshBookmarks(LP, LP.pooled + p.buf, p.feesPerShare, p.usdFees);
+        SwapLib.refreshBookmarks(LP, LP.pooled + p.buf, p.usdFees);
         ICore(core).modLP(-int256(deltaBTC), -int256(deltaUSD), lpEth);
         return deltaBTC;
     }
@@ -209,11 +206,10 @@ library BtcLib {
         uint w = LP.pooled + levBuf[lp];
         Types.RangeP memory p;
         (p.spotPrice, p.loPrice, p.upPrice,,) = ICore(address(this)).repack();
-        p.feesPerShare = ICore(address(this)).feesPerShare();
         p.usdFees = ICore(address(this)).USD_FEES();
         p.mgr = mgr; p.gross = gross;
 
-        settleBtcLp(LP, address(0), quid, p.feesPerShare, p.usdFees, w);
+        settleBtcLp(LP, address(0), quid, p.usdFees, w);
         (d.burnedNet, d.bufBurned) = RangeLib.levBurnAll(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
         (d.addedNet, d.bufAdded)   = RangeLib.levAddGross(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
     }
@@ -241,7 +237,7 @@ library BtcLib {
         mapping(address => Types.Deposit) storage autoManaged,
         mapping(address => uint) storage levBuf,
         address from, address to, uint amount,
-        uint feesPerShare, uint usdFees, address quid
+        uint usdFees, address quid
     ) public {
         // §BTC-10b(c). This returned a share DELTA that was only ever the dead fee-compounding
         // amount, so the caller's `lpShares += …` added zero. ⭐ And a transfer must not move total
@@ -251,13 +247,13 @@ library BtcLib {
         if (amount == 0) return;
         Types.Deposit storage L = autoManaged[from];
 
-        settleBtcLp(L, address(0), quid, feesPerShare, usdFees, L.pooled + levBuf[from]);
+        settleBtcLp(L, address(0), quid, usdFees, L.pooled + levBuf[from]);
         Types.Deposit storage R = autoManaged[to];
         if (R.pooled > 0)
-            settleBtcLp(R, address(0), quid, feesPerShare, usdFees, R.pooled + levBuf[to]);
+            settleBtcLp(R, address(0), quid, usdFees, R.pooled + levBuf[to]);
         L.pooled -= amount; R.pooled += amount;
-        SwapLib.refreshBookmarks(L, L.pooled + levBuf[from], feesPerShare, usdFees);
-        SwapLib.refreshBookmarks(R, R.pooled + levBuf[to], feesPerShare, usdFees);
+        SwapLib.refreshBookmarks(L, L.pooled + levBuf[from], usdFees);
+        SwapLib.refreshBookmarks(R, R.pooled + levBuf[to], usdFees);
     }
 
     struct RebalOut {

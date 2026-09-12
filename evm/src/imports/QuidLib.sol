@@ -134,10 +134,10 @@ library QuidLib {
         mapping(address => uint) storage levPooled,
         mapping(address => uint) storage levBuf,
         mapping(address => uint) storage venueBm,
-        address user, uint feesPerShare, uint usdFees, uint venueFeesPerShare
+        address user, uint usdFees, uint venueFeesPerShare
     ) internal {
         Types.Deposit storage LP = autoManaged[user];
-        SwapLib.refreshBookmarks(LP, LP.pooled + levBuf[user], feesPerShare, usdFees);
+        SwapLib.refreshBookmarks(LP, LP.pooled + levBuf[user], usdFees);
         uint plainW = SwapLib.plainNet(LP.pooled, levPooled[user]);
         venueBm[user] = SoladyMath.fullMulDiv(plainW, venueFeesPerShare, WAD);
     }
@@ -148,7 +148,7 @@ library QuidLib {
         mapping(address => uint) storage levBuf,
         mapping(address => uint) storage venueBm,
         address from, address to, uint amount,
-        uint feesPerShare, uint usdFees, uint venueFeesPerShare
+        uint usdFees, uint venueFeesPerShare
     ) public returns (uint lpSharesDelta) {
         require(to != address(0), "to=0");
         require(from != to, "self");
@@ -174,8 +174,8 @@ library QuidLib {
 
         L.pooled -= amount; R.pooled += amount;
 
-        _refreshBookmarksLib(autoManaged, levPooled, levBuf, venueBm, from, feesPerShare, usdFees, venueFeesPerShare);
-        _refreshBookmarksLib(autoManaged, levPooled, levBuf, venueBm, to, feesPerShare, usdFees, venueFeesPerShare);
+        _refreshBookmarksLib(autoManaged, levPooled, levBuf, venueBm, from, usdFees, venueFeesPerShare);
+        _refreshBookmarksLib(autoManaged, levPooled, levBuf, venueBm, to, usdFees, venueFeesPerShare);
     }
 
     function setupBody(address _aux, address _core)

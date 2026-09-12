@@ -39,7 +39,6 @@ library Types {
         uint    upPrice;
         address mgr;
         uint    gross;
-        uint    feesPerShare;
         uint    usdFees;
 
         uint    buf;
@@ -47,7 +46,6 @@ library Types {
 
     struct Deposit { uint pooled;
         uint usd_owed;
-        uint fees_tok;
         uint fees_usd;
     }
 

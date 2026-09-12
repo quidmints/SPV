@@ -232,7 +232,7 @@ contract BtcSelfManagedTest is AllesFixture {
         // The lpAuth signer owns the credited BTC position.
         (, , address lpEth, , uint8 status, , , ) = ch.channels(channelId);
         assertEq(status, 0, "channel OPEN");
-        (uint pooledOpen,,,) = BTC.autoManaged(lpEth);
+        (uint pooledOpen,,) = BTC.autoManaged(lpEth);
         assertEq(pooledOpen, b.amountSats, "openChannel credits the BTC pool position");
 
         // ── fund POOLED_USD headroom (a swap-in draws swapper dollars) ──
@@ -352,7 +352,7 @@ contract BtcSelfManagedTest is AllesFixture {
         vm.prank(lpEth); // LP-submitted: proves the stale-close waiver (E153: no longer gated)
         ch.recordClose(channelId, cp_,
             Types.TxProof(b.rawCloseTx, b.closeBlockHash, b.closeMerkleProof, b.closeTxIndex));
-        (uint pooledClose,,,) = BTC.autoManaged(lpEth);
+        (uint pooledClose,,) = BTC.autoManaged(lpEth);
         assertEq(pooledClose, 0, "recordClose retires the BTC pool position");
         // Proceeds (if any delivered) are paid as QUID at close.
         assertGe(QUID.balanceOf(lpEth), qBefore, "close pays the LP's proceeds as QUID");

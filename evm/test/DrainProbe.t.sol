@@ -90,7 +90,7 @@ contract DrainProbe is AllesFixture {
         // 76.86, i.e. EXACTLY its 500.00 principal, so the "round-trip harmed the incumbent" reading
         // was an artifact of the measure, not harm. Including it also makes the entrant-side bound
         // (b) strictly TIGHTER, which is the safe direction for an anti-drain assertion.
-        (uint remPooled,,,) = ETH.autoManaged(who);
+        (uint remPooled,,) = ETH.autoManaged(who);
         ethOut += remPooled;
     }
 

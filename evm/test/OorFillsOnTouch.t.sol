@@ -182,7 +182,7 @@ contract OorIntentTest is AllesFixture {
         uint px = AUX.assetPrice(address(WETH));
         assertEq(maker.balance, 0, "premise: the maker holds no ether");
         assertEq(USDC.balanceOf(maker), 0, "premise: the maker holds no dollars");
-        (uint makerPooled,,,) = ETH.autoManaged(maker);
+        (uint makerPooled,,) = ETH.autoManaged(maker);
         assertEq(makerPooled, 0, "premise: the maker is NOT an in-range LP");
         assertEq(QUID.balanceOf(maker), 0, "premise: and holds no basket claim either");
 

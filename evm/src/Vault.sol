@@ -103,12 +103,12 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         if (amount > SwapLib.plainNet(autoManaged[from].pooled, levPooled[from]))
             revert InsufficientChannelBtc();
         BtcLib.transferSharesBody(
-            autoManaged, levBuf, from, to, amount, feesPerShare, USD_FEES, address(QUID));
+            autoManaged, levBuf, from, to, amount, USD_FEES, address(QUID));
     }
 
 
     function creditFee(uint premium6) external onlyUs {
-        (, uint usdInc) = SwapLib.feeIncrements(0, premium6, lpShares + totalBuffer);
+        uint usdInc = SwapLib.feeIncrements(premium6, lpShares + totalBuffer);
         USD_FEES += usdInc;
     }
 
@@ -150,7 +150,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
     function _settleBtcLp(address lpEth, address payTo) internal {
 
         BtcLib.settleBtcLp(autoManaged[lpEth],
-            payTo, address(QUID), feesPerShare, USD_FEES,
+            payTo, address(QUID), USD_FEES,
             autoManaged[lpEth].pooled + levBuf[lpEth]);
     }
 
@@ -226,7 +226,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         totalBuffer -= o.bufRemoved;
         if (o.cleared) {
 
-            if (lpShares == 0 && totalBuffer == 0) { feesPerShare = 0; USD_FEES = 0; }
+            if (lpShares == 0 && totalBuffer == 0) { USD_FEES = 0; }
         }
     }
 

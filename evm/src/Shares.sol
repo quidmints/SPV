@@ -30,7 +30,6 @@ abstract contract Shares {
 
     uint public lpShares;
 
-    uint public feesPerShare;
     uint public USD_FEES;
 
     mapping(address => uint) public levPooled;

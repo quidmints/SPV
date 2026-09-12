@@ -100,12 +100,13 @@ contract SkewPremiumReachesLPs is AllesFixture {
     /// Half one: a zero denominator credits NOTHING. Pure, and it is the arithmetic the prose
     /// claim rests on — stated as an assertion so "charged, never paid" stops being a comment.
     function test_NoLpPremium_ZeroDenominatorCreditsNobody() public pure {
-        (uint tokInc, uint usdInc) = SwapLib.feeIncrements(0, 1_000e6, 0);
-        assertEq(tokInc, 0, "no shares must credit no token fees");
+        // §BTC-10b(c): `feeIncrements` lost its token leg — it computed an increment for
+        // `feesPerShare`, which had no writer. The USD half is the whole function now.
+        uint usdInc = SwapLib.feeIncrements(1_000e6, 0);
         assertEq(usdInc, 0, "no shares must credit no usd fees");
         // And with ONE share's worth of denominator it is emphatically not zero, so the branch
         // above is the denominator's doing and not the premium being zero.
-        (, uint usdIncLive) = SwapLib.feeIncrements(0, 1_000e6, 1e18);
+        uint usdIncLive = SwapLib.feeIncrements(1_000e6, 1e18);
         assertGt(usdIncLive, 0, "PREMISE: the same premium credits when a denominator exists");
     }
 

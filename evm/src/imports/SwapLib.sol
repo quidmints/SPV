@@ -470,24 +470,25 @@ library SwapLib {
 
     uint constant RESEAT_MIN_BPS = 50;
 
-    function refreshBookmarks(Types.Deposit storage LP, uint weight, uint tokAccum, uint usdAccum) internal {
-        LP.fees_tok = SoladyMath.fullMulDiv(weight, tokAccum, WAD);
+    /// §BTC-10b(c). The NATIVE leg is gone. It existed because a Uniswap v4 pool pays trading fees
+    /// in BOTH tokens of the pair, so an LP earned fees denominated in the range's own asset as well
+    /// as in dollars. §V4-CUT removed the pool, `c4855d54` removed the now-unassigned `fees0/fees1`
+    /// that fed it, and §E5 re-established fee crediting from a DIFFERENT source — the retained
+    /// premium — which is *"already basket backing"* and mints through the USD leg by construction.
+    /// ⇒ there is no native-denominated fee source left, and nothing to bookmark against.
+    function refreshBookmarks(Types.Deposit storage LP, uint weight, uint usdAccum) internal {
         LP.fees_usd = SoladyMath.fullMulDiv(weight, usdAccum, WAD);
     }
 
-    function pendingFor(Types.Deposit storage LP, uint weight, uint feePerShareTok, uint feePerShareUsd)
-        internal view returns (uint tokReward, uint usdReward) {
-        if (weight == 0) return (0, 0);
-        uint tokOwed = SoladyMath.fullMulDiv(weight, feePerShareTok, WAD);
+    function pendingFor(Types.Deposit storage LP, uint weight, uint feePerShareUsd)
+        internal view returns (uint usdReward) {
+        if (weight == 0) return 0;
         uint usdOwed = SoladyMath.fullMulDiv(weight, feePerShareUsd, WAD);
-        tokReward = tokOwed > LP.fees_tok ? tokOwed - LP.fees_tok : 0;
         usdReward = usdOwed > LP.fees_usd ? usdOwed - LP.fees_usd : 0;
     }
 
-    function feeIncrements(uint fees, uint usd_fees, uint totalShares)
-        internal pure returns (uint tokInc, uint usdInc) {
-        if (totalShares == 0) return (0, 0);
-        if (fees > 0)     tokInc = SoladyMath.fullMulDiv(fees, WAD, totalShares);
+    function feeIncrements(uint usd_fees, uint totalShares) internal pure returns (uint usdInc) {
+        if (totalShares == 0) return 0;
         if (usd_fees > 0) usdInc = SoladyMath.fullMulDiv(usd_fees, WAD, totalShares);
     }
 

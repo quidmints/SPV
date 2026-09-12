@@ -408,14 +408,12 @@ contract UnificationControls is AllesFixture {
         vm.prank(lpA); ETH.withdraw(type(uint).max, lpA, lpA);
         emit log_named_uint("pooled after full exit", ETH.balanceOf(lpA));
         emit log_named_uint("lpShares", ETH.lpShares());
-        emit log_named_uint("feesPerShare", ETH.feesPerShare());
         emit log_named_uint("USD_FEES", ETH.USD_FEES());
 
         // Only assert the zeroing if the exit really emptied the pool — an undelivered
         // shortfall legitimately leaves `pooled` behind as a recoverable deferral, and that
         // is NOT a failure. Assert the implication, not the happy path.
         if (ETH.lpShares() == 0) {
-            assertEq(ETH.feesPerShare(), 0, "last exit must zero the token accumulator");
             assertEq(ETH.USD_FEES(), 0, "last exit must zero the USD accumulator");
         } else {
             emit log_string("partial delivery left pooled behind (venue illiquidity deferral) - zeroing not expected");
@@ -472,7 +470,7 @@ contract UnificationControls is AllesFixture {
         // ETH leg happened not to move. Line ~496 of this same file already reads `BTC.CORE()`.
         uint btcUsd0     = BTC.CORE().POOLED_USD();
         uint btcLeg0     = BTC.CORE().POOLED();
-        uint btcFps0     = BTC.feesPerShare();
+        uint btcUsdF0    = BTC.USD_FEES();
 
         emit log_named_uint("TVL before        ", tvl0);
         emit log_named_uint("committed before  ", committed0);
@@ -503,7 +501,9 @@ contract UnificationControls is AllesFixture {
         assertGt(btcUsd0, 0, "PREMISE: the BTC range is seeded, else this assertion is 0 == 0");
         assertEq(BTC.CORE().POOLED_USD(), btcUsd0, "an ETH-side redemption must NOT unwind the BTC range's USD leg");
         assertEq(BTC.CORE().POOLED(), btcLeg0, "an ETH-side redemption must NOT touch the BTC range's BTC leg");
-        assertEq(BTC.feesPerShare(), btcFps0, "an ETH-side redemption must NOT credit BTC-range LPs");
+        // §BTC-10b(c): was `feesPerShare`, which was 0 on both sides of the comparison and so could
+        // not fail. `USD_FEES` is the accumulator an ETH-side credit could actually reach.
+        assertEq(BTC.USD_FEES(), btcUsdF0, "an ETH-side redemption must NOT credit BTC-range LPs");
 
         // V8 — CROSS-RANGE REPACK REACHABILITY. `BasketLib.backingCoreBody` only picks a range to
         // repack when `committedSum > totalLiquid`; the mint gate keeps committed <= haircutTvl
@@ -1033,10 +1033,8 @@ contract UnificationControls is AllesFixture {
         // A BTC LP exists BEFORE the ETH flow, so its P&L has a baseline to be measured against.
         AUX.setBTCChannels(address(this));
         BTC.requestDeposit(User01, 2e7);
-        uint btcFps0 = BTC.feesPerShare();
         uint btcUsdF0 = BTC.USD_FEES();
         uint btcShares0 = BTC.lpShares();
-        uint ethFps0 = ETH.feesPerShare();
         uint ethUsdF0 = ETH.USD_FEES();
         assertGt(btcShares0, 0, "PREMISE: a BTC LP must exist, else attribution is vacuous");
 
@@ -1062,17 +1060,16 @@ contract UnificationControls is AllesFixture {
         assertGt(oldCommitted, newCommitted, "PREMISE: flow inflated the OLD figure, not the NEW one");
 
         // ── AXIS: PER-RANGE P&L ATTRIBUTION ─────────────────────────────────────────────────
-        emit log_named_uint("ETH feesPerShare delta", ETH.feesPerShare() - ethFps0);
         emit log_named_uint("ETH USD_FEES    delta", ETH.USD_FEES() - ethUsdF0);
-        emit log_named_uint("BTC feesPerShare   ", BTC.feesPerShare());
         emit log_named_uint("BTC USD_FEES      ", BTC.USD_FEES());
 
         // PREMISE: the ETH range must actually have earned, else "BTC unchanged" proves nothing.
-        assertTrue(ETH.feesPerShare() > ethFps0 || ETH.USD_FEES() > ethUsdF0,
+        // §BTC-10b(c): the `feesPerShare >` term could never be true, so the `||` made a
+        // one-sided premise read as two-sided. `USD_FEES` alone is the same check, exactly.
+        assertTrue(ETH.USD_FEES() > ethUsdF0,
             "PREMISE: ETH-side trading must credit the ETH accumulators");
 
         // THE RESULT: not one wei of ETH-side trading reaches the BTC accumulators.
-        assertEq(BTC.feesPerShare(), btcFps0, "ETH trading must NOT credit the BTC fee-per-share");
         assertEq(BTC.USD_FEES(), btcUsdF0, "ETH trading must NOT credit the BTC USD fee leg");
         assertEq(BTC.lpShares(), btcShares0, "ETH trading must NOT change BTC LP depth");
     }

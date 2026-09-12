@@ -575,7 +575,7 @@ contract LevCascadeProbe is AllesFixture {
         // The DECISIVE reads: a "pull" would have repaid debt and withdrawn collateral at the venue.
         uint vColl0 = venue.collateralOf(lps[0]);
         uint vDebt0 = venue.debtOf(lps[0]);
-        (uint pooledNow,,,) = ETH.autoManaged(lps[0]);
+        (uint pooledNow,,) = ETH.autoManaged(lps[0]);
         uint freeDepth = pooledNow > ETH.levPooled(lps[0]) ? pooledNow - ETH.levPooled(lps[0]) : 0;
         assertGt(freeDepth, 0, "PREMISE: there is free depth to withdraw (else UNWIND-ONLY is vacuous)");
         vm.prank(lps[0]);
@@ -800,7 +800,7 @@ contract LevCascadeProbe is AllesFixture {
         _openAtEntry(lps[0], 5 ether);        // levered: range E0 + openLev at ZERO leverage
         _rangeE0(lps[1], 5 ether);             // unlevered: identical range deposit, NO openLev
         uint principalEth = IWeETHRateT(WEETH).getEETHByWeETH(5 ether);
-        (uint unlevPooled0,,,) = ETH.autoManaged(lps[1]);
+        (uint unlevPooled0,,) = ETH.autoManaged(lps[1]);
         uint invBeforeRally = CORE.POOLED();   // the range's REAL ETH inventory — see (2)
 
         // ONE shared REAL rally ⇒ identical price-path IL on BOTH range positions.
@@ -816,9 +816,9 @@ contract LevCascadeProbe is AllesFixture {
         // (3) NO CROSS-SUBSIDY: mint the levered depth; the unlevered LP's claim + basket TVL are untouched.
         _calmVol();
         uint tvlPre = _tvl();
-        (uint unlevPre,,,) = ETH.autoManaged(lps[1]);
+        (uint unlevPre,,) = ETH.autoManaged(lps[1]);
         ETH.syncLev(lps[0]);
-        (uint unlevPost,,,) = ETH.autoManaged(lps[1]);
+        (uint unlevPost,,) = ETH.autoManaged(lps[1]);
         assertEq(unlevPost, unlevPre, "(3) levered sync did NOT touch the unlevered LP's pooled claim");
         assertGe(_tvl(), tvlPre, "(3) levered sync took nothing from the basket (no cross-subsidy)");
 
