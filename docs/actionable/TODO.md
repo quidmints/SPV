@@ -84,6 +84,33 @@ The port estimate assumes the recursion tooling is the lean stack's, not ours.
 ~200-byte journal unless one ships; (b) users must submit withdrawals as frame transactions (type
 `0x06`) — the wrapper adapter stays pinned until wallets can; (c) both EIPs are Draft.
 
+### 🔴 WHAT "100% ALIGNED WITH POST-8288 ETHEREUM" ACTUALLY MEANS — MEASURED AGAINST THE LEAN STACK, 2026-09-12
+(owner: *"make sure that what we use in the end is real and 100% aligned with how ethereum will work after 8288"*)
+**The verifier 8288 names is ONE thing: *"the Lean Ethereum leanSTARK verifier"*, and leanSTARK is
+[leanVM](https://github.com/leanEthereum/leanVM)'s proof system.** leanVM is *"not general-purpose"*: a
+4-instruction ISA (`ADD, MUL, DEREF, JUMP` + `POSEIDON`/`DOT_PRODUCT`/`MULTILINEAR_EVAL` precompiles),
+programs in its own DSL whose *"only first-class type is a scalar"* of the VM field, built for XMSS/SPHINCS
+aggregation and recursion. Its README says *"not (yet) production ready"*, and the field has ALREADY MOVED
+between the EIP text (*"KoalaBear … 2**24 trace"*) and the repo (a 192-bit binary tower, BLAKE2s).
+⇒ **A Rust statement is NOT a leanVM program, and nothing today can turn one into one.** Two routes to a
+dependency the leanSTARK verifier accepts, and only one is buildable:
+· **(A) write each statement in leanVM's DSL** — the only *direct* alignment. Not possible today (toolchain
+  pre-production, ISA/field in flux); BN254 Poseidon (our on-chain trees) is non-native there.
+· **(B) the route the EIP designs for everyone else** — *"wrap them client-side in a STARK, and then reuse the
+  leanSTARK route"*, with user vkeys of *"unlimited recursion depth"*: our proof is made by a general zkVM,
+  and post-8288 the declared dependency is a leanVM program that VERIFIES that zkVM's proof. The zkVM
+  vendor supplies that recursion program (it is how every app on their stack reaches 8288); our statement,
+  journal and adapter are unchanged. **This is what the four-rule invariant above already encodes.**
+⇒ **DECISION (recommended, owner to confirm): route (B) on SP1 Hypercube** — Poseidon2 over KoalaBear,
+multilinear/logup, i.e. the EIP's own stated parametrization and the same proof family the lean stack uses
+(`SP1 Hypercube is live on mainnet`, wrapped Groth16 verifier on-chain for the pre-8288 era). RISC Zero
+(BabyBear) and Airbender (Mersenne31) are the alternatives; none is leanVM.
+⚠️ **AND THE HONEST LIMIT: "100%" against a Draft whose reference stack changed fields between spec and
+repo is a posture, not a fact.** What we can guarantee is the invariant — statement-as-program, journal =
+the public inputs, no proof-format commitment, one pinned adapter — and re-verify the seam when leanVM
+freezes. Booked to re-check: the `data_hash` hash (*"unspecified … BLAKE3"*), and whether the lean
+recursion program for SP1's proof exists before we need it.
+
 ### THE PIN — ONE GOVERNED POINTER IS THE PRICE OF NO REDEPLOY
 The adapter address is settable ONLY by the enclave-image msig (the same 2-of-3 that authorises
 `MigrationAuth`), timelocked, and **era-locked**: settable once to the 8288 adapter, then frozen.
