@@ -565,7 +565,23 @@ Each was carried as open, some in red, some for weeks.
 **11.** ~~`NEW-3` — `swapOutDeleverAmt` withhold-vs-repay.~~ ✅ **STRUCK — ALREADY DONE.**
    `LevBase.sol:470-471` has the clamp the row calls absent: `uint256 debtNative = p.venue.debtOf(lp);
    if (amtNative > debtNative) amtNative = debtNative;`. **The SPRINT row is stale.**
-**12. `§MUSIG-UNSPICED-CLOSE-AND-SPLICE`** — ✅ FIXED in `quid-ln` (`our_key_path_partial_holder_local`).
+**12.** ~~`§MUSIG-UNSPICED-CLOSE-AND-SPLICE` — the fork still signs close and splice unspiced.~~
+   ⛔ **STRUCK 2026-09-12 — ITS PREMISE WAS INVERTED BY `13b-bis` (§NONCE-TWO-RULES). UNSPICED IS
+   CORRECT THERE, AND "FIXING" IT IS `b9213c55`, WHICH BROKE EVERY SPLICE AND EVERY COOP-CLOSE.**
+   The row treated an unspiced close/splice as a defect. It is the design: MuSig2 commits the nonce
+   BEFORE the message exists, so a PRE-ADVERTISED nonce **cannot** be message-bound — spicing it is
+   unimplementable, not merely unnecessary.
+   ✅ **AND THE LIVE FORK IS ALREADY EXACTLY THE §NONCE-TWO-RULES TABLE**, read at the CURRENT pin
+   (`branch = main` now resolves to **`7173261`**, not the `7c50bb5` this row cites):
+   · `:2651 partially_sign_counterparty_commitment` → `our_key_path_partial_counterparty` (tagged +
+     spiced) — the one site whose nonce is CARRIED with the partial.
+   · `:2699 finalize_holder_commitment` → `our_key_path_partial` (untagged) — never leaves the box.
+   · `:2815 partially_sign_closing_transaction` → `our_key_path_partial` (untagged) — pre-advertised.
+   · `:2860 partially_sign_splice_shared_input` → `our_key_path_partial` (untagged) — pre-advertised.
+   ⚠️ **THE ROW WAS ALSO PINNED TO A REV THAT IS NO LONGER THE DEPENDENCY.** It reads as a live
+   finding because its evidence is precise; the evidence is precise about a rev the workspace stopped
+   using. **A fork claim carries the rev it was read at, and that rev expires.**
+   *(original row:)* ✅ FIXED in `quid-ln` (`our_key_path_partial_holder_local`).
    🔴 **CONFIRMED STILL PRESENT IN THE FORK AT `7c50bb5`**, read directly: `sign/mod.rs:2782`
    `partially_sign_closing_transaction` calls the unspiced `our_key_path_partial` at `:2807`, and
    `:2837 partially_sign_splice_shared_input` at `:2851`.
@@ -592,7 +608,17 @@ Each was carried as open, some in red, some for weeks.
    cannot reach `Core`. Counted, not audited: `Quid` 11 `nonReentrant`, `Vault` 8, `Aux` 8 — **a count
    is not coverage.** 📌 Same object as item 27 (`§BTC-10b`), which owns the settlement-layer audit;
    do it there rather than twice.
-**13b. 🔴 `§SPLICE-NONCE-PER-CANDIDATE` — THE ONE REAL KEY-LEAK PATH LEFT IN THE SIGNER, AND IT IS A
+**13b. ✅ `§SPLICE-NONCE-PER-CANDIDATE` — CLOSED 2026-09-12, FORK AND MIRROR BOTH.** Verified at the
+   live pin `7173261`, not argued: `sign/taproot.rs:178,197` carry `candidate_index: u64` on the
+   trait, `ln/channel.rs:2779` stores it on `PendingSplice` ("the `candidate_index` of
+   `splice_nonce_height`. Stamped…"), and `quid-ln/src/validating_signer.rs:1939-2005` mirrors it
+   into `splice_nonce_height(prev_funding_txid, candidate_index)` on both the advertise and the sign
+   side, so advertise==sign is preserved.
+   ✅ **AND THE INDEPENDENT SUB-ITEM WENT WITH IT:** `ConstructedTransaction::finalize` no longer
+   drops a failed partial through a silent `.ok()?` — it returns `Result<Transaction, String>` with
+   named errors and `debug_assert!`s. That silence is what made `b9213c55` cost an e2e run to find
+   rather than a log line.
+   *(original row:)* **THE ONE REAL KEY-LEAK PATH LEFT IN THE SIGNER, AND IT IS A
    FORK CHANGE.** Booked 2026-09-11 out of the `b9213c55` post-mortem (`7a0549ae`).
    **The hazard:** two different messages signed under one MuSig2 nonce give
    `x = (s1 − s2)/(e1 − e2)` — the funding key. `splice_nonce_height(prev_funding_txid)` is
