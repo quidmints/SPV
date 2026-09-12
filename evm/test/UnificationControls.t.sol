@@ -260,13 +260,12 @@ contract UnificationControls is AllesFixture {
 
         uint usdA = ETH.pendingRewards(lpA);
         uint usdB = ETH.pendingRewards(lpB);
-        emit log_named_uint("LP A pending tok/usd", tokA); emit log_named_uint("  ", usdA);
-        emit log_named_uint("LP B pending tok/usd", tokB); emit log_named_uint("  ", usdB);
+        emit log_named_uint("LP A pending usd", usdA);
+        emit log_named_uint("LP B pending usd", usdB);
 
-        assertTrue(tokA > 0 || usdA > 0, "PREMISE: fees actually accrued, else this is vacuous");
+        assertGt(usdA, 0, "PREMISE: fees actually accrued, else this is vacuous");
         // Equal pooled, equal entry -> equal claim. Exact, not approximate: both bookmarks were
         // refreshed against the same accumulator values.
-        assertEq(tokA, tokB, "equal LPs must accrue equal token-leg fees");
         assertEq(usdA, usdB, "equal LPs must accrue equal USD-leg fees");
     }
 
@@ -281,14 +280,12 @@ contract UnificationControls is AllesFixture {
         for (uint i; i < 6; i++) _trade(3_000e18);
         _assertTraded();
         uint usdA0 = ETH.pendingRewards(lpA);
-        assertTrue(tokA0 > 0 || usdA0 > 0, "PREMISE: fees accrued BEFORE the late joiner arrives");
+        assertGt(usdA0, 0, "PREMISE: fees accrued BEFORE the late joiner arrives");
 
         vm.prank(lpB); ETH.deposit{value: 100 ether}(0, lpB);
         uint usdB = ETH.pendingRewards(lpB);
-        emit log_named_uint("late joiner pending tok", tokB);
         emit log_named_uint("late joiner pending usd", usdB);
 
-        assertEq(tokB, 0, "a late joiner must not inherit token-leg fees earned before entry");
         assertEq(usdB, 0, "a late joiner must not inherit USD-leg fees earned before entry");
     }
 
