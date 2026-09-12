@@ -1058,6 +1058,73 @@ exposure unchanged, the hedging LP long, and every other LP correspondingly shor
 would be funded by the other LPs**, which is the same defect as §BREAK-8-11 wearing a new costume.
 **Buying WBTC externally brings NEW exposure in.** Right answer; the reason I gave for it was not.
 
+## §WHY-EACH-COMPONENT — the design from first principles (owner, 2026-09-12: *"what is design. explain why each component exists"*)
+
+**THE DESIGN IN ONE SENTENCE.** An **oracle-priced, zero-slippage swap venue** whose inventory is
+LP-deposited ETH and BTC, where LPs are protected from impermanent loss by a **leveraged long** on the
+asset they are short, and where the dollar side is a **basket-backed stablecoin (QU!D)** rather than one
+issuer's token.
+
+⭐ **EVERY COMPONENT BELOW EXISTS BECAUSE OF ONE OF FOUR DECISIONS.** If a component cannot be traced to
+one of these, it should not exist — that is the test this document is for.
+| # | decision | what it forces |
+|---|---|---|
+| **D1** | **Price from an oracle, not a curve** | no bonding curve, no slippage, no price impact — and a **staleness** problem instead |
+| **D2** | **Charge a flat fee** (`MIN_SWAP_SKEW_WAD` = 420 ppm) | nothing derived from observed flow ⇒ nothing gameable by patience or slicing |
+| **D3** | **LPs must not bear IL** | a leveraged long per LP ⇒ borrowing ⇒ collateral ⇒ a lender |
+| **D4** | **Native BTC, not a wrapper** | Lightning custody, SPV proofs, and an **async** deposit/exit on the BTC leg |
+
+### WHY EACH COMPONENT EXISTS
+| component | exists because | traces to |
+|---|---|---|
+| `Core` | the pooled inventory and its accounting: `POOLED`, `basketUsd`, the swap itself. **One instance per asset** — the `isBTC` bool is the only place the ETH/BTC distinction is parameterised rather than duplicated | D1 |
+| `Aux` | the **price registry** (`assetPriceFeed`) plus venue/basket routing. D1 makes a price source mandatory, and it has to live somewhere every consumer can reach | D1 |
+| `SwapLib` | the swap kernel: `anchorPrice18` (the oracle read) and the flat charge. **This is where D1 and D2 are implemented** | D1, D2 |
+| `Quid` | the ETH range manager **and** its ERC-20 face. The face is a **projection** of range state (`balanceOf` → `autoManaged[u].pooled`), not a ledger, so shares and balances cannot diverge | D1 |
+| `Vault` | the BTC range manager — `Quid`'s counterpart. Separate instance, same accounting | D1, D4 |
+| `VBtc` | the BTC leg needs a share token and **has no ERC-20 underlying to point at**: the real asset is LN-custodied native BTC. Also a projection (`balanceOf` → `sharesOf`), so **a transfer moves the position itself** | D4 |
+| `Shares` | the range state both managers inherit — `lpShares`, `levPooled`, `levBuf`, `USD_FEES`. Exists to **stop the ETH and BTC legs declaring it twice** | D1 |
+| `Basket` | QU!D is backed by a **basket** of 12 stables, so no single depeg is fatal. The alternative was one issuer's token | — the QU!D thesis |
+| `BTCChannels` | Lightning custody: channel open/close, splices, and the SPV-proven swap-in/swap-out rails | D4 |
+| `SPVGateway` | verifies Bitcoin headers so the EVM can **trust a Bitcoin deposit without an oracle**. ⚠️ **Not upgradeable** — `new SPVGateway()` with no proxy and `BTCChannels.spv` is `immutable` | D4 |
+| `LevManager` / `BtcLevManager` | the IL hedge. **D3 is the only reason leverage exists here** — this is not a leverage product, it is IL protection that happens to need borrowing | D3 |
+| `MorphoEscrowVenue` / `LevVenueBase` | the lender adapter. **A venue must physically custody its collateral** (`approve` + `supplyCollateral`), which is why a projection cannot be posted | D3 |
+| `RangeLib` | reconciles the lev book against range shares, keeping `pooled` and `levPooled` **in lockstep** so the lev book cannot inflate an LP's withdrawable sats | D3 |
+| `LevMath` | lev arithmetic and the swap routing the hedge needs (`_volToStable`, `netEquityBase`, `bufTarget`) | D3 |
+| `QuidLib` / `BtcLib` | delegatecall bodies. **Exist for EIP-170, not for design** — `BTCChannels` has 184 bytes spare | a constraint, not a decision |
+
+### 🔴 SO WHY A WBTC VENUE — the question, answered from D3
+**D3 says LPs must not bear IL. A range LP is short the appreciating asset, so the hedge must be LONG
+it. Going long needs borrowing. Borrowing needs a LENDER, and a lender only takes collateral it
+recognises.**
+| collateral | who lends against it | verdict |
+|---|---|---|
+| **vBTC** | 🔴 **nobody external.** We must create the market and supply the stables ourselves | ⛔ **then the protocol is lending to itself — no outside capital enters, so NO EXPOSURE IS ADDED.** That is not leverage, it is an internal transfer, and it fails the same conservation test that ruled out buying vBTC through our own venue |
+| **WBTC** | ✅ **the whole market.** Live Morpho WBTC/USDT ~$16.5M and WBTC/USDC ~$12.2M idle (measured 2026-09-12) | ✅ **real leverage: outside stables enter, the pool's BTC exposure genuinely rises** |
+⇒ **THE WBTC VENUE EXISTS BECAUSE WBTC IS THE ONLY BTC-DENOMINATED COLLATERAL AN EXTERNAL LENDER
+ACCEPTS.** Owner, relayed 2026-09-12: *"we borrow only stables and we swap them for volatile. we use
+morpho for the venue"* — that is exactly `borrow stable → swap → supply`, the loop `_leverUpBuyWbtc`
+runs.
+
+⛔ **AND MY TWELVE vBTC MARKETS WERE THE WRONG ANSWER TO THIS QUESTION.** They required us to be the
+only supplier, which is the first row. **Worse, I then read their existence as evidence the WBTC path
+was dead** — `vsB` holds only vBTC venues, so the WBTC gate always reverts — **when `vsB` holds only
+vBTC venues BECAUSE I PUT THEM THERE.** A deploy-time census read back as a property of the
+architecture. 📌 **project-6b hit the identical shape the same day from the other direction** (a
+reference count in item 13c that was true the day it was written and false the next) ⇒ **a registry or
+a reference count is a READING WITH A TIMESTAMP, and treating one as an architectural fact is what makes
+a live path look orphaned.**
+
+### ⚠️ THE ONE GAP THIS LEAVES, AND IT IS THE HONEST STATE OF THE BTC LEG
+**D4 says the LP deposits native BTC. D3 says the hedge needs WBTC collateral. Nothing converts one
+into the other.**
+· `settleSwapInProven` runs the wrong way — an external seller sends **BTC in** and takes **stables out**.
+· WBTC→native BTC is a BitGo merchant redemption or an off-chain trade. **Neither is in this tree.**
+⇒ **the only route from channel sats to WBTC is a TRADE — swapping out sats for value — which costs the
+spread and is not a protocol primitive.** ⚠️ **This is where the design is genuinely unfinished, and it
+is one question, not a list: who trades the pool's sats for the WBTC the hedge posts, and at whose
+cost?** Everything else on the BTC leg follows once that is answered.
+
 ### 🔴🔴🔴 §NO-RATCHET-NEEDED — **THE VENUE ACCUMULATOR DOUBLE-COUNTS. THE RATCHET IS NOT BADLY BUILT, IT
 ### IS REDUNDANT.** Owner: *"why is a ratchet needed?"* ⇒ **it is not, and that is stronger than §BREAK-10.**
 **The yield it distributes is ALREADY distributed. `QuidLib._rangeETH`:**
