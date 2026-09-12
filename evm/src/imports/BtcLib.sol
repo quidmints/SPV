@@ -15,7 +15,6 @@ import {IAux} from "./Interfaces.sol";
 library BtcLib {
 
     error ZeroTwap();
-    error InsufficientChannelBtc();
 
     function settleBtcLp(
         Types.Deposit storage LP,
@@ -212,25 +211,6 @@ library BtcLib {
         settleBtcLp(LP, address(0), quid, p.usdFees, w);
         (d.burnedNet, d.bufBurned) = RangeLib.levBurnAll(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
         (d.addedNet, d.bufAdded)   = RangeLib.levAddGross(c, LP, levPooled, levBufferUsd, levBuf, lp, p);
-    }
-
-    function vbtcExposeBody(
-        mapping(address => Types.Deposit) storage autoManaged,
-        mapping(address => uint) storage levPooled,
-        address lp, uint sats
-    ) public {
-        uint pooled = autoManaged[lp].pooled;
-        uint free = SwapLib.plainNet(pooled, levPooled[lp]);
-        if (sats == 0 || sats > free) revert InsufficientChannelBtc();
-        levPooled[lp] += sats;
-    }
-
-    function vbtcUnexposeBody(
-        mapping(address => uint) storage levPooled,
-        address lp, uint sats
-    ) public {
-        uint lev = levPooled[lp];
-        levPooled[lp] = sats >= lev ? 0 : lev - sats;
     }
 
     function transferSharesBody(

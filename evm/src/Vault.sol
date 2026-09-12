@@ -76,23 +76,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
 
     VBtc public immutable VBTC;
 
-    error NotLevManagerBtc();
     error InsufficientChannelBtc();
-
-    function exposeBtcToLev(address lp, uint sats) external returns (bool) {
-        if (msg.sender != LEV_MANAGER) revert NotLevManagerBtc();
-
-        BtcLib.vbtcExposeBody(autoManaged, levPooled, lp, sats);
-        return true;
-    }
-
-    function unexposeBtcFromLev(address lp, uint sats) external returns (bool) {
-        if (msg.sender != LEV_MANAGER) revert NotLevManagerBtc();
-
-        BtcLib.vbtcUnexposeBody(levPooled, lp, sats);
-        return true;
-    }
-
 
     function sharesOf(address lp) external view returns (uint) { return autoManaged[lp].pooled; }
 

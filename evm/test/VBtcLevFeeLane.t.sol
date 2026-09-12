@@ -31,10 +31,14 @@ interface IERC20V {
 ///         there is no venue to fork-prove those paths against; they come back with whatever WBTC-
 ///         collateral venue replaces it.
 ///
-///         BTC leverage collateral is vBTC, minted against the LP's channel sats by
-///         `Vault.exposeBtcToLev` and posted by the manager (owner, 2026-09-11: "do the identical thing
-///         with vbtc as you do for eth"). `VBtc` carries a real balance ledger again, so an escrow venue
-///         can custody it. The 2026-09-07 WBTC-only ruling and its `#36a` regression are superseded.
+///         BTC leverage collateral is vBTC, which is NOT minted: `VBtc` is a pure projection of the
+///         range (`balanceOf == Vault.sharesOf`, `totalSupply == totalShares`) and transferring it moves
+///         the `autoManaged` position itself. So the LP posts their OWN shares —
+///         `COLL.transferFrom(msg.sender, address(venue), initialVbtc)` in `openBtcLev` — exactly as the
+///         ETH leg pulls the LP's own weETH (owner, 2026-09-11: "do the identical thing with vbtc as you
+///         do for eth"), and the share movement IS the encumbrance, which is why there is no separate
+///         `levPooled` mark on this path. The 2026-09-07 WBTC-only ruling and its `#36a` regression are
+///         superseded.
 ///
 contract VBtcLevFeeLane is AllesFixture {
 
