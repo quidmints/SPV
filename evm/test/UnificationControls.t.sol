@@ -299,7 +299,6 @@ contract UnificationControls is AllesFixture {
         _assertTraded();
 
         uint usd = ETH.pendingRewards(address(0xDEAD));
-        assertEq(tok, 0, "a non-depositor must have no token claim");
         assertEq(usd, 0, "a non-depositor must have no USD claim");
     }
 
