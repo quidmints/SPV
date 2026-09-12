@@ -28,7 +28,6 @@ import {BtcLevManager} from "../src/BtcLevManager.sol";
 import {MorphoEscrowVenue, MarketParams} from "../src/imports/LevVenueBase.sol";
 import {ISwap} from "../src/imports/Interfaces.sol";
 import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {RealRateBtcMorphoOracle} from "../src/imports/LevBase.sol";
 
 
 contract Deploy is Script {
@@ -512,21 +511,28 @@ contract Deploy is Script {
         // `ethVenue` pointer. Pinning the wrong one compiles and silently reads leverage as disabled.
         Quid(payable(AUX.ethVenue())).setLevManager(address(lm));
 
-        // ── BTC lev: vBTC-collateral (vBTC == the Vault). External+async acquisition ⇒ no swapper/flash ──
         BtcLevManager bm = new BtcLevManager(address(ETH.VBTC()), address(AUX), address(WBTC), gov, address(QUID));
-        address[] memory vsB = new address[](STABLECOINS.length);
-        for (uint i; i < STABLECOINS.length; ++i) {
-            MarketParams memory mpB = MarketParams({
-                loanToken: STABLECOINS[i],
-                collateralToken: address(ETH.VBTC()),
-                oracle: address(new RealRateBtcMorphoOracle(address(AUX), address(WBTC), STABLECOINS[i])),
-                irm: vm.envOr("MORPHO_IRM", ADAPTIVE_IRM),
-                lltv: MORPHO_LLTV_86
-            });
-            (,,,,uint128 lu,) = IMorphoMkt(morpho).market(Id.wrap(keccak256(abi.encode(mpB))));
-            if (lu == 0) IMorphoMkt(morpho).createMarket(mpB);
-            vsB[i] = address(new MorphoEscrowVenue(morpho, mpB, address(bm)));
-        }
+        // BTC lev is borrow-stables -> swap -> supply WBTC, so every venue is WBTC-COLLATERAL, which is
+        // what `_requireRebalancable` and `leverUpBuyWbtc` both vet. These are the two ALREADY-LIVE deep
+        // Morpho markets, so the `wantId` overload asserts the params reconstruct the known marketId —
+        // a wrong oracle/irm/lltv is a DIFFERENT market, not an error, and MORPHO_ALLOW_CREATE stays
+        // false so a typo fails loud instead of creating an empty twin.
+        // ⛔ NO vBTC-COLLATERAL MARKET HERE: nobody lends against vBTC, so it would have no supplier and
+        //    could lend nothing. The collateral an external lender takes is WBTC.
+        // USDT first: the file's liveness note wants the BTC legs held apart from the ETH legs'
+        // RLUSD/PYUSD, and the "dont even borrow usdc, too thin" warning was about the ETH weETH/USDC
+        // market ($0.17M idle), not this one.
+        address[] memory vsB = new address[](2);
+        vsB[0] = _mkMorphoVenue(morpho, MarketParams({
+            loanToken: address(USDT), collateralToken: address(WBTC),
+            oracle: 0x008bF4B1cDA0cc9f0e882E0697f036667652E1ef,
+            irm: vm.envOr("MORPHO_IRM", ADAPTIVE_IRM), lltv: MORPHO_LLTV_86
+        }), address(bm), 0xa921ef34e2fc7a27ccc50ae7e4b154e16c9799d3387076c421423ef52ac4df99);
+        vsB[1] = _mkMorphoVenue(morpho, MarketParams({
+            loanToken: address(USDC), collateralToken: address(WBTC),
+            oracle: 0xDddd770BADd886dF3864029e4B377B5F6a2B6b83,
+            irm: vm.envOr("MORPHO_IRM", ADAPTIVE_IRM), lltv: MORPHO_LLTV_86
+        }), address(bm), 0x3a85e619751152991742810df6ec69ce473daef99e28a64ab2340d7b7ccfee49);
         bm.init(address(ETH), morpho, vsB);                // atomic pin-once: hook + Morpho flash provider + venue allowlist, FROZEN
         ETH.setLevManager(address(bm));                 // BACKING: rangeBTC counts the BTC lev book
         // Both lev-manager slots are one-shot pins (`LevManagerPinned`) and are the Vault's ONLY
