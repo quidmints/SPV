@@ -417,8 +417,6 @@ interface IBtc {
 interface IVaultExposeB {
     function exposeBtcToLev(address lp, uint sats) external returns (bool);
     function unexposeBtcFromLev(address lp, uint sats) external returns (bool);
-    function wrapWbtcToVbtc(uint sats) external;
-    function unwrapVbtcToWbtc(uint sats) external;
 }
 
 interface IVBtcToken { function VAULT() external view returns (address); }

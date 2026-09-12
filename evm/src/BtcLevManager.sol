@@ -114,7 +114,7 @@ contract BtcLevManager is LevBase {
     }
 
     function _leverUpBuyWbtc(ILevVenue venue, address lp, address stable, uint usd, uint minOut, uint256 dex, uint256 dex2, bytes memory route) internal {
-        (uint borrowed, uint wbtc) = LevMath.leverUpBuyWbtc(venue, lp, stable, usd, minOut, LevMath.WbtcCfg(address(AUX), WBTC, VAULT, uint16(MAX_SLIPPAGE_BPS), dex, dex2, route));
+        (uint borrowed, uint wbtc) = LevMath.leverUpBuyWbtc(venue, lp, stable, usd, minOut, LevMath.WbtcCfg(address(AUX), WBTC, uint16(MAX_SLIPPAGE_BPS), dex, dex2, route));
         if (borrowed > 0) { emit Borrowed(lp, borrowed); emit Supplied(lp, wbtc); }
     }
 
@@ -131,7 +131,7 @@ contract BtcLevManager is LevBase {
         (address lp, address venueAddr, address stable, uint minOut, uint256 dex, uint256 dex2, bytes memory route) =
             abi.decode(data, (address, address, address, uint256, uint256, uint256, bytes));
         LevMath.flashDeleverWbtcSettle(assets, lp, venueAddr, stable, minOut, flashProvider,
-            LevMath.WbtcCfg(address(AUX), WBTC, VAULT, uint16(MAX_SLIPPAGE_BPS), dex, dex2, route));
+            LevMath.WbtcCfg(address(AUX), WBTC, uint16(MAX_SLIPPAGE_BPS), dex, dex2, route));
         emit Repaid(lp, assets);
         _syncRange(lp);
     }

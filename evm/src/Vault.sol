@@ -14,7 +14,7 @@ import {Shares} from "./Shares.sol";
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
-import {ILevEquity, IERC20Min} from "./imports/Interfaces.sol";
+import {ILevEquity} from "./imports/Interfaces.sol";
 import {QuidLib} from "./imports/QuidLib.sol";
 
 contract Vault is Ownable, ReentrancyGuard, Shares {
@@ -95,16 +95,6 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         return true;
     }
 
-    function wrapWbtcToVbtc(uint sats) external {
-        if (msg.sender != LEV_MANAGER) revert NotLevManagerBtc();
-        IERC20Min(address(AUX.WBTC())).transferFrom(msg.sender, address(this), sats);
-        VBTC.mintTo(msg.sender, sats);
-    }
-
-    function unwrapVbtcToWbtc(uint sats) external {
-        VBTC.burnFrom(msg.sender, sats);
-        IERC20Min(address(AUX.WBTC())).transfer(msg.sender, sats);
-    }
 
     function sharesOf(address lp) external view returns (uint) { return autoManaged[lp].pooled; }
 
@@ -114,7 +104,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
 
         if (amount > SwapLib.plainNet(autoManaged[from].pooled, levPooled[from]))
             revert InsufficientChannelBtc();
-        lpShares += BtcLib.transferSharesBody(
+        BtcLib.transferSharesBody(
             autoManaged, levBuf, from, to, amount, feesPerShare, USD_FEES, address(QUID));
     }
 
@@ -161,7 +151,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
 
     function _settleBtcLp(address lpEth, address payTo) internal {
 
-        lpShares += BtcLib.settleBtcLp(autoManaged[lpEth],
+        BtcLib.settleBtcLp(autoManaged[lpEth],
             payTo, address(QUID), feesPerShare, USD_FEES,
             autoManaged[lpEth].pooled + levBuf[lpEth]);
     }
@@ -170,7 +160,12 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
         uint loPrice, uint upPrice, uint myLiquidity, uint anchorPrice) {
         BtcLib.RebalOut memory o = BtcLib.rebalanceBody(_btcCfg(), _lo(), _hi());
 
-        feesPerShare += o.feesPerShareInc; USD_FEES += o.usdFeesInc;
+        // §BTC-10b(c). `feesPerShareInc`/`usdFeesInc` were NEVER ASSIGNED by either `rebalanceBody`
+        // — 4 occurrences each, two struct declarations and these two reads — so this line added
+        // zero to both accumulators on every rebalance since §V4-CUT removed the v4 trading-fee
+        // feed that used to populate them. Verified by reading the bodies, not by grepping the
+        // name: both use a NAMED return, so there is no positional constructor to hide an
+        // assignment in. `venueFeesPerShareInc` IS assigned and is untouched.
         RANGE_ANCHOR = o.spotPrice;
         return (o.spotPrice, o.loPrice, o.upPrice, o.myLiquidity, o.anchorPrice);
     }
@@ -225,7 +220,11 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
             address(CORE), address(QUID), autoManaged, levPooled, levBuf,
             lpEth, shrinkSats, lpPayoutSats, full, exactUsd - delevUsd);
 
-        lpShares = lpShares + o.feeCompounded - o.sharesRemoved;
+        // §BTC-10b(d). Was `lpShares + o.feeCompounded - o.sharesRemoved`. `feeCompounded` was a
+        // MINT on an exit path that never calls `checkBacking()`, harmless only because the native
+        // fee accumulator could not move. The mint is gone, so the exit only ever BURNS — which is
+        // why this path needs no backing check rather than having one added to hold a dead mint.
+        lpShares -= o.sharesRemoved;
         totalBuffer -= o.bufRemoved;
         if (o.cleared) {
 
