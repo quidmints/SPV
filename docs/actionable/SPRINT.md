@@ -164,11 +164,11 @@ reading with a timestamp" warning, arriving.)
 |---|---|---|---|---|
 | **range · swap fee · pricing** 🔴 **RE-POINTED 2026-09-10** | — | `SwapLib` `wellSkew` `sellSkew` `MIN_SWAP_SKEW_WAD` `POOLED` | **`docs/actionable/TARGET-DESIGN.md`** — the kernel sections are DELETED from this file | L5 |
 | **leverage · IL-protect** | **69** | `LevManager` `LevMath` `ilBasisPx` `deleverBook` `Morpho` | `§KEEPER-LIQ-FALLBACK` ~59672 · `§LEVER-UP-HAS-NO-AGGREGATE-GATE` ~60659 | L4 |
-| **bitcoin · lightning** | **80** | `BTCChannels` `ChannelLib` `validating_signer` `splice` | `§7540-CONFORMANCE-IS-DISCHARGED-2026-09-07` ~58240 · `§THE-QUOTE-IS-THE-BUG-2026-09-08` ~58590 | L2/L3 |
-| **basket · redeem · shares** | **84** | `BasketLib` `Vault.sol` `VBtc` `committedUsd` | `§SKEW-COVERAGE-HOLE` ~57620 · `§7540-CONFORMANCE-IS-DISCHARGED-2026-09-07` ~58240 | L1/L5 |
+| **bitcoin · lightning** | **80** | `BTCChannels` `ChannelLib` `validating_signer` `splice` | `§THE-QUOTE-IS-THE-BUG-2026-09-08` ~58590 | L2/L3 |
+| **basket · redeem · shares** | **84** | `BasketLib` `Vault.sol` `VBtc` `committedUsd` | `§SKEW-COVERAGE-HOLE` ~57620 | L1/L5 |
 | **oracle · TWAP** 🔴 **RE-POINTED 2026-09-10** | — | `OracleLib` `Chainlink` `getTWAPforAsset` `twapResolve` | **`TARGET-DESIGN.md` §6c** (the deviation guard compares Chainlink with Chainlink). σ² is DELETED — `realizedVarianceWad`/`ringVariance`/`anchorVarianceWad` no longer exist | L5/L7 |
 | **routing · 1inch · venues** | **46** | `1inch` `unoswap` `_aggSwap` `routedSwap` | `§THE-QUOTE-IS-THE-BUG-2026-09-08` ~58590 · `§SOLVER-IS-A-GLOSS` ~58829 | L4/L7 |
-| **size · EIP-170 · folds** | **24** | `EIP-170` `check-contract-sizes` `to spare` | `§7540-FOR-ETH-IS-WRONG` ~34190 · `§J.2c` ~36153 | any |
+| **size · EIP-170 · folds** | **24** | `EIP-170` `check-contract-sizes` `to spare` | `§J.2c` ~36153 | any |
 | **identity · noir** ⛔ DEFERRED | **2** | `evm/src/identity` `Honk` `nullifier` — has its OWN `TODO.md` | `§RSAPSS-MSB` ~2672 | — |
 
 ## 🪦 §KERNEL-RETIRED-2026-09-10 — **7,409 LINES CUT ACROSS THREE PASSES. IF YOU GREPPED A §TAG AND LANDED HERE, ITS SUBJECT IS DELETED.**
@@ -774,19 +774,6 @@ Each was carried as open, some in red, some for weeks.
    `if (paid < exit.checkpointSats) revert ExitUnderpaysCheckpoint();`. **A delivery cannot settle
    without arming over the residue.** ⚠️ Only the row's own caveat survives: the multi-channel case is
    untraced.
-**25. `B8` / `§7540`** — ✅ both halves owner-decided (`§7540-CLAIM-IS-IMMEDIATE`; **the token IS the
-   shares**, `R-9`).
-   ⭐ **AND THE MINT DEFECT IS DELETED, NOT PENDING — I NAMED WORK THAT NO LONGER EXISTS.**
-   `Vault.sol:302 exposeBtcToLev` **mints nothing**: it gates on `LEV_MANAGER` and calls
-   `BtcLib.vbtcExposeBody`, whose whole body is a bounds check plus `levPooled[lp] += sats`.
-   **`mintTo`/`burnFrom` no longer exist on the token**, and `unexposeBtcFromLev` had no burn.
-   ✅ **AND THE WHOLE MECHANISM IS NOW DELETED** (2026-09-11, §VBTC-COLLATERAL-DELETED): `exposeBtcToLev`,
-   `unexposeBtcFromLev`, `vbtcExposeBody`, `vbtcUnexposeBody` and `IVaultExposeB` grep to **zero** in
-   `evm/src`; the stale prose went with the comment strip (`561a36f7`) and the bodies.
-   ⇒ Remaining work is the 7540 fold itself. **Lane L5.** ⛔ Re-derive scope from code — it cites three
-   symbols that never existed.
-
-### TIER 3 — TESTS AND PROSE. After the code they describe is settled.
 **26. 🔴 `4j` / `§BTC-9b-bis` — broadcast a matured dead-man exit on regtest, end to end.**
    **The single highest-value test in the Bitcoin scope**, and still **half-covered**: the freshness
    script exists, nothing broadcasts a matured exit. ⚠️ **Until it runs, "refundable trustlessly" is
@@ -1172,7 +1159,6 @@ restored **six** verbatim (`0ed635a6`). They are classified here so they are not
 |---|---|---|
 | `§PARTIAL-TAKE-IS-DEBITED-IN-FULL` | ✅ **UNGATED — do it** | a settlement defect, not downstream of any decision. Re-verified 2026-09-11: **three** call sites discard `takeBody`'s `sent`, and the fix is the reconciling debit, not a revert |
 | `§THE-SLIPPAGE-WINDOW-IS-THE-LEAK` | **D4b** | `SELL_SLIP_BPS` is still 100, and the surviving §THE-KEY-ONLY-BUYS-`swap()` prose repeats the *"cannot extract"* claim this row refuted. Money path |
-| `C3` — vBTC IS the 7540's asset, its 4626 face contradicts it | **D7-adjacent** | `VBtc.sol:34-36`, 0 call sites |
 | `A.5f` — no on-chain per-action authorisation for the delegated strategy layer | **owner ask, ungated** | its only later trace was a *"tracked"* list that was itself cut |
 | `B6` — regime: two classifiers, one unreachable | **D1** | an observation-source question |
 | `§IMPACTED-TESTS-BASE-CLASS-BLINDSPOT` | ✅ **UNGATED** | a named false-negative class in `tools/impacted-tests.py` |
@@ -1429,27 +1415,11 @@ not a tail-end change at the close of a long session. **Booked with the evidence
 rediscovered; the test to write first is a basket deliberately short of the requested token, asserting
 `POOLED_USD` falls by what was delivered rather than by what was asked.**
 
-## C3. 🟠 vBTC IS the 7540's asset — its 4626 face contradicts that (§E221/E223/E224)
-📌 **RESTORED 2026-09-11** after the cut. Verified open at restore: `VBtc.sol:34-36` still carry `asset()=WBTC` and the two `pure` identities, 0 call sites — under the removal policy they go regardless of the `asset()` decision.
-`VBtc.asset()` returns **WBTC** while vBTC **is** the ERC-20 the async vault points at. `Vault` has
-**no `asset()`**, and `VBtc`'s three 4626 accessors have **ZERO call sites**. Delete them; give the
-range manager `asset() = vBTC`.
-✅ **VERIFIED CURRENT 2026-08-28** — `VBtc:95` `asset()` returns `WBTC`; `:96`/`:97` are
-`convertToAssets`/`convertToShares`, both **`pure` identities** (`return shares` / `return assets`);
-all three have **0 call sites in `src` and `test`**.
-⛔ **BUT "DELETE THEM" IS RIGHT FOR TWO OF THE THREE AND WRONG FOR THE THIRD, AND THE DISCRIMINATOR
-IS CLAUDE.md's OWN.** *"Zero in-tree references is what an ENTRYPOINT looks like, and grepping only
-Solidity would have deleted eight live functions."* `convertToAssets`/`convertToShares` are dead on
-both sides (0 in-tree, 0 off-chain) and are ordinary rule-1 deletions. **`asset()` is the ERC-4626
-IDENTITY function** — it is what an integrator or indexer calls to learn what the vault is over, so
-its zero in-tree count is expected rather than evidence.
-⇒ **THAT SPLITS THIS ROW INTO TWO DIFFERENT KINDS OF WORK, WHICH IS WHY IT HAS NOT MOVED:** removing
-the two identities is dead-code cleanup and needs only a run; removing `asset()` is the DESIGN change
-the row actually wants (`asset() = vBTC` on the range manager) and breaks 4626 conformance for anyone
-reading the old face until the new one lands. **Do not land them as one commit.** The BTC anchor is already wrapper-free (Chainlink **"BTC / USD"**),
-so the depeg exposure is narrower than §E221 first claimed. **The `WBTC/BTC` feed (`0xfdFD…BB23`,
-**1.00039110** = 3.91 bps) is wired NOWHERE** — the basis is unmeasured, and that feed is the direct
-instrument if a detector is wanted.
+## C3. 🟠 `VBtc`'s three 4626 accessors are dead — delete them (§E221/E223/E224)
+`VBtc.sol:34-36` carry `asset() = WBTC` and two `pure` identity conversions, and all three have **ZERO
+call sites**. `Vault` has no `asset()` at all. The token IS the shares (§VBTC-IS-THE-SHARES), so there is
+no underlying for an `asset()` to name. ⇒ **delete the three accessors.** No interface claim replaces
+them — see `TARGET-DESIGN.md` §7540-DOES-NOT-FIT.
 
 ## A.5f 🔴 TODO — NO ON-CHAIN PER-ACTION AUTHORISATION for the delegated strategy layer (user, 2026-07-26)
 📌 **RESTORED 2026-09-11** after the cut. An owner ask (2026-07-26) whose only later trace was *"✅ all four tracked"* in a list that was itself cut; the on-chain half is still absent (0 hits for per-action delegation in `evm/src`). ⚠️ Owner to confirm the delegated strategy layer is still in scope before anyone builds this.
@@ -3212,9 +3182,8 @@ basket as hard as the drain that hurts it.
 | **4** | **`§LN-SWAPIN-REMAINDER` / `§NO-REJECT`** | 🔴 **owner calls it the biggest vulnerability — and it is NOT one event, which is what the row implied** | **Scoped against code 2026-08-21.** Today: `settleSwapInBuffered` ends `if (requireFull && consumed < sats) revert SwapInPartialRejected()` (`BTCChannels.sol:1396`), and that revert is **correct as things stand** — the LN rail *"cannot refund a partial and must fail the HTLC back"*, because a Lightning payment is atomic. ⛔ **SO "EMIT AN INTENT ON SHORTFALL" CANNOT BE THE WHOLE FIX, AND CANNOT EVEN BE THE FIRST STEP: a revert rolls the event back.** Emission only exists if the call STOPS reverting. ⇒ **The real shape: "do not reject — route it" means the protocol ACCEPTS sats it cannot yet pay for, which creates an OBLIGATION TO THE SELLER that must live somewhere until the remainder clears.** 🔴 **Measured: no such ledger exists** — no `owed`/`obligation` mapping in `evm/src`, and **zero** `Intent`/`Shortfall`/`Unfilled`/`Remainder` events anywhere. So this is an owed-ledger plus a settlement path plus emission, not an event. ▶️ **THE DECISION IS THE OWNER'S BECAUSE IT MOVES RISK, and it should be made before any code:** between accepting the sats and the intent clearing, **someone is short** — the seller (paid late), the pool (pays now, recovers later), or the hop (fronts it). The revert exists precisely so nobody is. ⚠️ **The route in the original note is partly stale:** it reads range → **1inch** → Khalani → Perena, and §V-R1's 1inch work was WITHDRAWN (`e4f9c512`); the volatile legs now route pinned Uniswap V3. Re-derive the venue leg before building on that sentence.  📌 **§SEQ-AUDIT: GATE 2 · lane L7. Owner decision on the LN remainder gap; today's revert is SwapInPartialRejected at :2186** |
 | ~~5~~ | ~~`§DEPOSIT-VERIFIER-BLOCKED-ON-ITS-OWN-COMMITMENT`~~ | ✅ **CLOSED by §T2 — the ordering it demanded was honoured, protocol first** | The row's title was *"the specified client check cannot match ANY address the hop can produce today"*, and every clause of it is now addressed. **(1) The commitment the documents described but the protocol did not build, now exists** — `ExitLib.termsCommitment` + the leaf prefix. **(2) Its `tapBranch`/`termsLeaf` objection is resolved by ADOPTING the one-leaf design instead** — the terms ride in front of the refund leaf that already exists, so there is no second leaf, no sibling in the control block, and no new primitive in three languages. **(3) *"`seller`, `token` and `minDeliveredUsd` remain the hop's assertions"* is no longer true** — the first two are committed, and the third does not exist: the floor is derived on-chain from the committed rate. That comment sat directly above `settleSwapInProven` and is corrected in the same commit. ⚠️ **`PUPPETEER-E2E-MATRIX.md` still specifies the two-leaf `tapBranch` verifier** and should be re-pointed at the one-leaf shape; the wallet already implements the latter. | The client work is AHEAD of the contract. Landing the client first ships a verifier committing to a shape the chain cannot check. |
 | ~~6~~ | ~~`B4` LADDER DEPTH~~ | ✅ **CLOSED `5295995f` — another thread built it FROM THIS BOOKING.** `_armLadder` now rejects `exits.length < 2` AND a ladder whose rungs share one deadline (`LadderTooShallow`), which is exactly the property booked here: two rungs at one deadline are one window. Tested in `BtcLpMintStress` + `ExitFixture` | `_armLadder` enforces **only `if (exits.length == 0) revert InvalidParam()`** (`BTCChannels.sol:1530`). **A ONE-rung ladder is accepted**, so a single missed CLTV window leaves the LP with no escape. ⚠️ **B0 RAISED THIS ITEM'S STAKES**: vault-less, the heartbeat does not run, so the open ladder + per-rotation arming is the ONLY escape — depth is no longer a nicety. Bounds the one thing that cannot be prevented: a hop declining to settle, emit or route. |
-| **7** | **`B5` lazy `openChannel` AND `closeChannel`** | 🔴 **RE-OPENED 2026-08-21 (owner: *"you were supposed to fold openChannel and closeChannel to be lazy"*). THE ✅ BELOW CLOSED THE *CONSENT* QUESTION AND THE LIVE ONE IS *CLAIM*, SO IT DELETED A REAL ITEM FROM ATTENTION — rule 16 exactly. Measured today: `openChannel:943` calls `btcVault.requestDeposit(lpEth, amountSats)` and `_finalizeClose:625` calls `btcVault.requestRedeem(lpEth, lpPayoutSats)`, both INLINE, and `Vault.requestDeposit` does `lpShares += BtcLib.requestDeposit(...)` — **a synchronous credit wearing an ERC-7540 async name.** ⇒ custody and claim are still ONE ACT at both ends, which is the blocker §E166-lazy-open-MEETS-T1-f named and the ✅ never addressed. Prior text kept below.** ~~CLOSED 2026-08-18 — BOTH SENSES SATISFIED~~ | **TIMING sense: built.** `run_vault_open_orchestrator` PHASE A opens only on a CONFIRMED, sized deposit, so the on-chain open is deposit-triggered rather than eager. **CLAIM sense: dissolved.** SPRINT held this open on *"§E183 item 1 removed the premise — with the LP signing nothing at open, the open no longer carries LP consent at the moment it happens."* **That is false, and `drive_open` is the proof:** it returns early unless `consent_for_funding` yields an `LpConsent`, so **an open CANNOT happen without the LP's consent riding with it** — which is exactly what §E166-3 built. §E183 deleted the LP's EVM *signature*; it did not delete the LP's consent, which moved to `btc_recipient_pop` + the pre-signed ladder. ⇒ Nothing left to defer: the claim is already gated on consent that arrives with the open. | §E183 item 1 removed its premise: with the LP signing nothing at open, the open no longer carries LP consent *when it happens*, which is when deferring the CLAIM starts to matter.  📌 **§SEQ-AUDIT: GATE 3 · lane L3. HALF STALE: LAZY-OPEN landed; the CLOSE half is unconditional - _finalizeClose:704 calls requestRedeem with no deferral - IMMUTABLE-CONTRACT work** |
+| **7** | **`B5` lazy `openChannel` AND `closeChannel`** | 🔴 **RE-OPENED 2026-08-21 (owner: *"you were supposed to fold openChannel and closeChannel to be lazy"*). THE ✅ BELOW CLOSED THE *CONSENT* QUESTION AND THE LIVE ONE IS *CLAIM*, SO IT DELETED A REAL ITEM FROM ATTENTION — rule 16 exactly. Measured today: `openChannel:943` calls `btcVault.requestDeposit(lpEth, amountSats)` and `_finalizeClose:625` calls `btcVault.requestRedeem(lpEth, lpPayoutSats)`, both INLINE, and `Vault.requestDeposit` does `lpShares += BtcLib.requestDeposit(...)` — **a synchronous credit wearing an async name.** ⇒ custody and claim are still ONE ACT at both ends, which is the blocker §E166-lazy-open-MEETS-T1-f named and the ✅ never addressed. Prior text kept below.** ~~CLOSED 2026-08-18 — BOTH SENSES SATISFIED~~ | **TIMING sense: built.** `run_vault_open_orchestrator` PHASE A opens only on a CONFIRMED, sized deposit, so the on-chain open is deposit-triggered rather than eager. **CLAIM sense: dissolved.** SPRINT held this open on *"§E183 item 1 removed the premise — with the LP signing nothing at open, the open no longer carries LP consent at the moment it happens."* **That is false, and `drive_open` is the proof:** it returns early unless `consent_for_funding` yields an `LpConsent`, so **an open CANNOT happen without the LP's consent riding with it** — which is exactly what §E166-3 built. §E183 deleted the LP's EVM *signature*; it did not delete the LP's consent, which moved to `btc_recipient_pop` + the pre-signed ladder. ⇒ Nothing left to defer: the claim is already gated on consent that arrives with the open. | §E183 item 1 removed its premise: with the LP signing nothing at open, the open no longer carries LP consent *when it happens*, which is when deferring the CLAIM starts to matter.  📌 **§SEQ-AUDIT: GATE 3 · lane L3. HALF STALE: LAZY-OPEN landed; the CLOSE half is unconditional - _finalizeClose:704 calls requestRedeem with no deferral - IMMUTABLE-CONTRACT work** |
 | ~~8~~ | ~~`B7` ratify the smart-wallet narrowing~~ | ✅ **RATIFIED 2026-08-18 — AND THE ANSWER IS "YES, EXCLUDED", WHICH IS THE OPPOSITE OF WHAT THE ROW HOPED** | **Contract-account LPs (a Safe, a 4337 account) ARE excluded BY CONSTRUCTION, not by policy.** `openChannel` sets `lpEth = ChannelLib.lpEthOf(p.lpPubkey)` (`BTCChannels.sol:942`) → `BitcoinTx.evmAddressOfCompressed`, so `lpEth` is necessarily the key-derived address of the channel key; a Safe's address is not derivable that way, so it can never BE the `lpEth`. ⛔ **BUT DO NOT THEREFORE DELETE `SignatureChecker` FROM `rekeyAuthBody` AS UNREACHABLE — I nearly booked exactly that.** The reasoning was: `ch.lpEth` is key-derived ⇒ has no code ⇒ ERC-1271's branch can never fire. **EIP-7702 falsifies it** — since Pectra an EOA carries a delegation indicator, so that same derived address CAN have code, and ERC-1271 is then the CORRECT path for an LP that has delegated. The repo has **zero** genuine 7702 references (the greps that look like hits are hex fixture data), which is why this is worth writing down: the justification is off-chain of this repo entirely. **Same shape as `create_sweep_tx`** — a maintained function whose caller is a capability nobody has exercised here yet. 📌 **Stale comment found and left for the owner of that line:** `BTCChannels.sol:953` still says *"`SignatureChecker` serves BOTH LP kinds, so the EOA/smart-wallet entrypoint split is gone"* — true of `rekey`, but the OPEN path it sits on now verifies **no signature at all**. |
-| **9** | `B8` the **ERC-7540 fold** | 🟡 | The owner's *"too many slop variables"* and the trust hole are ONE change. **#2's `Terms` fold is the first instance of this, not a separate task.**  📌 **§SEQ-AUDIT: GATE 7 · lane L5. ERC-7540 fold downstream of the 2.3 position-token ruling** |
 | ~~10~~ | ~~`B9b-i` ERC-7947 → ibiza~~ | ✅ **WRITTEN INTO `ibiza/TODO.md` (`bb268a2`), AND IT CARRIED A BIGGER CORRECTION WITH IT.** That repo's LP-SIGNER item still told ibiza to build `auth.lp_sig` — **the field §E183 item 1 deleted** — and called it the easy half to land first. It no longer exists, so the item is now blocked on `@scure/btc-signer` rather than having an easy first step: a SCHEDULE change, not a scope cut | Reached here, never written where the mobile client is owned. Dies with this context window otherwise. |
 | ~~11~~ | ~~`§LADDER-REMOVAL`~~ | ✅ **CLOSED 2026-08-18 — the ladder STAYS and B0 is why: removing the co-hosted vault removed the ALTERNATIVE (the heartbeat), not the need. Rule 17 inverted — the root fix made it load-bearing** | The row already retracted itself in full; its "real item" was #1, now closed. Its open half asked whether phase 1b dissolves the ladder's two justifications. **It does the opposite:** vault-less, `run_deadman_exit_heartbeat` does not run, so the ladder is the ONLY escape mechanism left. Close it with that. |
 | **12** | `§LP-SEED-ENTROPY` · `§MSIG-NOT-SAFE` · `§PHASE-ORDER` | 🔴 **owner decisions — blocked on a person** | `§LP-SEED-ENTROPY`: owner says *"it cant be deterministic, we need real randomness"* — the ask is right and the REASON matters, so do not implement it from the shape.  📌 **§SEQ-AUDIT: GATE 2 · lane L7. Three owner decisions bundled - blocked on a person** |
@@ -3234,47 +3203,6 @@ basket as hard as the drain that hurts it.
 
 | **22** | 🔴🔴🔴 **THE LIVENESS GATE IS NOT BUILT, AND I LANDED THE HALF THAT NEEDS IT** — for an LP that is a PHONE, offline most of the time | 🔴 **top Bitcoin item; it is the precondition for work already on `main`** | `LP-SIGNING-READINESS.md` sets out a three-way choice for the splice/`Prevouts::All` problem and rejects **(a) re-arm inside every splice** because *"the phone signs PER SPLICE, so 'signs once, goes offline forever' dies and the phone's job grows"*. It then shows (a) becomes the right answer **only with liveness-gated routing**: an LP that has not posted a recent heartbeat simply stops being routed NEW swappers, so *"the growth in the phone's job is OPT-IN rather than imposed"* and *"the LP that goes offline forever still holds a valid ladder against an outpoint nobody is rotating."* ⛔ **§E233-ladder LANDED (a) — all five rotation sites now REQUIRE a fresh `ExitArming[]` — and the gate that makes it viable does not exist.** Verified: no LP liveness heartbeat on-chain or in `quid-hop` (the heartbeat hits are the FLEET's dead-man emitter, a different thing; `lastHeartbeatBlock` was deleted with the fallback nomination). ⇒ **CONSEQUENCE FOR THE REAL DEPLOYMENT: a splice on an offline LP's channel now REVERTS.** Deliveries, fee flushes and capacity keeping all block on a phone being reachable — which the owner states it usually is not. **This is a liveness regression I introduced, not a pre-existing gap.** ▶️ **What the gate must do** (its own doc, §"The liveness gate"): the LP posts a signed monotonic heartbeat over `(channelId, height, nonce)`; the hop refuses to route NEW swappers to a channel whose heartbeat is stale. **It protects the SWAPPER** (never routed into a channel whose LP cannot complete the co-signs, so no swap stalls half-done — the DoS the owner named) **and the LP** (an outage costs forgone fees, never funds — existing positions, the armed ladder and refund paths are untouched). ⚠️ **It does NOT protect the LP against the hop**, and the doc says so: a hop may decline to route for any reason and always could. 📌 **Two stale rows in that doc to fix while building:** it lists `OpenAuth.lp_sig` as what the LP signs at open, and proposes the heartbeat *"reuses the key `auth.lp_sig` already uses"* — **§E183 deleted `lp_sig`**; the LP's open-time signature is now the BIP-340 `btcRecipientPoP`, a Bitcoin signature, so the heartbeat's key and encoding must be re-derived rather than inherited.  ✅ **CLOSED 2026-09-06 (§SEQ-AUDIT — verified against code): STALE: RoutingGate IS built and wired in five places; cited doc no longer exists** |
 
-## 🔁 §LAZY-OPEN-CLOSE — 🟡 **OPEN HALF LANDED. THE FOLD IS *NOT* SYMMETRIC, AND THE 7540 FOLD (`#9`) IS STILL OPEN**
-
-⛔ **THIS TITLE USED TO READ "THE FOLD IS SYMMETRIC, IT IS THE 7540 FOLD" AND THAT OVERSTATED WHAT
-LANDED.** Corrected 2026-08-22. Two things it got wrong:
-1. **NOT symmetric.** Deferring a CREDIT is safe — custody-without-claim leaves the basket OVER-backed.
-   Deferring a RETIREMENT is not: the LP would hold shares against BTC that has left the channel,
-   which is UNDER-backed. So `openChannel` got the `try`/`catch` and `_finalizeClose` keeps its
-   retirement INLINE, gaining only a skip for channels that never had a position. **The close half
-   was never going to be the mirror image, and saying so in a title invited exactly the assumption
-   that it had landed.**
-2. **NOT the 7540 fold.** The two are the same work seen from two ends, and only the `#7` end is done.
-   `Vault.requestDeposit` is still `lpShares += …` — a SYNCHRONOUS credit wearing an async name.
-   **`#9` remains 🟡 and the 7540 SEMANTICS are still missing**; what landed is a safety valve on one
-   entrypoint, not async request/fulfil accounting.
-⇒ Status markers were honest throughout (`#7` 🔴, `#9` 🟡); the TITLE was the false claim. **A heading
-is read far more often than the row under it, which is what made this worth correcting.**
-
-Owner, 2026-08-21: *"you were supposed to fold openChannel and closeChannel to be lazy. we can't be
-custodial or introduce any attack surface that could make a compromised enclave do any real damage."*
-
-**MEASURED STATE — both ends fused, and the names hide it:**
-
-| act | the fused claim | what it should be |
-|---|---|---|
-| `BTCChannels.sol:943` (`openChannel`) | `btcVault.requestDeposit(lpEth, amountSats)` | custody now, claim separately |
-| `BTCChannels.sol:625` (`_finalizeClose`) | `btcVault.requestRedeem(lpEth, lpPayoutSats)` | custody-exit now, retirement separately |
-
-⚠️ **THE NAMES ARE THE TRAP.** Both read as ERC-7540 *async requests*; `Vault.requestDeposit` is
-`lpShares += BtcLib.requestDeposit(...)` — **an immediate, synchronous credit.** A reader auditing for
-"is the claim deferred?" sees a `request*` call and moves on. It is not deferred at either end.
-
-⭐ **`#7` AND `#9` ARE THE SAME WORK FROM TWO ENDS.** `#9` is "the ERC-7540 fold"; `#7` is "make open
-and close lazy". Deferring the claim IS making these two calls genuinely async — the 7540 surface is
-already named, only the semantics are missing. **Do not schedule them as two items.**
-
-▶️ **THE SHAPE IS ALREADY BUILT ONE FUNCTION AWAY — DO NOT RE-DERIVE IT.** §T1-f split
-`_applySplice` into **custody only** (outpoint rotation, `amountSats`, `totalSatsLocked`) with the
-**CALLER** deciding the claim: `splice` registers the LP because that grow is LP-funded;
-`settleSwapInSpliced` and `parkProvenSats` register nothing. Start from that, not from first
-principles.
-
 ### 🔒 THE SECURITY RULE THAT MAKES THIS SAFE, AND WHY THE FOLD *REDUCES* ENCLAVE POWER
 The owner's constraint decides the design, so state it as a rule before writing any code:
 ⇒ **THE DEFERRED CLAIM STEP MUST BE PERMISSIONLESS AND GATED ON STATE THE CONTRACT ALREADY HOLDS —
@@ -3292,7 +3220,7 @@ The owner's constraint decides the design, so state it as a rule before writing 
   the fold rather than found by it. **Permissionless is not a nicety here; it is the whole safety
   argument.**
 
-✅ **THIS SECURITY ARGUMENT IS DISCHARGED — RE-MEASURED 2026-08-31 (owner asked what the 7540 item
+✅ **THIS SECURITY ARGUMENT IS DISCHARGED — RE-MEASURED 2026-08-31 (owner asked what the async-claim item
 actually is). FACT 3 BELOW IS NO LONGER TRUE OF THE CODE, SO THE ATTACK IT BUILDS IS CLOSED.**
 `_armLadder` is at `:1008` and runs **BEFORE** the claim, and the claim is the `try/catch` at `:1034`
 whose `catch` records `pendingClaimSats` + `ChannelClaimDeferred` instead of reverting. ⇒ **A zero TWAP
@@ -3531,7 +3459,7 @@ closed and the old order pointed mostly at those.**
    a peer of `#22`, not as cleanup after it — the old position is left visible so the move is legible.
 6. **`#12` is blocked on the OWNER, not on work** — do not implement `§LP-SEED-ENTROPY` from its
    shape; the ask is right and the reason matters.
-⏸️ **`#7` (lazy `openChannel`) and `#9` (the 7540 fold) are real but not urgent** — `#7`'s premise
+⏸️ **`#7` (lazy `openChannel`) is real but not urgent** — `#7`'s premise
    changed under it (§E183 removed the consent-at-open it assumed), so it needs re-deriving before
    building, not building.
 
@@ -4957,7 +4885,7 @@ the shortfall path meant to be operational end to end? **Neither is written down
 **Owner, 2026-09-05:** *"make sure sprint.md (including all the new stuff you added) does everything in a
 certain logical order such that you dont waste resources doing something then undoing it because you did
 it in the wrong order (or having to relook the same things twice, etc.); i think there were some decision
-items to be done first, like the rebalance, that were supposed to affect things downstream, then erc7540
+items to be done first, like the rebalance, that were supposed to affect things downstream
 stuff."*
 
 ⚠️ **THIS SECTION IS AN ORDER, NOT A LIST.** `§PHASE-ORDER`'s rule applies to it: *"the reason it is an
@@ -5097,12 +5025,12 @@ unwind at a duration bound, *"repaid from future flow"* is the same *"organic co
 already dismisses as **not a mechanism, a hope.** ⇒ **do not adopt it on the argument; the forcing
 mechanism is a precondition of the design, not a detail of it.**
 
-### 2.3 ⭐ **MINT THE POSITION TOKEN TO THE LP, BOTH LEGS** (§BTC-2.5g-bis) — **THEN ERC-7540.**
-🔑 **THIS IS THE ORDERING THE OWNER NAMED.** ERC-7540's blocker is **shares**: the vault must BE the share
-token, and on the BTC leg it is not — vBTC goes to `LEV_MANAGER`, never to an LP, and `Quid.sol` has the
-identical `pooled`/`levPooled` structure on the ETH side.
-⇒ **`B8` (the 7540 fold) CANNOT be completed before this**, and doing 7540 interface work first means
-building a face over a share model that item 2.3 replaces.
+### 2.3 ⭐ **MINT THE POSITION TOKEN TO THE LP, BOTH LEGS** (§BTC-2.5g-bis)
+🔑 **THE REQUIREMENT IS THAT THE VAULT *BE* THE SHARE TOKEN**, and on the BTC leg it was not — vBTC went
+to `LEV_MANAGER`, never to an LP — while `Quid.sol` has the identical `pooled`/`levPooled` structure on
+the ETH side. ⛔ **NO STANDARD INTERFACE SITS DOWNSTREAM OF THIS ANY MORE** (owner, 2026-09-12: *"do not
+use 7540"*; reasoning in `TARGET-DESIGN.md` §7540-DOES-NOT-FIT). **The position token is wanted on its
+own terms, not as a prerequisite for a conformance.**
 ✅ **And it is cheaper than it looks:** `balanceOf(a)` is a **view over `autoManaged[a].pooled`**, so there
 is **no mint, no migration window and no dual model** — `Vault.sol:427` already maintains
 `totalSupply == Σ balanceOf` by construction. Correct mapping is **`balanceOf = pooled − levPooled`**.
@@ -5458,7 +5386,7 @@ navigation aid.** §SESS-3 records the attempt and exactly what it got wrong.
 
 ## ⛔ THE FIVE ORDERING TRAPS, STATED SO THEY ARE NOT RE-DISCOVERED
 
-1. **7540 before the position token** (§BTC-2.5g-bis) builds a standard face over a share model that is
+1. **A standard interface before the position token** (§BTC-2.5g-bis) builds a face over a share model that is
    about to be replaced. **Shares are the blocker, not `asset()` and not the `preview*` reverts.**
 2. **Any shortfall work before option F** (§PLP-R3) hardens mechanisms that F **deletes** — `onShortfall`,
    `btcShortfall`, the shortfall trigger, and §PLP-U's option D.
