@@ -82,8 +82,7 @@ library QuidLib {
     }
 
     struct RebalIn {
-        address core; address aux; address ev; address weth;
-        uint lpShares; uint totalLevPooled; uint totalBuffer;
+        address core; address aux; address weth;
         uint loPrice; uint upPrice;
     }
     struct RebalOut {

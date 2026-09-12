@@ -583,9 +583,8 @@ contract Quid is Shares,
     function _rebalance() internal returns (uint spotPrice,
         uint loPrice, uint upPrice, uint myLiquidity, uint anchorPrice) {
         QuidLib.RebalOut memory o = QuidLib.rebalanceBody(QuidLib.RebalIn({
-            core: address(CORE), aux: address(AUX), ev: address(this), weth: address(WETH),
-            lpShares: lpShares, totalLevPooled: totalLevPooled,
-            totalBuffer: totalBuffer, loPrice: _lo(), upPrice: _hi()}));
+            core: address(CORE), aux: address(AUX), weth: address(WETH),
+            loPrice: _lo(), upPrice: _hi()}));
 
         if (o.setLastRepack) LAST_REPACK = block.timestamp;
         RANGE_ANCHOR = o.spotPrice;

@@ -3834,9 +3834,7 @@ contract Alles is AllesFixture {
     }
 
     function test_Quid_PendingRewards_NonDepositor() public {
-        uint usd = ETH.pendingRewards(User03);
-        assertEq(eth, 0);
-        assertEq(usd, 0);
+        assertEq(ETH.pendingRewards(User03), 0);
     }
 
     function test_Quid_Withdraw_ZeroShares() public {
