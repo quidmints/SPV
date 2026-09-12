@@ -234,7 +234,7 @@ contract Quid is Shares,
         IERC20(ETHERFI_EETH).approve(ETHERFI_LP, type(uint).max);
     }
 
-    function pendingRewards(address user) public view returns (uint ethReward, uint usdReward) {
+    function pendingRewards(address user) public view returns (uint usdReward) {
         return _pendingFor(user);
     }
 
@@ -658,7 +658,7 @@ contract Quid is Shares,
     function _transferShares(address from, address to, uint amount) internal {
         if (amount > 0) _rebalance();
         lpShares += QuidLib.transferSharesBody(
-            autoManaged, levBuf, from, to, amount, USD_FEES);
+            autoManaged, levPooled, levBuf, from, to, amount, USD_FEES);
     }
 
     function _pricingBacking() internal view returns (uint total) {

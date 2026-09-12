@@ -202,11 +202,11 @@ contract EconAttackProbe is AllesFixture {
             try AUX.swap(address(USDC), address(WETH), true, 50_000 * USDC_PRECISION, 0, true) {} catch { break; }
         }
         vm.stopPrank();
-        (uint incE, uint incU) = ETH.pendingRewards(User02);
+        uint incU = ETH.pendingRewards(User02);
         emit log_named_uint("C: incumbent pending eth", incE);
         emit log_named_uint("C: incumbent pending usd", incU);
         vm.prank(User01); ETH.deposit{value: 100 ether}(0, User01);   // JIT joins AFTER fees
-        (uint jitE, uint jitU) = ETH.pendingRewards(User01);
+        uint jitU = ETH.pendingRewards(User01);
         emit log_named_uint("C: JIT pending eth (want ~0)", jitE);
         emit log_named_uint("C: JIT pending usd (want ~0)", jitU);
 

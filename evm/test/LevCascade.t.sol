@@ -543,7 +543,7 @@ contract LevCascadeProbe is AllesFixture {
             try AUX.swap{value: 0.2 ether}(address(USDC), address(WETH), false, 0, 0, true) returns (uint) {} catch {}
             vm.roll(vm.getBlockNumber() + 1);
         }
-        (uint ethR, uint usdR) = ETH.pendingRewards(lps[0]);
+        uint usdR = ETH.pendingRewards(lps[0]);
         assertGt(ethR + usdR, 0, "(a) levered LP ACCRUES range fees on its equity");
 
         // (b) UNWIND-ONLY: the free ladder cannot pull the levered slice.
