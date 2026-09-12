@@ -1,27 +1,100 @@
-# TARGET DESIGN — the model, what is built, and what is still owed
+# TARGET-DESIGN — what we are building
 
-> **CONSOLIDATED 2026-09-11.** This file had grown to 941 lines in session order, with five
-> retractions layered over the sections they retract — §8 cancelled, §10's fork replaced by §12, §11
-> rewritten, §14's fix withdrawn, §15 replacing the IL terms. **A reader could no longer extract the
-> design from it.** Restructured into MODEL → STATE → OPEN → APPENDIX. Nothing is dropped: every
-> retraction survives in Part IV, one line each, pointing at the commit that holds the detail.
->
-> ⚠️ **THE CODE IS NOT THE AUTHORITY HERE. THE MODEL IS.** Owner, 2026-09-11: *"there is no guarantee
-> that what is currently in the code represents that version of the model, but all the final roles
-> must be checked against the code."* So: decide what is right, then check the code against it — never
-> read the code and call agreement a resolution.
->
-> **CONFIDENCE MARKS:** ✅ measured or read from code, with the site given · 🧠 reasoned, never
-> measured — treat as hypothesis · ⏸️ blocked on a named check or an owner ruling · 🔴 a defect or a
-> retraction.
+> 🔴 **THIS FILE IS THE MODEL, NOT THE CODE. THE CODE IS EVIDENCE; THE MODEL IS THE AUTHORITY ON INTENT.**
+> **Read Part A only.** Everything from Part B down is a working log — measurements, breaks, and my own
+> retractions. It is kept because the evidence is load-bearing, but it is **not a description of the
+> design** and it should not be read as one. Owner, 2026-09-12: *"the target-design.md is too long for
+> me to read. i dont understand what we are working towards."* That was a failure of this file.
 
 ---
+
+# PART A — THE DESIGN IN ONE PAGE
+
+## A1. What it is
+A **swap venue** holding two inventories — ETH and BTC — deposited by LPs, plus a **basket-backed dollar
+(QU!D)**. A swapper trades against the inventory at an **oracle price** with a **flat 420 ppm** charge.
+There is no curve, so there is no slippage and no price impact.
+
+## A2. The four decisions everything else follows from
+| | decision | what it forces |
+|---|---|---|
+| **D1** | price from an **oracle**, not a curve | no slippage — and a **staleness** exposure instead |
+| **D2** | a **flat** charge, size- and flow-blind | nothing gameable by patience or slicing |
+| **D3** | **LPs must not bear IL** | a hedge ⇒ borrowing ⇒ collateral ⇒ an external lender |
+| **D4** | **native** BTC, not a wrapper | Lightning custody, SPV proofs, async deposit and exit |
+
+## A3. The one invariant
+**No LP subsidises another, and the basket never funds an LP's position.** Every mechanism below is
+either serving that or is suspect.
+
+## A4. Where we are — honestly
+| | state |
+|---|---|
+| swap: oracle price + flat fee | ✅ **built** |
+| the old variance/TWAP machinery | ✅ **deleted**, measured to zero occurrences |
+| ETH hedge (weETH collateral, Morpho) | ✅ **built**, but **opt-in**, which contradicts D3 |
+| BTC hedge (WBTC collateral, 2 live Morpho markets) | ⚠️ **wired at deploy, loop unproven end-to-end** |
+| **one stale oracle reaching 4 surfaces** | 🔴 **open** — swap price, LP exit value, hedge sizing, and the venue read |
+| pooled-liquidation isolation | 🔴 **derived, not built.** Measured: a zero-debt LP lost 4,801 bps to another LP's liquidation |
+| `usd_owed` destroyed on one exit path | 🔴 **open**, ETH leg only; the BTC leg does it correctly |
+| the twelve vBTC markets | ⚠️ allowlisted because the allowlist **freezes** at deploy; no supplier on day one |
+
+## A5. 🔑 The one question the whole BTC leg waits on
+**D4 says the LP deposits native BTC. D3 says the hedge posts WBTC. Nothing in the tree converts one
+into the other** — the swap-in rail runs the other way (an outside seller sends BTC *in*, takes stables
+*out*), and WBTC→BTC is a BitGo redemption or an off-chain trade. ⇒ **who trades the pool's sats for the
+seed WBTC, and at whose cost?** Everything else on that leg follows once this is answered.
+
 ---
 
-# PART 0 — THE ASSUMPTIONS AND GOALS, RESTATED — **AND A CORRECTION TO §7 THAT I GOT BACKWARDS** (2026-09-11)
+# PART B — IS *DRIFT* THE RIGHT FRAME? (owner, 2026-09-12)
 
-Owner: *"per lp opt in drift hedge doesnt seem right. restate the assumptions and design goals based on
-everything you know. how do you know we designed this right."*
+**Drift** = what an LP put in, minus their share of the volatile still held.
+`drift_i = entryEquity_i − (shares_i/lpShares)·rangeETH`, and `Σ drift_i = lpShares − rangeETH`.
+*Deposit 100 ETH; a swapper buys 50 out; drift is 50.*
+
+## B1. ✅ Why it is the right TARGET
+· **It is the quantity D3 names.** IL for an asset-denominated LP is "you got back less ETH than you put
+  in". Drift is exactly that shortfall, so hedging it to zero makes the promise literally true.
+· **It is readable, not modelled.** `entryEquity_i` is stored at open, `rangeETH` is held now,
+  `shares_i/lpShares` is a ratio. **No price, no variance, no √, no forecast** — so nothing to calibrate
+  and nothing to game (D2).
+· **It aggregates.** `Σ drift = lpShares − rangeETH` is the pool-level gap, so per-LP and pool-level
+  hedging are the same number at two scales.
+
+## B2. 🔴 THE THREE WAYS IT IS THE WRONG FRAME — and the third is the one that matters
+**1. It is a REALIZED gap, not a sensitivity.** Standard hedging targets **delta** — how value moves
+with the next price tick. Drift targets what was *already* sold. ⇒ hedging drift restores the position
+you had; hedging delta neutralises the position you have. **They differ whenever the pool's average sale
+price differs from spot**, which is always.
+
+**2. It is path-dependent and MEAN-REVERTING, so hedging it bleeds on oscillation.** Price up, the range
+sells, drift grows, the hedge buys. Price back down, the range buys back, drift shrinks, the hedge
+sells. ⇒ **buy high, sell low, once per oscillation, paying the charge and the financing each way.** An
+LP who never exits would have ended flat unhedged and pays for every round trip hedged.
+⇒ **so drift-hedging is right for an LP who might exit at any moment and wrong for one who never
+exits** — and nothing in the design asks which they are.
+
+**3. 🔴 THE HEDGE MUST BE SIZED AT THE MOMENT THE RANGE SELLS, OR THE OFFSET IS WRONG BY THE PRICE MOVE
+IN BETWEEN. THIS IS THE REAL RISK AND IT IS NOT A MODELLING QUESTION.** Drift is created by a swap; the
+hedge is sized at a rebalance. Between those two, the price moves — and the long is entered at a price
+that is not the price the ETH left at. **That difference is pure tracking error, it does not cancel over
+time, and it is exactly `entry price of the hedge − sale price of the inventory`.**
+⚠️ **AND WE HAVE TWO LAGS STACKED, BOTH MEASURED:** rebalances are discrete, **and** the oracle those
+prices come from is stale — median 55.0 min between Chainlink updates, median **4,209 ppm** between spot
+and the anchor. ⇒ **the hedge is sized off a price that is already 10× the fee away from the market.**
+📌 **So the frame is sound and the IMPLEMENTATION is where it fails.** Drift is the right thing to
+measure; the design has no mechanism that sizes the hedge *when* the drift is created.
+
+## B3. ⇒ WHAT WOULD CHANGE MY MIND
+Nothing in B1 depends on the oracle or the lag, so **drift survives as the target**. But B2.3 says the
+hedge must move on the **swap**, not on the rebalance — which means the sizing belongs in the swap path,
+not in a periodic crank. **If that is not buildable, drift is the wrong frame** and the honest
+alternative is to stop promising no-IL and price the residual into the fee instead.
+
+---
+
+# PART C — THE WORKING LOG (evidence, breaks, retractions; not a description of the design)
 
 ## 🔴 0a. THE CORRECTION FIRST — **OPT-IN IS WRONG, AND THE WAY I REACHED IT IS WORSE THAN THE ANSWER**
 I answered *"who funds the drift"* by reading `LevManager.openLev` (`external`, gated on `msg.sender`)
