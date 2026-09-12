@@ -857,8 +857,43 @@ Each was carried as open, some in red, some for weeks.
    signatures (fixed, `ce57a9a2`) and the deploy needed `--slow` (`fdd731ae`); `hop_bridge_e2e` is
    separately rotted (24 errors, `settleSwapIn` deletion) and untouched. Gates nothing; is the proof of rail B.
    📌 **Booked on behalf of the bitcoin lane (project-e9), verbatim from its own measurement.**
-**27. ⚠️ `§BTC-10b` — FIRST PASS DONE 2026-09-12. Four results; two closures, one live coupling, one
-   byte opportunity. The area stays OPEN — this is one pass over four functions, not an audit.**
+**27. ⚠️ `§BTC-10b` — TWO PASSES DONE 2026-09-12. The area stays OPEN; each pass has found something.**
+
+   ## SECOND PASS (2026-09-12) — 🔴 **A SHRINK-SPLICE REMOVED SHARES FOR SATS IT NEVER REMOVED
+   FROM THE RANGE, AND THE OBVIOUS FIX FOR IT WAS A REGRESSION.** Landed `02d2cb20`.
+   `resizeBtcLpTail` splits a shrink two ways — `nativeSlice` burns out of range depth,
+   `deliveredSlice` is paid for out of pooled USD — on
+   `deliveredRaw = shrinkSats − lpPayoutSats`, i.e. what left the channel WITHOUT reaching the
+   LP's payout script. `settleDelivered` set `deliveredSlice = deliveredRaw` and only THEN
+   returned early on a zero USD amount, so it reported the sats DELIVERED on the branch that
+   delivered nothing — and the caller's `nativeSlice = shrinkSats − deliveredSlice` then excluded
+   them from the burn too. **Settled by neither leg.**
+   ▶️ **MEASURED, prediction first:** `shrinkSats` 10,000,000 · `lpPayoutSats` 9,000,000 ⇒
+   **`lpShares` fell 10,000,000 while `POOLED` fell 9,000,000.** The range kept quoting depth for
+   1,000,000 sats that had left the channel and were owed to nobody.
+   ⚠️ **NOT A CORNER:** `BTCChannels.sol:496` (`_shrinkSplice`) passes `exactUsd = 0` ALWAYS; only
+   the swap-out delivery at `:903` passes a real `so.usd`. Every splice costs a miner fee, so every
+   splice pays the LP less than it shrank and the gap is that fee.
+   📌 **Why no test caught it, and it is ONE ARGUMENT WIDE:**
+   `testBtcLp_ResizeSplicePartialClose` already covers `exactUsd == 0` — with
+   `lpPayout == shrink`, which makes `deliveredRaw` exactly zero and the branch unreachable.
+   🔴🔴 **AND THE ONE-LINE FIX (`if (exactUsd == 0) return 0;`) WAS WRONG, WHICH IS THE REUSABLE
+   PART.** It passed both arms I had. Following `exactUsd` back up the chain: `Vault._resize`
+   passed `exactUsd − delevUsd`, and `SwapLib.deleverOnDelivery` **clamps at `exactUsd6`**
+   (`SwapLib.sol:537`) — so it can consume the WHOLE obligation and a genuine delivery arrives
+   with nothing left to draw. That fix would have burned the swapper's slice in the range ON TOP
+   of paying for it: **a double-charge introduced by the fix for an under-charge.**
+   ⇒ **THE DISCRIMINATOR IS "WAS THERE A DELIVERY", NOT "IS THERE USD LEFT TO DRAW."**
+   `settleDelivered` now takes `delevUsd` and `Vault` passes `exactUsd` WHOLE instead of
+   pre-netting it — **pre-netting is precisely what erased the difference between the two states.**
+   ✅ Verified on three arms (splice · delivery CONTROL · the de-lever branch asserted directly on
+   the library with `core`/`quid` as `address(0)`, so `draw == 0` returning early proves the
+   ABSENCE of the calls), plus BtcLpMintStress 20/20 and VBtcLevFeeLane 5/5 — 27 passed, 0 failed.
+   📌 **Checked and NOT a defect, so the next pass need not re-derive it:** `exactUsd − delevUsd`
+   cannot underflow; `_sourceRepayFree` clamps `deLeverUsd6` to `exactUsd6` one line before
+   returning. **That clamp is load-bearing — do not read it as spare.**
+
+   ## FIRST PASS (2026-09-12) — Four results; two closures, one live coupling, one byte opportunity.
 
    ✅ **(a) NO CROSS-CONTRACT REENTRANCY PATH INTO `Core`. This closes the half of item 13 I left
    open.** Enumerated every `external`/`public` non-view function on `Quid`, `Vault` and `Aux` and
