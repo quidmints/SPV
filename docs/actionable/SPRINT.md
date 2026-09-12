@@ -1792,6 +1792,34 @@ cap, no band, no scarcity term and no size dependence to describe, because there
 — that is the check, and it found a live instance today on `main` after the same sweep had already been
 run on `lane/CUT`.
 
+## ⭐ §A-TEST-THAT-CANNOT-PASS — **THE MIRROR OF §VACUOUS-TEST, AND IT WAS FOUND IN OURS** (project-6b, 2026-09-12)
+`lev_keeper::tests::loop_urgent_cascades_now_lazy_waits_for_dwell` was red at HEAD and **two commits
+explained it equally well** — mine (`add716e5`, deleted keeper batching) and d3's (`0b56bb61`, removed a
+venue). ⇒ 🔑 **NEITHER DID. `LevKeeperEvm` HAS NO `cascade` METHOD AT ALL, so `MockEvm.cascaded` was a
+field NOTHING COULD EVER WRITE** and `assert_eq!(*evm.cascaded.borrow(), vec![urgent_lp])` could not
+pass under any behaviour of the code under test.
+⭐ **WHY THE ATTRIBUTION WAS IMPOSSIBLE FROM THE FAILURE TEXT, AND THIS IS THE REUSABLE PART:**
+> **An empty vector with no writer looks IDENTICAL to an empty vector the logic declined to fill.**
+
+*"No venue ⇒ no cascade"* and *"no batch ⇒ no cascade"* both describe **the code failing to do
+something**, and the code was never asked to do it. ⇒ **§VACUOUS-TEST is a GREEN test that proves
+nothing. This is a RED test whose REDNESS proves nothing** — and it is worse to diagnose, because a
+red demands a cause and offers a plausible one for every recent commit.
+▶️ **THE CHECK: for every assertion on a mock's recorded state, confirm SOMETHING WRITES THAT FIELD.**
+A recorder with no writer is not a weak observable, it is not an observable.
+⚠️ **AND IT COST NOTHING ONLY BECAUSE NOBODY GUESSED.** I had already written the explanation — the
+comment `add716e5` left at the call site says *"THE BATCH IS GONE AND THE URGENT TRACK IS NOW N PER-LP
+TXS… sent two selectors that no longer exist"* — and I still could not tell my correct instinct from
+d3's equally-plausible one without a run. **Stopping was right even though guessing would have been
+right**, which is the only version of that lesson that generalises.
+✅ **RETARGETED, NOT RELAXED** (6b, `284bd1e7`, `quid-bridge` 155/0): both tracks drain into one sink, so
+the discriminator moves from WHICH SINK to WHICH LP — `rebalanced == [urgent_lp]` at t=0 asserts
+urgent-acted **and** noise-didn't-churn together, `contains(&noisy_lp)` at t=700 keeps the dwell half,
+and `synced == [urgent_lp]` pins **which loop ran** because only the urgent one follows with `sync_lev`.
+📌 **Collapsing two sinks into one is exactly where a retarget becomes a weakening, and that third
+observable is what kept it honest.** Renamed `loop_urgent_acts_now_lazy_waits_for_dwell` — **a test named
+for a deleted mechanism is how the next reader concludes the mechanism still exists.**
+
 ## 🔴🔴 §THE-SUITE-DID-NOT-NOTICE — **WE DELETED THE PRICING MECHANISM AND 997 TESTS PASSED** (owner, 2026-09-11)
 
 Owner: *"if we have been removing code and haven't even landed our new design yet, but we have a
