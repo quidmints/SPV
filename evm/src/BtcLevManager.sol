@@ -80,9 +80,16 @@ contract BtcLevManager is LevBase {
         _syncRange(msg.sender);
     }
 
+    function _withdrawColl(ILevVenue venue, address lp, uint amount) private returns (uint got) {
+        got = venue.withdraw(lp, amount);
+        if (got > 0 && venue.COLLATERAL() == address(COLL))
+            IVaultExposeB(VAULT).unexposeBtcFromLev(lp, got);
+    }
+
     function deleverWithdraw(uint vbtc) external nonReentrant returns (uint out) {
+        if (!pos[msg.sender].open) revert NotOpen();
         _reanchorIfReseated(msg.sender);
-        out = BtcLib.deleverWithdraw(pos, address(COLL), msg.sender, vbtc);
+        out = _withdrawColl(pos[msg.sender].venue, msg.sender, vbtc);
         _syncRange(msg.sender);
     }
 
@@ -160,10 +167,7 @@ contract BtcLevManager is LevBase {
         if (freedSats > 0) {
 
             if (p.venue.COLLATERAL() != address(COLL)) revert WbtcSliceNotDeliverable();
-            uint got = p.venue.withdraw(lp, freedSats);
-            if (got != freedSats) freedSats = got;
-
-            if (freedSats > 0) IVaultExposeB(VAULT).unexposeBtcFromLev(lp, freedSats);
+            freedSats = _withdrawColl(p.venue, lp, freedSats);
         }
     }
 
@@ -175,15 +179,11 @@ contract BtcLevManager is LevBase {
 
         _syncRange(lp);
         uint rem = p.venue.collateralOf(lp);
-        uint back = rem > 0 ? p.venue.withdraw(lp, rem) : 0;
+        uint back = rem > 0 ? _withdrawColl(p.venue, lp, rem) : 0;
         delete pos[lp];
         _untrackOpen(lp);
 
-        if (p.venue.COLLATERAL() == address(COLL)) {
-
-            if (back > 0) IVaultExposeB(VAULT).unexposeBtcFromLev(lp, back);
-        } else {
-
+        if (p.venue.COLLATERAL() != address(COLL)) {
             if (back > 0) IERC20Min(WBTC).transfer(lp, back);
             _syncRange(lp);
         }
