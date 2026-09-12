@@ -31,6 +31,65 @@ the three documents that tell you WHAT ORDER to work in are buried at the very e
 | **50 rows are OWNER-BLOCKED** (was 83 before the dedup — the same rows, counted once) | `grep -n "blocked on a person\|owner decision"` | Do not start these. They move risk and the decision is not an engineer's |
 
 
+## 🎯 §WHICH-TODOS-THE-DESIGN-ACTUALLY-NEEDS — **owner, 2026-09-12: *"what aspects of the sprint.md todos were relevant to our design and why"***
+
+⭐ **THE TEST APPLIED TO EVERY SECTION IN THIS FILE: does it serve D1–D4 or A3 in `TARGET-DESIGN.md`
+PART A?** A row that serves none of them is not a task — it is history, tooling, or a test.
+| | the decision it must serve |
+|---|---|
+| **D1** | price from an oracle, not a curve |
+| **D2** | a flat charge, size- and flow-blind |
+| **D3** | LPs must not bear IL |
+| **D4** | native BTC, not a wrapper |
+| **A3** | **no LP subsidises another; the basket never funds a position** |
+
+### 🔴 TIER 1 — **RELEVANT AND BLOCKING. These are the design, not work near it.**
+| row | serves | why it is load-bearing |
+|---|---|---|
+| **§CROSS-SUBSIDY-MEASURED** | **A3** | 🔴 **the single most important row in the file.** A zero-debt LP lost **4,801 bps** of its own collateral to another LP's liquidation. A3 is the invariant everything else serves, and this is a *measured* violation of it — not a risk, a number |
+| **§POOL-VENUE-IS-PINNED-BY-FIRST-CALLER** | **A3** | the same defect's cause: one pooled position, so losses land pro-rata on units regardless of who borrowed. **Fixing §CROSS-SUBSIDY means changing this** |
+| **§LEVER-UP-HAS-NO-AGGREGATE-GATE** | **A3, D3** | the book levers per-LP with no pool-level bound ⇒ one LP's leverage sets everyone's liquidation risk |
+| **§RING-LAGS-ORACLE** + **B1 FRESHNESS BACKSTOP** | **D1** | D1 *chose* an oracle, which makes staleness the design's central exposure. Measured: 55.0 min median gap, **4,209 ppm** median spot-vs-anchor = **10× the fee**. Per B4.4 this single exposure bounds BOTH adverse selection and hedge tracking error |
+| **§PREMIUM-VS-BORNE** | **D2, A3** | 92% of what a swapper gives up is attributed to nobody. D2 says the charge is flat and known; an unattributed 92% means we cannot say who earns it |
+| **§DELIVER-BACKING** | **A3** | `committedUsd18` jumps by the levered collateral during a swap-out ⇒ the basket's backing moves because of an LP's position, which A3 forbids outright |
+| **§E313 / §SWAPOUT-DRAINS-THE-EXIT** | **A3** | first-out advantage at the exit door (measured 15.2 bps) and a swap-out fillable to the last sat. **Two LPs, one door, unequal outcomes** |
+| **§POOL-SATS-SEGREGATION** + **-STRANDING-IS-UNTESTED** + **-NO-UNILATERAL-EXIT** | **D4, A3** | D4 chose native BTC, so custody *is* the design. Pool sats and LP sats sharing a funding UTXO is A3 at the custody layer, and it has **zero test coverage** |
+
+### 🟠 TIER 2 — **RELEVANT BUT DOWNSTREAM OF AN UNMADE DECISION.** Measuring is safe; building is not.
+| row | gated on | why |
+|---|---|---|
+| **C2b DRAIN TAX** | the residual decision in **B4.3** | whether a redemption leg is charged depends on whether the LP or the fee bears the hedge residual. **Answer B4.3 first and this answers itself** |
+| **§E282 / §SPLIT-WEIGHTS** | D3 (`usd_owed` → QU!D vintage) | costs supply-cap headroom; the shape depends on whether `usd_owed` becomes a claim |
+| **§E330** | the turnover the hedge is priced against | its break-even table is a *function* of turnover, so the number is meaningless until turnover is chosen |
+| **§BTC-IL-PROTECT-IS-INERT** / **§WBTC-MODE-CANNOT-CLOSE** / **§ANY-DOLLAR-BORROW** | **A5** — the sats→WBTC seed | **all three are the same question wearing three tags.** A5 is the one question the BTC leg waits on; these are its consequences |
+
+### ✅ TIER 3 — **RELEVANT AND ALREADY ANSWERED BY THIS SESSION'S DELETIONS.** Do not re-open.
+| row | what answered it |
+|---|---|
+| **§KERNEL-RETIRED** · the variance/TWAP families | D1. The Avellaneda–Stoikov kernel and the observation ring are **gone**, measured to zero occurrences |
+| **§COLLATERAL-ANSWER** | the lever posts weETH and WBTC; **Lightning is never collateral** |
+| **§VBTC-COLLATERAL-DELETED** | ⚠️ **now STALE IN BOTH DIRECTIONS** — the path came back (vBTC *is* the shares, posted by `transferFrom`), then the 12 markets were allowlisted because `init` freezes |
+| the venue-fee accumulator rows | **deleted**, and the reason subsumes them: venue yield already reaches every LP through `rangeETH`, so the accumulator double-counted |
+
+### ⛔ TIER 4 — **NOT TASKS. They serve no decision and should stop being read as a queue.**
+| group | what it actually is |
+|---|---|
+| **§THE-SUITE-DID-NOT-NOTICE**, **§IMPACTED-TESTS-BASE-CLASS-BLINDSPOT**, **§FIXTURE-INHERITS-ITS-ENVIRONMENT**, GATE 8 | **tooling and test-harness facts.** Real, useful, not design |
+| **§LANE-CUT-NEVER-MERGED**, the lane table, the parallelism sections, **§CENSUS-CROSSTAB** | **process.** Merged, done, or about how to run sessions |
+| **§HOP-RCE**, **§MUSIG-UNSPICED**, T9, the ladder rows, **§BTC-9b/9c** | **D4's custody surface** — real work, but it is the Bitcoin thread's, not this design's |
+| **§STRIPPED-CONSTRAINTS** | 93 recovered prohibitions. **A reference, and it should be read before any deletion** — but it is not a todo |
+| the identity/Noir rows | **deferred scope** with its own `TODO.md` |
+
+### ⇒ THE ANSWER IN ONE PARAGRAPH
+**Nine rows are the design** (Tier 1), and they cluster on exactly two things: **A3 is violated in a
+measured way by the pooled lev venue, and D1's oracle staleness is the one exposure that bounds every
+other pricing loss.** Four more (Tier 2) are real but cannot be built until B4.3 and A5 are ruled on.
+Everything else in 6,776 lines is **answered, tooling, process, or another thread's**. ⛔ **The file's
+length is not a measure of remaining work — it is a measure of how much has been recorded**, and
+Tier 1's nine rows are short enough to hold in your head, which is the point of this section.
+
+---
+
 ## §SUITE-2026-09-11 — 🔴 THE FULL SUITE HAS REPORTED. IT HAD NEVER ONCE COMPLETED BEFORE TODAY.
 
 **`922 passed / 84 failed / 1 skipped — 1,007 tests across 148 suites, 316.44s`**
