@@ -300,10 +300,14 @@ error NoPrice();
 contract RealRateBtcMorphoOracle {
     address public immutable AUX;
     address public immutable WBTC;
-    constructor(address aux, address wbtc) { AUX = aux; WBTC = wbtc; }
+    uint256 public immutable SCALE;
+    constructor(address aux, address wbtc, address loanToken) {
+        AUX = aux; WBTC = wbtc;
+        SCALE = 10 ** IERC20Min(loanToken).decimals();
+    }
     function price() external view returns (uint256) {
-        uint256 twap = IAux(AUX).assetPrice(WBTC);
-        if (twap == 0) revert NoPrice();
-        return twap * 1e6;
+        uint256 p = IAux(AUX).assetPrice(WBTC);
+        if (p == 0) revert NoPrice();
+        return p * SCALE;
     }
 }

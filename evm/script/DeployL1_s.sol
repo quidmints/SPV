@@ -514,17 +514,19 @@ contract Deploy is Script {
 
         // ── BTC lev: vBTC-collateral (vBTC == the Vault). External+async acquisition ⇒ no swapper/flash ──
         BtcLevManager bm = new BtcLevManager(address(ETH.VBTC()), address(AUX), address(WBTC), gov, address(QUID));
-        address vbOracle = vm.envOr("MORPHO_VBTC_ORACLE", address(0));
-        if (vbOracle == address(0))
-            vbOracle = address(new RealRateBtcMorphoOracle(address(AUX), address(WBTC)));
-        address[] memory vsB = new address[](1);
-        vsB[0] = _mkMorphoVenue(morpho, MarketParams({
-            loanToken: address(USDC),
-            collateralToken: address(ETH.VBTC()),
-            oracle: vbOracle,
-            irm: vm.envOr("MORPHO_IRM", ADAPTIVE_IRM),
-            lltv: MORPHO_LLTV_86
-        }), address(bm));
+        address[] memory vsB = new address[](STABLECOINS.length);
+        for (uint i; i < STABLECOINS.length; ++i) {
+            MarketParams memory mpB = MarketParams({
+                loanToken: STABLECOINS[i],
+                collateralToken: address(ETH.VBTC()),
+                oracle: address(new RealRateBtcMorphoOracle(address(AUX), address(WBTC), STABLECOINS[i])),
+                irm: vm.envOr("MORPHO_IRM", ADAPTIVE_IRM),
+                lltv: MORPHO_LLTV_86
+            });
+            (,,,,uint128 lu,) = IMorphoMkt(morpho).market(Id.wrap(keccak256(abi.encode(mpB))));
+            if (lu == 0) IMorphoMkt(morpho).createMarket(mpB);
+            vsB[i] = address(new MorphoEscrowVenue(morpho, mpB, address(bm)));
+        }
         bm.init(address(ETH), morpho, vsB);                // atomic pin-once: hook + Morpho flash provider + venue allowlist, FROZEN
         ETH.setLevManager(address(bm));                 // BACKING: rangeBTC counts the BTC lev book
         // Both lev-manager slots are one-shot pins (`LevManagerPinned`) and are the Vault's ONLY
