@@ -46,13 +46,30 @@ library BtcLib {
         SwapLib.refreshBookmarks(LP, weight, usdFees);
     }
 
-    function settleDelivered(address lpEth, uint deliveredRaw, uint exactUsd,
+    // §BTC-10b second pass. This opened `deliveredSlice = deliveredRaw` and only THEN returned
+    // early on a zero USD amount — reporting the sats as DELIVERED on the branch where nothing
+    // delivered them. The caller computes `nativeSlice = shrinkSats - deliveredSlice`, so those
+    // sats were excluded from the range burn as well: settled by neither leg. Measured on the
+    // LP-withdrawal splice — shares fell 10,000,000, range depth fell 9,000,000.
+    //
+    // 🔑 THE DISCRIMINATOR IS "WAS THERE A DELIVERY", NOT "IS THERE USD LEFT TO DRAW", and the
+    // two are NOT the same — which is why this takes `delevUsd` instead of a pre-netted amount.
+    // `SwapLib.deleverOnDelivery` may consume the WHOLE obligation (it clamps at `exactUsd6`), so
+    // a genuine swap-out delivery can arrive here with nothing left to draw. Keying off that would
+    // burn the swapper's slice in the range on top of having paid for it out of pooled USD.
+    //   · `exactUsd == 0`  ⇒ no delivery at all. This is `BTCChannels._shrinkSplice`, where the
+    //     gap is what the splice paid in miner fee — sats that left the channel owed to nobody, so
+    //     the range must lose the depth rather than go on quoting it.
+    //   · `exactUsd > 0`   ⇒ delivered. The de-lever already drew its share; draw only the rest.
+    function settleDelivered(address lpEth, uint deliveredRaw, uint exactUsd, uint delevUsd,
         address core, address quid) public returns (uint deliveredSlice) {
+        if (exactUsd == 0) return 0;
         deliveredSlice = deliveredRaw;
-        if (exactUsd == 0) return deliveredSlice;
-        ICore(core).drawPooledUsdBtc(exactUsd);
-        ICore(core).subPendingSwapOut(exactUsd);
-        IBasket(quid).mint(lpEth, exactUsd * 1e12, quid, 0);
+        uint draw = exactUsd - delevUsd;
+        if (draw == 0) return deliveredSlice;
+        ICore(core).drawPooledUsdBtc(draw);
+        ICore(core).subPendingSwapOut(draw);
+        IBasket(quid).mint(lpEth, draw * 1e12, quid, 0);
     }
 
     function addLiqChannel(address core, address aux, uint sats, uint price)
@@ -71,6 +88,7 @@ library BtcLib {
         uint    inrange;
         uint    lev;
         uint    buf;
+        uint    delevUsd;
         uint spotPrice;
         uint    loPrice;
         uint    upPrice;
@@ -91,7 +109,8 @@ library BtcLib {
 
             settleBtcLp(LP, a.lpEth, quid, a.usdFees, LP.pooled + a.buf);
             uint deliveredRaw = a.shrinkSats > a.lpPayoutSats ? a.shrinkSats - a.lpPayoutSats : 0;
-            uint deliveredSlice = settleDelivered(a.lpEth, deliveredRaw, a.exactUsd, core, quid);
+            uint deliveredSlice =
+                settleDelivered(a.lpEth, deliveredRaw, a.exactUsd, a.delevUsd, core, quid);
             uint nativeSlice = a.shrinkSats - deliveredSlice;
             SwapLib.burnInRange(core, nativeSlice, address(0));
 
@@ -121,11 +140,12 @@ library BtcLib {
         mapping(address => Types.Deposit) storage autoManaged,
         mapping(address => uint) storage levPooled,
         mapping(address => uint) storage levBuf,
-        address lpEth, uint shrinkSats, uint lpPayoutSats, bool full, uint exactUsd
+        address lpEth, uint shrinkSats, uint lpPayoutSats, bool full, uint exactUsd, uint delevUsd
     ) public returns (ResizeOut memory o) {
 
         ResizeArgs memory a;
-        a.lpEth = lpEth; a.lpPayoutSats = lpPayoutSats; a.full = full; a.exactUsd = exactUsd;
+        a.lpEth = lpEth; a.lpPayoutSats = lpPayoutSats; a.full = full;
+        a.exactUsd = exactUsd; a.delevUsd = delevUsd;
         a.inrange = autoManaged[lpEth].pooled;
         a.lev = levPooled[lpEth];
         a.buf = levBuf[lpEth];

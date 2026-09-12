@@ -200,7 +200,7 @@ contract Vault is Ownable, ReentrancyGuard, Shares {
                 autoManaged, levPooled, lpEth, shrinkSats, lpPayoutSats, exactUsd);
         BtcLib.ResizeOut memory o = BtcLib.resize(
             address(CORE), address(QUID), autoManaged, levPooled, levBuf,
-            lpEth, shrinkSats, lpPayoutSats, full, exactUsd - delevUsd);
+            lpEth, shrinkSats, lpPayoutSats, full, exactUsd, delevUsd);
 
         // §BTC-10b(d). Was `lpShares + o.feeCompounded - o.sharesRemoved`. `feeCompounded` was a
         // MINT on an exit path that never calls `checkBacking()`, harmless only because the native
