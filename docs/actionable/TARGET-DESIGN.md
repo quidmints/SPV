@@ -87,10 +87,64 @@ and the anchor. ⇒ **the hedge is sized off a price that is already 10× the fe
 measure; the design has no mechanism that sizes the hedge *when* the drift is created.
 
 ## B3. ⇒ WHAT WOULD CHANGE MY MIND
-Nothing in B1 depends on the oracle or the lag, so **drift survives as the target**. But B2.3 says the
-hedge must move on the **swap**, not on the rebalance — which means the sizing belongs in the swap path,
-not in a periodic crank. **If that is not buildable, drift is the wrong frame** and the honest
-alternative is to stop promising no-IL and price the residual into the fee instead.
+Nothing in B1 depends on the oracle or the lag, so **drift survives as the target**. B2.3 said the hedge
+must move on the **swap** rather than on the rebalance. ⚠️ **B4 BELOW WORKS THAT THROUGH AND IT DOES NOT
+SURVIVE** — acting at swap time means rebuying on an external venue what we just sold at the oracle,
+which costs that venue's spread against a 420 ppm fee. ⇒ **the lag is where the LP's revenue comes from,
+so the answer is to PRICE the residual, not to eliminate it.**
+
+## B4. 🔴 MOVING HEDGE SIZING INTO THE SWAP PATH — **DESIGN ONLY, NO IMPLEMENTATION** (owner, 2026-09-12)
+
+### B4.1 The first thing to notice: the MEASUREMENT is already at swap time. Only the ACTION lags.
+`Σ drift = lpShares − rangeETH`, and a swap changes `rangeETH` in the same transaction that creates the
+drift. ⇒ **there is nothing to move for the measurement.** `Core.swap` already reads
+`px = AUX.assetPrice(ASSET)` and already moves the inventory, so the pool's aggregate short is exact and
+current the instant the swap returns. **What lags is the borrow-and-buy.**
+📌 **That reframes B2.3: it is not "size the hedge in the swap", it is "ACT on it in the swap".** I had
+the diagnosis right and the verb wrong.
+
+### B4.2 🔴 AND ACTING ON IT IN THE SWAP DESTROYS THE ECONOMICS — this is the finding, not the design
+Walk one swap all the way through.
+> Swapper pays **\$X**, receives **ΔETH** from inventory at the oracle, no slippage. Pool: **−ΔETH,
+> +\$X**, and it owes its LPs ΔETH more than it holds.
+> Hedge it **now**: borrow dollars, **buy ΔETH back on a DEX**. Pool: ETH position restored, dollar debt
+> opened.
+
+⇒ **THE POOL HAS JUST SOLD ΔETH AT THE ORACLE AND IMMEDIATELY REBOUGHT ΔETH ON AN EXTERNAL VENUE.** It
+earned **420 ppm** and paid that venue's **spread plus gas**. If the external spread exceeds 420 ppm —
+and on any size that matters it does — **the pool loses money on every single swap.**
+🔑 **SO INSTANT HEDGING IS NOT MARKET MAKING AT ALL. It is a pass-through paying two spreads to end
+where it started.** The LP's return comes from *holding* the position between the sale and the rebuy.
+⇒ **THE LAG IS NOT AN IMPLEMENTATION DEFECT. IT IS WHERE THE REVENUE IS.** ⛔ **Do not build this.**
+
+### B4.3 ⇒ WHAT THAT COSTS US, STATED PLAINLY: **D3 IS NOT ACHIEVABLE PATHWISE**
+If the hedge cannot be sized at the moment of the sale, and sizing it later carries tracking error equal
+to the price move in between, then **"no IL for a passive LP" is true in EXPECTATION and false on any
+particular path.** ⇒ **the residual has to go somewhere, and there are only three places:**
+| where the residual lands | verdict |
+|---|---|
+| **the LP bears it** | honest, and it **contradicts D3 as currently written** ⇒ D3 must be reworded to "no *systematic* IL", not "no IL" |
+| **priced into the fee** | the flat 420 ppm already does this **implicitly and unmeasured**. Making it explicit means knowing the residual's size, which nobody has measured |
+| **the basket bears it** | ⛔ **forbidden by A3.** Not an option |
+⇒ 📌 **THE DECISION IS BETWEEN THE FIRST TWO AND IT IS THE OWNER'S.** Everything else in Part B is
+downstream of it.
+
+### B4.4 ✅ AND THE ONE THING THAT GENUINELY HELPS, because it needs no forecast
+**`Σ drift` is already a NET, not a gross.** Buys and sells both move `rangeETH`, so two-sided flow
+leaves the aggregate nearly still and **the hedge does not need to move at all.** The lag only costs
+something when flow is **one-directional** — and it is one-directional exactly when the price trends.
+⇒ ⭐ **THE LAG'S COST AND THE ADVERSE-SELECTION COST HAVE THE SAME ROOT: one-way flow during a trend.**
+They are not two exposures to price separately; they are **one exposure with two names**, which is why
+§0a-bis's 4,209 ppm measurement bounds both.
+⚠️ **AND IT SAYS WHERE TO SPEND EFFORT: a fresher price attacks BOTH at once**, which is the second
+independent argument for §0a-quinquies and the only remedy in this document with that property.
+
+### B4.5 ⛔ THE THREE ALTERNATIVES I CONSIDERED AND REJECTED, so they are not re-proposed
+| idea | why not |
+|---|---|
+| hedge at the **recorded** sale price later | **you cannot trade at a past price.** The record is free; the execution is not |
+| deliver **borrowed** ETH so the drift never opens | that borrows the *volatile*, making the pool **short** ETH — the opposite of the hedge. Restores nothing |
+| hedge only the **persistent** component of drift | requires forecasting which component is persistent ⇒ **a flow-derived bound, forbidden by D2** |
 
 ---
 
