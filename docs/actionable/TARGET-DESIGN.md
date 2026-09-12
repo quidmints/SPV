@@ -1040,6 +1040,61 @@ I began reasoning toward re-instating the vBTC market from CLAUDE.md's account o
 booked, not taken.** ⚠️ **And §PHANTOM-REDEEM makes the exit question sharper, not softer:** whatever
 collateral rail is chosen, the liquidator's exit has to be **swap-out**, because there is no other one.
 
+### ⛔ RETRACTION — **"IT WOULD MOVE OUR OWN PRICE AND SKEW" IS FALSE, AND I DELETED BOTH MECHANISMS MYSELF**
+Owner caught it. Measured, in the tree, today:
+| claim I made | what the code says |
+|---|---|
+| *"move our own skew"* | **§FLAT-FEE.** `MIN_SWAP_SKEW_WAD = 4.2e14` and `premium = fullMulDiv(r.amount, MIN_SWAP_SKEW_WAD, 1e18)` — **flat 420 ppm, size-blind, both directions.** The Avellaneda–Stoikov kernel that made skew move is **deleted**. There is no skew to move |
+| *"move our own price"* | **`Core` reads `AUX.assetPrice(ASSET)`** (`:176`, `:190`, `:261`). **There is no curve.** The settlement price is the oracle, so a trade of any size moves it by **zero** |
+⭐ **THE META-ERROR, AND IT IS THE ONE TO CARRY: I REASONED FROM GENERIC-AMM INTUITION ABOUT A DESIGN
+WHOSE CURVE AND VARIANCE KERNEL I PERSONALLY DELETED.** Price impact and variable skew are what an AMM
+has; this venue has neither. **Every "obviously" in this document is now suspect for the same reason** —
+the deletions were recent and the intuitions are older than they are.
+
+✅ **AND THE CONCLUSION SURVIVES ON A BETTER ARGUMENT — A CONSERVATION ONE, WITH NO PRICE IN IT.** Buying
+vBTC through our own venue is wrong not because it moves anything, but because **it creates no exposure
+at the system level.** The LP's hedge would gain exactly the BTC the pool loses ⇒ **net system BTC
+exposure unchanged, the hedging LP long, and every other LP correspondingly shorter.** ⇒ **the hedge
+would be funded by the other LPs**, which is the same defect as §BREAK-8-11 wearing a new costume.
+**Buying WBTC externally brings NEW exposure in.** Right answer; the reason I gave for it was not.
+
+### 🔴🔴🔴 §LIQUIDATOR-HAS-NO-EXIT — **I CREATED THIS TODAY, AND 12 LIVE MARKETS MAKE IT BINDING**
+**With `vsB` now 12 markets, liquidators are real participants.** A liquidation on any of them seizes
+**vBTC** and hands it to someone who is **not an LP**. What can they do with it?
+| exit | state |
+|---|---|
+| `redeemVBtc` | 🔴 **I DELETED IT TODAY** (it was a phantom — it never paid anyone) |
+| `unwrapVbtcToWbtc` | 🔴 **I GATED IT TO `LEV_MANAGER` TODAY** |
+| sell it | 🔴 **no market** — vBTC is ours and trades nowhere |
+⇒ **A LIQUIDATOR SEIZES A TOKEN WITH NO EXIT.** ⛔ **And that makes every one of the 12 markets
+uninvestable, because no liquidator will bid on collateral they cannot realise — which means the markets
+do not get liquidated at all, which means the debt goes bad.** 📌 **CLAUDE.md attributed exactly this
+concern to the original market deletion and the owner said that was not the reason. It was not true
+then. It is true now, and I am the one who made it true**, by deleting the phantom and gating the wrap in
+the same session I restored the markets. ▶️ **The fix is the unwrap: `unwrapVbtcToWbtc` must be callable
+by any vBTC holder, not only the manager** — it burns vBTC and pays WBTC, which is exactly the
+liquidator's exit, and it is already written. **Gating it was the mistake, not its absence.**
+
+### 🔴🔴 §WRAP-ASSUMES-PARITY — **`wrapWbtcToVbtc` MINTS 1:1, AND 1:1 IS AN ASSUMPTION, NOT A PRICE**
+`wrapWbtcToVbtc(sats)` takes WBTC and mints **the same number** of vBTC. But **WBTC is a custodial
+wrapper that trades at a discount to native BTC**, and vBTC is a claim on **native channel sats**. ⇒ when
+WBTC < BTC, the lever path is an **arbitrage on the pool**: borrow stables → buy the *cheap* wrapper →
+wrap at **1:1** → hold a claim on the *dear* asset. **The LP pockets the basis and the pool eats it**,
+and nothing in the path checks a price. ⚠️ **It is reachable by any LP, because the lever path is the
+trigger even though the wrap itself is manager-gated.**
+▶️ **Two honest resolutions, and the choice is the owner's:** price the wrap off the WBTC/BTC basis, or
+**declare by fiat that the pool treats WBTC and native sats as one asset** — which §MIXED-SETTLEMENT
+already half-says (*"obligations settle in whatever the pool holds, WBTC included"*). ⛔ **The fiat is
+defensible and must then be SAID, because it makes the basis a cost the pool has accepted rather than a
+leak nobody priced.**
+
+### ⚠️ AND IT BREAKS THE INVARIANT I STATED TWO COMMITS AGO — my own, within the hour
+I booked `totalSupply == Σ levPooled` as the load-bearing solvency bound. **`wrapWbtcToVbtc` mints vBTC
+without touching `levPooled`**, so the bound is already false by construction. ⇒ the real one is
+**`VBtc.totalSupply == Σ levPooled + WBTC held by the Vault`**, and it now has **two** backing assets to
+reconcile. **A stress test written against the version I wrote down would have passed while the system
+was unbacked.**
+
 ### ✅ AND ONE BOUND THAT IS FINE, checked so the absence is not read as unexamined
 `LevVenueBase._unitSlice(u, tot, bal) = fullMulDiv(u, bal + 1, tot + 1e6)` floors, and `_unitsFor` floors
 on the way in — so **collateral rounds against the LP at both ends (conservative) and debt rounds in the
