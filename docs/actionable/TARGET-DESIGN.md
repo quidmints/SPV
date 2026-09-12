@@ -1058,6 +1058,68 @@ exposure unchanged, the hedging LP long, and every other LP correspondingly shor
 would be funded by the other LPs**, which is the same defect as §BREAK-8-11 wearing a new costume.
 **Buying WBTC externally brings NEW exposure in.** Right answer; the reason I gave for it was not.
 
+### ⭐ §LOCKSTEP — **THE ONE INVARIANT THAT EXPLAINS WHY `unexpose` SHOULD NOT EXIST**
+Owner: *"unexpose feels like a noun that shouldnt exist… dont double encumber."* **The algebra says
+exactly that.** Every write to `levPooled` in the tree:
+| site | what it does | lockstep? |
+|---|---|---|
+| `RangeLib.levAddNet:47` | `LP.pooled += netTok; levPooled[lp] += netTok;` | ✅ same amount, both |
+| `RangeLib:31` (levRemove) | `LP.pooled -= netRem; levPooled[lp] -= netRem;` | ✅ same amount, both |
+| `BtcLib:109` | `if (a.full) { levPooled = 0; levBuf = 0; }` | ✅ full exit zeroes both |
+| 🔴 `BtcLib:225` `vbtcExposeBody` | **`levPooled[lp] += sats`** | ⛔ **`levPooled` ALONE** |
+| 🔴 `BtcLib:233` `vbtcUnexposeBody` | **`levPooled[lp] = sats >= lev ? 0 : lev - sats`** | ⛔ **`levPooled` ALONE** |
+
+🔑 **THE INVARIANT: `levPooled` MAY ONLY MOVE IN LOCKSTEP WITH `pooled`.** It has to, because
+`plainNet(pooled, levPooled) = pooled − levPooled` is *the LP's own withdrawable sats*, and the lev book
+growing or shrinking must not change what the LP personally deposited. `RangeLib` preserves that by
+construction — **the lev book mints range shares and marks the same amount as not-yours, so the
+difference is invariant.**
+⇒ **THE EXPOSE/UNEXPOSE PAIR ARE THE ONLY TWO SITES THAT BREAK IT, AND BREAKING IT *IS* THE DOUBLE
+ENCUMBRANCE:** `plainNet` falls while the LP's deposit has not moved. ⇒ **the owner's instinct located
+the defect from the NAME**, before any of the arithmetic: a verb that encumbers without moving anything
+is a verb with nothing to do.
+✅ **AND UNDER SHARE-TRANSFER COLLATERAL THEY ARE NOT MERELY WRONG, THEY ARE UNNECESSARY.**
+`openBtcLev` does `COLL.transferFrom(msg.sender, venue, initialVbtc)` ⇒ `transferShares` moves
+`pooled[lp] → pooled[venue]` **and is itself bounded by `plainNet`**, so you can only post *free*
+shares and the shares you posted are **gone from your balance**. **The movement IS the encumbrance.
+Nothing needs marking.**
+▶️ **DELETE: `Vault.exposeBtcToLev`, `Vault.unexposeBtcFromLev`, `BtcLib.vbtcExposeBody`,
+`BtcLib.vbtcUnexposeBody`, both `IVaultExposeB` members (which empties the interface — delete it too),
+and `BtcLevManager`'s import of it.** Four functions, one interface, two struct-free writes. **`levPooled`
+itself SURVIVES** — `RangeLib` is its real mechanism and that is not redundant.
+⛔ **NOT DONE IN THIS COMMIT: a peer is mid-flight deleting `feesPerShare` and holds uncommitted edits in
+`Vault.sol`, `BtcLib.sol`, `Interfaces.sol`, `RangeLib.sol`, `Shares.sol`, `Quid.sol`, `QuidLib.sol`,
+`SwapLib.sol` and `Types.sol`.** Editing into that is rule 14c with the roles reversed, and I did it to
+them once today already. **Handed over instead.**
+
+### ⛔ §7540-DOES-NOT-FIT — **I ARGUED FOR THE VOCABULARY AND I WAS WRONG. THE CONTROL DIRECTION IS INVERTED.**
+Owner: *"im not sure anymore where 7540 fits (if at all)."* ⇒ **it does not, and the gating settles it:**
+```solidity
+function requestDeposit(address lpEth, uint sats) external nonReentrant onlyBTCChannels   // Vault:171
+function requestRedeem(address lpEth, uint lpPayoutSats) external nonReentrant onlyBTCChannels // :199
+```
+**Both are hop-gated.** In ERC-7540 **the USER calls `requestDeposit`/`requestRedeem`** and the vault
+fulfils later. Here **the PROTOCOL calls them**, after an external event — an SPV-proven Bitcoin deposit,
+or a swap-out request. ⇒ **same words, opposite actor.** A 7540 integrator calling `requestDeposit`
+gets `NotBTCChannels`.
+⇒ 📌 **SO EVEN THE "FREE VOCABULARY" I ARGUED FOR IS WRONG, AND WORSE THAN NEUTRAL: the names imply a
+PULL model we do not have**, so they mislead exactly the reader who knows the standard. **Retracting
+§7540-STYLE's conclusion.** The earlier objections stand and now have company: no `asset()`/shares
+dichotomy (the token *is* the shares), ~8 functions of EIP-170 cost for an interface nobody queries,
+and now an inverted caller.
+▶️ **The honest naming is a SETTLEMENT verb, not a request verb** — these functions record something
+that already happened on Bitcoin. ⚠️ **Booked, not renamed: it is ABI, the peer is in `Vault.sol`, and
+it is cosmetic against everything else open.**
+
+### ⚠️ AND THE VARIABLE PASS IS PARTIAL — saying so, rather than implying a full sweep
+**Covered:** `pooled`, `lpShares`, `levPooled`, `totalLevPooled`, `plainNet` (11 refs, stays — it is the
+LP's own-sats accessor and is load-bearing), `feesPerShare` (write-never, peer deleting it now).
+**NOT yet examined:** `levBuf` (51 refs), `levBufferUsd` (21), `totalBuffer` (17), `RANGE_ANCHOR` (9).
+⚠️ **`levBuf` at 51 references with `levBufferUsd` and `totalBuffer` beside it is the next place to look
+for the same shape** — three variables tracking one buffer in two units and a total is the profile of
+something reducible, and `levBuf` appears in `refreshBookmarks` weights (`LP.pooled + levBuf[user]`)
+where `levPooled` does not, which is either a real distinction or the drift that `plainNet` had.
+
 ### ⛔ §LIQUIDATOR-HAS-NO-EXIT AND §DELEVER-WITHDRAW-STRANDS-SATS ARE BOTH **RETRACTED** — THEY WERE
 ### ARTEFACTS OF MY OWN LEDGER MISTAKE, NOT PROPERTIES OF THE DESIGN
 Owner: *"didnt we decide that any vbtc holder can swap out into dollars with any channel"* — **yes, and
