@@ -14,7 +14,7 @@ import {Shares} from "./Shares.sol";
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "solmate/src/utils/ReentrancyGuard.sol";
-import {ILevEquity} from "./imports/Interfaces.sol";
+import {ILevEquity, IERC20Min} from "./imports/Interfaces.sol";
 import {QuidLib} from "./imports/QuidLib.sol";
 
 contract Vault is Ownable, ReentrancyGuard, Shares {
