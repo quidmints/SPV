@@ -736,6 +736,55 @@ Each was carried as open, some in red, some for weeks.
    has. It is booked because it is CHEAP to remove on-chain and because item 0 is meant to end exactly
    this class of delegation; a floor the daemon authors would survive item 0 unless it is fixed here.
 
+**14d. 🔴 `§SPLICE-FEE-IS-HOP-AUTHORED-AND-UNBOUNDED` — booked 2026-09-12 from the owner's question
+   *"why is a miner fee present at all?"*. The answer is measured, and the question exposes a
+   SECOND thing the fee's existence was hiding.**
+
+   ▶️ **WHY THE FEE IS THERE, traced end to end rather than assumed.**
+   `quid_hop::node::initiate_splice_out_to` builds `SpliceContribution::SpliceOut { outputs: [...] }`
+   — **outputs only, NO inputs** — and its own comment says why: *"No inputs to contribute (the
+   value comes from the channel balance), so this is synchronous — no wallet/esplora needed."*
+   ⇒ there is no external UTXO to pay the miner, so LDK takes the fee out of the channel: the payout
+   output is the EXACT `amount_sats` requested and the new funding output absorbs the shortfall.
+   `old = newFunding + payout + fee` ⇒ `shrinkSats = old − newFunding = payout + fee` ⇒ the gap
+   `deliveredRaw` that §BTC-10b's second pass found **IS the splice's miner fee**, on every shrink.
+   ⛔ **AND IT CANNOT SIMPLY BE FUNDED FROM OUTSIDE, because the contract forbids the change output
+   that would require.** `_withdrawalPayout` reverts `ForeignSpliceOutput` unless every non-funding
+   output pays `btcRecipientOf` — so a hop contributing a fee input could never take change back and
+   would have to contribute a UTXO worth *exactly* the fee. **The guard that stops value being
+   siphoned out of a channel is the same guard that makes external fee-funding impractical**, and
+   that tradeoff is on an immutable contract.
+   ⇒ **ECONOMICALLY THE FEE IS CORRECT WHERE IT LANDS:** it is the LP's own withdrawal, the LP's
+   shares fall by `payout + fee`, and the LP receives `payout`. Nothing is lost or misattributed.
+
+   🔴 **WHAT THE QUESTION EXPOSES IS NOT THE FEE, IT IS THAT NOTHING BOUNDS IT.**
+   The feerate is `quid_hop::rebalancer::SPLICE_FUNDING_FEERATE_SAT_PER_KW = 2_000` sat/kw, a **Rust
+   constant**, passed by `quid-bridge-daemon` into `boot_vault`. `_shrinkSplice` computes
+   `shrinkSats` from the channel delta and `lpPayoutSats` from the outputs and **never compares the
+   two** — the only check is `lpPayoutSats > old`, which is the OTHER direction. ⇒ **the fleet picks
+   a number that comes straight out of an LP's balance, and the contract bounds it at nothing.**
+   🔑 **THIS IS EXACTLY `14b`'s RULE, arriving on a path 14b did not enumerate:** *"Rust may MIRROR a
+   number that moves money; it must never be the AUTHORITY on one."* 14b audited the four swap-in
+   entrypoints for caller-supplied floors and found `reverseSwapOut`. The splice fee is the same
+   shape — hop-authored, LP-paid, contract-unchecked — and it was invisible because it is not a
+   parameter anywhere: it is the *residue* of two numbers the contract does check separately.
+   ⚠️ **AND UNDER §NO-SELF-PROVISIONED-LPS THE LP CANNOT DECLINE IT.** The vault holds both halves,
+   so "the LP co-signs the splice" is not a control here; item 0 is what would make it one.
+
+   ▶️ **OPTIONS, with their costs, because this is an immutable contract and the owner's call:**
+   1. **Bound it on-chain** — `if (shrinkSats − lpPayoutSats > cap) revert`. Needs a constant that
+      is right forever on a contract that cannot be changed, and mainnet fees move by orders of
+      magnitude. ⛔ A cap set wrong bricks withdrawals; a cap set safe bounds nothing.
+   2. **Make it observable** — `ChannelSpliced` already emits `shrinkSats` but NOT `lpPayoutSats`,
+      so the fee is not derivable from the EVM log alone. Adding the field costs bytes on the
+      tightest contract in the tree (184 spare) and is the `Aux.btcShortfall` precedent:
+      *"a no-op is an acceptable POLICY; an UNOBSERVABLE no-op is not."* ⭐ **Recommended.**
+   3. **Accept it** — the LP paying the miner fee for its own withdrawal is correct, and the fleet
+      already has strictly larger discretion (it holds both funding halves). ⇒ this is a real
+      argument, and it is the one that says do nothing until item 0.
+   📌 **Not landed either way** — option 1 is the kind of clamp CLAUDE.md rule 3 exists to refuse,
+   and option 2 spends bytes on the one contract that has none to spare.
+
 **14c. ✅ `§FLOOR-HAS-NO-CROSS-LANGUAGE-VECTOR` — CLOSED 2026-09-11.** Both sides now pin the SAME
    vector: Rust's `floor_matches_the_solidity_vector` asserts `742_500_000` from the Solidity
    fixture verbatim, and `test_theFloorIsDerivedFromTheCommittedRate` names it as half of a pair.
