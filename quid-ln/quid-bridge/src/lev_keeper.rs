@@ -2256,7 +2256,6 @@ mod tests {
     struct MockEvm {
         views: Vec<(LpAddr, PositionView)>,
         rebalanced: RefCell<Vec<LpAddr>>,
-        cascaded: RefCell<Vec<LpAddr>>,
         synced: RefCell<Vec<LpAddr>>,
         protected: RefCell<Vec<(LpAddr, u64)>>,
     }
@@ -2281,8 +2280,22 @@ mod tests {
         }
     }
 
+    /// ⚠️ **RETARGETED, NOT RELAXED — `add716e5` (§POOLED-EXTRACTION) DELETED THE SINK THIS TEST
+    /// WATCHED.** It asserted `cascaded == [urgent_lp]`, but `cascadeDelever`/`rebalanceMany` went
+    /// with the per-LP book and `LevKeeperEvm` has no `cascade` method at all any more — the urgent
+    /// track is now N per-LP `rebalance` txs. So `cascaded` was a mock field NOTHING COULD EVER
+    /// WRITE, and the test could not pass by any behaviour of the code under test.
+    ///
+    /// 🔑 **THE PROPERTY IS UNCHANGED AND IS STILL BOTH HALVES** — urgent acts on the tick it
+    /// appears, lazy waits out the dwell. What changed is that both tracks drain into ONE sink, so
+    /// the discriminator moves from WHICH SINK to WHICH LP.
+    /// ⭐ **AND IT GETS STRICTLY STRONGER ON THE WAY:** only the urgent loop follows its rebalance
+    /// with `sync_lev` (the lazy one relies on `_rebalance` syncing internally), so asserting
+    /// `synced` pins that the URGENT path ran — not merely that something called `rebalance`.
+    /// Watching one sink for two tracks would otherwise have been exactly the weakening this
+    /// retarget could have smuggled in.
     #[tokio::test]
-    async fn loop_urgent_cascades_now_lazy_waits_for_dwell() {
+    async fn loop_urgent_acts_now_lazy_waits_for_dwell() {
         let urgent_lp = [1u8; 20];
         let noisy_lp = [2u8; 20];
         let mut uv = base();
@@ -2292,16 +2305,18 @@ mod tests {
         let evm = MockEvm {
             views: vec![(urgent_lp, uv), (noisy_lp, nv)],
             rebalanced: RefCell::new(vec![]),
-            cascaded: RefCell::new(vec![]),
             synced: RefCell::new(vec![]),
             protected: RefCell::new(vec![]),
         };
         let mut dwell = DwellTracker::default();
         let cfg = LevKeeperConfig::default();
-        // t=0: urgent cascades immediately; noisy just went out of range ⇒ NOT persisted ⇒ no churn.
+        // t=0: the urgent LP is acted on immediately; the noisy one just went out of range ⇒ NOT
+        // persisted ⇒ no churn. ONE sink now, so the assertion is on its CONTENTS, not its emptiness.
         tick(&evm, &cfg, &mut dwell, 0, 600).await.unwrap();
-        assert_eq!(*evm.cascaded.borrow(), vec![urgent_lp]);
-        assert!(evm.rebalanced.borrow().is_empty(), "un-persisted noise must not churn");
+        assert_eq!(*evm.rebalanced.borrow(), vec![urgent_lp],
+            "urgent acts on the tick it appears, and the un-persisted move must NOT churn");
+        assert_eq!(*evm.synced.borrow(), vec![urgent_lp],
+            "the syncLev follow-up is the URGENT track's signature - this pins which loop ran");
         // t=700 (> 600s dwell) and still out of range ⇒ now persisted ⇒ the lazy rebalance fires.
         tick(&evm, &cfg, &mut dwell, 700, 600).await.unwrap();
         assert!(evm.rebalanced.borrow().contains(&noisy_lp), "persisted move must rebalance");
