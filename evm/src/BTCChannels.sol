@@ -133,6 +133,22 @@ contract BTCChannels {
     event FreshnessCommitted(bytes32 indexed channelId, uint64 seq);
     event ManagerFreshnessCommitted(address indexed hop, uint64 seq);
     event MigrationNonceConsumed(bytes32 indexed nonce, address indexed hop);
+    /// §SPLICE-FEE-IS-HOP-AUTHORED-AND-UNBOUNDED (item 14d). The shrink an LP is charged in shares
+    /// is `shrinkSats`; what reaches its payout script is `lpPayoutSats`. The difference is the
+    /// splice transaction's MINER FEE — the splice contributes no inputs, so it comes out of the
+    /// channel — and it is the LP's own withdrawal cost, correctly borne.
+    /// ⛔ **WHAT IS NOT CORRECT IS THAT NOTHING BOUNDS IT.** The feerate is
+    /// `SPLICE_FUNDING_FEERATE_SAT_PER_KW`, a Rust constant the fleet passes into `boot_vault`, and
+    /// this contract never compares the two numbers — its only check, `lpPayoutSats > old`, is the
+    /// other direction. Under §NO-SELF-PROVISIONED-LPS the LP holds neither funding half, so
+    /// co-signing is not a control either.
+    /// ⇒ a CAP was rejected: on a contract with no upgrade path a constant that is wrong bricks
+    /// withdrawals and one that is safe bounds nothing, which is the clamp standing rule 3 exists to
+    /// refuse. **Observability is what is actually available**, and it is the `Aux.btcShortfall`
+    /// precedent: a no-op is an acceptable policy, an UNOBSERVABLE one is not. Emitted only when
+    /// non-zero, so a fee-free splice costs nothing.
+    event SpliceFeeBorneByLp(bytes32 indexed channelId, address indexed lpEth, uint feeSats);
+
     event ChannelSpliced(
         bytes32 indexed channelId,
         address indexed lpEth,
@@ -493,6 +509,8 @@ contract BTCChannels {
         }
         paidOutSinceCheckpoint[channelId] += lpPayoutSats;
         _requireClaimRegistered(channelId);
+        if (shrinkSats > lpPayoutSats)
+            emit SpliceFeeBorneByLp(channelId, lpEth, shrinkSats - lpPayoutSats);
         btc.resize(lpEth, shrinkSats, lpPayoutSats, 0);
         emit ChannelSpliced(channelId, lpEth, false, shrinkSats, p.amountSats, newTxId, newVout);
     }
