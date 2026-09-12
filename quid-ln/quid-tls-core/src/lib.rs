@@ -37,7 +37,29 @@ pub static QUID_TLS_PROTOCOL_VERSIONS: &[&rustls::SupportedProtocolVersion] =
 /// Quid cipher suite: specifically `TLS13_AES_128_GCM_SHA256`
 static QUID_CIPHER_SUITES: &[rustls::SupportedCipherSuite] =
     &[rustls::crypto::ring::cipher_suite::TLS13_AES_128_GCM_SHA256];
-/// Quid key exchange group: X25519
+/// §BTC-4.5 — post-quantum key agreement, ON BY DEFAULT.
+#[cfg(feature = "pq")]
+pub mod pq;
+
+/// Quid key exchange groups, in PREFERENCE ORDER.
+///
+/// 🔴 **`X25519MLKEM768` IS FIRST AND THAT IS THE WHOLE POINT.** `quid-hop`'s enclave migration
+/// POSTs the ROOT SEED over RA-TLS (`quid_hop::seed::provision_seed`), so a recorded classical
+/// handshake is a harvest-now-decrypt-later target whose payload never expires — it re-derives
+/// every hop and channel key. Ordering decides what an honest peer actually negotiates; listing the
+/// hybrid second would leave that handshake classical in practice.
+///
+/// ⭐ **X25519 STAYS, AND IT IS NOT A HEDGE.** It is what a peer that does not know the hybrid
+/// negotiates, and `ActiveKeyExchange::hybrid_component` additionally lets such a peer take the
+/// X25519 half of a hybrid share rather than failing. Neither is a downgrade vector: TLS 1.3 covers
+/// group selection in the transcript, so a MITM cannot force either quietly.
+#[cfg(feature = "pq")]
+static QUID_KEY_EXCHANGE_GROUPS: &[&dyn rustls::crypto::SupportedKxGroup] =
+    &[pq::X25519MLKEM768, rustls::crypto::ring::kx_group::X25519];
+
+/// Quid key exchange group without `pq`: X25519 only. ⚠️ This build has NO post-quantum protection
+/// on the migration handshake — see [`pq`] for what that costs.
+#[cfg(not(feature = "pq"))]
 static QUID_KEY_EXCHANGE_GROUPS: &[&dyn rustls::crypto::SupportedKxGroup] =
     &[rustls::crypto::ring::kx_group::X25519];
 /// Quid default value for [`ClientConfig::alpn_protocols`] and
@@ -119,3 +141,42 @@ pub static WEBPKI_ROOT_CERTS: std::sync::LazyLock<
     let roots = webpki_roots::TLS_SERVER_ROOTS.to_vec();
     Arc::new(rustls::RootCertStore { roots })
 });
+
+#[cfg(all(test, feature = "pq"))]
+mod pq_wiring_tests {
+    use super::*;
+
+    /// §BTC-4.5 — THE WIRING, WHICH IS THE PART THAT CAN SILENTLY NOT HAPPEN. `pq.rs` is tested on
+    /// its own, but a correct key-exchange group that is not in the provider — or is listed SECOND —
+    /// protects nothing, and no handshake fails to tell you: it just negotiates X25519 and succeeds.
+    ///
+    /// ⭐ The end-to-end negotiation itself is proved by the EXISTING handshake tests in `quid-tls`
+    /// (`shared_seed`, `quid-tls-attest-server`): they run through whatever this list says, so a
+    /// broken hybrid makes them fail. What they cannot catch is the hybrid being absent or demoted,
+    /// because both of those still hand them a working classical handshake. That is this test.
+    #[test]
+    fn the_hybrid_is_registered_and_preferred() {
+        let groups = &QUID_CRYPTO_PROVIDER.kx_groups;
+        assert_eq!(
+            groups[0].name(),
+            rustls::NamedGroup::X25519MLKEM768,
+            "X25519MLKEM768 must be FIRST — preference order is what an honest peer negotiates, \
+             and the migration handshake carries the root seed"
+        );
+        assert!(
+            groups.iter().any(|g| g.name() == rustls::NamedGroup::X25519),
+            "X25519 must remain offered, so a peer that does not know the hybrid still connects"
+        );
+        assert_eq!(groups.len(), 2, "exactly these two; an unlisted third group is not reviewed");
+    }
+
+    /// TLS 1.3 only, matching `QUID_TLS_PROTOCOL_VERSIONS`. A hybrid offered to TLS 1.2 would be
+    /// meaningless (no `key_share` semantics for it) and rustls asks the group directly.
+    #[test]
+    fn the_hybrid_is_tls13_only() {
+        let hybrid = QUID_CRYPTO_PROVIDER.kx_groups[0];
+        assert!(hybrid.usable_for_version(rustls::ProtocolVersion::TLSv1_3));
+        assert!(!hybrid.usable_for_version(rustls::ProtocolVersion::TLSv1_2));
+    }
+}
+

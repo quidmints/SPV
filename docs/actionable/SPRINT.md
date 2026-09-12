@@ -961,7 +961,26 @@ Each was carried as open, some in red, some for weeks.
    ⚠️ **RE-MEASURED: the "10 files, 7 inside the vendored LDK" figure was a DIFFERENT count entirely**
    (it was the `TAPROOT-CHANNELS-BUILD-SPEC.md` citation count). Live tree: **5 files, 0 in LDK.**
    📌 Prose is partly cleaned already (`:252`, `:770`); one stale P2WPKH remains at `BitcoinTx.sol:258`.
-**29. 🔴 `§BTC-4.5` — ML-KEM on RA-TLS. MEASURED 2026-09-12: THE EXPOSURE IS EXACT, THE BLOCKER IS
+**29. ✅ `§BTC-4.5` — ML-KEM ON RA-TLS. **BUILT AND ON BY DEFAULT 2026-09-12** (owner: *"pq is on by
+   default"*). `X25519MLKEM768` is now FIRST in `QUID_KEY_EXCHANGE_GROUPS`, composed in
+   `quid-tls-core/src/pq.rs` from ring's X25519 + pure-Rust ML-KEM-768, so the SGX target is never
+   left. **Every RA-TLS handshake in the workspace now negotiates the hybrid** — proved, not
+   assumed: `do_tls_handshake` asserts the negotiated group on BOTH peers, and inverting that
+   assertion fails with *"client negotiated X25519MLKEM768"*.
+   ⚠️ **STILL NOT VERIFIED, AND IT IS THE CLAIM EVERYTHING RESTS ON: the SGX build.** `cargo test`
+   proves the group negotiates on this host; it does NOT prove `ml-kem` compiles for
+   `x86_64-fortanix-unknown-sgx`. ▶️ **Run a `--target x86_64-fortanix-unknown-sgx` build before
+   treating this as closed.**
+   📌 **`X25519` stays offered, second**, and that is not a hedge: TLS 1.3 covers group selection in
+   the transcript, so a MITM cannot force the fallback silently.
+   🔴 **THE TRAP THIS BUILD ALMOST FELL INTO, recorded because it is invisible when it happens:**
+   `quid-tls` depends on `quid-tls-core` and inherits its `pq` default — but `#[cfg(feature = "pq")]`
+   inside `quid-tls` reads **`quid-tls`'s OWN** features. Without a forwarding `pq = [
+   "quid-tls-core/pq"]`, the negotiated-group assertion compiles to nothing and every handshake test
+   goes back to proving nothing about the group, while still passing. **A feature must be forwarded,
+   not inherited, wherever it gates a `cfg` in the dependent crate.**
+   *(the analysis that preceded the build:)*
+   **MEASURED 2026-09-12: THE EXPOSURE IS EXACT, THE BLOCKER IS
    EXACT, AND THE PATH DOES NOT REQUIRE LEAVING SGX.** The strongest quantum item, and **PHASE 4 was
    scheduled by no gate at all** — so this is the first analysis it has had.
    ⭐ `§NO-POST-QUANTUM-ANYWHERE` ranked taproot first and **retracted itself**: the exposure is the
@@ -1010,12 +1029,10 @@ Each was carried as open, some in red, some for weeks.
    📌 **Listing BOTH groups is the rollout, not a hedge:** TLS 1.3 group selection is covered by the
    transcript, so an old peer negotiates X25519 and a MITM cannot force that downgrade silently.
 
-   ⏸️ **ONE OWNER DECISION, AND THE CRATE ITSELF RAISES IT.** `quid-tls-core/Cargo.toml:23` carries a
-   standing rule: *"Beyond `rustls`, please only add dependencies behind a feature flag."* This adds
-   a cryptographic dependency **inside the TEE boundary**, which is a supply-chain decision and not
-   an engineer's. The rule also supplies its own answer — `ml-kem` optional behind a `pq` feature —
-   but whether that feature is ON by default is the part that decides whether the exposure actually
-   closes, and that is the owner's call.
+   ✅ **THE OWNER DECISION IS MADE: ON BY DEFAULT.** `quid-tls-core/Cargo.toml:23` carries a standing
+   rule — *"Beyond `rustls`, please only add dependencies behind a feature flag"* — so `ml-kem` is
+   optional behind `pq`, and `default = ["pq"]`. ⇒ **the flag exists so the dependency stays
+   removable, not so the protection stays optional.**
    ⚠️ **AND WHAT CANNOT BE VERIFIED FROM THIS MACHINE, STATED SO NOBODY READS A GREEN `cargo test`
    AS PROOF: the SGX build.** A loopback handshake test (`quid-tls`'s existing `do_tls_handshake`
    helper) proves the group negotiates; it does **not** prove `ml-kem` compiles for

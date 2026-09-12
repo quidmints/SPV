@@ -21,7 +21,13 @@ stack-size = 0x20_0000
 threads = 4
 
 [features]
-default = []
+# §BTC-4.5 — ON BY DEFAULT (owner, 2026-09-12: "pq is on by default").
+default = ["pq"]
+# Post-quantum key agreement. ⚠️ THIS MUST BE FORWARDED, NOT INHERITED: `quid-tls-core`'s own `pq`
+# already arrives through its defaults, but `#[cfg(feature = "pq")]` inside THIS crate reads THIS
+# crate's features — so without this line `do_tls_handshake`'s negotiated-group assertion compiles
+# out silently and every handshake test goes back to proving nothing about the group.
+pq = ["quid-tls-core/pq"]
 # Enables various test hooks and utilities. Should be disabled in staging/prod.
 test-utils = [
   "quid-common/test-utils",

@@ -212,6 +212,11 @@ mod test {
             use_sgx,
             deploy_env,
             client_measurement,
+            // §R-MIGRATION-BINDS-THE-INSTANCE — `None`: this test covers the IMAGE check (does the
+            // measurement match), which is the layer underneath instance binding. Pinning a
+            // `Some` here would need the server's live cert key and would test the binding
+            // instead, which `quid-tls`'s own suite already owns.
+            None,
         ));
 
         let server_config =

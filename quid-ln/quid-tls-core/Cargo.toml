@@ -15,12 +15,23 @@ publish = true
 [package.metadata.fortanix-sgx]
 
 [features]
-default = []
+# §BTC-4.5 — `pq` is ON BY DEFAULT (owner, 2026-09-12: "pq is on by default"). A feature that is
+# off by default would leave the migration handshake classical-only, which is the exposure itself;
+# the flag exists so the dependency stays removable, not so the protection stays optional.
+default = ["pq"]
 webpki-roots = ["dep:webpki-roots"]
+pq = ["dep:ml-kem"]
 
 [dependencies]
 # This crate is meant to have minimal dependencies.
 # Beyond `rustls`, please only add dependencies behind a feature flag.
+#
+# §BTC-4.5: ML-KEM-768 for the `X25519MLKEM768` hybrid in `pq.rs`. Behind the `pq` feature per the
+# rule above. PURE RUST and `default-features = false` deliberately: `rustls`'s own ML-KEM lives in
+# its aws-lc-rs provider, which builds C and assembly and does not target
+# `x86_64-fortanix-unknown-sgx`; `getrandom` is left OFF because every random byte comes from the
+# provider's own `SecureRandom` instead.
+ml-kem = { version = "0.3.2", default-features = false, features = ["alloc"], optional = true }
 
 
 # --- WORKSPACE --- #

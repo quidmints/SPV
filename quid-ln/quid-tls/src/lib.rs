@@ -184,9 +184,42 @@ pub mod test_utils {
     use rustls::{ClientConfig, ServerConfig, pki_types::ServerName};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+    /// §BTC-4.5 — every successful handshake in this workspace must have used the post-quantum
+    /// hybrid, not the classical fallback it sits in front of. Both peers are checked, because a
+    /// one-sided bug is exactly the shape that would otherwise still complete.
+    ///
+    /// ⛔ Compiled out when `pq` is off, rather than weakened to "either group is fine" — a check
+    /// that accepts the thing it was written to forbid is worse than no check.
+    #[cfg(feature = "pq")]
+    fn assert_negotiated_group(conn: &rustls::CommonState, side: &str) {
+        let group = conn
+            .negotiated_key_exchange_group()
+            .expect("a completed handshake has a negotiated group");
+        assert_eq!(
+            group.name(),
+            rustls::NamedGroup::X25519MLKEM768,
+            "{side} negotiated {:?}, not the post-quantum hybrid - the migration handshake \
+             carries the ROOT SEED and must not fall back to X25519 while the peer offers both",
+            group.name(),
+        );
+    }
+
+    #[cfg(not(feature = "pq"))]
+    fn assert_negotiated_group(_: &rustls::CommonState, _: &str) {}
+
     /// Conducts a TLS handshake without any other [`reqwest`]/[`axum`] infra,
     /// over a fake pair of connected streams. Returns the client and server
     /// results instead of panicking so that negative cases can be tested too.
+    ///
+    /// 🔴 **§BTC-4.5 — ON SUCCESS THIS ASSERTS THE NEGOTIATED KEY-EXCHANGE GROUP, and that
+    /// assertion is the point.** With `pq` on, `QUID_KEY_EXCHANGE_GROUPS` offers
+    /// `X25519MLKEM768` first and X25519 second, so a hybrid that were subtly broken would
+    /// **degrade to X25519 and still hand every caller here a PASSING handshake** — the failure
+    /// this helper exists to catch would be invisible in its own result. Checking the group is the
+    /// only way a green handshake means what it appears to mean.
+    ///
+    /// Negative cases are unaffected: a handshake that fails has no negotiated group, so there is
+    /// nothing to assert and the error is returned as before.
     pub async fn do_tls_handshake(
         client_config: Arc<ClientConfig>,
         server_config: Arc<ServerConfig>,
@@ -204,6 +237,8 @@ pub mod test_utils {
                 .connect(sni, client_stream)
                 .await
                 .context("Client didn't connect")?;
+
+            assert_negotiated_group(stream.get_ref().1, "client");
 
             // client: >> send "hello"
             stream
@@ -228,6 +263,8 @@ pub mod test_utils {
                 .accept(server_stream)
                 .await
                 .context("Server didn't accept")?;
+
+            assert_negotiated_group(stream.get_ref().1, "server");
 
             // server: >> recv "hello"
             let mut req = Vec::new();
