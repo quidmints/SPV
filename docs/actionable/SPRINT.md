@@ -810,7 +810,52 @@ Each was carried as open, some in red, some for weeks.
    signatures (fixed, `ce57a9a2`) and the deploy needed `--slow` (`fdd731ae`); `hop_bridge_e2e` is
    separately rotted (24 errors, `settleSwapIn` deletion) and untouched. Gates nothing; is the proof of rail B.
    📌 **Booked on behalf of the bitcoin lane (project-e9), verbatim from its own measurement.**
-**27. `§BTC-10b` — the settlement layer has NEVER been audited** (`_resize`, `requestDeposit`,
+**27. ⚠️ `§BTC-10b` — FIRST PASS DONE 2026-09-12. Four results; two closures, one live coupling, one
+   byte opportunity. The area stays OPEN — this is one pass over four functions, not an audit.**
+
+   ✅ **(a) NO CROSS-CONTRACT REENTRANCY PATH INTO `Core`. This closes the half of item 13 I left
+   open.** Enumerated every `external`/`public` non-view function on `Quid`, `Vault` and `Aux` and
+   asked which reach `Core` without `nonReentrant`: **Quid 0, Aux 0, Vault 3** — and all three are
+   safe. `addPendingSwapOut`/`subPendingSwapOut` are `onlyBTCChannels`, and every `BTCChannels`
+   entrypoint is `nonReentrant`, so re-entry must come back through a held lock. `setup` is
+   owner-gated, ONE-SHOT (`AlreadyInitialized`), and its only `Core` call is `poolStats()`, a VIEW.
+   ⚠️ My scanner first reported `setup` as **UNGATED** because its check is a `require` in the body,
+   not a modifier — audit by structure, not by the presence of a modifier.
+
+   ✅ **(b) THE ERC-20 INVARIANT HOLDS ON THE BTC RANGE.** `Quid.totalSupply()` returns `lpShares`
+   and `balanceOf(u)` returns `autoManaged[u].pooled`, so they must track. All THREE share sources in
+   `requestDeposit` write `LP.pooled` by exactly what they return — `settleBtcLp` (`LP.pooled += tokR;
+   compoundedSats = tokR`), `_pairRegLeg` (`LP.pooled += deltaBTC; return deltaBTC`), and the
+   unpaired leg (`LP.pooled += unpaired; sharesAdded += unpaired`). No divergence.
+
+   🔴 **(c) `feesPerShare` CAN ONLY EVER BE ZERO — ON BOTH RANGES — SO THE ENTIRE NATIVE FEE LEG IS
+   DEAD.** Measured, not relayed: its ONLY increments are `Quid.sol:620` and `Vault.sol:162`,
+   both `+= o.feesPerShareInc`, and **`feesPerShareInc` is never assigned anywhere** — 4 occurrences
+   total, 2 struct declarations (`QuidLib.sol:95`, `BtcLib.sol:253`) and those 2 reads. Same for
+   `usdFeesInc`. ⇒ `SwapLib.pendingFor`'s `tokR` is always 0, `settleBtcLp`'s
+   `if (tokR > 0)` compounding branch is UNREACHABLE, and the three `BtcLib` reads feed zero into
+   every bookmark. **This is a vestige of the v4 trading-fee feed that §V4-CUT deleted** — CLAUDE.md
+   already records that the cut removed the SOURCE, and this is the downstream machinery that
+   outlived it.
+   ⛔ **DO NOT READ THIS AS A VALUE LEAK — I checked and it is not.** The USD leg is LIVE
+   (`retainFee` → `Core.recordFee` → `creditFee` → `USD_FEES += usdInc`, `USD_FEES` consumed by
+   `pendingFor` and the bookmarks), so LPs ARE paid; the native premium's value reaches them in USD
+   terms. `retainedNativeFee` is a write-only counter (3 references: declaration, increment, and an
+   interface getter — no consumer), which makes it redundant instrumentation, **not** lost value.
+
+   🔴 **(d) THE EXIT PATH MINTS SHARES WITHOUT A BACKING CHECK, AND IS SAFE ONLY BECAUSE (c) IS
+   DEAD.** `requestDeposit` opens with `IAux(c.aux).checkBacking()` (`BtcLib.sol:150`). **`BtcLib.resize`
+   calls it nowhere** — defensible for a pure exit, since burning reduces commitment — except that
+   `_resize` does `lpShares = lpShares + o.feeCompounded - o.sharesRemoved`, and `feeCompounded` is a
+   MINT. It is zero today only because `feesPerShare` can never move. ⇒ **two dead things are making
+   each other safe, and whoever revives the native fee feed re-arms this silently.** Fixing (c)
+   without adding the check to the exit path is the failure mode.
+
+   📌 **BYTE OPPORTUNITY, and it is the one that matters given the headroom:** the dead native-fee
+   machinery — `feesPerShareInc`, `usdFeesInc`, the two `+=` sites, the `tokR` branches and the three
+   `BtcLib` reads — spans `Quid` and `Vault`, and **`BTCChannels` is at 184 bytes**. Not costed here;
+   deleting it touches `Quid`/`QuidLib`, which is another lane's file.
+   *(original row:)* the settlement layer has NEVER been audited (`_resize`, `requestDeposit`,
    `creditSwapIn/Out`): *"where value is created and destroyed."* Called **a new audit area, not a
    leftover** — and **no gate ever opened it.**
 **28. ✅ `§BTC-7` / `9b` — CLOSED 2026-09-11.** `error NotPubkeyHash` → **`BadBtcRecipient`**, and the
