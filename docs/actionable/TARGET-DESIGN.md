@@ -1058,6 +1058,45 @@ exposure unchanged, the hedging LP long, and every other LP correspondingly shor
 would be funded by the other LPs**, which is the same defect as §BREAK-8-11 wearing a new costume.
 **Buying WBTC externally brings NEW exposure in.** Right answer; the reason I gave for it was not.
 
+### ⛔ §LIQUIDATOR-HAS-NO-EXIT AND §DELEVER-WITHDRAW-STRANDS-SATS ARE BOTH **RETRACTED** — THEY WERE
+### ARTEFACTS OF MY OWN LEDGER MISTAKE, NOT PROPERTIES OF THE DESIGN
+Owner: *"didnt we decide that any vbtc holder can swap out into dollars with any channel"* — **yes, and
+it is true under the PROJECTION, which I replaced with a ledger this morning.** Reverted (`712999e2`).
+```solidity
+function transfer(address to, uint amt) external { IVBtcRange(VAULT).transferShares(msg.sender, to, amt); }
+// Vault.transferShares -> BtcLib.transferSharesBody: autoManaged[from] -> autoManaged[to]
+```
+⇒ **a vBTC transfer moves the RANGE POSITION ITSELF.** A liquidator who seizes vBTC receives a real
+`autoManaged` entry and exits by swap-out like any LP. ⇒ **§LIQUIDATOR-HAS-NO-EXIT described the ledger,
+where a balance and a position are two objects and a seizer gets the first without the second. Under the
+projection it is unconstructible.**
+⇒ **§DELEVER-WITHDRAW-STRANDS-SATS goes the same way:** with shares as collateral there is no `levPooled`
+marking to forget, so `deleverWithdraw` returning the collateral to the LP was **correct all along**. **I
+"root-fixed" a bug that existed only in the model I had wrongly introduced.**
+
+🔴 **AND THE LEDGER'S REAL DEFECT WAS WORSE THAN EITHER AND I DID NOT SEE IT WHEN THE OWNER FIRST STATED
+THE RULE: A DOUBLE-COUNT.** `exposeBtcToLev` does `levPooled[lp] += sats` — **those sats are already
+represented by the LP's `pooled`** — and I added `VBTC.mintTo(LEV_MANAGER, sats)` on top. **The same
+channel sats then backed BOTH the LP's shares AND newly minted vBTC.** That is *"minting vBTC against
+something that is not channel-locked BTC"* a second time, in a different place from the wrap, and it took
+the owner restating the rule for me to find it.
+
+✅ **WHAT THE COLLATERAL PATH IS NOW, AND IT MIRRORS THE ETH LEG EXACTLY:** ETH pulls the LP's own weETH
+(`_supplyCollFrom(venue, msg.sender, collWeeth)`); BTC pulls the LP's own vBTC — **which IS their
+shares** — via `COLL.transferFrom(msg.sender, address(venue), initialVbtc)`. **No mint. Nothing minted
+against anything. Morpho custodies a real position.** 📌 **And that is the answer to `47759214`'s
+measured failure — the manager had no shares to transfer because it was never meant to be the one
+transferring them.**
+
+⚠️ **ONE DECISION LEFT, AND IT IS THE OWNER'S BECAUSE GUESSING COSTS A THIRD REWRITE:**
+`exposeBtcToLev` / `unexposeBtcFromLev` now have **ZERO callers**. Under share-transfer the **movement of
+the shares IS the encumbrance**, so marking `levPooled` as well would **double-encumber** —
+`plainNet(pooled, levPooled)` would fall twice for one position. **But `levPooled` has other consumers**
+(backing via *rangeBTC counts the book*, `totalLevPooled`, and `plainNet` throughout), so whether
+lev-exposed sats still need separate tracking is a **design** question. **Left in place, zero-caller,
+flagged — not cleaned up.**
+
+### (RETRACTED — kept only so the reasoning that was wrong is legible)
 ### 🔴🔴🔴 §LIQUIDATOR-HAS-NO-EXIT — **I CREATED THIS TODAY, AND 12 LIVE MARKETS MAKE IT BINDING**
 **With `vsB` now 12 markets, liquidators are real participants.** A liquidation on any of them seizes
 **vBTC** and hands it to someone who is **not an LP**. What can they do with it?
