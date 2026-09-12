@@ -17,195 +17,125 @@ or superseded, NOT that it never existed - check the archive before concluding a
 
 ## Live now — opened or reopened 2026-08-13..15, not yet in the numbered scheme
 
-## 🧭 §PROVING-ARCHITECTURE-8288 — **EVERY STATEMENT IS REWRITTEN FOR THE leanSTARK / RISC-V WORLD, WITH NO REDEPLOY WHEN 8288 SHIPS. DECIDED 2026-09-11.**
+## 🧭 §PROVING-ARCHITECTURE-8288 — **THE STATEMENTS ARE PROGRAMS, THE CONTRACTS HAVE ONE VERIFIER SEAM, AND NOTHING ELSE IS BUILT FOR 8288 UNTIL IT IS FINAL.** DECIDED 2026-09-11, REWRITTEN 2026-09-12.
 
-Owner: *"i need everything to be rewritten in such a way that we dont need a redeploy for 8288 … i
-really wanna get rid of that stupid aggregated withdraw stuff and make the most reuse of all the
-vitalik stuff."* The pinning authority is the enclave-image msig: *"we need an msig for our lightning
-daemon enclave image anyway so that holds for the post 8288 pin."*
+Owner, 2026-09-11: *"i need everything to be rewritten in such a way that we dont need a redeploy for
+8288 … i really wanna get rid of that stupid aggregated withdraw stuff and make the most reuse of all the
+vitalik stuff."* Owner, 2026-09-12: *"im just not sure we need to align everywhere with all of it … where
+are we overfitting for 8288."* This section is the second question's answer: every item below is sorted
+by WHAT JUSTIFIES IT, and only the first group is being built.
 
-**What the target is, precisely.** [EIP-8288](https://eips.ethereum.org/EIPS/eip-8288) (Draft, merged
-2026-09-09, floated for I-star after Hegota) extends [EIP-8141](https://eips.ethereum.org/EIPS/eip-8141)
-frame transactions (Draft, 2026-01-29, the native-AA candidate) with `DEP_VERIFY_FRAME_MODE = 3`: a
-transaction DECLARES cryptographic dependencies as 96-byte triples `(scheme ‖ data_hash ‖
-verification_key_hash)` — `LEANSPHINCS_SCHEME = 0x10`, `LEANSTARK_SCHEME = 0x11` — and block validity
-carries ONE recursive STARK (header field `recursive_stark = [stark_proof, block_deps_hash]`) proving
-every dependency in the block. Per dependency: `LEANSTARK_VERIFICATION_GAS = 30_000`. There is no
-leanSTARK toolchain to target today; what exists is what it will aggregate — RISC-V zkVMs with
-hash-based STARK backends (SP1, RISC Zero, Airbender, Jolt). **The durable artifact is therefore the
-STATEMENT as a Rust program and its public-value layout; the proof format is swappable underneath.**
+**The target, precisely.** [EIP-8288](https://eips.ethereum.org/EIPS/eip-8288) (Draft, merged 2026-09-09,
+floated for I-star after Hegota) extends [EIP-8141](https://eips.ethereum.org/EIPS/eip-8141) frame
+transactions with `DEP_VERIFY_FRAME_MODE = 3`: a tx DECLARES dependencies as 96-byte triples
+`(scheme ‖ data_hash ‖ verification_key_hash)`; block validity carries ONE recursive STARK proving every
+dependency in the block; `LEANSTARK_VERIFICATION_GAS = 30_000` per dependency; a contract reads the
+triples with `FRAMEPARAM`/`FRAMEDATACOPY` *"at any depth"*. The verifier it names is *"the Lean Ethereum
+leanSTARK verifier"* — [leanVM](https://github.com/leanEthereum/leanVM)'s proof system: a 4-instruction
+hash-based zkVM with its own scalar-only DSL, *"not (yet) production ready"*, whose field already moved
+between the EIP text (KoalaBear, `2**24` trace) and the repo (192-bit binary tower, BLAKE2s). Two hard
+limits in the spec: `MAX_STARKS_PER_TX = 1` (one leanSTARK dependency per tx; more must be composed
+client-side by recursion), and the fixed trace cap (a statement above it is segments + a recursive
+wrapper). `data_hash` for a STARK is *"the public inputs hash"*, hash *"unspecified … leading choice BLAKE3"*.
 
-### THE TWO ERAS, AND WHY THEY ARE THE SAME CODE
-| | today (no 8288) | after 8288 |
+### GROUP 1 — STANDS ON ITS OWN: RIGHT WITH NO 8288 AT ALL. **THIS IS WHAT IS BEING BUILT.**
+1. **The statement is a plain program** (`quid-ln/pp-statements`): `verify(signals, witness) → Result`,
+   no proof system underneath, the public signals as a JOURNAL of 32-byte words. Deletes the
+   88-profile Noir codegen, the Docker CRS build, 16k lines of in-circuit bignum (`noir_dl_lib`) and
+   the recursion aggregator — for ANY prover. **Built for `withdraw` and `ragequit`, accepted against
+   the exact witnesses real Honk proofs were made from** (see the queue).
+2. **One `register` program** for every passport shape — Rust parses lengths at runtime; the 88 profiles
+   exist only because Noir monomorphises array sizes. One key, one verifier, no per-shape deploy. The
+   checks are `register_identity`'s: SOD signed by the DSC (RSA-PSS/ECDSA), DSC chained to the anchored
+   CSCA root, DG1 → identity commitment — with stock crates (`rsa`, `p256`, `sha1/2`; brainpool in
+   software).
+3. **One verifier seam in the money contracts**: `PrivacyPool`/`HolderRegistration`/the registries
+   consume a JOURNAL and make exactly one call, `adapter.verify(journal, bytes proof) → bool`, on ONE
+   msig-pinned, timelocked address. No `IVerifier` import, no `NUMBER_OF_PUBLIC_INPUTS`, no public-input
+   indexing anywhere else. Ordinary decoupling; needed the moment any prover is swapped for any reason.
+   ⛔ **The "era-lock" (settable once to the 8288 adapter, then frozen) is DROPPED** — governance designed
+   around one Draft event. The plain pinned pointer is what protects; a knob that exists is a knob, and
+   the fewer the better (rule 23).
+4. **keccak256 trees — for GAS, measured, not for the tower.** `PoseidonT3.hash` costs **100,753 gas per
+   call on-chain** (forge gas report, 2026-09-12); a LeanIMT deposit hashes up the right edge, so at
+   2^20 leaves a deposit is ~1M gas of hashing (measured at tiny sizes: 157k–291k, growing with depth).
+   keccak is ~100 gas a level. That is the pool's largest gas item and it is pre-launch, so it is a design
+   change, not a redeploy. keccak is also precompiled in every RISC-V zkVM and XOR-native on a binary
+   tower — bonuses, not the reason. Scope: the state LeanIMT (`lean-imt.sol`'s `PoseidonT3`), the
+   identity/blacklist SMT hashers (`IdentityRegistry.sol:219 setHashers`), commitment/nullifier/
+   precommitment, `blacklist_key`, `identity_commitment`; the BN254 field then leaves the statements
+   (plain `bytes32` journal words, `context` loses `% SNARK_SCALAR_FIELD`). ⚠️ The Rarimo registration
+   side (`Bytes2Poseidon`, the dispatchers, `HolderStateKeeper`) moves with the `register` port, not here.
+   ⚠️ **DECOUPLED from the prover switch**: the keccak trees land with a three-way Rust ↔ TS ↔ Solidity
+   differential pin; the Noir path (which cannot take keccak cheaply) is retired when the zkVM guest is
+   proven, not forced by this.
+5. **The aggregator is deleted** when a per-withdrawal proof costs ≤ batch level. Measured today: Honk single
+   **2,528,007** gas, 16-batch **2,980,094** total (~186k each) — `VerificationCostComparison.t.sol`. A
+   zkVM's wrapped verifier is ~300k, so the batch buys nothing once that is the adapter.
+6. **The relayer** (§PP-RELAYER) — unrelated to 8288; built and proven.
+
+### GROUP 2 — JUSTIFIED ONLY BY 8288, AND DEFERRED UNTIL 8141/8288 ARE FINAL. **NOTHING HERE SHAPES CODE NOW.**
+- `ProofAdapter8288`: scan frames for mode 3 → find the triple whose `vk_hash` is the pinned key → hash
+  the calldata journal → compare to `data_hash` → `true`. Block validity is what makes "present in the
+  frame" mean "proven"; replay is closed by the journal's own content (the pool spends the nullifier).
+  ▶️ **WHY IT CANNOT SHIP TODAY, in one sentence: it reads opcodes and a transaction type that do not
+  exist on Ethereum.** `FRAMEPARAM`/`FRAMEDATACOPY`, type-`0x06` frame transactions, mode 3, and the
+  block-level recursive STARK are all 8141/8288 — a contract using them today is an invalid opcode, and
+  even if it compiled nothing in consensus would enforce that a declared dependency was ever proven.
+  The mempool aggregation is a consequence, not the blocker. **Until then the adapter behind the same
+  seam is the ordinary one: a contract that verifies the proof itself** — the Honk verifier today, a
+  zkVM's wrapped verifier when the guest is proven — and the switch to the frame adapter is a pointer
+  change through the pin, which is the whole point of group 1 item 3.
+- The `data_hash` hash (BLAKE3 has no precompile → a Solidity BLAKE3 over a ~200-byte journal, or whatever
+  the Final text names).
+- `MAX_STARKS_PER_TX = 1`: one statement per tx. Today's design already is; re-check when composing.
+- The trace cap: `register` is segments + a recursive wrapper on leanVM. Only matters if group 3's route A
+  is ever taken.
+- Frame transactions from the wallet (type `0x06` with the dependency frame).
+
+### GROUP 3 — OPTIONS, NOT PLANS. RE-EVALUATE WHEN leanVM HAS A STABLE ISA AND A DSL OUTSIDERS CAN USE.
+The dependency 8288 verifies is a leanSTARK, and there are two ways to produce one:
+· **(A) write the statement in leanVM's DSL.** One proof system, no wrapper, no per-withdrawal recursion
+  tax, and our pool statements are ~130 hashes — leanVM's exact design target. Not buildable today (DSL
+  pre-production, ISA/field in flux). Rewriting a ~200-line statement from the Rust reference is days.
+· **(B) a general zkVM's proof, VERIFIED INSIDE a leanVM recursion program** — the EIP's route for every
+  application that is not a signature (*"wrap them client-side in a STARK, and then reuse the leanSTARK
+  route"*). Buildable now on the zkVM side; the recursion program must come from the zkVM vendor, and
+  proving it is a per-withdrawal cost in OUR pipeline (a STARK verifier is far bigger than our statement).
+⇒ **Neither is chosen. Group 1 is what both need**, and it is prover-agnostic: `pp-statements` is the
+reference either way (the DSL rewrite's differential oracle under A, the guest program under B). The
+two facts that decide it are observable in the leanVM repo, not decidable here: whether keccak (or any
+bit-native hash) is cheap on the tower-era VM, and whether the DSL is usable by non-core teams.
+**Verkle trees: no.** KZG/IPA over Bandersnatch — not PQ, which is why Hegota dropped it for
+[EIP-7864](https://eips.ethereum.org/EIPS/eip-7864)'s binary hash tree; verifying an opening inside a
+hash-based STARK is EC arithmetic again; and its one advantage (tiny witnesses over huge state) does not
+apply to a 32-hash path. With keccak our trees are already 7864's shape.
+
+### THE INTERIM, HONESTLY — what runs between now and 8288, and what it costs
+| | keep Honk single | zkVM + vendor wrapper |
 |---|---|---|
-| who amortises verification | **we do** — one on-chain verify covers K withdrawals | **the mempool does** — each tx declares its proof; the block proves them all |
-| our batching | a zkVM program that runs the withdraw statement K times and emits K nullifiers; one wrapped proof on-chain | **none** — one tx per withdrawal, its own dependency. The batch program is deleted. |
-| the contract | `adapter.verify(journal, proof)` then applies nullifiers | `adapter.verify(journal, "")` — the adapter reads the frame; no proof bytes reach us |
-| on-chain verification | the zkVM vendor's STARK→Groth16/PLONK wrapper (~250–300k gas, pairing-based ⇒ NOT PQ on-chain yet) | native, ~30k gas, PQ |
-| trusted setup | the vendor's one-time universal wrapper setup, inherited, never run by us, same for 1 program or 88 | **none** |
-
-**THE INVARIANT — four rules, and breaking any one re-introduces a redeploy:**
-1. **The unit is the single statement**, one Rust crate each: `withdraw(root, nullifier, recipient,
-   amount ‖ note_secret, path)`, `register(…)`, `ragequit(…)`, `notary_action(…)`, `title_holder(…)`,
-   `escrow_envelope(…)`. Its public values are an ABI-encoded tuple with no cleverness — that tuple
-   is what 8288 hashes into `data_hash` (*"For `LEANSTARK_SCHEME`, this is the public inputs hash"*).
-2. **The batch program is a thin wrapper** calling the withdraw crate K times. Disposable by design;
-   deleting it removes zero statement code.
-3. **Money contracts never touch a proof.** `PrivacyPool`, `HolderRegistration`, the registries
-   consume a JOURNAL struct and make exactly one call — `adapter.verify(journal, bytes proof) → bool`
-   — on ONE msig-pinned address. No `IVerifier` import, no public-input positions, no proof parsing
-   anywhere else. ⛔ The two habits the Honk integration has and the rewrite must actively remove:
-   each generated verifier bakes `NUMBER_OF_PUBLIC_INPUTS`, and the pool indexes into the array.
-4. **Nothing is committed to a proof format.** SP1/RISC Zero STARKs are not leanSTARK; the same Rust
-   program is re-proven when the lean prover exists. Only the adapter and its pinned vkey change.
-
-### WHICH ADAPTER 8288 GIVES US — RESOLVED FROM THE SPEC TEXT, NOT FROM COVERAGE
-The cheap one. EIP-8141: the frame instructions are *"available to any EVM code executed within that
-transaction, including code reached via CALL/DELEGATECALL at any depth"*, and introspection *"reveals
-all frames of the tx, not just executed ones."* EIP-8288: *"Contracts can iterate over all frames in
-the transaction using `FRAMEPARAM` to identify `DEP_VERIFY_FRAME_MODE` frames, then use
-`FRAMEDATASIZE` and `FRAMEDATACOPY` to read the dependency data."* ⇒ the 8288-era adapter is: scan
-frames for mode 3 → find the triple whose `verification_key_hash` equals the pinned vkey → hash the
-calldata journal → compare to `data_hash` → `true`. `FRAMEPARAM` is 2 gas; `FRAMEDATACOPY` prices as
-`CALLDATACOPY`. Block validity is what makes "present in the frame" mean "proven". Replay is closed by
-the journal's own content (the pool spends the nullifier), not by who declared the dependency.
-**Two hard limits from the spec's constants and Rationale that the statement design must respect
-(re-read 2026-09-11):** `MAX_STARKS_PER_TX = 1` — a transaction declares AT MOST ONE leanSTARK
-dependency, so a flow needing two proofs composes them client-side into one (recursion is allowed:
-*"wrap them client-side in a STARK, and then reuse the leanSTARK route"*; user vkeys *"may
-potentially have unlimited recursion depth"*); and the proof is fixed-cost because it is fixed-size —
-*"KoalaBear field, fixed trace width … the `2**24` trace length limit"* — so a statement above ~16.7M
-rows does not fit one leanSTARK. The pool statements fit. **`register` (RSA-2048/P-256 in a zkVM,
-tens of millions of cycles) does not**: it is proven as segments plus a client-side recursive
-wrapper, which is exactly the delegated-proving load the "proving location" decision below is about.
-The port estimate assumes the recursion tooling is the lean stack's, not ours.
-**Residual unknowns, all contained in the adapter:** (a) the hash behind `pub_input_hash` is
-*"unspecified … currently leading choice is BLAKE3"* — no precompile, so a Solidity BLAKE3 over a
-~200-byte journal unless one ships; (b) users must submit withdrawals as frame transactions (type
-`0x06`) — the wrapper adapter stays pinned until wallets can; (c) both EIPs are Draft.
-
-### 🔴 WHAT "100% ALIGNED WITH POST-8288 ETHEREUM" ACTUALLY MEANS — MEASURED AGAINST THE LEAN STACK, 2026-09-12
-(owner: *"make sure that what we use in the end is real and 100% aligned with how ethereum will work after 8288"*)
-**The verifier 8288 names is ONE thing: *"the Lean Ethereum leanSTARK verifier"*, and leanSTARK is
-[leanVM](https://github.com/leanEthereum/leanVM)'s proof system.** leanVM is *"not general-purpose"*: a
-4-instruction ISA (`ADD, MUL, DEREF, JUMP` + `POSEIDON`/`DOT_PRODUCT`/`MULTILINEAR_EVAL` precompiles),
-programs in its own DSL whose *"only first-class type is a scalar"* of the VM field, built for XMSS/SPHINCS
-aggregation and recursion. Its README says *"not (yet) production ready"*, and the field has ALREADY MOVED
-between the EIP text (*"KoalaBear … 2**24 trace"*) and the repo (a 192-bit binary tower, BLAKE2s).
-⇒ **A Rust statement is NOT a leanVM program, and nothing today can turn one into one.** Two routes to a
-dependency the leanSTARK verifier accepts, and only one is buildable:
-· **(A) write each statement in leanVM's DSL** — the only *direct* alignment. Not possible today (toolchain
-  pre-production, ISA/field in flux); BN254 Poseidon (our on-chain trees) is non-native there.
-· **(B) the route the EIP designs for everyone else** — *"wrap them client-side in a STARK, and then reuse the
-  leanSTARK route"*, with user vkeys of *"unlimited recursion depth"*: our proof is made by a general zkVM,
-  and post-8288 the declared dependency is a leanVM program that VERIFIES that zkVM's proof. The zkVM
-  vendor supplies that recursion program (it is how every app on their stack reaches 8288); our statement,
-  journal and adapter are unchanged. **This is what the four-rule invariant above already encodes.**
-#### (A) vs (B), FROM ALL SIDES (owner, 2026-09-12: *"im not sure about the choice … look at the subject from all sides"*)
-| axis | (A) statement written FOR leanVM | (B) general zkVM + a leanVM recursion wrapper |
-|---|---|---|
-| **what the dependency is** | our proof IS the leanSTARK: one proof system, the one the EIP formally verifies | two systems chained: the zkVM's STARK, verified inside a leanVM program; soundness of BOTH, plus the wrapper program's |
-| **who proves what, per withdrawal** | the user (or our relayer) proves a ~130-hash program | the user proves in the zkVM, THEN someone proves the leanVM program that verifies that STARK — a STARK verifier is far bigger than our statement, and if the zkVM's field ≠ the tower's it is non-native arithmetic. **This tax lands in OUR pipeline, on every withdrawal**; the mempool only aggregates leanSTARKs it is handed |
-| **fit to our workload** | the pool statements are Merkle paths + a few range checks: hash-dominated, i.e. leanVM's design target (*"proving a massive number of hashes glued together with specific logic"*) | fits anything; pays instruction-emulation overhead for a workload that is 95% hashing |
-| **passport `register`** | RSA-2048/P-256/brainpool bignum in a 4-instruction field VM: painful (SHA-1/256 are bit-native on the tower, modexp is not) | RISC-V zkVMs have bignum/modexp precompiles; the natural home |
-| **hash coupling** | the tree hash must be cheap in the DSL: on the TOWER, keccak/BLAKE are XOR-native, so keccak on-chain + keccak in the statement is consistent (**this is what "trust the tower" buys — on KoalaBear-era leanVM, keccak would have been the expensive one**) | keccak precompiled everywhere; no coupling |
-| **on-device proving** | leanVM is built to be light (0.29 s recursion on their bench); a small program is the best case | SP1/RISC Zero need a GPU/desktop for millions of cycles; our withdraw is ~1–2M cycles: marginal on a phone, so delegated proving (the note secret leaves the device) is likelier |
-| **buildable today** | **no** — DSL pre-production, ISA and field in flux; no on-chain leanSTARK verifier exists for the pre-8288 era | **yes** — Groth16-wrapped verifiers on-chain now (~300k gas) |
-| **dependency risk** | a rewrite when the ISA moves — the statements are ~200 lines each, days of work, with the Rust crate as the oracle | the recursion program for OUR zkVM's proof format must exist; vendors will want it, nobody has promised it |
-| **8288 gas** | 30k | 30k (the wrapper is a leanSTARK too) — plus the wrapper proving cost off-chain |
-| **timeline** | 8288 is Draft, floated for I-star after Hegota: years; leanVM matures in that window or 8288 does not ship | ships now; the wrapper question is deferred to the same window |
-⇒ **THE ANSWER IS NOT ONE OR THE OTHER, IT IS STAGED, AND THE HASH IS WHAT MAKES THE STAGING FREE:**
-1. **Now:** statements keccak-native in Rust (`pp-statements`) — the REFERENCE and the test oracle, prover-agnostic.
-2. **Interim (pre-8288):** prove them in a keccak-precompiled zkVM behind the pinned adapter. This is (B)'s
-   shape WITHOUT committing to (B)'s wrapper — nothing in the contracts or the wallet learns the zkVM.
-3. **At 8288:** the pool statements go (A) — rewritten in leanVM's DSL from the Rust reference, differential-
-   tested against it, keccak native on the tower. No wrapper, no second proof system, no per-withdrawal
-   recursion tax. `register` (bignum) stays (B) or on-chain Solidity as today; its decision is separate.
-4. If leanVM never becomes writable by outsiders, (B)'s wrapper is the fallback and nothing built in 1–2 is lost.
-**What decides it later, and is booked to re-check:** whether the tower-era leanVM exposes keccak (or any
-bit-native hash) cheaply enough, and whether its DSL is usable by non-core teams. Both are observable in
-the repo; neither needs a decision today.
-⚠️ **AND THE HONEST LIMIT: "100%" against a Draft whose reference stack changed fields between spec and
-repo is a posture, not a fact.** What we can guarantee is the invariant — statement-as-program, journal =
-the public inputs, no proof-format commitment, one pinned adapter — and re-verify the seam when leanVM
-freezes. Booked to re-check: the `data_hash` hash (*"unspecified … BLAKE3"*), and whether the lean
-recursion program for SP1's proof exists before we need it.
-
-### 🔴 §TRUST-THE-TOWER — THE HASH IS THE ALIGNMENT DECISION, AND IT IS PRE-LAUNCH SO IT COSTS NO REDEPLOY (owner, 2026-09-12: *"trust the tower"*)
-The lean stack's direction is the REPO, not the EIP text: leanVM proves over a **192-bit binary tower**
-with **BLAKE2s** (`leanEthereum/leanVM` README), and the wider hash-based world is going the same way
-([Binius64](https://www.irreducible.com/posts/announcing-binius64): 64-bit words, XOR/AND/shift-native,
-SHA-256 Merkleization; RISC Zero × Irreducible and Polygon × Irreducible are building zkVMs on it).
-**In a binary-field prover a bit-oriented hash (keccak, SHA-2, BLAKE) is cheap and a prime-field
-Poseidon is the expensive, non-native thing — the exact inverse of the SNARK world our circuits came
-from.** Our on-chain trees are BN254 Poseidon: `PoseidonT3` in the pool's LeanIMT (`lean-imt.sol`),
-`PoseidonUnit2L/3L` set as the `SparseMerkleTree` hashers in `IdentityRegistry.sol:219`, the blacklist
-SMT, and the note commitment/nullifier hashes. Keeping them means every statement pays non-native
-BN254 arithmetic forever, on every prover the tower produces.
-⇒ **DECISION: keccak256 everywhere** — the pool's state LeanIMT, the identity and blacklist SMTs, the
-commitment/nullifier/precommitment hashes, `blacklist_key`, `identity_commitment`. keccak is EVM-native
-(30 + 6/word gas vs ~50k for a PoseidonT3 call, so the on-chain trees get CHEAPER), has a precompile in
-every RISC-V zkVM for the interim, and is bit-native on the tower. The BN254 scalar field then leaves
-the statements entirely: journal words are plain `bytes32`, `context` needs no `% SNARK_SCALAR_FIELD`.
-**Nothing is launched, so this is a DESIGN change, not a redeploy** — the "no redeploy for 8288"
-rule binds AFTER launch and is exactly why the hash must be settled before it.
-⚠️ **The live Noir path cannot follow cheaply** (keccak in UltraHonk ≈ 10–20k gates per hash; ~130 per
-withdrawal), and it is slated for deletion anyway. ⇒ **Cut over ONCE, both halves together**: build the
-keccak trees in Rust (`pp-statements`), TS (wallet) and Solidity with a three-way differential pin —
-the cross-implementation guarantee the Poseidon path had from its real proof — and switch the
-contracts + wallet + prover in the same landing, when the zkVM guest proves the keccak statement.
-Until then the Poseidon/Honk path stays green as the reference, and `pp-statements` carries BOTH hash
-backends so the keccak one is tested against the same tree semantics the real proof settled.
-⚠️ `Bytes2Poseidon`, `PublicSignalsTD1Builder`, the passport/certificate dispatchers and
-`HolderStateKeeper` are the RARIMO registration side (`§ONE-WALLET-APP`); their Poseidon is the
-passport rail's and moves with the `register` program port, not with the pool.
-**Verkle trees — no, and Ethereum itself said no.** Verkle is a KZG/IPA vector commitment over an
-elliptic curve (Bandersnatch): its openings are NOT post-quantum, which is why Hegota dropped it for the
-[EIP-7864](https://eips.ethereum.org/EIPS/eip-7864) binary HASH tree. Verifying a verkle opening
-inside a hash-based STARK would also need EC scalar arithmetic — the non-native cost again. Its one
-advantage, tiny witnesses for very large state, does not apply: a 32-deep Merkle path is 32 hashes,
-which in a tower VM is the cheapest thing it does. Our trees are already binary hash trees — with
-keccak they are 7864's shape.
-- [ ] `pp-statements`: keccak backend for `lean_imt`, `smt`, `commitment`, `blacklist_key`,
-      `identity_commitment` (generic over the hash; both backends tested).
-- [ ] Solidity: keccak `LeanIMT` (replace `@zk-kit/lean-imt.sol`'s PoseidonT3), `setHashers(keccak)`
-      on the identity/blacklist SMTs, keccak commitments in `PrivacyPool`/`Entrypoint`; `context`
-      loses the field reduction.
-- [ ] Wallet: `notes.ts`/`stateTree.ts`/`identityProof.ts`/blacklist keys on keccak.
-- [ ] The three-way differential fixture (Rust ↔ TS ↔ Solidity) on identical trees.
-- [ ] Cutover: contracts + wallet + zkVM guest in one landing; delete Noir after.
-
-### THE PIN — ONE GOVERNED POINTER IS THE PRICE OF NO REDEPLOY
-The adapter address is settable ONLY by the enclave-image msig (the same 2-of-3 that authorises
-`MigrationAuth`), timelocked, and **era-locked**: settable once to the 8288 adapter, then frozen.
-Without the era-lock the msig can accept any proof forever — a bigger knob than the enclave image.
-⚠️ The grow-then-freeze msig is not built (`migration.rs:97` is a `const` owner array —
-`§MSIG-GROWS-THEN-FREEZES` in SPRINT history); the pointer is pinned by the fixed 2-of-3 until it is.
-The alternative — zero knobs — costs a redeploy of the thin verifier layer AND the pool (immutable
-means immutable). Owner chose the pin.
-
-### WHAT IS STILL A DECISION, NOT A BUILD
-**Proving location.** Today the phone proves locally (`bb.js`), so the passport and the note secret
-never leave the device. zkVM proving of an RSA-2048/P-256 passport is tens of millions of cycles —
-minutes on a laptop, not a phone. Delegating it means the prover sees the witness: for `register`
-the passport, for `withdraw` the note being spent, i.e. the linkage the pool exists to hide. Options:
-a prover inside our own SGX/SEV enclave (consistent with "the enclave is the whole protection" for
-BTC custody, much weaker for identity privacy); mobile-class provers when they exist; or accept the
-wrapper path for the pool first, where the witness is only note ownership. ▶️ Owner decides; the
-pool statements are built first regardless because their delegated-proving question is narrower.
+| per withdrawal | 2.53M gas (3.11M relayed) | ~300k |
+| trusted setup | **none** | the vendor's universal one, inherited (Groth16/PLONK wrapper) |
+| aggregator | needed to amortise | deleted |
+| on-device proving | `bb.js` on the phone works today | SP1/RISC Zero want a desktop; millions of cycles ⇒ delegated proving, i.e. the witness (passport, note) leaves the device |
+| what changes on-chain | nothing | the adapter pointer |
+Both sit behind the same seam. **The choice is the owner's and it is the two things this project cares
+about — no ceremony, on-device secrets — traded against 2.2M gas per withdrawal.** Group 1 is built
+either way; the prover lands under it as a pin change. "Proving location" (enclave prover · mobile-class
+provers when they exist · delegated for the pool only, where the witness is just note ownership) is the
+open decision, and the pool statements are built first regardless because their question is narrower.
 
 ### THE PORT — measured 2026-09-11, ~6–7 engineer-weeks to proving-layer parity
-| today (Noir) | in a zkVM |
+| today (Noir) | as programs |
 |---|---|
-| `register_identity` + `_td1` + `_light` (~290 lines) over `noir_dl_lib` (**16,404** lines of in-circuit RSA/RSA-PSS/P-256/brainpool/SHA-1/256/bignum), instantiated as **88 profiles** ⇒ 88 vkeys | **one** Rust program with stock crates (`rsa`, `p256`, `sha1/2`; brainpool in software — no precompile anywhere). The profiles exist only because Noir monomorphises array sizes; Rust parses lengths at runtime. **Parser coverage to carry over:** the six "orphan" document shapes (`EC_LEN` quantised by data-group count) and the seven profiles never generated — enumerate from `passport-profiles.json`, not from memory. 2–3 weeks. |
-| pool: `withdraw`, `ragequit`, holder root, blacklist/ASP, envelope, title, notary, query ×2 (~2,140 in `pp` + ~800 in mains) | ~1,500 lines of Rust. Trees are keccak (`2.18eq`) — a precompile in every zkVM. The blacklist predicate (one tree, three domains) ports unchanged. ~2 weeks. |
-| `build-recursion-tree.py`, `TreeRoot8/16/32`, `batch-witnesses/`, `BatchCommitmentLib`/`BatchVerifierLib` | **deleted.** The batch is a loop. Days. |
-| 19 generated `*HonkVerifier.sol` (~47k lines) | one vendored zkVM verifier + one vkey per program; journal seam in the contracts. ~1 week. |
-**Order:** pool statements → batch wrapper → journal seam + adapter + pin → registration program →
-delete Noir. Write the Merkle gadget generic: Hegota's candidate state tree is
-[EIP-7864](https://eips.ethereum.org/EIPS/eip-7864) (a binary hash tree; Verkle is dropped — its
-Pedersen/IPA commitments are not PQ), under which "this note exists" can become a proof against
-Ethereum state at a recent block and the pool's own LeanIMT/SMT go away. Not locked; design for it.
+| `register_identity` + `_td1` + `_light` (~290 lines) over `noir_dl_lib` (**16,404** lines of in-circuit RSA/RSA-PSS/P-256/brainpool/SHA-1/256/bignum), instantiated as **88 profiles** ⇒ 88 vkeys, 5 needing Docker for a 2^25 CRS | **one** Rust program, stock crates. **Parser coverage to carry over:** the six "orphan" document shapes (`EC_LEN` quantised by data-group count) and the seven profiles never generated — enumerate from `passport-profiles.json`, not from memory. 2–3 weeks. |
+| pool: `withdraw`, `ragequit`, holder root, blacklist/ASP, envelope, title, notary, query ×2 (~2,140 in `pp` + ~800 in mains) | ~1,500 lines of Rust; `withdraw`/`ragequit` done. The blacklist predicate (one tree, three domains) ports unchanged. ~2 weeks. |
+| `build-recursion-tree.py`, `TreeRoot8/16/32`, `batch-witnesses/`, `BatchCommitmentLib`/`BatchVerifierLib` | **deleted** (group 1 item 5). Days. |
+| 19 generated `*HonkVerifier.sol` (~47k lines) | one adapter + one key per program. ~1 week. |
+**Order:** pool statements → keccak trees + differential pin → journal seam + plain pin → registration
+program → prover choice → delete Noir. Keep the Merkle gadget generic over the hash: Hegota's state
+tree is 7864's binary hash tree, under which "this note exists" can one day be a proof against Ethereum
+state and the pool's own trees go away. Not locked; designed for.
 
 ### 🔴 §PP-RELAYER — **THE WITHDRAWAL RELAYER DOES NOT EXIST, AND WITHOUT IT THE POOL'S PRIVACY DOES NOT CLOSE** (owner, 2026-09-11: *"idk if todo.md includes something like a tornado relay but this unsolved"* — it did not; the section that scoped it, 2.20, was cut)
 
@@ -265,7 +195,7 @@ context. Recommendation; owner to confirm before the circuit term is written.
 - [ ] The float: the relayer's ETH balance is an operational input; alarm below N relays' worth. Fees accrue in the asset at the hop address.
 
 ### BACKEND — the queue
-- [ ] `quid-ln/pp-statements` (the crate; ⚠️ the row said "keccak Merkle gadget" — WRONG, the deployed pool's trees are circomlib POSEIDON: `PoseidonT3` in the LeanIMT, `@iden3/js-crypto` in the wallet, so the statements use `light-poseidon` and every vector matches):
+- [ ] `quid-ln/pp-statements` (the crate; Poseidon backend first because that is what the DEPLOYED trees and the real-proof witnesses use — `PoseidonT3` in the LeanIMT, `@iden3/js-crypto` in the wallet; the keccak backend is the row below):
   - [x] `withdraw` — `verify_withdrawal(signals, witness)` + `journal()` = the 8 `pubSignals` words; gadgets `lean_imt`, `smt` (inclusion + both exclusion shapes + the `old_key == key` soundness line), `commitment`. **Acceptance: accepts `withdraw_identity/Prover.e2e.toml` — the witness a real Honk proof was made from — and its journal equals `withdraw_e2e_pubsignals.json` word for word; every single-field perturbation rejects.** Gadget vectors: circomlibjs SMT tree, `lean-imt.sol` fuzz, Poseidon Solidity vector (2026-09-12).
   - [x] `ragequit` — same, against `ragequit/Prover.e2e.toml`.
   - [ ] `holder`, `notary`, `title`, `envelope` — port `pp/src/{envelope,title_holder,holder_root,jubjub}.nr` (BabyJubJub scalar-mul is the one non-Poseidon gadget; `ark-ed-on-bn254` has the curve).
@@ -273,13 +203,14 @@ context. Recommendation; owner to confirm before the circuit term is written.
 - [ ] `crates/statements/batch`: the disposable K-loop wrapper.
 - [ ] `crates/statements/register`: one program for all passport shapes; carry the orphan/missing-profile coverage; brainpool in software.
 - [ ] `evm/src/identity`: journal seam — `adapter.verify(journal, proof)` is the only proving contact; delete `NUMBER_OF_PUBLIC_INPUTS` indexing and every `IVerifier` reference from the pool/registries.
-- [ ] `ProofAdapter` (wrapper era) + `ProofAdapter8288` (frame scan, written when 8141/8288 are Final); msig-pinned, timelocked, era-locked pointer.
+- [ ] `ProofAdapter` (verifies the proof itself: Honk today, the zkVM wrapper later) behind an msig-pinned, timelocked pointer — no era-lock. `ProofAdapter8288` is group 2: written when 8141/8288 are Final.
+- [ ] keccak trees (group 1 item 4): `pp-statements` generic over the hash with a keccak backend; keccak `LeanIMT` on-chain (replacing `@zk-kit/lean-imt.sol`'s `PoseidonT3`), `setHashers(keccak)` on the identity/blacklist SMTs, keccak commitments in `PrivacyPool`/`Entrypoint`, `context` without the field reduction; wallet `notes.ts`/`stateTree.ts`/`identityProof.ts`/blacklist keys; the three-way Rust ↔ TS ↔ Solidity differential fixture on identical trees.
 - [ ] Delete: 19 `*HonkVerifier.sol`, `build-recursion-tree.py`, `batch-witnesses/`, `codegen-*-verifiers.sh`, `passport-vks/`, `noir_dl_lib`, the Noir mains — once each replacement is proven end-to-end, not before.
 - [ ] Prover service or on-device: the decision above, then its build.
 
 ### FRONTEND — the queue (the client is one app; see §ONE-WALLET-APP below)
 - [ ] Replace `sdk/circuits.ts` / `prove.ts` (`bb.js`, six bundled ACIR artifacts that were never wired — `14b94fde`) with the zkVM client: witness assembly + either local proving or the delegated-prover call, per the location decision.
-- [ ] Submit withdrawals through the journal ABI; when 8141 lands, as frame transactions (type `0x06`) with the dependency frame — until then the wrapper path.
+- [ ] Submit withdrawals through the journal ABI (frame transactions are group 2).
 - [ ] `check-client-abis.py` must read `app/` (it never has — `§ONE-WALLET-APP`) so the journal ABI cannot drift between the two trees.
 
 ### WHAT THIS RETIRES (removed from this file 2026-09-11; `git log -S` finds them)
