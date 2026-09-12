@@ -6,7 +6,7 @@ import {IERC20 as IERC20OZ} from "@openzeppelin/contracts/token/ERC20/IERC20.sol
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {WAD, VenueNotAllowed} from "./Types.sol";
 
-import {ICore, IAux, IWeETH, IDepositAdapter, ILevVenue, ILevPooled} from "./Interfaces.sol";
+import {ICore, IAux, IWeETH, IDepositAdapter, ILevVenue, ILevPooled, ILevEquity} from "./Interfaces.sol";
 import {IERC20Min, IWETH9} from "../imports/Interfaces.sol";
 import {CURVE_BOLD_USDC, CRV_BOLD_IDX, CRV_BOLD_USDC_IDX, BOLD_TOKEN} from "./Interfaces.sol";
 import {ONEINCH_ROUTER, UNOSWAP_SELECTOR, UNOSWAP2_SELECTOR, SWAP_SELECTOR, PROTO_UNIV3, PROTO_UNIV2,
@@ -122,6 +122,17 @@ library LevMath {
 
     function entryEquityUsd(uint256 entryEquity, uint256 price) internal pure returns (uint256) {
         return (entryEquity * price) / WAD;
+    }
+
+    function bufTarget(address lm, address lp) public view returns (uint256) {
+        return lm == address(0) ? 0 : ILevEquity(lm).debtUsd(lp) / 1e12;
+    }
+
+    function levSyncState(address lm, address lp, uint256 levPooled_, uint256 levBuf_, uint256 levBufUsd_)
+        public view returns (uint256 gross, bool inSync) {
+        gross = lm == address(0) ? 0 : ILevEquity(lm).grossCollateral(lp);
+        inSync = (gross == 0 && levPooled_ == 0 && levBuf_ == 0 && levBufUsd_ == 0)
+              || (gross == levPooled_ + levBuf_ && levBufUsd_ == bufTarget(lm, lp));
     }
 
     function capBufferUsd(uint256 bufBase, uint256 price, uint256 debtUsd) internal pure returns (uint256 bufUsd) {

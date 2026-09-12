@@ -434,11 +434,9 @@ contract Quid is Shares,
 
     function _reconcileLev(address lp) internal {
         address lm = _levManager();
-        uint gross = lm == address(0) ? 0 : ILevEquity(lm).grossCollateral(lp);
-
-        if (gross == 0 && levPooled[lp] == 0 && levBuf[lp] == 0 && levBufferUsd[lp] == 0) return;
-
-        if (gross == levPooled[lp] + levBuf[lp] && levBufferUsd[lp] == QuidLib.bufTarget(lm, lp)) return;
+        (uint gross, bool inSync) =
+            LevMath.levSyncState(lm, lp, levPooled[lp], levBuf[lp], levBufferUsd[lp]);
+        if (inSync) return;
         _doReconcile(lp, lm, gross);
     }
 

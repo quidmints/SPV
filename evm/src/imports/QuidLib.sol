@@ -37,10 +37,6 @@ library QuidLib {
         address host = aux == address(0) ? address(0) : IAux(aux).ethVenue();
         return host == address(0) ? address(0) : IEthVenue(host).LEV_MANAGER();
     }
-    function bufTarget(address lm, address lp) public view returns (uint) {
-        return lm == address(0) ? 0 : ILevEquity(lm).debtUsd(lp) / 1e12;
-    }
-
     function reconcileLegs(
         Types.RangeCfg memory c, Types.Deposit storage LP,
         mapping(address => uint) storage levPooled,

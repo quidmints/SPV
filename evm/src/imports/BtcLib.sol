@@ -196,11 +196,9 @@ library BtcLib {
         address lp, address mgr, address quid
     ) public returns (LevDelta memory d) {
 
-        uint gross = mgr == address(0) ? 0 : ILevEquity(mgr).grossCollateral(lp);
-
-        if (gross == 0 && levPooled[lp] == 0 && levBuf[lp] == 0 && levBufferUsd[lp] == 0) return d;
-        if (gross == levPooled[lp] + levBuf[lp] &&
-            levBufferUsd[lp] == (mgr == address(0) ? 0 : ILevEquity(mgr).debtUsd(lp) / 1e12)) return d;
+        (uint gross, bool inSync) =
+            LevMath.levSyncState(mgr, lp, levPooled[lp], levBuf[lp], levBufferUsd[lp]);
+        if (inSync) return d;
 
         uint w = LP.pooled + levBuf[lp];
         Types.RangeP memory p;
